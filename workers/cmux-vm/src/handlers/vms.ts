@@ -12,12 +12,15 @@
  *   deleting the snapshot. Not atomic; see `forkVm` below.
  */
 import { HttpApiBuilder } from "@effect/platform";
+import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
+import { recoverWithdrawnImage } from "./image-recovery.ts";
+import { replayVm } from "./replay-vm.ts";
 import { retireVm } from "./retire.ts";
 import { VmInstanceIdentity } from "../api/instance-identity.ts";
 import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
-import { idempotent } from "./idempotency.ts";
+import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
 import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
@@ -234,22 +237,6 @@ const createRecorded = <C, S>(
     // upstream VM that is neither recorded nor discarded.
   }).pipe(Effect.uninterruptible);
 
-/** Answers a replayed create or fork with the VM the first request made. */
-const replayVm = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, rawVmId: string) =>
-  Effect.gen(function* () {
-    const upstream = yield* UpstreamClient;
-    const parsed = parseVmId(rawVmId);
-    if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
-    return yield* name(parsed.value, (vm) =>
-      Effect.gen(function* () {
-        const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
-        if (owns === null) return yield* Effect.fail(vmNotFound());
-        const current = yield* upstream.getVmForWrite(vm, { owns, scope }).pipe(Effect.mapError(onRead));
-        return toVm(vm.value, owns, current);
-      }),
-    );
-  });
-
 /** A committed ownership row repairs completion without allocating again, including after deletion. */
 const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, prior: IdempotencyProgress | null, key: string | null) => Effect.gen(function* () {
   if (prior?.phase !== "creating" || key === null) return null;
@@ -262,17 +249,6 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && prior?.phase === "creating" ? { key, vmId: prior.vmId } : undefined;
 
-export const cleanupForkSnapshot = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, snapshotId: string) => Effect.gen(function* () {
-  const parsed = parseSnapshotId(snapshotId);
-  if (Option.isNone(parsed)) return;
-  yield* name(parsed.value, (snapshot) => Effect.gen(function* () {
-    const owns = yield* tenantOwnsSnapshot(caller, snapshot);
-    if (owns === null) return;
-    yield* (yield* UpstreamClient).deleteSnapshot(snapshot, { owns, scope });
-    yield* (yield* OwnershipStore).markDeleted(caller.value.tenantId, "snapshot", snapshot.value, new Date(yield* Clock.currentTimeMillis));
-  }));
-}).pipe(Effect.catchAll(() => Effect.void));
-
 const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) =>
   withCaller("vm:write", "write", (caller, scope) =>
     Effect.gen(function* () {
@@ -280,19 +256,8 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
       yield* forbidAllowlisted(principal);
       yield* requireServiceLabels(principal, payload.labels ?? {});
       if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
-      const image = payload.image === undefined ? undefined : yield* vmImageAllowed(caller, payload.image);
-      const imageIntent = image === undefined ? undefined : vmImageEvidenceOf(image);
       const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
       const networkIntent = network === undefined ? undefined : vmNetworkEvidenceOf(network);
-      const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
-      const spec: NewVm = {
-        displayName: payload.displayName ?? null,
-        labels: payload.labels ?? {},
-        idleTimeoutSeconds,
-        maxRunSeconds: payload.maxRunSeconds,
-        autoDeleteSeconds: payload.autoDeleteSeconds,
-        size: payload.resources,
-      };
       const request = [
         "createVm",
         payload.displayName ?? null,
@@ -305,6 +270,22 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
       ];
       // Omitted network must keep the exact fingerprint of pre-feature creates.
       if (networkIntent !== undefined) request.push(networkIntent.fingerprint);
+      const clientFingerprint = payload.image === undefined ? undefined : yield* requestFingerprint(["createVm:client:v1", request, payload.image.id, payload.image.revision]);
+      const imageDecision = payload.image === undefined ? undefined : yield* Effect.either(vmImageAllowed(caller, payload.image));
+      if (imageDecision?._tag === "Left" && payload.image !== undefined) {
+        return yield* recoverWithdrawnImage(caller, scope, idempotencyKey, clientFingerprint, payload.image, imageDecision.left);
+      }
+      const image = imageDecision?._tag === "Right" ? imageDecision.right : undefined;
+      const imageIntent = image === undefined ? undefined : vmImageEvidenceOf(image);
+      const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
+      const spec: NewVm = {
+        displayName: payload.displayName ?? null,
+        labels: payload.labels ?? {},
+        idleTimeoutSeconds,
+        maxRunSeconds: payload.maxRunSeconds,
+        autoDeleteSeconds: payload.autoDeleteSeconds,
+        size: payload.resources,
+      };
       if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
       return yield* idempotent(
         principal,
@@ -330,6 +311,7 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
             );
           }),
         (vmId) => replayVm(caller, scope, vmId),
+        clientFingerprint,
       ).pipe(Effect.map((vm) => new CreatedVm({ ...vm, ...(networkIntent === undefined ? {} : { initialNetwork: networkIntent.receipt }), ...(imageIntent === undefined ? {} : { bootImage: imageIntent.receipt }) })));
     }),
   );

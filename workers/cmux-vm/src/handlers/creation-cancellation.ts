@@ -10,7 +10,7 @@ import { cancellingVmCreation, cancellingVmCreationEvidenceOf, pendingVmCreation
 import { tenantOwnsVm } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../upstream/client.ts";
 import { withCaller } from "./common.ts";
-import { cleanupForkSnapshot } from "./vms.ts";
+import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 
 /** A prior cancellation is advanced only by verified identity, deletion and a durable tombstone. */
 export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string) => Effect.gen(function* () {

@@ -81,6 +81,8 @@ const Bucket = Schema.Struct({ tokens: Schema.Number, updatedMs: Schema.Number }
 
 export const IdempotencyRecord = Schema.Struct({
   fingerprint: Schema.String,
+  /** Stable admitted client request, retained when an operator image leaves the catalog. Digest only. */
+  clientFingerprint: Schema.optional(Schema.String),
   progress: Progress,
   /** While pending: when the claim lapses if its request died. */
   leaseUntilMs: Schema.Number,
@@ -237,13 +239,13 @@ export class TenantLedger {
   }
 
   /** Claims `key` for a request with `fingerprint`, or reports what an earlier request with the key did. */
-  async begin(key: string, fingerprint: string, nowMs: number): Promise<IdempotencyBegin> {
+  async begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string): Promise<IdempotencyBegin> {
     return this.storage.transaction(async (storage) => {
       const storageKey = `idem:${key}`;
       const raw = await storage.get(storageKey), record = checked(isRecord, raw);
       if (raw !== undefined && record === undefined) throw new Error("unrecognized idempotency record");
       if (record !== undefined && (record.expiresMs > nowMs || record.progress.phase === "creating" || record.progress.phase === "cancelled" || record.progress.phase === "pending")) {
-        if (record.fingerprint !== fingerprint) return { state: "mismatch" };
+        if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint)) return { state: "mismatch" };
         // Older pending records may already have sent a provider create without retaining its ID.
         // They cannot safely become a new allocation, even after their former TTL.
         if (record.progress.phase === "pending") return { state: "in_progress" };
@@ -257,6 +259,7 @@ export class TenantLedger {
       }
       await storage.put(storageKey, {
         fingerprint,
+        ...(clientFingerprint === undefined ? {} : { clientFingerprint }),
         progress: { phase: "claimed" },
         leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS,
         expiresMs: nowMs + IDEMPOTENCY_TTL_MS,

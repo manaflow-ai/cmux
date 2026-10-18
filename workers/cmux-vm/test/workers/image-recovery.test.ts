@@ -96,6 +96,19 @@ it("never sends again when an unknown allocation cannot be found after withdrawa
   expect(h.resources).toHaveLength(0);
 });
 
+it("keeps partial growth unresolved until the image is approved again, without reallocating", async () => {
+  h.upstream.fail("resize", 503);
+  expect((await create({ resources: { vcpus: 8 } })).status).toBe(503);
+  withdraw();
+  expect((await create({ resources: { vcpus: 8 } })).status).toBe(503);
+  expect(h.upstream.callsTo("POST", /\/resize$/)).toHaveLength(1);
+  expect(h.resources).toHaveLength(0);
+  h.setBootImages(JSON.stringify(CATALOG));
+  expect((await create({ resources: { vcpus: 8 } })).status).toBe(201);
+  expect(h.upstream.callsTo("POST", /\/resize$/)).toHaveLength(2);
+  expect(allocations()).toHaveLength(1);
+});
+
 it("keeps current scopes, service identity and team restrictions on withdrawn-image retries", async () => {
   expect((await create()).status).toBe(201);
   withdraw();
@@ -107,4 +120,25 @@ it("keeps current scopes, service identity and team restrictions on withdrawn-im
   expect((await create({}, "retained-image", foreign)).status).toBe(403);
   expect((await create({ labels: {} })).status).toBe(403);
   expect(allocations()).toHaveLength(1);
+});
+
+it.each(["provider", "source", "request", "labels"])("refuses changed recovery evidence after withdrawal: %s", async (changed) => {
+  h.recordFault.before = 1;
+  expect((await create()).status).toBe(503);
+  withdraw();
+  const vm = [...h.upstream.vms.values()][0]!;
+  if (changed === "provider") h.setProviderConfig("https://another-provider.test", "different-fixture-key");
+  if (changed === "source") vm.snapshotId = "unrelated-snapshot";
+  if (changed === "request") vm.metadata["cmux_create"] = "unrelated-request";
+  if (changed === "labels") {
+    // A committed destination still needs the service's current resource labels.
+    h.setBootImages(JSON.stringify(CATALOG));
+    h.upstream.snapshots.set(SNAPSHOT, { id: SNAPSHOT, sourceVmId: "operator", autoDeleteSeconds: null });
+    expect((await create()).status).toBe(201);
+    Object.assign(h.resources[0]!, { labels: { role: "unrelated" } });
+    withdraw();
+  }
+  expect((await create()).status).toBe(changed === "labels" ? 404 : 503);
+  expect(allocations()).toHaveLength(1);
+  expect(h.resources).toHaveLength(changed === "labels" ? 1 : 0);
 });

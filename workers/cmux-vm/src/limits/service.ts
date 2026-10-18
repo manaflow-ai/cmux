@@ -34,7 +34,7 @@ export interface TenantLimitsService {
   readonly rate: (tenantId: TenantId, rateClass: RateClass, rule: RateRule) => Effect.Effect<RateDecision, LimitsUnavailable>;
   readonly reserve: (tenantId: TenantId, kind: string, limit: number, liveCount: number) => Effect.Effect<ReserveDecision, LimitsUnavailable>;
   readonly release: (tenantId: TenantId, reservationId: string) => Effect.Effect<void>;
-  readonly begin: (tenantId: TenantId, key: string, fingerprint: string) => Effect.Effect<IdempotencyBegin, LimitsUnavailable>;
+  readonly begin: (tenantId: TenantId, key: string, fingerprint: string, clientFingerprint?: string) => Effect.Effect<IdempotencyBegin, LimitsUnavailable>;
   readonly advance: (tenantId: TenantId, key: string, progress: IdempotencyProgress) => Effect.Effect<void, LimitsUnavailable>;
   readonly abandon: (tenantId: TenantId, key: string) => Effect.Effect<void>;
   /** Takes the tenant-scoped lock `key` for `holder` for `leaseMs`; false while another holder has it. */
@@ -58,7 +58,7 @@ interface LedgerHandle {
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision>;
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
   release(reservationId: string): Promise<void>;
-  begin(key: string, fingerprint: string, nowMs: number): Promise<IdempotencyBegin>;
+  begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string): Promise<IdempotencyBegin>;
   advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void>;
   abandon(key: string, nowMs: number): Promise<void>;
   lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean>;
@@ -85,7 +85,7 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
       call((ledger, now) => ledger.reserve(kind, limit, liveCount, now, crypto.randomUUID()))(tenantId),
     // Releases are best effort: an unreleased reservation lapses on its own.
     release: (tenantId, reservationId) => call((ledger) => ledger.release(reservationId))(tenantId).pipe(Effect.ignore),
-    begin: (tenantId, key, fingerprint) => call((ledger, now) => ledger.begin(key, fingerprint, now))(tenantId),
+    begin: (tenantId, key, fingerprint, clientFingerprint) => call((ledger, now) => ledger.begin(key, fingerprint, now, clientFingerprint))(tenantId),
     advance: (tenantId, key, progress) => call((ledger, now) => ledger.advance(key, progress, now))(tenantId),
     // An unabandoned claim lapses after its lease.
     abandon: (tenantId, key) => call((ledger, now) => ledger.abandon(key, now))(tenantId).pipe(Effect.ignore),
@@ -123,7 +123,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         release: async (reservationId) => {
           await stub.release(reservationId);
         },
-        begin: (key, fingerprint, nowMs) => decoded(IdempotencyBegin)(stub.begin(key, fingerprint, nowMs)),
+        begin: (key, fingerprint, nowMs, clientFingerprint) => decoded(IdempotencyBegin)(stub.begin(key, fingerprint, nowMs, clientFingerprint)),
         advance: async (key, progress, nowMs) => {
           const confirmed = await decoded(Schema.Boolean)(stub.advance(key, progress, nowMs));
           if (!confirmed) throw new Error("allocation journal write was not confirmed");

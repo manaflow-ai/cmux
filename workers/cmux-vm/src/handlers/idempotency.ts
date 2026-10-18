@@ -7,7 +7,7 @@ import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { OwnershipStore } from "../db/stores.ts";
 
-const fingerprint = (value: unknown) =>
+export const requestFingerprint = (value: unknown) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))).pipe(
     Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
   );
@@ -19,11 +19,12 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
   request: unknown,
   run: (resumeFrom: IdempotencyProgress | null, keyed: string | null) => Effect.Effect<A, E, R>,
   replay: (vmId: string) => Effect.Effect<A, ER, RR>,
+  clientFingerprint?: string,
 ) => Effect.gen(function* () {
   if (key === undefined) return yield* run(null, null);
   const limits = yield* TenantLimits;
   const scoped = yield* scopedCreationKey(principal, key);
-  const claim = yield* limits.begin(principal.tenantId, scoped, yield* fingerprint(request)).pipe(Effect.mapError(() => unavailable()));
+  const claim = yield* limits.begin(principal.tenantId, scoped, yield* requestFingerprint(request), clientFingerprint).pipe(Effect.mapError(() => unavailable()));
   if (claim.state === "resume" && (claim.progress.phase === "cancelled" || (claim.progress.phase === "creating" && claim.progress.cancelRequested === true))) {
     return yield* Effect.fail(conflict("This VM creation was cancelled; inspect its status"));
   }

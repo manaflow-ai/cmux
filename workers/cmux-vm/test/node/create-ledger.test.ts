@@ -1,6 +1,22 @@
 import { expect, it } from "vitest";
 import { IDEMPOTENCY_TTL_MS, memoryLedgerStorage, TenantLedger, type IdempotencyProgress } from "../../src/limits/ledger.ts";
 
+it("preserves the original client digest across cancellation and starts a fresh binding only after an ordinary record expires", async () => {
+  const ledger = new TenantLedger(memoryLedgerStorage());
+  expect(await ledger.begin("cancelled-image", "resolved", 0, "original-client")).toEqual({ state: "new" });
+  await ledger.reserve("vm", 1, 0, 0, "held-image");
+  const id = "vm_00000000000000000000000001";
+  await ledger.advance("cancelled-image", { phase: "creating", vmId: id, reservationId: "held-image", context: "provider", createdBy: "service:cloud", dispatch: { state: "ready", token: "initial" } }, 1);
+  expect(await ledger.cancelCreation("cancelled-image", id)).toBe("accepted");
+  expect(await ledger.begin("cancelled-image", "resolved", IDEMPOTENCY_TTL_MS * 3, "changed-client")).toEqual({ state: "mismatch" });
+  expect((await ledger.inspect("cancelled-image"))?.clientFingerprint).toBe("original-client");
+  expect(await ledger.begin("cancelled-image", "resolved", IDEMPOTENCY_TTL_MS * 3, "original-client")).toMatchObject({ state: "resume", progress: { phase: "cancelled" } });
+  await ledger.begin("ordinary", "resolved", 0, "old-client");
+  await ledger.advance("ordinary", { phase: "done", vmId: id }, 1);
+  expect(await ledger.begin("ordinary", "different-image", IDEMPOTENCY_TTL_MS * 3, "new-client")).toEqual({ state: "new" });
+  expect((await ledger.inspect("ordinary"))?.clientFingerprint).toBe("new-client");
+});
+
 const intent: IdempotencyProgress = { phase: "creating", vmId: "vm_00000000000000000000000001", reservationId: "reserved", context: "opaque-context", createdBy: "service:team-vm" };
 const held = async () => {
   const storage = memoryLedgerStorage(), ledger = new TenantLedger(storage);

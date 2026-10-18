@@ -5,6 +5,19 @@ import { IDEMPOTENCY_TTL_MS } from "../../src/limits/ledger.ts";
 import { durableObjectLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
 import { TenantId, VmId } from "../../src/lib/ids.ts";
 
+it("keeps the admitted client request binding through native RPC, completion and later retries", async () => {
+  const tenant = TenantId.make(crypto.randomUUID()), now = Date.now();
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));
+  expect(await Effect.runPromise(limits.begin(tenant, "image", "resolved-image", "client-request"))).toEqual({ state: "new" });
+  const stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  expect(await stub.advance("image", { phase: "done", vmId: "vm_00000000000000000000000001" }, now + 1)).toBe(true);
+  expect(await Effect.runPromise(limits.begin(tenant, "image", "resolved-image", "different-client-request"))).toEqual({ state: "mismatch" });
+  expect((await Effect.runPromise(limits.inspect(tenant, "image")))?.clientFingerprint).toBe("client-request");
+  expect(await Effect.runPromise(limits.begin(tenant, "image", "resolved-image", "client-request"))).toMatchObject({ state: "resume", progress: { phase: "done" } });
+  // An older Worker can still replay using its original resolved fingerprint.
+  expect(await stub.begin("image", "resolved-image", now + 2)).toMatchObject({ state: "resume", progress: { phase: "done" } });
+});
+
 it("persists recovery identity and retained quota through the real SQLite-backed Durable Object RPC", async () => {
   const tenant = TenantId.make(crypto.randomUUID()), id = env.TENANT_LIMITS.idFromName(tenant), first = env.TENANT_LIMITS.get(id);
   const now = Date.now();

@@ -54,8 +54,8 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.release(reservationId);
   }
 
-  begin(key: string, fingerprint: string, nowMs: number): Promise<IdempotencyBegin> {
-    return this.ledger.begin(key, fingerprint, nowMs);
+  begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string): Promise<IdempotencyBegin> {
+    return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint);
   }
 
   async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<boolean> {
