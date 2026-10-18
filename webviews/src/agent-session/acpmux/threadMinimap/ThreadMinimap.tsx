@@ -7,6 +7,7 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { acpmuxPerf } from "../perf";
 import { promptSeq, useBookmarks } from "./bookmarks";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
@@ -36,7 +37,7 @@ const gutter = (width: number) => transcriptColumn(width).inset;
 export function ThreadMinimap({
   rows,
   sessionId,
-  layout,
+  getLayout,
   scroller,
   scrollTop,
   viewportHeight,
@@ -44,12 +45,13 @@ export function ThreadMinimap({
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
-  layout: ConversationLayout;
+  getLayout: () => ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
   width: number;
 }) {
+  const layout = getLayout();
   const t = useT();
   const bookmarks = useBookmarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
@@ -58,6 +60,13 @@ export function ThreadMinimap({
     lastTurns.current = next;
     return next.turns;
   }, [rows, sessionId]);
+  // A streaming reply changes its preview, but none of the tick labels (Lucas 2026-10-19).
+  const tickTurns = useRef(turns);
+  if (
+    tickTurns.current.length !== turns.length ||
+    turns.some((turn, index) => turn.key !== tickTurns.current[index]?.key)
+  )
+    tickTurns.current = turns;
   /// The tick under the pointer or keyboard focus.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   // The turn preview's hover intent (ui/hoverIntent.ts): the first waits the hover delay, then it
@@ -102,7 +111,7 @@ export function ThreadMinimap({
     target: undefined as number | undefined,
     until: 0,
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     stepping.current.turns = turns;
     stepping.current.tops = layout.tops;
     stepping.current.total = layout.totalHeight;
@@ -152,17 +161,21 @@ export function ThreadMinimap({
     const index = Math.floor((clientY - box.top) / pitch);
     return Math.max(0, Math.min(turns.length - 1, index));
   };
-  const jump = (index: number) => {
-    const node = scroller.current;
-    const target = turns[index];
-    if (!node || !target) return;
-    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    node.scrollTo({ top: turnScrollTop(target, layout.tops), behavior: reduce ? "auto" : "smooth" });
-  };
-  const focusTick = (index: number) => {
-    const next = Math.max(0, Math.min(turns.length - 1, index));
+  const jump = useCallback(
+    (index: number) => {
+      const node = scroller.current;
+      const { turns, tops } = stepping.current;
+      const target = turns[index];
+      if (!node || !target) return;
+      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      node.scrollTo({ top: turnScrollTop(target, tops), behavior: reduce ? "auto" : "smooth" });
+    },
+    [scroller],
+  );
+  const focusTick = useCallback((index: number) => {
+    const next = Math.max(0, Math.min(stepping.current.turns.length - 1, index));
     root.current?.querySelector<HTMLButtonElement>(`[data-tick="${next}"]`)?.focus();
-  };
+  }, []);
 
   if (turns.length < 2 || gutter(width) < MIN_GUTTER) return null;
   const center = first + active * pitch;
@@ -190,36 +203,19 @@ export function ThreadMinimap({
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
         }}
       >
-        {turns.map((entry, index) => (
-          <Tick
-            key={entry.key}
-            index={index}
-            top={index * pitch}
-            pitch={pitch}
-            width={Math.max(
-              tickWidth(hovered === undefined ? undefined : index - hovered),
-              index === current ? TICK_CURRENT_WIDTH : 0,
-            )}
-            tone={
-              hovered === index
-                ? "active"
-                : hovered === undefined && index >= onScreen.first && index <= onScreen.last
-                  ? "current"
-                  : "rest"
-            }
-            tabbable={index === active}
-            current={index === current}
-            label={t(isMarked(bookmarks.marks, entry.id) ? "minimap.tickBookmarked" : "minimap.tick", {
-              index: index + 1,
-              count: turns.length,
-              prompt: entry.prompt,
-            })}
-            onJump={jump}
-            onFocusTick={hover}
-            onMove={focusTick}
-            last={turns.length - 1}
-          />
-        ))}
+        <Ticks
+          turns={tickTurns.current}
+          pitch={pitch}
+          current={current}
+          firstVisible={onScreen.first}
+          lastVisible={onScreen.last}
+          hovered={hovered}
+          active={active}
+          marks={bookmarks.marks}
+          onJump={jump}
+          onFocusTick={hover}
+          onMove={focusTick}
+        />
         {turn && (
           <div
             ref={popover}
@@ -262,6 +258,69 @@ export function ThreadMinimap({
   );
 }
 
+/// Keep the rail out of streaming commits unless its labels or visible state changed.
+const Ticks = memo(function Ticks({
+  turns,
+  pitch,
+  current,
+  firstVisible,
+  lastVisible,
+  hovered,
+  active,
+  marks,
+  onJump,
+  onFocusTick,
+  onMove,
+}: {
+  turns: MinimapTurn[];
+  pitch: number;
+  current: number;
+  firstVisible: number;
+  lastVisible: number;
+  hovered: number | undefined;
+  active: number;
+  marks: ReadonlySet<number>;
+  onJump: (index: number) => void;
+  onFocusTick: (index: number, immediately: boolean) => void;
+  onMove: (index: number) => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      {turns.map((entry, index) => (
+        <Tick
+          key={entry.key}
+          index={index}
+          top={index * pitch}
+          pitch={pitch}
+          width={Math.max(
+            tickWidth(hovered === undefined ? undefined : index - hovered),
+            index === current ? TICK_CURRENT_WIDTH : 0,
+          )}
+          tone={
+            hovered === index
+              ? "active"
+              : hovered === undefined && index >= firstVisible && index <= lastVisible
+                ? "current"
+                : "rest"
+          }
+          tabbable={index === active}
+          current={index === current}
+          label={t(isMarked(marks, entry.id) ? "minimap.tickBookmarked" : "minimap.tick", {
+            index: index + 1,
+            count: turns.length,
+            prompt: entry.prompt,
+          })}
+          onJump={onJump}
+          onFocusTick={onFocusTick}
+          onMove={onMove}
+          last={turns.length - 1}
+        />
+      ))}
+    </>
+  );
+});
+
 function isMarked(marks: ReadonlySet<number>, rowId: string): boolean {
   const seq = promptSeq(rowId);
   return seq !== undefined && marks.has(seq);
@@ -294,6 +353,7 @@ const Tick = memo(function Tick({
   onMove: (index: number) => void;
   last: number;
 }) {
+  acpmuxPerf.span("minimap.tick.renders", 1);
   return (
     <MinimapTick
       type="button"
@@ -306,7 +366,7 @@ const Tick = memo(function Tick({
       aria-current={current ? "location" : undefined}
       data-current={current ? "" : undefined}
       active={tabbable}
-      style={{ transform: `translate3d(0, ${top}px, 0)`, height: pitch }}
+      style={{ top, height: pitch }}
       onClick={() => onJump(index)}
       onFocus={(event) => {
         if (event.currentTarget.matches(":focus-visible")) onFocusTick(index, true);

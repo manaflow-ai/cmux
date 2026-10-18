@@ -218,7 +218,14 @@ import { WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { HostError } from "./HostError";
-import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import {
+  SHELL_ROW,
+  ShellRuns,
+  insertByTime,
+  shellContextAttachments,
+  withShellRows,
+  type ShellRun,
+} from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
 import {
   SUBAGENT_OF,
@@ -810,9 +817,9 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_OF]: SubagentOfPillRow,
 };
 
-/// A row's height as the page drew it at a width. It places the row until its next version is drawn.
-type DrawnHeight = { sessionId?: string; version: number; width: number; height: number; geometry: object };
-type ReportDrawn = (id: string, version: number, height: number) => void;
+/// A row's height as the page drew it at a width. Only a different size changes placement.
+type DrawnHeight = { sessionId?: string; width: number; height: number; geometry: object };
+type ReportDrawn = (id: string, height: number) => void;
 
 type TranscriptRange = { anchorId: string; focusId: string };
 
@@ -850,7 +857,6 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
     if (
       !old ||
       old.sessionId !== entry.sessionId ||
-      old.version !== entry.version ||
       old.width !== entry.width ||
       old.geometry !== entry.geometry ||
       Math.abs(old.height - entry.height) >= 0.5
@@ -860,10 +866,16 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
   return false;
 }
 
+type RowActions = {
+  focus: (id: string) => void;
+  keyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+  copy: (ids: string[]) => Promise<void>;
+};
+
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-function RowFrame({
+const RowFrame = memo(function RowFrame({
   row,
   kind,
   joinsPrevious,
@@ -880,11 +892,16 @@ function RowFrame({
   active,
   selected,
   tabStop,
-  onFocus,
-  onRowKeyDown,
-  onCopy,
+  actions,
+  copyIds,
   copyable,
-  children,
+  Component,
+  registry,
+  onToggleActivity,
+  onOpenDiff,
+  controls,
+  githubRepository,
+  anchorPrompt,
 }: {
   row: AcpmuxRow;
   kind: string;
@@ -905,17 +922,23 @@ function RowFrame({
   active: boolean;
   selected: boolean;
   tabStop: boolean;
-  onFocus: () => void;
-  onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopy?: () => Promise<void>;
+  actions: React.RefObject<RowActions>;
+  copyIds?: string[];
   copyable: boolean;
-  children: React.ReactNode;
+  Component: MeasurableRenderer;
+  registry: NativeRegistry;
+  onToggleActivity: RowProps["onToggleActivity"];
+  onOpenDiff?: OpenDiff;
+  controls?: string;
+  githubRepository?: string;
+  anchorPrompt: (button: HTMLButtonElement) => void;
 }) {
   acpmuxPerf.span("row.renders", 1);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [copied, setCopied] = useState(false);
+  const onRowKeyDown = (event: React.KeyboardEvent<HTMLElement>) => actions.current.keyDown(index, event);
   const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
   const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
   useLayoutEffect(() => {
@@ -934,10 +957,9 @@ function RowFrame({
     if (node)
       report(
         row.id,
-        row.version,
         acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
       );
-  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
+  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report, registry]);
   return (
     <article
       ref={ref}
@@ -953,7 +975,7 @@ function RowFrame({
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
-      onFocus={onFocus}
+      onFocus={() => actions.current.focus(row.id)}
     >
       {copyable && (
         <button
@@ -964,7 +986,7 @@ function RowFrame({
           title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
-              await onCopy?.();
+              await actions.current.copy(copyIds ?? [row.id]);
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1200);
             } catch {
@@ -975,10 +997,21 @@ function RowFrame({
           <Copy />
         </button>
       )}
-      {children}
+      <TranscriptRowContext.Provider value={row.id}>
+        <PromptToggleAnchor.Provider value={anchorPrompt}>
+          <Component
+            row={row}
+            onToggleActivity={onToggleActivity}
+            onOpenDiff={onOpenDiff}
+            expanded={expanded}
+            controls={controls}
+            githubRepository={githubRepository}
+          />
+        </PromptToggleAnchor.Provider>
+      </TranscriptRowContext.Provider>
     </article>
   );
-}
+});
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
@@ -1005,6 +1038,12 @@ const currentRegistry = (): NativeRegistry => ({
   ...defaultRegistry,
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
 });
+
+/// Keep unchanged command blocks memoized when a snapshot or another run changes (Lucas 2026-10-19).
+export function shellRowsFrom(runs: readonly ShellRun[], previous: readonly AcpmuxRow[] = []): AcpmuxRow[] {
+  const byRun = new Map(previous.map((row) => [row.shell, row]));
+  return withShellRows([], runs).map((row) => byRun.get(row.shell) ?? row);
+}
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
@@ -1280,12 +1319,11 @@ export function VirtualTranscript({
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight) => {
+    (id, drawnHeight) => {
       // Zero is a row not laid out (hidden, or no layout at all), not a height.
       if (drawnHeight > 0)
         pendingDrawn.current.set(id, {
           sessionId,
-          version,
           width: rowWidthRef.current,
           height: drawnHeight,
           geometry,
@@ -1316,7 +1354,6 @@ export function VirtualTranscript({
     if (!pendingDrawn.current.size) return;
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
-    for (const id of updates.keys()) changedDrawn.current.add(id);
     setDrawn((current) => {
       let next: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
@@ -1324,12 +1361,12 @@ export function VirtualTranscript({
         if (
           old &&
           old.sessionId === entry.sessionId &&
-          old.version === entry.version &&
           old.width === entry.width &&
           old.geometry === entry.geometry &&
           Math.abs(old.height - entry.height) < 0.5
         )
           continue;
+        changedDrawn.current.add(id);
         next ??= new Map(current);
         next.set(id, entry);
       }
@@ -1345,7 +1382,7 @@ export function VirtualTranscript({
               const target = entry.target as HTMLElement;
               const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
               if (row && row.id === target.dataset.rowId)
-                reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
+                reportDrawn(row.id, entry.borderBoxSize?.[0]?.blockSize ?? target.getBoundingClientRect().height);
             }
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
@@ -1535,6 +1572,9 @@ export function VirtualTranscript({
     () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_INSET + THREAD_END }),
     [measured.layout],
   );
+  // React's development prop tracing expands typed buffers on every commit (Lucas 2026-10-19).
+  // The minimap reads the current geometry only when it renders.
+  const minimapLayout = useCallback(() => layout, [layout]);
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const sessionSwitched = previousSession.current !== sessionId;
@@ -1580,10 +1620,14 @@ export function VirtualTranscript({
     for (let index = selectedBounds.first; index <= selectedBounds.last; index += 1) selected.add(index);
     return selected;
   }, [selectedBounds]);
-  const selectedRowIds = useMemo(
-    () => (selectedBounds ? rows.slice(selectedBounds.first, selectedBounds.last + 1).map((row) => row.id) : []),
-    [rows, selectedBounds],
-  );
+  const lastSelectedRowIds = useRef<string[]>([]);
+  const selectedRowIds = useMemo(() => {
+    const ids = selectedBounds ? rows.slice(selectedBounds.first, selectedBounds.last + 1).map((row) => row.id) : [];
+    const previous = lastSelectedRowIds.current;
+    if (ids.length === previous.length && ids.every((id, index) => id === previous[index])) return previous;
+    lastSelectedRowIds.current = ids;
+    return ids;
+  }, [rows, selectedBounds]);
   const focusRow = useCallback(
     (index: number) => {
       if (rows.length === 0) return;
@@ -1664,14 +1708,20 @@ export function VirtualTranscript({
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
+  // Events use the committed transcript without invalidating every row's memo (Lucas 2026-10-19).
+  const rowActions = useRef<RowActions>({ focus: rowFocus, keyDown: rowKeyDown, copy: copyRows });
+  useLayoutEffect(() => {
+    rowActions.current = { focus: rowFocus, keyDown: rowKeyDown, copy: copyRows };
+  });
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
     const spans = mountedRanges.map(({ first, last }): MountedSpan => [
-      layout.tops[first],
-      layout.tops[last - 1] + layout.heights[last - 1],
+      first === 0 ? 0 : layout.tops[first] + THREAD_INSET,
+      last === rows.length ? layout.totalHeight : layout.tops[last - 1] + layout.heights[last - 1] + THREAD_INSET,
     ]);
     acpmuxPerf.mounted = spans;
+    acpmuxPerf.contentHeight = layout.totalHeight;
     // A memo hit spent no time in geometry this render.
     const freshLayout = reportedLayout.current !== measured;
     reportedLayout.current = measured;
@@ -2118,7 +2168,7 @@ export function VirtualTranscript({
         <ThreadMinimap
           rows={rows}
           sessionId={sessionId}
-          layout={layout}
+          getLayout={minimapLayout}
           scroller={ref}
           scrollTop={renderScroll.top}
           viewportHeight={height}
@@ -2160,28 +2210,19 @@ export function VirtualTranscript({
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
-                      onFocus={() => rowFocus(row.id)}
-                      onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
-                      copyable={!(liveRender && row.kind === "render") && transcriptHasFloatingCopy(row)}
-                      onCopy={() =>
-                        copyRows(
-                          selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
-                        )
+                      actions={rowActions}
+                      copyIds={
+                        selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : undefined
                       }
-                    >
-                      <TranscriptRowContext.Provider value={row.id}>
-                        <PromptToggleAnchor.Provider value={anchorPrompt}>
-                          <Component
-                            row={row}
-                            onToggleActivity={onToggleActivity}
-                            onOpenDiff={onOpenDiff}
-                            expanded={isExpanded}
-                            controls={controls}
-                            githubRepository={githubRepository}
-                          />
-                        </PromptToggleAnchor.Provider>
-                      </TranscriptRowContext.Provider>
-                    </RowFrame>
+                      copyable={!(liveRender && row.kind === "render") && transcriptHasFloatingCopy(row)}
+                      Component={Component}
+                      registry={registry}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      controls={controls}
+                      githubRepository={githubRepository}
+                      anchorPrompt={anchorPrompt}
+                    />
                   );
                 }),
               )}
@@ -2713,6 +2754,12 @@ function AcpmuxPane() {
     () => allShellRuns.filter((run) => run.sessionId === snapshot.sessionId),
     [allShellRuns, snapshot.sessionId],
   );
+  const lastShellRows = useRef<AcpmuxRow[]>([]);
+  const chatShellRows = useMemo(() => {
+    const rows = shellRowsFrom(chatShellRuns, lastShellRows.current);
+    lastShellRows.current = rows;
+    return rows;
+  }, [chatShellRuns]);
   /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
   const freshView = freshChat && chatShellRuns.length === 0;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
@@ -2778,7 +2825,7 @@ function AcpmuxPane() {
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
-      return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
+      return withoutAskedCalls(insertByTime(subagents.rows, chatShellRows), panelAsks);
     });
   }, [
     childRows,
@@ -2787,7 +2834,7 @@ function AcpmuxPane() {
     snapshot.isWorking,
     snapshot.clockOffsetMs,
     codexRuns,
-    chatShellRuns,
+    chatShellRows,
     panelAsks,
   ]);
   // Another chat never opens on a subagent of this one.
@@ -4832,13 +4879,16 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
-  const toggleActivity = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleActivity = useCallback(
+    (id: string) =>
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
