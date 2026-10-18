@@ -62,16 +62,14 @@ struct ServerReachAdmissionTests {
         }
     }
 
-    @Test func rememberedRoutesWaitForFreshPairingAdmissionAcrossEveryWakePath() throws {
+    @Test func savedRoutesKeepOfflineReconnectAndTemporaryPolicyReadmission() throws {
         let h = Harness(); defer { h.stop() }
         let saved = try h.restore()
-        #expect(!saved.daemon.isStarting)
-        saved.connect()
-        saved.wake()
+        #expect(saved.daemon.isStarting && saved.autoConnect)
         h.service.applyPolicy(disabled: true)
+        #expect(!saved.daemon.isStarting)
         h.service.applyPolicy(disabled: false)
-        #expect(!saved.daemon.isStarting, "activation, retry and policy readmission cannot admit a remembered route")
-        #expect(saved.autoConnect, "retain the person's launch preference while awaiting admission")
+        #expect(saved.daemon.isStarting, "a temporary policy block is not permanent retirement")
     }
 
     @Test func aFreshDirectoryReadRetiresTheOldInstallationAndAdmitsItsReplacement() async throws {
@@ -90,13 +88,13 @@ struct ServerReachAdmissionTests {
         #expect(h.calls == ["chief.list", "team.hosts.list"])
     }
 
-    @Test func anUnavailableDirectoryLeavesSavedRoutesVisibleWithoutDialingThem() async throws {
+    @Test func anUnavailableDirectoryKeepsAnAlreadyAuthenticatedSavedRoute() async throws {
         let h = Harness(); defer { h.stop() }
         let saved = try h.restore()
         h.fail = true
         await h.service.read()
         #expect(h.machines.servers.first === saved)
-        #expect(!saved.daemon.isStarting)
+        #expect(saved.daemon.isStarting)
     }
 
     @Test func freshAdmissionPreservesAnExplicitDisconnectPreference() async throws {
@@ -107,10 +105,10 @@ struct ServerReachAdmissionTests {
         #expect(!saved.daemon.isStarting)
     }
 
-    @Test func theCurrentSavedInstallationConnectsOnlyAfterItsDirectoryRead() async throws {
+    @Test func aCurrentDirectoryReadKeepsTheExistingSavedConnection() async throws {
         let h = Harness(); defer { h.stop() }
         let saved = try h.restore()
-        #expect(!saved.daemon.isStarting)
+        #expect(saved.daemon.isStarting)
         await h.service.read()
         #expect(h.machines.servers.first === saved)
         #expect(saved.daemon.isStarting)
