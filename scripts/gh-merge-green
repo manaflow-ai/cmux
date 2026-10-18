@@ -535,16 +535,22 @@ while IFS= read -r required_context; do
     [ "$context" = "$required_context" ] || continue
     required_seen=1
     if [ "$status" != completed ]; then
-      refuse         "not green: required context '$required_context' is $status/$conclusion on $sha"         'wait for the required branch context on the exact head, then retry'
+      refuse \
+        "not green: required context '$required_context' is $status/$conclusion on $sha" \
+        'wait for the required branch context on the exact head, then retry'
     fi
     case "$conclusion" in
       success|neutral|skipped) ;;
       *)
-        refuse           "not green: required context '$required_context' is $status/$conclusion on $sha"           'repair the required branch context on the exact head, then retry'
+        refuse \
+          "not green: required context '$required_context' is $status/$conclusion on $sha" \
+          'repair the required branch context on the exact head, then retry'
         ;;
     esac
   done <<<"$all_verdicts"
-  [ "$required_seen" -eq 1 ] || refuse     "not green: required context '$required_context' has not reported on $sha"     'wait for the required branch context on the exact head, then retry'
+  [ "$required_seen" -eq 1 ] || refuse \
+    "not green: required context '$required_context' has not reported on $sha" \
+    'wait for the required branch context on the exact head, then retry'
 done <<<"$required_contexts"
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
