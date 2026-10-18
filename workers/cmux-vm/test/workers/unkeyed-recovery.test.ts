@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { Effect, Layer } from "effect";
+import { LimitsUnavailable, memoryLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
@@ -149,4 +151,26 @@ it("resumes an unkeyed fork's retained allocation after the source is deleted", 
   expect(resumed.status).toBe(201); expect(await resumed.json()).toMatchObject({ creationKey: key });
   expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
   expect(allocations()).toHaveLength(2);
+});
+
+it("discovers a service fork's retained snapshot before VM admission and resumes it after source deletion", async () => {
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, memoryLimitsLayer())); let fail = true;
+  await h.dispose(); h = await makeHarness({ maxVms: 2, limits: Layer.succeed(TenantLimits, { ...limits, advance: (tenant, key, progress) => {
+    if (fail && progress.phase === "creating") { fail = false; return Effect.fail(new LimitsUnavailable({ cause: "intent write failed" })); }
+    return limits.advance(tenant, key, progress);
+  } }) });
+  token = await h.addKey("team_alpha", ["vm:write"]);
+  const source = h.addVm("team_alpha", "running", { role: "cloud" });
+  const service = await h.addServiceKey({ id: "driver", labels: { role: "cloud" }, scopes: ["vm:read", "vm:write"] });
+  const serviceHeaders = { ...bearer(service), "x-cmux-team-id": "team_alpha" }, body = { labels: { role: "cloud" } };
+  const first = await h.request(`/v1/vms/${source.vmId}/fork`, serviceHeaders, { method: "POST", body });
+  expect(first.status).toBe(503); const key = await handle(first);
+  expect(allocations()).toHaveLength(0);
+  const page = await h.request("/v1/vm-creations", serviceHeaders); expect(page.status).toBe(200);
+  expect(await page.json()).toMatchObject({ items: [{ creationKey: key, state: "unresolved", id: null }] });
+  expect((await h.request(`/v1/vms/${source.vmId}`, headers(), { method: "DELETE" })).status).toBe(204);
+  const retry = await h.request(`/v1/vms/${source.vmId}/fork`, { ...serviceHeaders, "idempotency-key": key }, { method: "POST", body });
+  expect(retry.status).toBe(201); expect(await retry.json()).toMatchObject({ creationKey: key });
+  expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  expect(allocations()).toHaveLength(1);
 });

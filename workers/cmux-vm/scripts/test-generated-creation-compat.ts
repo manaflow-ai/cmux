@@ -27,11 +27,13 @@ try {
     createdBy: "key:owner", createdAt: "2026-10-18T00:00:00Z", displayName: null, labels: {}, operation: "create",
   });
   await assert.rejects(old.begin("generated", "request", later), /unrecognized idempotency record/);
+  await current.advance("generated", { phase: "snapshotted", snapshotId: "snap_00000000000000000000000001" }, 1);
+  await assert.rejects(old.begin("generated", "request", later), /unrecognized idempotency record/);
   await current.reserve("vm", 1, 0, 0, "held");
-  await current.advance("generated", { phase: "creating", vmId: id, reservationId: "held", context: "provider", createdBy: "key:owner" }, 1);
+  await current.advance("generated", { phase: "creating", vmId: id, reservationId: "held", context: "provider", createdBy: "key:owner" }, 2);
   await assert.rejects(old.advance("generated", { phase: "done", vmId: id }, 2), /missing idempotency claim/);
   await assert.rejects(old.begin("generated", "request", later), /unrecognized idempotency record/);
-  await current.advance("generated", { phase: "done", vmId: id }, 2);
+  await current.advance("generated", { phase: "done", vmId: id }, 3);
   await old.abandon("generated", later);
   await old.begin("ordinary-trigger", "request", later);
   await assert.rejects(old.begin("generated", "request", later), /unrecognized idempotency record/);

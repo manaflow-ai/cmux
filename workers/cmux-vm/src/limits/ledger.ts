@@ -155,8 +155,10 @@ export class TenantLedger {
   /** Exactly one potentially allocating provider send. Unknown outcomes never reopen this gate. */
   async beginCreateSend(key: string, vmId: string, token: string): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
-      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
-      if (p?.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || p.dispatch.state === "sent") return false;
+      const record = readRecord(await storage.get(`idem:${key}`));
+      if (record === undefined) return false;
+      const p = record.progress;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || p.dispatch.state === "sent") return false;
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token } } });
       return true;
     });
@@ -165,8 +167,10 @@ export class TenantLedger {
   /** Only a documented provider rejection proves that this exact send allocated nothing. */
   async rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
-      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
-      if (p?.phase !== "creating" || p.vmId !== vmId || p.dispatch?.state !== "sent" || p.dispatch.token !== token) return false;
+      const record = readRecord(await storage.get(`idem:${key}`));
+      if (record === undefined) return false;
+      const p = record.progress;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.dispatch?.state !== "sent" || p.dispatch.token !== token) return false;
       if (p.cancelRequested === true) await storage.delete(`reserve:${p.reservationId}`);
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, phase: p.cancelRequested === true ? "cancelled" : "creating", dispatch: { state: "rejected", token } } });
       return true;
@@ -181,9 +185,11 @@ export class TenantLedger {
   /** Monotonic fence, before any provider cleanup. Legacy sends have no trustworthy dispatch receipt. */
   async cancelCreation(key: string, vmId: string): Promise<CancelCreationDecision> {
     return this.storage.transaction(async (storage) => {
-      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
-      if (p?.phase === "cancelled" && p.vmId === vmId) return "accepted";
-      if (p?.phase !== "creating" || p.vmId !== vmId) return "finished";
+      const record = readRecord(await storage.get(`idem:${key}`));
+      if (record === undefined) return "finished";
+      const p = record.progress;
+      if (p.phase === "cancelled" && p.vmId === vmId) return "accepted";
+      if (p.phase !== "creating" || p.vmId !== vmId) return "finished";
       if (p.dispatch === undefined) return "legacy";
       const terminal = p.dispatch.state !== "sent";
       if (terminal) await storage.delete(`reserve:${p.reservationId}`);
@@ -195,9 +201,11 @@ export class TenantLedger {
   /** After a verified allocation is deleted and SQL has a tombstone. Never expires into another create. */
   async settleCancellation(key: string, vmId: string): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
-      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
-      if (p?.phase === "cancelled" && p.vmId === vmId) return true;
-      if (p?.phase !== "creating" || p.vmId !== vmId || p.cancelRequested !== true || p.dispatch === undefined) return false;
+      const record = readRecord(await storage.get(`idem:${key}`));
+      if (record === undefined) return false;
+      const p = record.progress;
+      if (p.phase === "cancelled" && p.vmId === vmId) return true;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested !== true || p.dispatch === undefined) return false;
       await storage.delete(`reserve:${p.reservationId}`);
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, phase: "cancelled" } });
       return true;
