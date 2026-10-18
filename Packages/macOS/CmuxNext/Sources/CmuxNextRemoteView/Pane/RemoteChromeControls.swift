@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// Small AppKit building blocks of the pane chrome: labels, symbols, a
 /// borderless text button with a hover fill, and a pill badge.
 enum RemoteChrome {
-    static func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular, mono: Bool = false) -> NSTextField {
+    static func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular, mono: Bool = false) -> ChromeLabel {
         let field = ChromeLabel(labelWithString: text)
         field.font = mono ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
         field.lineBreakMode = .byTruncatingTail
@@ -15,7 +15,7 @@ enum RemoteChrome {
         return field
     }
 
-    static func wrapping(_ text: String, size: CGFloat, width: CGFloat) -> NSTextField {
+    static func wrapping(_ text: String, size: CGFloat, width: CGFloat) -> ChromeLabel {
         let field = ChromeLabel(wrappingLabelWithString: text)
         field.font = .systemFont(ofSize: size)
         field.alignment = .center

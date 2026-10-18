@@ -513,11 +513,14 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     let result = client
         .rename_workspace(RenameWorkspaceRequest {
             expected_generation: Optional::Missing,
+            expected_name_revision: Optional::Missing,
             expected_revision: Optional::Missing,
             key: Optional::Value(key.to_owned()),
             mutation_id: Optional::Missing,
             name: name.to_owned(),
             origin: Optional::Missing,
+            release: None,
+            source: Optional::Missing,
             workspace: Optional::Missing,
         })
         .map(|_| ())
