@@ -21,7 +21,7 @@
 ## Managed receipt
 
 - **Run:** [39089231277](https://github.com/manaflow-ai/cmux/actions/runs/39089231277)
-- **Artifact:** [current-composer-3b46b53](https://github.com/manaflow-ai/cmux/actions/artifacts/12122434091)
+- **Artifact:** [current-composer-3b46b53](https://github.com/manaflow-ai/cmux/actions/artifacts/12122027495)
 - **Exact tested head:** `3b46b53ecf01300420a12eb0ebb120b66e73796f`
 - **Runner:** `github-actions/ubuntu-24.04`, Chromium, ready stage `1` for all four states.
 - **Receipt JSON SHA256:** `0125be155545ca0258df7626bbe4258a52d952fd049f226683e9bcdf7c600a6c`
