@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
@@ -236,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start()
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
-        KeepAwakeService.shared.start(settings: settings, daemon: services.daemon)
+        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
