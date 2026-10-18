@@ -543,7 +543,7 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn(stale, text)
         self.assertEqual(
             text.count("(github.run_attempt <= 2) && needs.macos-placement.outputs."),
-            14,
+            13,
         )
         self.assertIn("bot attempt 3 is the measured Blacksmith overflow", text)
         self.assertIn("bot attempt 3\n# drops the stale placement output and takes the Blacksmith fallback", text)
