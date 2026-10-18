@@ -1629,7 +1629,7 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.WorkspacePlacementSnapshot>>
     }
     /** `workspace.rename` (mutation, scope `workspace:write`) */
-    rename: CmuxOp<{ machine?: string; session?: string; workspace: string; name: string; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
+    rename: CmuxOp<{ machine?: string; session?: string; workspace: string; name?: string; expected_revision?: string; source?: "user" | "auto"; expected_generation?: string; expected_name_revision?: string; release?: boolean }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
     /** `workspace.run` (mutation, scope `workspace:execute`) */
     run: CmuxOp<{ machine?: string; session?: string; workspace: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `workspace.update` (mutation, scope `workspace:write`) */
