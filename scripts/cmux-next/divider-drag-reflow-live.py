@@ -34,6 +34,9 @@ parser.add_argument("--steps", type=int, default=40)
 parser.add_argument("--step-pt", type=float, default=6.0)
 parser.add_argument("--lag", type=int, default=3, help="steps the owner's grid may trail the edge")
 parser.add_argument("--hitch-ms", type=float, default=50.0)
+parser.add_argument("--hang-ms", type=int, help="watchdog stall threshold: debug.hangs stack samples of pass A")
+parser.add_argument("--profile", action="store_true",
+                    help="xctrace Time Profiler over pass A: main-thread busy runs over 30 ms, heaviest frames")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
@@ -96,6 +99,59 @@ def cols(value):
         return None
 
 
+def stall_profile(trace, min_ms=30.0, gap_ms=3.0):
+    """Main-thread busy runs (consecutive samples, gaps under gap_ms) longer than min_ms in a
+    Time Profiler trace, each with its heaviest inclusive frames."""
+    import xml.etree.ElementTree as ET
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], capture_output=True, text=True).stdout
+    schema = "time-profile" if 'schema="time-profile"' in toc else "time-sample"
+    xml = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True).stdout
+    ids = {}
+
+    def resolve(element):
+        ref = element.get("ref")
+        if ref is not None:
+            return ids.get(ref, element)
+        if element.get("id") is not None:
+            ids[element.get("id")] = element
+        for child in element:
+            resolve(child)
+        return element
+
+    samples = []
+    for row in ET.fromstring(xml).iter("row"):
+        at = thread = backtrace = None
+        for child in row:
+            node = resolve(child)
+            if child.tag == "sample-time":
+                at = int(node.text or 0) / 1e6
+            elif child.tag == "thread":
+                thread = node
+            elif child.tag in ("backtrace", "tagged-backtrace"):
+                backtrace = node if node.tag == "backtrace" else next(iter(node.iter("backtrace")), None)
+        if at is None or thread is None or backtrace is None or "Main Thread" not in (thread.get("fmt") or ""):
+            continue
+        samples.append((at, [resolve(f).get("name") or "?" for f in backtrace.iter("frame")]))
+    samples.sort(key=lambda s: s[0])
+    runs, start = [], 0
+    for i in range(1, len(samples) + 1):
+        if i == len(samples) or samples[i][0] - samples[i - 1][0] > gap_ms:
+            if samples[i - 1][0] - samples[start][0] >= min_ms:
+                runs.append(samples[start:i])
+            start = i
+    out = []
+    for run in runs:
+        inclusive = {}
+        for _, frames in run:
+            for name in set(frames):
+                inclusive[name] = inclusive.get(name, 0) + 1
+        top = sorted(inclusive.items(), key=lambda kv: -kv[1])[:80]
+        out.append({"start_ms": round(run[0][0], 1), "ms": round(run[-1][0] - run[0][0], 1), "samples": len(run),
+                    "top": [f"{count} {name[:200]}" for name, count in top]})
+    return {"main_samples": len(samples), "runs": out}
+
+
 def terminals():
     """Terminal panes left to right: (frame x, columns the view fits, owner's columns, drawn columns).
     `surface.grid` is the owner's grid the mirror is locked to; `fit_grid` what the view fits;
@@ -120,6 +176,8 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,760"}
+if opts.hang_ms:
+    env["CMUX_NEXT_HANG_THRESHOLD_MS"] = str(opts.hang_ms)
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
@@ -167,11 +225,27 @@ try:
     time.sleep(2)
     report["frames_idle"] = rpc("debug.frames", {"action": "stop"})
     # Pass A: frame intervals of the drag alone (no debug reads or recording between events).
+    recorder, trace = None, os.path.join(opts.out, "drag.trace")
+    if opts.profile:
+        recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+                                     "--time-limit", "30s", "--output", trace], stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        time.sleep(4)  # test harness: the recorder attaches
+    if opts.hang_ms:
+        rpc("debug.hangs", {"clear": True})
     rpc("debug.frames", {"action": "start"})
     time.sleep(0.3)
     report["drag_started_ms"] = 300
     drag(sample=False)
     report["frames"] = rpc("debug.frames", {"action": "stop"})
+    if opts.hang_ms:
+        report["hangs"] = rpc("debug.hangs")
+    if recorder:
+        recorder.send_signal(signal.SIGINT)
+        try:
+            recorder.wait(120)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+        report["profile"] = stall_profile(trace) if os.path.exists(trace) else {"error": "no trace"}
     # Pass B, recorded frame by frame: the grid each terminal renders against what its frame fits.
     report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 10})
     drag(sample=True)
@@ -227,6 +301,10 @@ print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses
                                               "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
 print("frames idle:", json.dumps(report.get("frames_idle"))[:600])
 print("frames drag:", json.dumps(report.get("frames"))[:600])
+if report.get("hangs"):
+    print("hangs:", json.dumps(report["hangs"])[:12000])
+if report.get("profile"):
+    print("profile:", json.dumps(report["profile"], indent=1)[:30000])
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
