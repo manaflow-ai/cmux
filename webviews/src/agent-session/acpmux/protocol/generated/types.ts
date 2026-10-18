@@ -68,6 +68,11 @@ export type Lane = {
    * else the agent's last reply line, secrets masked (`secret_scan`).
    */
   step: (string | null);
+  /**
+   * The session's title, else its first prompt, one line, secrets masked
+   * (`secret_scan`).
+   */
+  title: (string | null);
 } & Record<string, unknown>;
 
 export type LaneState = "working" | "input" | "failed" | "lost" | "idle";

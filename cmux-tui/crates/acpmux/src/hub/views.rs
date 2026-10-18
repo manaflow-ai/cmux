@@ -121,10 +121,7 @@ fn lane_step(summary: &Value) -> Value {
             .then(|| summary["lastMessage"]["text"].as_str())
             .flatten()
     };
-    let line = summary["turn"]["prompt"]
-        .as_str()
-        .or_else(reply)
-        .map(masked_line);
+    let line = summary["turn"]["prompt"].as_str().or_else(reply).map(masked_line);
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 
