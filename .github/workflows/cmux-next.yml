@@ -59,6 +59,7 @@ on:
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
+      - docs/**
       - docs/mdm/**
       - webviews/test/fixtures/**
       # The web bundles' sources (build output since cx-vn5; the package tests

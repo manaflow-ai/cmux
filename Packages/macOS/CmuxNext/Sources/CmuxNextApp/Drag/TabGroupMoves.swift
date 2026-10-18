@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextWorkspaceNaming
 import Foundation
 
 /// Whole-group drag commits (`tab-groups-v1`): one daemon command each,
