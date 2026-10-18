@@ -71,6 +71,9 @@ KNOWN = {
     ("theme", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
 }
 FRAME_BUDGET_MS = 1000 / 60
+# The longest display-link frame a divider drag may take (cx-8w027.19: the drag committed with a
+# window-server fence; 67-95 ms frames before). Blocks on the GUI host (--frames required).
+DRAG_HITCH_MS = 50.0
 SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
@@ -552,6 +555,12 @@ class Gate:
         print(f"  drag counters for {len(path)} events: " + json.dumps(report["phases"]["drag"]["counters"]), flush=True)
         if not self.frames_ok("drag"):
             return
+        worst = frames.get("max_ms") or 0
+        hitch = f"the longest divider-drag frame is {worst:.1f} ms (limit {DRAG_HITCH_MS:.0f} ms; missed at {frames.get('missed_at_ms')})"
+        if self.opts.frames == "required":
+            check(worst <= DRAG_HITCH_MS, hitch, "drag")
+        elif worst > DRAG_HITCH_MS:
+            warn(hitch, "drag")
         if (frames.get("p99_ms") or 0) > FRAME_BUDGET_MS:
             warn(f"divider drag frame p99 {frames.get('p99_ms'):.1f} ms (budget {FRAME_BUDGET_MS:.1f} ms; "
                  f"max {frames.get('max_ms') or 0:.1f} ms, missed {frames.get('missed')})", "drag")
