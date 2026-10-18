@@ -27,13 +27,6 @@ function laneState(session: SessionSummary): LaneState {
   return "idle";
 }
 
-/** The running turn's prompt, else the agent's last message, on one line. */
-function laneStep(session: SessionSummary): string | null {
-  const text = session.turn?.prompt ?? (session.lastMessage?.role === "agent" ? session.lastMessage.text : null);
-  const line = text?.replace(/\s+/g, " ").trim().slice(0, 240);
-  return line || null;
-}
-
 function laneFor(session: SessionSummary, workspaceId: string | null | undefined, peer?: string | null): Lane {
   const state = laneState(session);
   const since = session.lane?.since ?? session.inputSince ?? session.updatedAt;
@@ -49,7 +42,8 @@ function laneFor(session: SessionSummary, workspaceId: string | null | undefined
     since,
     error: state === "failed" ? error : null,
     harness: session.harness || null,
-    step: laneStep(session),
+    // acpmux masks secrets in the step (hq#2509); the raw prompt is never a fallback.
+    step: session.lane?.step || null,
   };
 }
 
