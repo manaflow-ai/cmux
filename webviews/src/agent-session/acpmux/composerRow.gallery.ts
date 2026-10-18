@@ -7,6 +7,7 @@
 // no location strip heads the card (locationRow.ts). test/composer-row-layout.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, summary, user } from "../../gallery/fixtures/acpmux";
+import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 
 const finished = [
@@ -47,6 +48,66 @@ function row(fields: Parameters<typeof chat>[1] = {}, extra: Partial<NonNullable
   } satisfies AcpmuxSnapshot;
 }
 
+/// Fast mode as Claude Code offers it (off/on), or a speed option with a tier past Fast.
+function speed(current: string, values = ["off", "on"]) {
+  return {
+    id: "fast-mode",
+    name: "Fast mode",
+    category: "model_config",
+    currentValue: current,
+    options: values.map((value) => ({ value })),
+  };
+}
+const ULTRA = ["standard", "fast", "ultrafast"];
+
+/** Exercise the real pane's native command boundary, then return to the still's starting tier. */
+function cycleSpeed(current: string, values = ["off", "on"]): Play {
+  return async (ctx) => {
+    type Message = { method?: string; params?: { configId?: string; value?: string } };
+    const pane = ctx.document.defaultView as unknown as {
+      webkit: { messageHandlers: { agentSession: { postMessage(message: Message): unknown } } };
+      cmuxAcpmuxBridge: { receive(snapshot: AcpmuxSnapshot): void };
+    };
+    const handler = pane.webkit.messageHandlers.agentSession;
+    const original = handler.postMessage;
+    const picks: string[] = [];
+    handler.postMessage = (message) => {
+      if (message.method === "chat.effort" && message.params?.configId === "fast-mode" && message.params.value)
+        picks.push(message.params.value);
+      return original(message);
+    };
+    const target = { selector: ".acpmux-composer-actions .acpmux-fast" } as const;
+    try {
+      await ctx.waitFor(() => ctx.document.querySelector(target.selector));
+      if (ctx.document.defaultView!.innerWidth < 370) {
+        if (ctx.document.defaultView!.getComputedStyle(ctx.find(target)).display !== "none")
+          throw new Error("the speed button must give way in the narrowest pane");
+        return;
+      }
+      const actions = ctx.find(target).parentElement!;
+      const buttons = [...actions.querySelectorAll("button")];
+      const at = buttons.indexOf(ctx.find(target) as HTMLButtonElement);
+      if (!buttons[at + 1]?.classList.contains("acpmux-mic")) throw new Error("speed must be before dictation");
+      const start = values.indexOf(current);
+      for (let step = 1; step <= values.length; step += 1) {
+        const next = values[(start + step) % values.length]!;
+        picks.length = 0;
+        await ctx.click(target);
+        await ctx.waitFor(() => picks.length > 0);
+        if (picks[0] !== next) throw new Error(`speed command: expected ${next}, received ${picks[0]}`);
+        // As the app does, publish the session's confirmed option through the pane bridge.
+        pane.cmuxAcpmuxBridge.receive(row({}, { configOptions: [effort, speed(next, values)] }));
+        const tier = next === values[0] ? "off" : next === values[1] ? "fast" : "ultrafast";
+        await ctx.waitFor(() => ctx.find(target).getAttribute("data-tier") === tier);
+        if (ctx.find(target).getAttribute("aria-pressed") !== String(tier !== "off"))
+          throw new Error("speed pressed state must follow the confirmed tier");
+      }
+    } finally {
+      handler.postMessage = original;
+    }
+  };
+}
+
 const LONG_MODEL = "claude-opus-5-5-1m";
 const longCatalog = CATALOG.map((entry) =>
   entry.id === "claude"
@@ -71,7 +132,12 @@ export default agentPaneEntry({
   height: 300,
   widths: { narrow: 420, normal: 720, wide: 1100 },
   anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-box" }],
-  covers: ["agent-session/acpmux/Composer.tsx#Composer", "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
+  covers: [
+    "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
+    "agent-session/acpmux/FastToggle.tsx#FastToggle",
+    "agent-session/acpmux/FastToggle.tsx#SpeedToggleHost",
+  ],
   variants: {
     "claude-auto": {
       note: "Claude Opus 5.5, Medium and Auto in one evenly spaced left cluster; mic and Send on the right.",
@@ -94,6 +160,21 @@ export default agentPaneEntry({
           groups: [],
         },
       },
+    },
+    "speed-off": {
+      note: "A model with fast mode, off: the muted bolt sits left of the mic; the effort chip reads Medium.",
+      snapshot: row({}, { configOptions: [effort, speed("off")] }),
+      play: cycleSpeed("off"),
+    },
+    "speed-fast": {
+      note: "Fast on: the bolt takes the accent ink and the effort chip still reads Medium, with no Fast word.",
+      snapshot: row({}, { configOptions: [effort, speed("on")] }),
+      play: cycleSpeed("on"),
+    },
+    "speed-ultrafast": {
+      note: "An option with a tier past Fast, on Ultrafast: the bolt is filled in the accent ink.",
+      snapshot: row({}, { configOptions: [effort, speed("ultrafast", ULTRA)] }),
+      play: cycleSpeed("ultrafast", ULTRA),
     },
     queued: {
       note: "A running turn with prompts queued above the field: Stop takes Send's circle, the row keeps its clusters.",

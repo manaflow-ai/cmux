@@ -51,7 +51,7 @@ import Testing
         #expect(dialog.superview != nil, "the dialog vanished in one frame")
         #expect(scrim.superview != nil, "the scrim vanished in one frame")
 
-        try await Task.sleep(for: .milliseconds(600))
+        #expect(await GUIAnimationTestSupport.settle { host.fadingOut == 0 }, "the fade out never ended")
         #expect(dialog.superview == nil)
         #expect(scrim.superview == nil)
         #expect(dialog.alphaValue == 1, "a dialog shown again starts whole")
@@ -73,7 +73,8 @@ import Testing
         let moved = WindowOverlayHost.host(for: second).present(dialog, options: options)
         defer { moved.dismiss() }
 
-        try await Task.sleep(for: .milliseconds(600))
+        let old = WindowOverlayHost.host(for: first)
+        #expect(await GUIAnimationTestSupport.settle { old.fadingOut == 0 }, "the old window's fade never ended")
         #expect(dialog.window === WindowOverlayHost.host(for: second).panel, "the old window's fade took the dialog")
         #expect(dialog.alphaValue == 1)
     }
