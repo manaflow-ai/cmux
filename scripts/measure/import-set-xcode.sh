@@ -517,15 +517,18 @@ for name, extra in (("default", []), ("reproducible", ["-Xlinker", "-reproducibl
     shas, err = [], ""
     for n in range(5):
         a = list(argv)
-        a[a.index("-o") + 1] = os.path.join(out, f"{name}-{n}")
+        # The same file name: the linker signature's identifier is the output's name.
+        exe = os.path.join(out, f"{name}-{n}", "cmux-next-exe")
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
+        a[a.index("-o") + 1] = exe
         if "-dependency_info" in a:
             a[a.index("-dependency_info") + 2] = os.path.join(out, f"{name}-{n}.dat")
         r = subprocess.run(a + extra, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if r.returncode:
             err = r.stdout.decode(errors="replace").strip().splitlines()[-1:] 
             break
-        shas.append(sha(os.path.join(out, f"{name}-{n}")))
-        os.remove(os.path.join(out, f"{name}-{n}"))
+        shas.append(sha(exe))
+        os.remove(exe)
     print(f"RESULT relink {name}: links={len(shas)} distinct_outputs={len(set(shas))} outputs={sorted(set(shas))} "
           f"xcodebuild_output={exe_sha} {'error=' + str(err) if err else ''}")
 PY
