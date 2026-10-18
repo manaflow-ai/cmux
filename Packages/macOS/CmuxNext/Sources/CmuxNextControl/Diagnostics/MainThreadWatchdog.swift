@@ -39,10 +39,23 @@ public final class MainThreadWatchdog: Sendable {
             return .milliseconds(min(max(raw, 4), 1_000))
         }
 
+        /// Background no-activate launches are used for isolated diagnostics and
+        /// can sit in AppKit's event wait without a visible WindowServer source.
+        /// Keep reporting hangs there, but do not abort the diagnostic process on
+        /// a debug-only assertion intended for interactive app sessions.
+        static func hangAssertThreshold(debugBuild: Bool, noActivate: Bool) -> Duration? {
+            debugBuild && !noActivate ? .seconds(10) : nil
+        }
+
+        private static var defaultHangAssertThreshold: Duration? {
+            hangAssertThreshold(debugBuild: ControlService.isDebugBuild,
+                                noActivate: ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
+        }
+
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
                     hangReportInterval: Duration = .seconds(300),
-                    hangAssertThreshold: Duration? = ControlService.isDebugBuild ? .seconds(10) : nil) {
+                    hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold) {
             self.threshold = threshold
             self.capacity = capacity
             self.sampleStacks = sampleStacks
