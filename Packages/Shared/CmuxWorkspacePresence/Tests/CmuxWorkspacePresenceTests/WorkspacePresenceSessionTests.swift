@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxWorkspacePresence
+import Foundation
 import Testing
 
 @Suite(.timeLimit(.minutes(1))) @MainActor
