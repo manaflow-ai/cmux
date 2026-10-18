@@ -62,6 +62,12 @@ export const resourceFloorsReached = (vm: UpstreamVm, size: SizeRequest): boolea
   && (size.diskMib === undefined || vm.resources.storage >= size.diskMib);
 
 export interface CreateVmSpec {
+  readonly createdBy?: string;
+  /** Private effect journal: persist only the opaque request/context digest before provider I/O. */
+  readonly journal?: {
+    readonly context: string | null;
+    readonly beforeSend: (context: string) => Effect.Effect<void, UpstreamError>;
+  };
   readonly cmuxId: VmId;
   readonly idleTimeoutSeconds: number;
   readonly maxRunSeconds?: number;

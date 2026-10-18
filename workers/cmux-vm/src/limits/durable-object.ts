@@ -7,6 +7,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   TenantLedger,
+  type LedgerStorage,
   type IdempotencyBegin,
   type IdempotencyProgress,
   type RateClass,
@@ -15,13 +16,16 @@ import {
   type ReserveDecision,
 } from "./ledger.ts";
 
+const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): LedgerStorage => ({
+  get: (key) => store.get(key), put: (key, value) => store.put(key, value),
+  delete: (key) => store.delete(key), list: (options) => store.list(options),
+  transaction: (run) => "transaction" in store ? store.transaction((tx) => run(storageOf(tx))) : run(storageOf(store)),
+});
+
 export class TenantLimitsObject extends DurableObject {
-  private readonly ledger = new TenantLedger({
-    get: (key) => this.ctx.storage.get(key),
-    put: (key, value) => this.ctx.storage.put(key, value),
-    delete: (key) => this.ctx.storage.delete(key),
-    list: (options) => this.ctx.storage.list(options),
-  });
+  private readonly ledger = new TenantLedger(storageOf(this.ctx.storage));
+
+  creationReservation(key: string, vmId: string): Promise<string | null> { return this.ledger.creationReservation(key, vmId); }
 
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision> {
     return this.ledger.rate(rateClass, rule, nowMs);

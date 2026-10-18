@@ -35,7 +35,7 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
   }
   const resumeFrom = claim.state === "resume" ? claim.progress : null;
   return yield* run(resumeFrom, scoped).pipe(
-    Effect.tap((vm) => limits.advance(principal.tenantId, scoped, { phase: "done", vmId: vm.id }).pipe(Effect.ignore)),
+    Effect.tap((vm) => limits.advance(principal.tenantId, scoped, { phase: "done", vmId: vm.id }).pipe(Effect.mapError(() => unavailable()))),
     Effect.tapError(() => limits.abandon(principal.tenantId, scoped)),
   );
 });

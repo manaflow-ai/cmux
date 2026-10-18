@@ -83,3 +83,38 @@ it("recovers a fork's lost VM response without taking another snapshot or making
   expect(t.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
   expect(allocation(t)).toHaveLength(1);
 });
+
+it("pins an uncertain create to its provider context and resumes only when that context is restored", async () => {
+  const t = await harness(), key = await t.addKey("team_alpha", ["vm:write"]);
+  t.recordFault.before = 1;
+  expect((await create(t, key)).status).toBe(503);
+  const before = t.upstreamRequests.length;
+  t.setProviderConfig("https://another-provider.test", "rotated-test-key");
+  expect((await create(t, key)).status).toBe(503);
+  expect(t.upstreamRequests).toHaveLength(before);
+  t.setProviderConfig();
+  expect((await create(t, key)).status).toBe(201);
+  expect(allocation(t)).toHaveLength(1);
+});
+
+it("refuses a conflicting VM at the exact recovery slug without adopting or replacing it", async () => {
+  const t = await harness(), key = await t.addKey("team_alpha", ["vm:write"]);
+  t.recordFault.before = 1;
+  expect((await create(t, key)).status).toBe(503);
+  const machine = [...t.upstream.vms.values()][0]!;
+  machine.metadata["cmux_tenant"] = "team_bravo";
+  expect((await create(t, key)).status).toBe(503);
+  expect(t.resources).toHaveLength(0);
+  expect(allocation(t)).toHaveLength(1);
+  expect(t.upstream.callsTo("DELETE", /^\/v5\/vms\//)).toHaveLength(0);
+});
+
+it("preserves the admitted creator when another key in the tenant resumes the same request", async () => {
+  const t = await harness(), first = await t.addKey("team_alpha", ["vm:write"]), second = await t.addKey("team_alpha", ["vm:write"]);
+  t.recordFault.before = 1;
+  expect((await create(t, first)).status).toBe(503);
+  const creator = t.audit[0]!.actor;
+  expect((await create(t, second)).status).toBe(201);
+  expect(t.resources[0]?.createdBy).toBe(creator);
+  expect(allocation(t)).toHaveLength(1);
+});

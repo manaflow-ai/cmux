@@ -13,6 +13,7 @@ import { makeHttpsProxies } from "./live-https-proxies.ts";
 import { makeRetireVm } from "./live-retire.ts";
 import { makeStatFile } from "./live-file-stat.ts";
 import { vmInstanceIdentity } from "./live-identity.ts";
+import { makeDurableCreate } from "./live-create.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
@@ -230,6 +231,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     createVm: (caller, spec, { source, network, image }) => {
+      if (spec.journal) return makeDurableCreate(config, baseImageFor)(caller, spec, { ...(source === undefined ? {} : { source }), ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) });
       const sourceIdOf: Effect.Effect<UpstreamId | null> = source === undefined ? Effect.succeed(null) : idOf(source.owns);
       return Effect.flatMap(sourceIdOf, (sourceId) => Effect.gen(function* () {
         const imageId = image === undefined ? null : vmImageEvidenceOf(image).snapshotId;

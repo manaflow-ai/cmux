@@ -68,6 +68,23 @@ describe("migration", () => {
 });
 
 describe("ownership store", () => {
+  it("replays the exact allocation record while refusing identity changes and resurrection", async () => {
+    const row: OwnedResource = { tenantId: TenantId.make("team_a"), kind: "vm", cmuxId: newVmId(), upstreamId: UpstreamId.make("vm-upstream-recover"), createdBy: "service:team-vm", createdAt: new Date("2026-10-01T00:00:00Z"), displayName: "persistent agent", labels: { role: "team-vm" } };
+    const store = await run(OwnershipStore);
+    expect(await run(store.allocationStatus(row.tenantId, row.cmuxId))).toBe("absent");
+    await run(store.record(row));
+    await run(store.record({ ...row, createdAt: new Date("2026-10-02T00:00:00Z") }));
+    const original = await run(store.find(row.tenantId, "vm", row.cmuxId));
+    expect(Option.map(original, (r) => r.createdAt.toISOString())).toEqual(Option.some(row.createdAt.toISOString()));
+    expect(await run(store.allocationStatus(row.tenantId, row.cmuxId))).toBe("live");
+    expect(await run(store.allocationStatus(TenantId.make("team_b"), row.cmuxId))).toBe("absent");
+    for (const changed of [{ ...row, tenantId: TenantId.make("team_b") }, { ...row, upstreamId: UpstreamId.make("another-instance") }, { ...row, labels: { role: "other" } }, { ...row, createdBy: "user:other" }]) await expect(run(store.record(changed))).rejects.toThrow();
+    await run(store.markDeleted(row.tenantId, "vm", row.cmuxId, new Date()));
+    expect(await run(store.allocationStatus(row.tenantId, row.cmuxId))).toBe("deleted");
+    await expect(run(store.record(row))).rejects.toThrow();
+    expect(Option.isNone(await run(store.find(row.tenantId, "vm", row.cmuxId)))).toBe(true);
+  });
+
   it("finds a resource only for its own tenant", async () => {
     const vmId = newVmId();
     await run(

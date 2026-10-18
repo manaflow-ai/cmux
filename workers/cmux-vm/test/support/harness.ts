@@ -95,6 +95,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Team admins (Stack team_admin), per tenant. */
   const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -130,13 +131,19 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const getKey = createLocalJWKSet({ keys: [jwk] });
 
   const ownership = Layer.succeed(OwnershipStore, {
+    allocationStatus: (tenantId, cmuxId) => Effect.sync(() => {
+      const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
+      return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : "live" as const;
+    }),
     find: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
     record: (resource) => Effect.gen(function* () {
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
-      resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
+      const existing = resources.find((r) => r.cmuxId === resource.cmuxId);
+      if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
+      if (!existing) resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
       if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
     }),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
@@ -230,7 +237,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     options.limits ?? memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
-      makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
+      upstreamClient,
     ),
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     // The real membership client and shared positive cache (mesh M4), over a fake Stack teams API.
@@ -307,6 +314,9 @@ export async function makeHarness(options: HarnessOptions = {}) {
     upstreamRequests,
     resources,
     recordFault,
+    setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: upstream.fetch }));
+    },
     /** Whether the ownership row for `cmuxId` is marked deleted. */
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),
     audit,
