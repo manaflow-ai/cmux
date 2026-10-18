@@ -60,6 +60,7 @@ on:
       - schemas/**
       - plans/cmux-next/**
       - docs/mdm/**
+      - docs/configuration.md
       - webviews/test/fixtures/**
       # The web bundles' sources (build output since cx-vn5; the package tests
       # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
