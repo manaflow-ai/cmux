@@ -31,7 +31,6 @@ public actor AgentChatTranscriptTailer {
 
     private let maxInitialLines: Int
     private let maxCachedMessages: Int
-    private let outlineHeadScanByteCap: Int
 
     private var cache: [ChatMessage] = []
     private var parseState = ChatTranscriptParseState()
@@ -47,9 +46,6 @@ public actor AgentChatTranscriptTailer {
     private var watcher: FileWatcher?
     private var started = false
     private var reportedTitle = false
-    /// One entry per user prompt over the whole transcript (bounded by
-    /// `outlineHeadScanByteCap`), independent of the message cache window.
-    private var outline = ChatOutlineAccumulator()
 
     /// Creates a tailer.
     ///
@@ -59,8 +55,6 @@ public actor AgentChatTranscriptTailer {
     ///   - path: Absolute transcript JSONL path.
     ///   - maxInitialLines: Backfill bound for the first read.
     ///   - maxCachedMessages: In-memory cache cap; oldest fall out.
-    ///   - outlineHeadScanByteCap: How much of the transcript before the
-    ///     backfill window is scanned for older prompts.
     ///   - onBatch: Receives live change batches after the initial load.
     public init(
         sessionID: String,
@@ -68,7 +62,6 @@ public actor AgentChatTranscriptTailer {
         path: String,
         maxInitialLines: Int = 2000,
         maxCachedMessages: Int = 4000,
-        outlineHeadScanByteCap: Int = 32 * 1024 * 1024,
         onBatch: @escaping @Sendable (Batch) async -> Void
     ) {
         self.sessionID = sessionID
@@ -76,7 +69,6 @@ public actor AgentChatTranscriptTailer {
         self.path = path
         self.maxInitialLines = maxInitialLines
         self.maxCachedMessages = maxCachedMessages
-        self.outlineHeadScanByteCap = outlineHeadScanByteCap
         self.onBatch = onBatch
     }
 
@@ -138,17 +130,6 @@ public actor AgentChatTranscriptTailer {
         )
     }
 
-    /// One entry per user prompt, oldest first, with each prompt's reply
-    /// preview. Covers the whole transcript, not only the cached window.
-    public var outlineEntries: [ChatOutlineEntry] {
-        outline.entries
-    }
-
-    /// Whether prompts older than ``outlineEntries`` exist on disk.
-    public var isOutlineHeadTruncated: Bool {
-        outline.isHeadTruncated
-    }
-
     /// First user prompt in the cache, for the session title.
     public var title: String? {
         for message in cache {
@@ -188,8 +169,6 @@ public actor AgentChatTranscriptTailer {
 
         let parseStartLine = max(0, completeLineCount - maxInitialLines)
         headTruncated = parseStartLine > 0
-        outline.reset()
-        scanOutlineHead(data: data, lineStarts: lineStarts, endLine: parseStartLine)
         var lines: [String] = []
         lines.reserveCapacity(completeLineCount - parseStartLine)
         for lineIndex in parseStartLine..<completeLineCount {
@@ -199,56 +178,8 @@ public actor AgentChatTranscriptTailer {
         let outcome = parse(lines: lines, startingSeq: parseStartLine)
         cache = outcome.messages
         parseState = outcome.state
-        outline.ingest(outcome.messages)
         trimCacheIfNeeded()
     }
-
-    /// Collects prompts from the lines before the backfill window, which are
-    /// never cached, so the outline covers the whole session. Reads at most
-    /// `outlineHeadScanByteCap` bytes ending at the window, in chunks so
-    /// parsed messages are dropped as soon as they are folded in.
-    private func scanOutlineHead(data: Data, lineStarts: [Int], endLine: Int) {
-        guard endLine > 0 else { return }
-        let windowStart = lineStarts[endLine]
-        var startLine = 0
-        if windowStart > outlineHeadScanByteCap {
-            let floor = windowStart - outlineHeadScanByteCap
-            startLine = lineStarts.firstIndex { $0 >= floor } ?? endLine
-            outline.markHeadTruncated()
-        }
-        var state = ChatTranscriptParseState()
-        var lineIndex = startLine
-        while lineIndex < endLine {
-            let chunkEnd = min(endLine, lineIndex + Self.outlineHeadScanChunkLines)
-            var lines: [String] = []
-            var chunkStart = lineIndex
-            for index in lineIndex..<chunkEnd {
-                let range = lineStarts[index]..<(lineStarts[index + 1] - 1)
-                // Oversized lines are tool output or file snapshots, never a
-                // prompt worth outlining; skip decoding them. Keep line
-                // numbering exact by parsing each run separately.
-                guard range.count <= Self.outlineHeadScanMaxLineBytes else {
-                    foldOutlineHead(lines: lines, startingSeq: chunkStart, state: &state)
-                    lines.removeAll(keepingCapacity: true)
-                    chunkStart = index + 1
-                    continue
-                }
-                lines.append(String(decoding: data[range], as: UTF8.self))
-            }
-            foldOutlineHead(lines: lines, startingSeq: chunkStart, state: &state)
-            lineIndex = chunkEnd
-        }
-    }
-
-    private func foldOutlineHead(lines: [String], startingSeq: Int, state: inout ChatTranscriptParseState) {
-        guard !lines.isEmpty else { return }
-        let outcome = parse(lines: lines, startingSeq: startingSeq, state: state)
-        state = outcome.state
-        outline.ingest(outcome.messages)
-    }
-
-    private static let outlineHeadScanChunkLines = 512
-    private static let outlineHeadScanMaxLineBytes = 1024 * 1024
 
     private func drainNewContent() async {
         guard let handle = FileHandle(forReadingAtPath: path) else { return }
@@ -303,7 +234,6 @@ public actor AgentChatTranscriptTailer {
             }
         }
         cache.append(contentsOf: outcome.messages)
-        outline.ingest(outcome.messages)
         trimCacheIfNeeded()
         // Updates for messages that already fell out of the cache are still
         // pushed: a live client may hold them in its window.
@@ -324,19 +254,11 @@ public actor AgentChatTranscriptTailer {
     }
 
     private func parse(lines: [String], startingSeq: Int) -> ChatTranscriptParseResult {
-        parse(lines: lines, startingSeq: startingSeq, state: parseState)
-    }
-
-    private func parse(
-        lines: [String],
-        startingSeq: Int,
-        state: ChatTranscriptParseState
-    ) -> ChatTranscriptParseResult {
         switch agentKind {
         case .codex:
-            return CodexTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: state)
+            return CodexTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
         case .claude, .other:
-            return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: state)
+            return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
         }
     }
 

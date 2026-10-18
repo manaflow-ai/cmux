@@ -14,7 +14,9 @@ public final class PanelStableSurfaceIdentity {
     /// Live-transfer provenance for legacy SSH panels whose catalog IDs are local.
     fileprivate var transferredMachine: SurfaceMachineID?
 
-    public init() {}
+    public init(id: UUID = UUID()) {
+        self.id = id
+    }
 }
 
 extension Panel {

@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
       "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
-      "action": "Sæt maskinen på pause, genoptag den, og prøv igen. I Mac-appen skal du vælge Sæt maskine på pause og derefter Genoptag maskine. I en terminal skal du køre cmux vm pause '<machine>' og derefter cmux vm resume '<machine>'."
+      "action": "Kontakt support med sporings-id'et, før du opretter en ny maskine."
     },
     "inProgress": {
       "title": "Stadig i gang",
@@ -44,6 +44,16 @@
       "title": "Cloududbyderen er langsom",
       "message": "Cloududbyderen svarede ikke i tide.",
       "action": "Prøv igen om et øjeblik."
+    },
+    "providerCapacity": {
+      "title": "Ingen Cloud-kapacitet lige nu",
+      "message": "Cloud-tjenesten har ikke plads til denne maskine lige nu. Intet blev ændret.",
+      "action": "Prøv igen om et minut."
+    },
+    "stateConflict": {
+      "title": "Maskinen er optaget",
+      "message": "Denne maskine starter, sættes på pause eller kører ikke, så den kan ikke gøre dette lige nu.",
+      "action": "Vent et øjeblik, og prøv igen. Tjek maskinens status med cmux vm ls, og genoptag den først, hvis den er sat på pause."
     },
     "networkRuleCapacity": {
       "title": "Netværksregler har nået kapaciteten",
@@ -103,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan}-regnekvote brugt op",
+      "computeMessage": "Din {plan}-plan har brugt sine {included} regnetimer i denne faktureringsperiode. En regnetime er 1 vCPU med 2 GB hukommelse i én time. Dine maskiner kan starte igen den {resetDate}.",
+      "computeAction": "Pausede maskiner beholder deres filer. Kontakt support, hvis du har brug for mere regnekraft før den {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-diskkvote brugt op",
+      "storageMessage": "Din {plan}-plan omfatter {included} GB disk på tværs af alle gemte maskiner. Gemte maskiner bruger {used} GB, og denne anmodning kræver {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressourcer",
@@ -504,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Genoptag din plan for at ændre den.",
           "granted": "Tildelt af cmux. Der er intet at ændre.",
+          "grantedNoCancel": "Tildelt af cmux, så der er intet at opsige.",
+          "paymentFailed": "Opdater din betalingsmetode, før du skifter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Kun teamadministratorer kan ændre planen."
         },
         "names": {
@@ -546,6 +569,7 @@
       "change": {
         "title": "Skift til {plan}?",
         "upgradeBody": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om måneden.",
+        "upgradeBodyYearly": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om året.",
         "downgradeBody": "{plan} starter nu. Den ubrugte del af din nuværende plan, {credit}, krediteres dine næste fakturaer. Din næste faktura den {date} er på {amount}.",
         "confirm": "Skift til {plan}",
         "keep": "Behold nuværende plan",
@@ -558,6 +582,8 @@
         "title": "Opsig {plan}?",
         "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
         "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
+        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
         "otherPlaceholder": "Fortæl os mere (valgfrit)",
         "confirm": "Opsig plan",
@@ -3261,12 +3287,13 @@
       "apiKeyScope": "En organisations API-nøgle bruger kun teamets delte konti. En nøgle i dit personlige team kan også bruge dine private konti. CodeRouter betjener OpenAI Responses API, ikke Chat Completions.",
       "apiKeyLogin": "På en maskine, der ikke kan åbne en browser, logger cr login --api-key cr ind med en nøgle, og CODEROUTER_API_KEY giver en nøgle til en enkelt kommando. Tilbagekald en nøgle i dashboardet, eller kør cr logout på den maskine, der bruger den.",
       "cloudTitle": "På cmux Cloud-maskiner",
-      "cloudDesc": "Cloud-maskiner kræver ingen opsætning. Maskinens miljø peger OPENAI_BASE_URL og ANTHROPIC_BASE_URL mod en privat CodeRouter-adresse, og cmux skriver hver agents konfiguration, første gang en shell eller agenten starter:",
-      "cloudClaude": "Claude Code læser ANTHROPIC_BASE_URL og en pladsholder-ANTHROPIC_API_KEY fra miljøet. Spørgsmålene ved første kørsel er allerede besvaret.",
+      "cloudDesc": "Cloud-maskiner kræver ingen opsætning. Hver agent bruger dit teams CodeRouter-konti via en privat CodeRouter-adresse, og cmux skriver dens konfiguration, første gang en shell eller agenten starter:",
+      "cloudClaude": "Claude Code får ANTHROPIC_BASE_URL og en pladsholder-ANTHROPIC_API_KEY, hver gang den starter, ikke fra hver shell, så de aldrig går forud for dit eget login. Spørgsmålene ved første kørsel er allerede besvaret.",
       "cloudCodex": "Codex får en cmux-modeludbyder i ~/.codex/config.toml.",
       "cloudPi": "Pi får en udbydertilsidesættelse i ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode henter sin udbyderliste fra CodeRouter første gang, den starter, og gemmer den i ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode henter sin udbyderliste fra CodeRouter første gang, den starter, gemmer den i ~/.config/cmux/opencode-team.json og føjer den til din egen konfiguration ved hver kørsel.",
       "cloudYours": "cmux skriver kun hver fil, når den mangler, så dine ændringer bevares. En Codex-konfiguration, der allerede angiver en anden modeludbyder, lades uændret.",
+      "cloudOwnLogin": "Vil du i stedet bruge din egen konto, så kør cr use own på maskinen, og log derefter ind, som agenten normalt gør: /login i Claude Code, codex login eller opencode auth login. cr use team skifter tilbage, cr use own codex ændrer én agent, og cr use viser, hvordan hver agent logger ind. Uden et valg bruger en agent, du har logget ind i på maskinen, din egen konto, og en agent, som dit team ikke har en konto til, viser sit normale login. En ændring gælder, næste gang agenten starter.",
       "cloudRun": "Kør agenter som normalt. cmux coderouter agent gør en ren prompt til agentens engangsform; inde i en maskine kører den i den aktuelle terminal, og på din Mac starter den agenten på den maskine, du angiver, ligesom cmux vm agent.",
       "cloudAccounts": "Cloud-maskiner bruger konti fra det team, der ejer dem. Hvis en agent melder, at ingen konto er tilgængelig, så tilføj en, eller del en eksisterende med teamet.",
       "modelsTitle": "Modeller",
@@ -3469,7 +3496,10 @@
     "title": "Logget ind på cmux",
     "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
     "button": "Tilbage til cmux",
-    "switchAccountButton": "Brug en anden konto"
+    "switchAccountButton": "Brug en anden konto",
+    "rateLimitedTitle": "Login er optaget",
+    "rateLimitedBody": "Vores login-tjeneste behandler for mange forespørgsler. Vent et par sekunder, og fortsæt derefter. Du behøver ikke at logge ind igen.",
+    "retryButton": "Fortsæt login"
   },
   "landing": {
     "bestTerminal": {
@@ -5504,6 +5534,9 @@
     "switchFailed": "Kunne ikke logge ud. Prøv igen.",
     "invalidTitle": "Denne invitation er ikke længere gyldig",
     "invalidBody": "Den er udløbet, tilbagekaldt eller allerede brugt. Bed en teamadministrator om en ny.",
-    "goToTeams": "Gå til dine teams"
+    "goToTeams": "Gå til dine teams",
+    "unavailableTitle": "Vi kunne ikke bekræfte dit login",
+    "unavailableBody": "Vores login-tjeneste er optaget. Vent et par sekunder, og åbn invitationen igen. Du behøver ikke at logge ind igen.",
+    "retry": "Prøv igen"
   }
 }

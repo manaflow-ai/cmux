@@ -171,6 +171,7 @@ struct CodeRouterHandoffProtocolTests {
         #expect(launchPolicy.commandRequiresHandoff(["pi", "arg"]))
         #expect(!launchPolicy.commandRequiresHandoff([]))
         #expect(!launchPolicy.commandRequiresHandoff(["login"]))
+        #expect(!launchPolicy.commandRequiresHandoff(["add", "codex"]))
         #expect(!launchPolicy.commandRequiresHandoff(["Codex"]))
     }
 

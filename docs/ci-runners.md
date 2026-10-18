@@ -836,6 +836,16 @@ notarization are not on it: no signing run on an owned Mac has been proven,
 and the retired self-hosted fleet failed `codesign` with
 `errSecInternalComponent` (#6264).
 
+NEXT nightly routing has separate `CI_NIGHTLY_NEXT_TRUSTED_POOL` and
+`CI_NIGHTLY_NEXT_TRUSTED_RUNNER` variables, restricted to the same trusted-pool
+and runner-name shapes as main's pair. Main's rescue watches attempt 1 of
+same-repository `nightly-next` pushes, moves refused or stalled jobs to their
+hosted retry, and compares newer pending runs only within that branch.
+A schedule on `nightly-next` is never admitted. These variables must remain
+unset until the NEXT workflow supports the route and an eligible worker's hook
+admits exactly its workflow, job and ref. They authorize no PR-pool or signing
+work on the trusted worker. Main's nightly runner selection is unchanged.
+
 | Jobs | Route | Why |
 | --- | --- | --- |
 | `ci-macos.yml` compile admission, app-host shards, `tests-build-and-lag`, `cli-product-tests` | owned via `pr_runner_pool.py` (root label), pull requests and main's full-suite dispatch | canonical-root jobs |

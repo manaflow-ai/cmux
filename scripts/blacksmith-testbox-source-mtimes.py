@@ -8,7 +8,8 @@ from the sticky disk would rebuild every workspace crate and rerun the Ghostty
 zig build anyway.
 
 `record` runs on the box that is about to commit the disk. It writes the git
-blob id and mtime of every file under the Cargo-relevant source dirs, and the
+blob id and mtime of every file in the checkout (but build output and
+dependency stores), and the
 entry-list hash and mtime of every directory there (Cargo's
 `rerun-if-changed` on a directory compares directory mtimes too), into the
 target dir, next to the artifacts those mtimes describe.
@@ -25,7 +26,14 @@ libghostty-vt for zig's native CPU, so a warm target dir written on one
 Blacksmith host CPU makes every binary that links it die with SIGILL on
 another. `record` stores a CPU fingerprint next to the manifest. `restore`
 removes those packages' build and fingerprint dirs when the fingerprint is
-missing or different, and Cargo then reruns their build scripts.
+missing or different, and Cargo then reruns their build scripts. Output built
+with CMUX_GHOSTTY_VT_ZIG_CPU=baseline runs on every x86-64 host (hq's
+testbox-run.sh sets it on every Testbox command). On a CPU change only the
+build script runs that did not record that value are dropped (with their out
+dirs); compile units and baseline runs stay. Measured
+2026-10-12: 5 of 9 warmups landed on another CPU model (AMD EPYC and Intel
+Xeon hosts share the label) and rebuilt ghostty-vt-sys (40-110 s) and all
+its dependents.
 
 The manifest comes from a disk that candidate code wrote, so restore parses it
 strictly, touches only regular files inside the repository, and never follows
@@ -33,16 +41,18 @@ a symlink.
 """
 
 import hashlib
+import json
 import os
 import shutil
 import sys
 
-SOURCE_DIRS = ("cmux-tui", "ghostty", "ghostty-next")
-SKIP_DIRS = {".git", "target", ".zig-cache", "zig-cache", "zig-out", "node_modules"}
+SKIP_DIRS = {".git", "target", ".zig-cache", "zig-cache", "zig-out", "node_modules", ".build", "DerivedData", "testbox-benchmark"}
 MANIFEST_VERSION = "cmux-testbox-source-mtimes-v2"
 CPU_RECORD = ".cmux-testbox-cpu"
 # Packages whose build script compiles for the host CPU (zig native target).
 NATIVE_CPU_PACKAGES = ("ghostty-vt-sys",)
+# The build script input that makes their output portable, and its value.
+PORTABLE_CPU_ENV = ("CMUX_GHOSTTY_VT_ZIG_CPU", "baseline")
 
 
 def cpu_fingerprint() -> str:
@@ -88,6 +98,37 @@ def native_output_dirs(target: str):
             ]
 
 
+def fingerprint_kind(path: str):
+    """For a .fingerprint/<package>-<hash> dir: "portable" for a build script
+    run that recorded PORTABLE_CPU_ENV, "native" for any other run or a dir
+    Cargo's records do not explain, "compile" for a compile unit (a lib, a
+    test, the build script binary): rustc output, the same on every x86-64
+    host."""
+    try:
+        names = [name for name in os.listdir(path) if name.endswith(".json")]
+    except OSError:
+        return "native"
+    runs = [name for name in names if name.startswith("run-build-script-")]
+    if not runs:
+        return "compile" if names else "native"
+    for name in runs:
+        full = os.path.join(path, name)
+        value = None
+        try:
+            if not os.path.islink(full):
+                with open(full, encoding="utf-8") as handle:
+                    record = json.load(handle)
+                for item in record.get("local") or []:
+                    env = item.get("RerunIfEnvChanged") if isinstance(item, dict) else None
+                    if isinstance(env, dict) and env.get("var") == PORTABLE_CPU_ENV[0]:
+                        value = env.get("val")
+        except (OSError, ValueError, AttributeError):
+            value = None
+        if value != PORTABLE_CPU_ENV[1]:
+            return "native"
+    return "portable"
+
+
 def drop_foreign_cpu_outputs(target: str) -> None:
     if not os.path.isdir(target) or os.path.islink(target):
         return
@@ -100,13 +141,37 @@ def drop_foreign_cpu_outputs(target: str) -> None:
     if current and recorded == current:
         print("source-mtimes: same CPU as the snapshot; native build output kept")
         return
-    removed = 0
-    for path in list(native_output_dirs(target)):
-        shutil.rmtree(path)
-        removed += 1
+    # Only a build script run's out dir (build/<package>-<hash>, named like its
+    # .fingerprint dir) holds code for the host CPU. Drop each run that was
+    # not built for the baseline CPU, with its out dir, and every dir Cargo's
+    # records do not explain. Cargo reruns those, and their newer output makes
+    # the lib that bundles it and everything linking it rebuild. Compile units
+    # and baseline runs stay. The out dir must go with its fingerprint dir: the
+    # missing build/<hash>/output is what marks the run, and through it the
+    # kept lib unit, stale.
+    paths = list(native_output_dirs(target))
+    kinds = {
+        path: fingerprint_kind(path)
+        for path in paths
+        if os.path.basename(os.path.dirname(path)) == ".fingerprint"
+    }
+    drop = set()
+    for path in paths:
+        if path in kinds:
+            if kinds[path] == "native":
+                drop.add(path)
+            continue
+        twin = os.path.join(os.path.dirname(os.path.dirname(path)), ".fingerprint", os.path.basename(path))
+        if kinds.get(twin, "native") == "native":
+            drop.add(path)
+    for path in paths:
+        if path in drop:
+            shutil.rmtree(path)
     print(
         f"source-mtimes: CPU differs from the snapshot (or is unknown); removed "
-        f"{removed} native-CPU build dirs ({', '.join(NATIVE_CPU_PACKAGES)})"
+        f"{len(drop)} native-CPU build dirs ({', '.join(NATIVE_CPU_PACKAGES)}), kept "
+        f"{len(paths) - len(drop)} (compile units and runs built with "
+        f"{PORTABLE_CPU_ENV[0]}={PORTABLE_CPU_ENV[1]})"
     )
     # Every native output left in target/ is now for this CPU (or absent), so
     # say so at once. Otherwise a failed `record` at release would commit new
@@ -148,22 +213,25 @@ def listing_id(path: str) -> str:
 
 
 def source_entries(repo: str):
-    """Yield (kind, path): "F" for regular files, "D" for directories."""
-    for top in SOURCE_DIRS:
-        root = os.path.join(repo, top)
-        if not os.path.isdir(root) or os.path.islink(root):
-            continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            if "\t" not in dirpath and "\n" not in dirpath:
-                yield "D", dirpath
-            dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
-            for name in filenames:
-                path = os.path.join(dirpath, name)
-                if os.path.islink(path) or not os.path.isfile(path):
-                    continue
-                if "\t" in path or "\n" in path:
-                    continue
-                yield "F", path
+    """Yield (kind, path): "F" for regular files, "D" for directories.
+
+    The whole checkout but SKIP_DIRS: cmux-tui crates include_str! files from
+    schemas/, backend/, plans/ and skills/, so those are Cargo inputs too
+    (about 21,000 files in all)."""
+    for dirpath, dirnames, filenames in os.walk(repo):
+        if dirpath != repo and "\t" not in dirpath and "\n" not in dirpath:
+            yield "D", dirpath
+        dirnames[:] = [
+            name for name in dirnames
+            if name not in SKIP_DIRS and not os.path.islink(os.path.join(dirpath, name))
+        ]
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            if os.path.islink(path) or not os.path.isfile(path):
+                continue
+            if "\t" in path or "\n" in path:
+                continue
+            yield "F", path
 
 
 def record(repo: str, manifest: str) -> int:
@@ -215,7 +283,7 @@ def restore(repo: str, manifest: str) -> int:
                 or any(c not in "0123456789abcdef" for c in blob)
                 or not mtime_ns.isdigit()
                 or os.path.isabs(relative)
-                or relative.split(os.sep)[0] not in SOURCE_DIRS
+                or any(part in SKIP_DIRS for part in relative.split(os.sep))
             ):
                 skipped += 1
                 continue
