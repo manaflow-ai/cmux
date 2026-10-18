@@ -13,7 +13,8 @@ import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
-import { memoryLimitsLayer } from "../../src/limits/service.ts";
+import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
+import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
@@ -32,6 +33,7 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  readonly limits?: Layer.Layer<TenantLimits>;
   /** Operator-approved image configuration, as supplied to the Worker. */
   readonly bootImages?: string;
   readonly httpsProxyOrigins?: ReadonlyArray<string>;
@@ -79,6 +81,7 @@ interface StoredKey extends ApiKeyRecord {
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
+  const recordFault = { before: 0, after: 0 };
   const keys: StoredKey[] = [];
   /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
   const serviceKeys: Array<{
@@ -131,7 +134,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
-    record: (resource) => Effect.sync(() => void resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) })),
+    record: (resource) => Effect.gen(function* () {
+      if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
+      resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
+      if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
+    }),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
     listPage: (tenantId, kind, page) =>
       Effect.sync(() =>
@@ -220,7 +227,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     policy,
     Layer.succeed(VmImages, { get images() { return configuredImages; } }),
     entitlements,
-    memoryLimitsLayer(),
+    options.limits ?? memoryLimitsLayer(),
     Layer.succeed(
       UpstreamClient,
       makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
@@ -299,6 +306,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     /** Every upstream call, in order. */
     upstreamRequests,
     resources,
+    recordFault,
     /** Whether the ownership row for `cmuxId` is marked deleted. */
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),
     audit,

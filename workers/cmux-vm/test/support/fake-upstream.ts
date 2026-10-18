@@ -7,6 +7,7 @@
 
 export interface FakeVm {
   id: string;
+  slug?: string | null;
   state: string;
   resources: { cpu: number; memory: number; storage: number };
   idleTimeoutSeconds: number | null;
@@ -56,7 +57,7 @@ const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
 
 const vmBody = (vm: FakeVm) => ({
   id: vm.id,
-  slug: `tenant-slug-${vm.id}`,
+  slug: vm.slug ?? `tenant-slug-${vm.id}`,
   snapshotId: vm.snapshotId ?? `sc-${vm.id}`,
   state: vm.state,
   resources: vm.resources,
@@ -81,6 +82,7 @@ const notFound = () => Response.json({ code: "NOT_FOUND", message: "no such VM" 
 const conflict = (message: string) => Response.json({ code: "CONFLICT", message }, { status: 409 });
 
 export function makeFakeUpstream(apiKey: string) {
+  const faults = { lostCreateResponses: 0 };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
@@ -105,7 +107,7 @@ export function makeFakeUpstream(apiKey: string) {
   const handle = async (operation: UpstreamOperation, request: Request, url: URL, vmId: string | null): Promise<Response> => {
     const failure = takeFailure(operation);
     if (failure !== null) return failure;
-    const vm = vmId === null ? undefined : vms.get(vmId);
+    const vm = vmId === null ? undefined : vms.get(vmId) ?? [...vms.values()].find((v) => v.slug === vmId);
     switch (operation) {
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
@@ -114,6 +116,8 @@ export function makeFakeUpstream(apiKey: string) {
         const record = typeof body === "object" && body !== null ? body : {};
         const read = (key: string): unknown => (key in record ? Reflect.get(record, key) : undefined);
         const snapshotId = read("snapshotId");
+        const slug = read("slug");
+        if (typeof slug === "string" && [...vms.values()].some((v) => v.slug === slug)) return conflict("slug already exists");
         const base = typeof snapshotId === "string" ? BASE_IMAGES[snapshotId] : undefined;
         if (typeof snapshotId === "string" && base === undefined && !snapshots.has(snapshotId)) {
           return Response.json({ code: "BAD_REQUEST", message: "no such snapshot" }, { status: 400 });
@@ -121,6 +125,7 @@ export function makeFakeUpstream(apiKey: string) {
         const metadata = read("metadata");
         const created: FakeVm = {
           id: `vm-${crypto.randomUUID()}`,
+          slug: typeof slug === "string" ? slug : null,
           state: "starting",
           resources: { ...(base ?? DEFAULT_RESOURCES) },
           idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" ? Number(read("idleTimeoutSeconds")) : null,
@@ -139,6 +144,7 @@ export function makeFakeUpstream(apiKey: string) {
           const id = `tls-${crypto.randomUUID()}`;
           tlsRules.set(id, { ...value, id, protocol: "http", source: { vmId: created.id } });
         }
+        if (faults.lostCreateResponses > 0) { faults.lostCreateResponses--; throw new TypeError("lost provider create response"); }
         return Response.json(vmBody(created), { status: 201 });
       }
       case "get":
@@ -337,6 +343,7 @@ export function makeFakeUpstream(apiKey: string) {
   };
 
   return {
+    faults,
     fetch,
     vms,
     snapshots,
