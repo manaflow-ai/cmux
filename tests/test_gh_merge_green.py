@@ -314,7 +314,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -336,7 +336,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
@@ -1125,7 +1125,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
         bun.chmod(0o755)
         return work, head, directory / "bin"
 
-    def run_merge(self, directory, pr_files, **kwargs):
+    def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), **kwargs):
         global HEAD
         work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
         log = Path(directory) / "checks.log"
@@ -1135,7 +1135,9 @@ class MergedHeadChecksRegression(unittest.TestCase):
         os.environ.update(GH_MERGE_GREEN_REPO_DIR=str(work), CHECK_LOG=str(log), PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
         try:
             marker = Path(directory) / "merged"
-            result = InstalledHelperRegression.run_helper(self, directory, marker, changed_files=tuple(pr_files))
+            result = InstalledHelperRegression.run_helper(
+                self, directory, marker, changed_files=tuple(pr_files), is_cross_repository=fork,
+                extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args))
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
@@ -1145,6 +1147,42 @@ class MergedHeadChecksRegression(unittest.TestCase):
                 else:
                     os.environ[name] = value
         return result, marker, log.read_text()
+
+    def test_fork_without_head_trust_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/A.swift": "struct A {}\n"}, fork=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertEqual(log, "")
+            self.assertIn("--trust-fork-head", result.stderr)
+
+    def test_reviewed_fork_runs_merged_checks_and_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/A.swift": "struct A {}\n"}, fork=True, trust_head=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("--only swift --base", log)
+            events = (Path(directory) / "events").read_text().splitlines()
+            self.assertLess(events.index("comment"), events.index("merge"))
+
+    def test_reviewed_fork_cannot_replace_base_guard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/GOD": "x\n"}, fork=True, trust_head=True,
+                pr_script="#!/usr/bin/env bash\nexit 0\n")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertIn("--only swift --base", log)
+
+    def test_stale_fork_trust_refuses_before_executing_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/A.swift": "struct A {}\n"}, fork=True,
+                extra_args=("--trust-fork-head", "f" * 40))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertEqual(log, "")
+            self.assertIn("reviewed fork head", result.stderr)
 
     def test_a_merged_head_that_grows_a_god_type_refuses(self):
         with tempfile.TemporaryDirectory() as directory:
