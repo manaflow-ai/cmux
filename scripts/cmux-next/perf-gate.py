@@ -240,6 +240,13 @@ class App:
                     tabs += len(pane.get("tabs") or [])
         return panes, tabs
 
+    def pane_ids(self):
+        """Pane ids of the shown workspace, in snapshot order."""
+        topo = self.topology()
+        focus = (topo.get("focus") or {}).get("workspace")
+        return [pane.get("id") for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
+                for screen in workspace.get("screens") or [] for pane in screen.get("panes") or [] if pane.get("id")]
+
     def themes_window(self):
         windows = (self.rpc("debug.themes") or {}).get("windows") or []
         return windows[0] if windows else {}
@@ -553,24 +560,34 @@ class Gate:
                     rows.append((grid.get("frame_x", 0), cols(surface.get("fit_grid")), cols(surface.get("grid"))))
         return sorted(rows)
 
-    def build_grid(self, panes=16, tabs=3):
-        """A new workspace with `panes` terminals on one screen (splitRight and splitDown alternate
-        on the newest pane), each pane with `tabs` tabs (new-tab pages: hidden, no PTY)."""
+    def build_grid(self, columns=4, rows=4, tabs=3):
+        """A new workspace with columns x rows terminals on one screen (equal splits), each pane
+        with `tabs` tabs (New Tab Page tabs: hidden, no PTY)."""
         app = self.app
         before_ws = app.shown_workspace()
         app.action("workspace.newAtBottom")
         wait(lambda: app.shown_workspace() not in (None, before_ws) and app.panes()[0] >= 1, 30)
-        for i in range(app.panes()[0], panes):
-            before = app.panes()[0]
-            app.action("splitRight" if i % 2 else "splitDown", {})
-            if not wait(lambda: app.panes()[0] > before, 30):
-                print(f"  split {i}: still {app.panes()} after 30 s", flush=True)
-                break
-        for _ in range(app.panes()[0]):
+
+        def split(action, pane):
+            known = set(app.pane_ids())
+            app.action(action, {}, target=f"pane:{pane}")
+            new = wait(lambda: [p for p in app.pane_ids() if p not in known], 30)
+            app.action("equalizeSplits", {}, target=f"pane:{pane}")
+            return new[0] if new else None
+
+        column = app.pane_ids()[:1]
+        for _ in range(columns - 1):
+            if column[-1]:
+                column.append(split("splitRight", column[-1]))
+        for top in [c for c in column if c]:
+            cell = top
+            for _ in range(rows - 1):
+                cell = split("splitDown", cell) if cell else None
+        for pane in app.pane_ids():
             for _ in range(tabs - 1):
-                app.action("newTab")
-            app.action("focusNextPane")
-        shown = wait(lambda: (lambda p: p if p[0] >= panes and p[1] >= panes * tabs else None)(app.panes()), 30) or app.panes()
+                app.action("newTab.page", {}, target=f"pane:{pane}")
+        want = columns * rows
+        shown = wait(lambda: (lambda p: p if p[0] >= want and p[1] >= want * tabs else None)(app.panes()), 30) or app.panes()
         print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {app.shown_workspace()}", flush=True)
         self.grid = shown
         return shown
