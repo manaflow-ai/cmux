@@ -61,7 +61,7 @@ final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
         }
     }
 
-    func sendText(_ text: String, completion: @escaping @Sendable (any Error?) -> Void) {
+    func sendText(_ text: String, completion: @escaping @Sendable ((any Error)?) -> Void) {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         let context = NWConnection.ContentContext(identifier: "remote-daemon.send", metadata: [metadata])
         connection.send(
@@ -72,7 +72,7 @@ final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
         )
     }
 
-    func sendPing(completion: @escaping @Sendable (any Error?) -> Void) {
+    func sendPing(completion: @escaping @Sendable ((any Error)?) -> Void) {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .ping)
         let context = NWConnection.ContentContext(identifier: "remote-daemon.ping", metadata: [metadata])
         connection.send(content: nil, contentContext: context, isComplete: true, completion: .contentProcessed { error in

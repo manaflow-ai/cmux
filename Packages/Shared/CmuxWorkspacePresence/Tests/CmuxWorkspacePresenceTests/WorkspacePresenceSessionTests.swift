@@ -77,13 +77,8 @@ struct WorkspacePresenceSessionTests {
         await second.connection.deliver(WorkspacePresenceSnapshot(scope: scope, participants: []))
         await second.connection.disconnect()
 
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-        while clock.shortSleeps.count < 2, ContinuousClock.now < deadline {
-            await Task.yield()
-        }
-        let delays = Array(clock.shortSleeps.prefix(2))
-        #expect(delays.count == 2)
-        #expect(delays.allSatisfy { $0 >= .seconds(1) && $0 < .milliseconds(1500) })
+        _ = try #require(await PresenceTestTransport.next(transport.connections))
+        #expect(Array(clock.reconnectBackoffMarkers.prefix(2)) == [1, 1])
     }
 }
 
@@ -97,10 +92,10 @@ private final class ImmediatePresenceClock: Clock, @unchecked Sendable {
     nonisolated var now: Instant { .now }
     nonisolated var minimumResolution: Duration { .zero }
 
-    var shortSleeps: [Duration] {
+    var reconnectBackoffMarkers: [Int] {
         lock.lock()
         defer { lock.unlock() }
-        return recordedSleeps.filter { $0 < .seconds(5) }
+        return recordedSleeps.filter { $0 < .seconds(5) }.map { $0 < .milliseconds(1500) ? 1 : 2 }
     }
 
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
