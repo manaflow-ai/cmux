@@ -29,6 +29,9 @@ const SHAPES = new Set([
   ".acpmux-composer-bar .acpmux-model .acpmux-picker-button",
   ".acpmux-composer-bar .acpmux-effort .acpmux-picker-button",
   ".acpmux-composer-bar .acpmux-access .acpmux-picker-button",
+  ".acpmux-model .acpmux-picker-button",
+  ".acpmux-effort .acpmux-picker-button",
+  ".acpmux-access .acpmux-picker-button",
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);
