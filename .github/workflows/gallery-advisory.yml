@@ -116,6 +116,15 @@ jobs:
               exit 1
             fi
             test -f "$out/results.json"
+            expected_sha="$HEAD_SHA"
+            if [ "$stage" = base ]; then expected_sha="$base_sha"; fi
+            jq -e --arg sha "$expected_sha" \
+              'length > 0 and all(.[]; .revision.sha == $sha and (.revision.source | type == "string"))' \
+              "$out/results.json" >/dev/null || {
+                echo "Gallery provenance mismatch in $stage: expected $expected_sha" >&2
+                jq '[.[] | {id, engine, revision}]' "$out/results.json" >&2
+                exit 1
+              }
           done
 
           mkdir -p "$evidence/diff"
