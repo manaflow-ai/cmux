@@ -1146,7 +1146,7 @@ final class RemoteTmuxController {
                 _ = removeSessionMirror(forKey: key)
                 mirror.detachObserver()
                 detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
-                if let target = (mirror.connection.sessionId ?? mirror.seededSessionId).map({ "$\($0)" })
+                if let target = mirror.connection.sessionId.map({ "$\($0)" })
                     ?? RemoteTmuxHost.exactSessionTarget(mirror.sessionName) {
                     jobs.append((transport(for: host), target))
                 }
@@ -1204,7 +1204,7 @@ final class RemoteTmuxController {
         // chrome must not kill the remote session (#7364).
         let killTarget = Self.workspaceCloseKillTarget(
             connectionExited: mirror.connection.exited,
-            sessionId: mirror.connection.sessionId ?? mirror.seededSessionId,
+            sessionId: mirror.connection.sessionId,
             sessionName: sessionName
         )
         _ = removeSessionMirror(forKey: entry.key)
