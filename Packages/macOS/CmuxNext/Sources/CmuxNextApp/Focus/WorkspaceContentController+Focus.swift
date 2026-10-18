@@ -11,11 +11,26 @@ extension WorkspaceContentController {
     /// topology equal to the one it holds.
     func sendTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
         guard !isParked, !isApplying else { return }
+        focus.topologySent(by: self)
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
         DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
+    }
+
+    /// A pane's part of the topology changed: every pane that changes in this main-actor turn
+    /// shares one build and send (`FocusCoordinator.setNeedsTopology`), not one each (I4).
+    func setNeedsTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
+        guard !isParked, !isApplying else { return }
+        focus.setNeedsTopology(owner: self) { [weak self] in
+            guard let self, !self.isParked, !self.isApplying else { return nil }
+            #if DEBUG
+            DebugLayoutCounters.topologySends &+= 1
+            DebugLayoutCounters.note("topology", file, line)
+            #endif
+            return self.focusTopology()
+        }
     }
 
     /// Panes in layout order (every screen, in screen order). A pane whose

@@ -49,6 +49,10 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// The surface's rect in its window as fractions of the window frame, top-left origin
     /// (x, y, width, height): where a window recording shows this terminal.
     public var windowFraction: CGRect? = nil
+    /// Evicted-terminal last frames this session showed while it attached (cx-8w027.10 b).
+    public var lastFrameHolds: Int = 0
+    /// A held frame (a last frame, or the old surface's after a swap) is on screen now.
+    public var holdingFrame: Bool = false
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -92,7 +96,8 @@ extension TerminalSession {
                 return TerminalRenderCounters(frames: counters.frames, cellRebuilds: counters.cell_rebuilds,
                                               blendFrames: counters.blend_frames, frameUpdates: counters.frame_updates,
                                               fullPalette: counters.full_palette, fullConfig: counters.full_config,
-                                              fullFont: counters.full_font, fullOther: counters.full_other)
+                                              fullFont: counters.full_font, fullOther: counters.full_other,
+                                              fullSwap: counters.full_swap, fullResize: counters.full_resize)
             },
             windowFraction: surface.window.flatMap { window in
                 let frame = window.frame
@@ -100,7 +105,9 @@ extension TerminalSession {
                 let rect = surface.convert(surface.bounds, to: nil)
                 return CGRect(x: rect.minX / frame.width, y: 1 - rect.maxY / frame.height,
                               width: rect.width / frame.width, height: rect.height / frame.height)
-            }
+            },
+            lastFrameHolds: lastFrameHolds,
+            holdingFrame: frameHold.isHolding
         )
     }
 }
@@ -119,4 +126,15 @@ public struct TerminalRenderCounters: Sendable, Equatable {
     public var fullConfig: UInt64
     public var fullFont: UInt64
     public var fullOther: UInt64
+    /// Rebuilds of every row because the drawn terminal changed (a snapshot restore, the reflow
+    /// preview starting or ending) or its grid size changed.
+    public var fullSwap: UInt64
+    public var fullResize: UInt64
+
+    /// Every counter by its `debug.surfaces` name.
+    public var byName: [String: UInt64] {
+        ["frames": frames, "cell_rebuilds": cellRebuilds, "blend_frames": blendFrames, "frame_updates": frameUpdates,
+         "full_palette": fullPalette, "full_config": fullConfig, "full_font": fullFont, "full_other": fullOther,
+         "full_swap": fullSwap, "full_resize": fullResize]
+    }
 }
