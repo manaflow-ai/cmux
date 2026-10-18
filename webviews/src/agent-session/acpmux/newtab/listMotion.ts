@@ -67,6 +67,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const shownKeys = useRef<readonly string[]>([]);
   const signature = JSON.stringify(keys);
   // Keep one immutable key list per value signature so unrelated owner renders do not rerun layout reads.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- `signature` is the value dependency for stable keys.
   const keyList = useMemo(() => keys, [signature]);
   const observed = useRef<{ root: HTMLElement; rows: string; observer: ResizeObserver } | null>(null);
   const sampled = useRef<{ root: HTMLElement; rows: string; signature: string } | null>(null);
