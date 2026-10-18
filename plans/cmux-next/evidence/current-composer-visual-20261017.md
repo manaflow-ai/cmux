@@ -31,7 +31,7 @@
 
 ## Gallery presentation and handoff follow-up
 
-- **Exact branch head:** `6926d9d96cb9820e5568d60e71f82314a58cba2f`.
+- **Exact branch head:** `6c2a437f956c6ba998f142c82f056d979efd055f`.
 - Stage captions label every preview as either a `component surface` or a window-pane view with rendered dimensions. Browse cards show each variant note, so visual-only fixtures explain their purpose instead of looking like product screenshots or behavior journeys.
 - The shell follows the selected app theme and exposes `Permalink`, `Copy link`, and `Team feed` actions. Permalinks preserve the hash route and every selected control; the feed target is `https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/`.
 - Direct entry routes now resolve as soon as the named lazy entry loads; the router no longer waits for the entire registry before showing a deep link. Remaining entries continue loading independently.
