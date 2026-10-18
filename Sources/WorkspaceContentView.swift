@@ -228,23 +228,6 @@ struct WorkspaceContentView: View {
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
-        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
-        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-
-        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
-        // Finder file drops to the correct terminal panel.
-        let _ = {
-            workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
-                guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
-                return panel.hostedView.handleDroppedURLs(urls)
-            }
-        }()
-
         let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
@@ -378,6 +361,8 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            syncBonsplitInteractivity()
+            installBonsplitFileDropHandler()
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
@@ -391,6 +376,7 @@ struct WorkspaceContentView: View {
             )
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
+            syncBonsplitInteractivity()
             updateAgentHibernationPresentationVisibility()
         }
         .onDisappear {
@@ -472,6 +458,38 @@ struct WorkspaceContentView: View {
             sourceView: workspace.cloudPaneCreationFailureSourceView
         ))
     }
+
+    /// Keeps inactive workspaces from accepting AppKit drops without mutating
+    /// Bonsplit's observable state while SwiftUI is evaluating `body`.
+    private func syncBonsplitInteractivity() {
+        Self.syncBonsplitInteractivity(
+            workspace.bonsplitController,
+            isInputActive: isWorkspaceInputActive
+        )
+    }
+
+    /// Applies the active workspace input state only when Bonsplit needs a new value.
+    static func syncBonsplitInteractivity(
+        _ controller: BonsplitController,
+        isInputActive: Bool
+    ) {
+        guard controller.isInteractive != isInputActive else { return }
+        controller.isInteractive = isInputActive
+    }
+
+    /// Routes Finder drops to the focused terminal without rebuilding the
+    /// closure during every Bonsplit body evaluation.
+    private func installBonsplitFileDropHandler() {
+        workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
+            guard let workspace else { return false }
+            // Find the focused panel in this pane and drop the files into it.
+            guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
+                  let panelId = workspace.panelIdFromSurfaceId(tabId),
+                  let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
+            return panel.hostedView.handleDroppedURLs(urls)
+        }
+    }
+
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
         let restoredUnread = workspace.restoredUnreadPanelIds
