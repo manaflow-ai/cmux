@@ -2661,6 +2661,17 @@ fn ensure_daemon(
         "remote daemon",
         &log_path,
     )?;
+    if mux_socket_override.is_some() {
+        // The link listener is created before the admin listener during startup.
+        let (_, _, admin) = daemon_paths(session, state_root)?;
+        wait_for_detached_socket(
+            &mut child,
+            &admin,
+            Duration::from_secs(20),
+            "remote daemon admin",
+            &log_path,
+        )?;
+    }
     remote_link_mux::check_binding(
         connect_same_user_socket(link)?,
         session,
