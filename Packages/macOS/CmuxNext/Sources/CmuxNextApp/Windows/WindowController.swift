@@ -29,6 +29,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
     /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
     private(set) var parked: [String: WorkspaceContentController] = [:]
+    /// Orders `parked` by when each was parked (`mountedContents`).
+    private var parkSerial: UInt64 = 0
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -125,8 +127,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// The shown workspace and the parked ones, each with its theme scope.
-    var mountedContents: [WorkspaceContentController] { (content.map { [$0] } ?? []) + parked.values }
+    /// The shown workspace, then the parked ones from the most recently shown, each with its theme scope.
+    var mountedContents: [WorkspaceContentController] {
+        (content.map { [$0] } ?? []) + parked.values.sorted { $0.parkedSerial > $1.parkedSerial }
+    }
+
+    /// Critical memory pressure: the parked workspaces leave (views, panes, observations; their
+    /// terminal surfaces already left the warm set) and mount again when shown. The one under a
+    /// top page stays: it is this window's workspace.
+    func releaseParked() {
+        for (id, controller) in parked where content != nil || id != state.workspaceID {
+            parked[id] = nil
+            controller.teardown()
+        }
+    }
 
     private func observeWorkspace() {
         let machines = services.machines
@@ -256,6 +270,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     // MARK: Parked workspaces
 
     private func park(_ controller: WorkspaceContentController) {
+        parkSerial &+= 1
+        controller.parkedSerial = parkSerial
         controller.park()
         parked[controller.workspace.id] = controller
     }

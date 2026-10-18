@@ -19,5 +19,7 @@ extension AppServices {
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
         let budget = WarmSetBudget.current(pressure: level)
         cache.setWarmBudget(budget)
+        // Critical keeps only what shows, the parked workspaces too.
+        if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
     }
 }
