@@ -35,18 +35,37 @@ public nonisolated struct SystemNowPlayingFeed: Equatable, Sendable {
         var payload: [String: Field?]?
     }
 
+    /// One data line of the stream, decoded. Decoding is the costly part (an artwork line carries
+    /// megabytes of base64), so the adapter decodes on its pipe's queue and hands the main actor this.
+    public nonisolated struct Update: Equatable, Sendable {
+        /// Only the keys that changed; false replaces everything known.
+        public var diff: Bool
+        /// A nil value removes that key.
+        public var payload: [String: Field?]
+
+        /// The update a stream line carries; nil for a line that is not a data line.
+        public static func decode(_ line: Data) -> Update? {
+            guard let decoded = try? JSONDecoder().decode(Line.self, from: line), decoded.type == "data",
+                  let payload = decoded.payload else { return nil }
+            return Update(diff: decoded.diff == true, payload: payload)
+        }
+    }
+
     /// The payload as known so far.
     public private(set) var fields: [String: Field] = [:]
 
     public init() {}
 
+    public mutating func apply(_ update: Update) {
+        if !update.diff { fields = [:] }
+        for (key, value) in update.payload { fields[key] = value }
+    }
+
     /// Takes one line of the stream; false (and nothing changes) for a line that is not a data line.
     @discardableResult
     public mutating func apply(_ line: Data) -> Bool {
-        guard let decoded = try? JSONDecoder().decode(Line.self, from: line), decoded.type == "data",
-              let payload = decoded.payload else { return false }
-        if decoded.diff != true { fields = [:] }
-        for (key, value) in payload { fields[key] = value }
+        guard let update = Update.decode(line) else { return false }
+        apply(update)
         return true
     }
 

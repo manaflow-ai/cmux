@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
@@ -26,8 +27,8 @@ public nonisolated enum SystemNowPlayingCommand: Equatable, Sendable {
 /// adapter process, or a fake in tests.
 @MainActor
 public protocol SystemNowPlayingAdapter: AnyObject {
-    /// Starts streaming; each stdout line goes to `onLine` on the main actor.
-    func start(onLine: @escaping @MainActor (Data) -> Void)
+    /// Starts streaming; each data line, decoded off the main actor, goes to `onUpdate` on it.
+    func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void)
     func stop()
     func send(_ command: SystemNowPlayingCommand)
 }
@@ -36,24 +37,50 @@ public protocol SystemNowPlayingAdapter: AnyObject {
 /// macOS 15.4 only Apple-signed processes may read MediaRemote, so
 /// `/usr/bin/perl` loads the adapter framework bundled with cmux and prints
 /// each change as a JSON line. One `stream` process runs while the card
-/// shows; its pipe wakes the app only when Now Playing changes. A stream that
-/// exits is started again after a growing wait, and given up after a few
-/// quick exits in a row (an adapter macOS no longer allows). Controls run one
-/// short `send` or `seek` process each.
+/// shows; its pipe wakes the app only when Now Playing changes, and its lines
+/// are decoded on the pipe's queue. A stream that exits is started again after
+/// a growing wait, and given up after a few quick exits in a row (an adapter
+/// macOS no longer allows). Controls run one short `send` or `seek` process
+/// each.
+///
+/// The stream never outlives cmux: it runs under ``parentWatch``, a shell that
+/// holds a pipe from cmux on its stdin and ends the adapter when that pipe
+/// closes, which the kernel does when cmux quits or crashes; a normal quit
+/// also stops it first (`NSApplication.willTerminateNotification`).
 public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     public let script: URL
     public let framework: URL
-    private let perl = URL(fileURLWithPath: "/usr/bin/perl")
+    private static let perl = URL(fileURLWithPath: "/usr/bin/perl")
     private var process: Process?
+    /// The write end of the stream's stdin: open while cmux lives, so the watch shell waits.
+    private var lifeline: Pipe?
+    private var onUpdate: (@MainActor (SystemNowPlayingFeed.Update) -> Void)?
     /// Bumped by each launch, so a late line or exit of an earlier stream is ignored.
     private var run = 0
-    private var onLine: (@MainActor (Data) -> Void)?
     /// Exits in a row that came soon after their start.
     private var quickExits = 0
     private let restart = DemandTimer(owner: "now-playing.adapter-restart")
+    private var termination: (any NSObjectProtocol)?
     static let quickExit: TimeInterval = 10
     static let maximumQuickExits = 4
     static let streamArguments = ["stream", "--micros", "--debounce=150"]
+
+    /// Runs `"$0" "$@"` (the adapter) and ends it when stdin reaches end of file, which happens
+    /// when the process that holds the pipe's write end (cmux) exits, however it exits. SIGTERM
+    /// (``stop()``) ends it too. The adapter's own exit ends the shell with its status, so a
+    /// stream that dies is seen and restarted. `read` is a builtin: the watch is no extra process.
+    static let parentWatch = """
+        exec 3<&0
+        "$0" "$@" </dev/null &
+        child=$!
+        { while read -r _ <&3; do :; done; kill "$child" 2>/dev/null; } &
+        watch=$!
+        trap 'kill "$child" 2>/dev/null; kill "$watch" 2>/dev/null; exit 143' TERM
+        wait "$child"
+        status=$?
+        kill "$watch" 2>/dev/null
+        exit "$status"
+        """
 
     public init(script: URL, framework: URL) {
         self.script = script
@@ -69,25 +96,38 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
         return MediaRemoteAdapterProcess(script: script, framework: framework)
     }
 
-    public func start(onLine: @escaping @MainActor (Data) -> Void) {
-        self.onLine = onLine
+    /// `executable arguments…` under ``parentWatch``: what cmux launches for a stream.
+    static func watched(_ executable: URL, _ arguments: [String]) -> (URL, [String]) {
+        (URL(fileURLWithPath: "/bin/sh"), ["-c", parentWatch, executable.path] + arguments)
+    }
+
+    public func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void) {
+        self.onUpdate = onUpdate
         quickExits = 0
+        if termination == nil {
+            termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
+                                                                 queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.stop() }
+            }
+        }
         launch()
     }
 
     public func stop() {
-        onLine = nil
+        onUpdate = nil
         restart.cancel()
         let running = process
         process = nil
         running?.terminationHandler = nil
         (running?.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
         if running?.isRunning == true { running?.terminate() }
+        try? lifeline?.fileHandleForWriting.close()
+        lifeline = nil
     }
 
     public func send(_ command: SystemNowPlayingCommand) {
         let once = Process()
-        once.executableURL = perl
+        once.executableURL = Self.perl
         once.arguments = [script.path, framework.path] + command.arguments
         once.standardInput = FileHandle.nullDevice
         once.standardOutput = FileHandle.nullDevice
@@ -96,13 +136,15 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     }
 
     private func launch() {
-        guard onLine != nil, process == nil else { return }
+        guard onUpdate != nil, process == nil else { return }
         run &+= 1
         let current = run
         let stream = Process()
-        stream.executableURL = perl
-        stream.arguments = [script.path, framework.path] + Self.streamArguments
-        stream.standardInput = FileHandle.nullDevice
+        let (shell, arguments) = Self.watched(Self.perl, [script.path, framework.path] + Self.streamArguments)
+        stream.executableURL = shell
+        stream.arguments = arguments
+        let stdin = Pipe()
+        stream.standardInput = stdin
         stream.standardError = FileHandle.nullDevice
         let stdout = Pipe()
         stream.standardOutput = stdout
@@ -114,11 +156,12 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
                 handle.readabilityHandler = nil
                 return
             }
-            let lines = splitter.append(data)
-            guard !lines.isEmpty else { return }
+            // Decoded here, on the pipe's queue: an artwork line is megabytes of JSON.
+            let updates = splitter.append(data).compactMap(SystemNowPlayingFeed.Update.decode)
+            guard !updates.isEmpty else { return }
             Task { @MainActor [weak self] in
-                guard let self, self.run == current, self.process != nil, let onLine = self.onLine else { return }
-                for line in lines { onLine(line) }
+                guard let self, self.run == current, self.process != nil, let onUpdate = self.onUpdate else { return }
+                for update in updates { onUpdate(update) }
             }
         }
         let started = Date()
@@ -126,10 +169,12 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
             Task { @MainActor [weak self] in self?.exited(run: current, after: Date().timeIntervalSince(started)) }
         }
         process = stream
+        lifeline = stdin
         do {
             try stream.run()
         } catch {
             process = nil
+            lifeline = nil
             stdout.fileHandleForReading.readabilityHandler = nil
         }
     }
@@ -138,7 +183,9 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     private func exited(run exited: Int, after seconds: TimeInterval) {
         guard run == exited, process != nil else { return }
         process = nil
-        guard onLine != nil else { return }
+        try? lifeline?.fileHandleForWriting.close()
+        lifeline = nil
+        guard onUpdate != nil else { return }
         quickExits = seconds < Self.quickExit ? quickExits + 1 : 0
         guard quickExits <= Self.maximumQuickExits else { return }
         restart.schedule(after: .seconds(1 << min(quickExits, 6))) { @MainActor [weak self] in self?.launch() }

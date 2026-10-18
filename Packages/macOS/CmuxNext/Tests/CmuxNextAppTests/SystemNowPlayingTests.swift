@@ -10,15 +10,15 @@ import Testing
 /// controls sent back as adapter commands, and the order among the card's sources.
 @MainActor @Suite struct SystemNowPlayingTests {
     final class FakeAdapter: SystemNowPlayingAdapter {
-        var onLine: (@MainActor (Data) -> Void)?
+        var onUpdate: (@MainActor (SystemNowPlayingFeed.Update) -> Void)?
         var starts = 0, stops = 0
         var sent: [SystemNowPlayingCommand] = []
-        func start(onLine: @escaping @MainActor (Data) -> Void) { starts += 1; self.onLine = onLine }
-        func stop() { stops += 1; onLine = nil }
+        func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void) { starts += 1; self.onUpdate = onUpdate }
+        func stop() { stops += 1; onUpdate = nil }
         func send(_ command: SystemNowPlayingCommand) { sent.append(command) }
         func emit(diff: Bool, _ payload: [String: Any]) {
             let line = try! JSONSerialization.data(withJSONObject: ["type": "data", "diff": diff, "payload": payload])
-            onLine?(line)
+            if let update = SystemNowPlayingFeed.Update.decode(line) { onUpdate?(update) }
         }
     }
 
@@ -76,6 +76,32 @@ import Testing
         #expect(splitter.append(Data("{\"a\":".utf8)).isEmpty)
         let lines = splitter.append(Data("1}\n{\"b\":2}\n{\"c\"".utf8))
         #expect(lines.map { String(decoding: $0, as: UTF8.self) } == [#"{"a":1}"#, #"{"b":2}"#])
+    }
+
+    /// The stream never outlives cmux: its watch shell ends the adapter once the pipe cmux holds on
+    /// its stdin closes, which the kernel does however cmux exits.
+    @Test func theStreamEndsWhenCmuxsEndOfThePipeCloses() async throws {
+        // A stand-in adapter that says its pid and then runs for ten minutes.
+        let (shell, arguments) = MediaRemoteAdapterProcess.watched(URL(fileURLWithPath: "/bin/sh"),
+                                                                   ["-c", "echo $$; exec /bin/sleep 600"])
+        let process = Process()
+        process.executableURL = shell
+        process.arguments = arguments
+        let stdin = Pipe(), stdout = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        try process.run()
+        defer { if process.isRunning { process.terminate() } }
+        let line = try #require(String(data: stdout.fileHandleForReading.availableData, encoding: .utf8))
+        let child = try #require(pid_t(line.trimmingCharacters(in: .whitespacesAndNewlines)))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(kill(child, 0) == 0, "the adapter did not start")
+        #expect(process.isRunning, "the watch shell ended while cmux holds the pipe")
+        // cmux exits: its end of the pipe closes.
+        try stdin.fileHandleForWriting.close()
+        try await Self.until { kill(child, 0) != 0 && !process.isRunning }
+        #expect(kill(child, 0) != 0, "the adapter outlived cmux's end of the pipe")
+        #expect(!process.isRunning, "the watch shell outlived the adapter")
     }
 
     @Test func commandsAreTheAdaptersArguments() {
@@ -154,7 +180,7 @@ import Testing
         #expect(adapter.sent.isEmpty, "a control went to cmux's own entry")
     }
 
-    @Test func theArtworkIsASmallPNG() throws {
+    @Test func theArtworkIsASmallPNG() async throws {
         let adapter = FakeAdapter()
         let source = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
         source.run(true)
@@ -166,6 +192,9 @@ import Testing
         payload["artworkData"] = jpeg.base64EncodedString()
         payload["artworkMimeType"] = "image/jpeg"
         adapter.emit(diff: false, payload)
+        // Decoded and drawn off the main actor: the track shows at once, its artwork once ready.
+        #expect(source.nowPlaying?.title == "Weightless")
+        try await Self.until { source.nowPlaying?.artwork != nil }
         let png = try #require(source.nowPlaying?.artwork)
         let image = try #require(NSBitmapImageRep(data: png))
         #expect(image.pixelsWide == 320 && image.pixelsHigh == 320)

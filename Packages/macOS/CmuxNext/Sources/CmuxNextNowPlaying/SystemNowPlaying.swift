@@ -1,4 +1,6 @@
-import AppKit
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 import CmuxNextBrowser
 public import CmuxNextSidebar
 public import Foundation
@@ -19,7 +21,9 @@ public final class SystemNowPlaying: NowPlayingSource {
     @ObservationIgnored private let ignored: Set<String>
     @ObservationIgnored private let labels: SidebarNowPlaying.Labels
     @ObservationIgnored private(set) var running = false
-    private static let artworkSide = 320
+    nonisolated static let artworkSide = 320
+    /// Decodes the shown artwork off the main actor.
+    @ObservationIgnored private var artworkTask: Task<Void, Never>?
 
     /// A source over `adapter` that leaves out reports from `ignored` (cmux's bundle
     /// identifiers), with the browser media controls' titles.
@@ -41,9 +45,10 @@ public final class SystemNowPlaying: NowPlayingSource {
         guard on != running, let adapter else { return }
         running = on
         if on {
-            adapter.start { [weak self] line in self?.receive(line) }
+            adapter.start { [weak self] update in self?.receive(update) }
         } else {
             adapter.stop()
+            artworkTask?.cancel()
             feed = SystemNowPlayingFeed()
             artwork = nil
         }
@@ -79,29 +84,45 @@ public final class SystemNowPlaying: NowPlayingSource {
         }
     }
 
-    /// Takes one line of the adapter's stream.
-    func receive(_ line: Data) {
+    /// Takes one update of the adapter's stream (decoded off the main actor). New artwork is
+    /// decoded and drawn small off the main actor too; the card shows it once ready.
+    func receive(_ update: SystemNowPlayingFeed.Update) {
         guard running else { return }
         var next = feed
-        guard next.apply(line), next != feed else { return }
+        next.apply(update)
+        guard next != feed else { return }
         feed = next
         let base64 = next.report?.artwork
         guard base64 != artwork?.base64 else { return }
-        artwork = base64.map { ($0, Data(base64Encoded: $0).flatMap(Self.png)) }
+        artworkTask?.cancel()
+        guard let base64 else {
+            artwork = nil
+            return
+        }
+        artwork = (base64, nil)
+        artworkTask = Task.detached(priority: .utility) { [weak self] in
+            let png = Data(base64Encoded: base64).flatMap { Self.png($0, side: Self.artworkSide) }
+            await MainActor.run { [weak self] in
+                guard let self, self.artwork?.base64 == base64 else { return }
+                self.artwork = (base64, png)
+            }
+        }
     }
 
-    /// The image drawn into a small square bitmap, as PNG.
-    static func png(_ data: Data) -> Data? {
-        guard let image = NSImage(data: data) else { return nil }
-        let side = artworkSide
-        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
-                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                            bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        image.draw(in: NSRect(x: 0, y: 0, width: side, height: side), from: .zero, operation: .copy, fraction: 1)
-        NSGraphicsContext.restoreGraphicsState()
-        return bitmap.representation(using: .png, properties: [:])
+    /// The image drawn into a `side`-pixel square, as PNG. ImageIO and Core Graphics, so it runs
+    /// on any thread.
+    nonisolated static func png(_ data: Data, side: Int) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let scaled = context.makeImage() else { return nil }
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, scaled, nil)
+        return CGImageDestinationFinalize(destination) ? out as Data : nil
     }
 }
