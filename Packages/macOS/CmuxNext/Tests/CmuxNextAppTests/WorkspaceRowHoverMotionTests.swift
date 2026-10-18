@@ -86,6 +86,10 @@ struct WorkspaceRowHoverMotionTests {
         row.sidebarList = list
         list.hoverFollowsScroll = true
 
+        // AppKit leaves a newly constructed view layout-dirty. Clear that
+        // initial state so this assertion covers only work scheduled by the
+        // hover transition itself.
+        row.needsLayout = false
         row.isHovered = true
 
         #expect(!row.needsLayout, "scroll realization must not schedule hover layout")
