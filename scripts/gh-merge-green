@@ -868,7 +868,7 @@ vp_flagged_files() {
   sed 's/\x1b\[[0-9;]*m//g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
 }
 merged_head_checks() {
-  local repo_dir tmp merged base_sha head_sha status=0 output bun changed_path
+  local repo_dir tmp merged base_sha head_sha merged_tree status=0 output bun changed_path
   local swift_changed=0 web_changed=0
   local -a swift_file_args=()
   # The god-file checker supports repeatable --file arguments. Restrict the
@@ -905,14 +905,23 @@ merged_head_checks() {
   fi
   tmp=$(mktemp -d)
   merged="$tmp/merged"
-  git -C "$repo_dir" worktree add --quiet --detach "$merged" "$base_sha" >/dev/null 2>&1
-  if ! git -C "$merged" -c user.name=gh-merge-green -c user.email=gh-merge-green@invalid \
-      merge --quiet --no-ff --no-edit "$head_sha" >/dev/null 2>&1; then
-    git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
-    rm -rf "$tmp"
+  mkdir -p "$merged"
+  # The helper checkout is commonly a blob:none partial clone. Materializing a
+  # full worktree here can block while Git lazily fetches unrelated history.
+  # Compute the exact merged tree first, then archive only the trees checked
+  # below. This preserves merge-conflict detection without the worktree stall.
+  if ! merged_tree=$(git -C "$repo_dir" merge-tree --write-tree "$base_sha" "$head_sha" 2>/dev/null); then
     refuse \
       "not merged: $ref does not merge cleanly into $base ($base_sha)" \
       'merge the base into the PR (scripts/merge-main.sh), push, and retry'
+  fi
+  if ! git -C "$repo_dir" archive "$merged_tree" -- \
+      Packages/macOS/CmuxNext webviews scripts/cmux-next/check-no-godfiles.sh \
+      scripts/cmux-next/godfile-baseline.tsv | tar -x -C "$merged"; then
+    rm -rf "$tmp"
+    refuse \
+      "not merged: cannot materialize the checked merged tree for $ref" \
+      'restore the required tree objects and retry the guarded merge'
   fi
   if [ "$swift_changed" -eq 1 ]; then
     # --file silently ignores paths absent from the merged checkout. Refuse
@@ -921,7 +930,6 @@ merged_head_checks() {
     for ((i = 1; i < ${#swift_file_args[@]}; i += 2)); do
       changed_path="${swift_file_args[i]}"
       if [ ! -f "$merged/$changed_path" ]; then
-        git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
         rm -rf "$tmp"
         refuse \
           "not merged: changed Swift path $changed_path is missing from the merged head of $ref" \
@@ -955,14 +963,13 @@ merged_head_checks() {
         status=1
         printf '%s\n' "$output" | grep -vE '^\s*$' | tail -n 15 | sed 's/^/  /' >&2
         printf 'not merged: the merged head of %s fails vp check in webviews/%s\n' "$ref" \
-          "${new_files:+ (not on the base: $(paste -sd ' ' - <<<"$new_files"))}" >&2
+          "${new_files:+ (not on the base: $(printf '%s\n' "$new_files" | python3 -c 'import sys; print(" ".join(line.strip() for line in sys.stdin if line.strip()))'))}" >&2
       else
         printf 'note: vp check is red on the base (%s) too (%s), not by %s\n' "$base" \
-          "$(vp_flagged_files <<<"$base_output" | paste -sd ' ' -)" "$ref" >&2
+          "$(vp_flagged_files <<<"$base_output" | python3 -c 'import sys; print(" ".join(line.strip() for line in sys.stdin if line.strip()))')" "$ref" >&2
       fi
     fi
   fi
-  git -C "$repo_dir" worktree remove --force "$merged" >/dev/null 2>&1 || true
   rm -rf "$tmp"
   if [ "$status" -ne 0 ]; then
     refusal_reported=1
