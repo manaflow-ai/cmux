@@ -73,7 +73,7 @@ fn observe_pages_from_a_cursor_and_preserves_close_reasons() {
 }
 
 #[test]
-fn observe_upgrades_an_existing_attach_without_reopening_mutations() {
+fn observe_rejects_mode_change_on_existing_writable_attach() {
     let fake = FakeAcpmux::start("observe-upgrade");
     let mux = mux_with(&fake, "asa-observe-upgrade");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -82,17 +82,12 @@ fn observe_upgrades_an_existing_attach_without_reopening_mutations() {
     let _ = fake.frame();
     let _ = client.event(WAIT).expect("the early record");
 
-    assert_eq!(observe(&mut client, surface)["ok"], json!(true));
-    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
-    let _ = client.event(WAIT).expect("the replayed early record");
-    for mutation in attached_verbs(surface).into_iter().skip(1) {
-        assert_code(&client.request(mutation), "agent_session.read_only");
-    }
+    assert_code(&observe(&mut client, surface), "agent_session.mode_conflict");
     fake.no_frame();
 }
 
 #[test]
-fn an_attach_after_observe_does_not_downgrade_the_observer() {
+fn attach_rejects_mode_change_on_existing_read_only_observer() {
     let fake = FakeAcpmux::start("observe-preserve");
     let mux = mux_with(&fake, "asa-observe-preserve");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -101,9 +96,7 @@ fn an_attach_after_observe_does_not_downgrade_the_observer() {
     assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
     let _ = client.event(WAIT).expect("the early record");
 
-    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
-    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
-    let _ = client.event(WAIT).expect("the replayed early record");
+    assert_code(&attach(&mut client, surface), "agent_session.mode_conflict");
     for mutation in attached_verbs(surface).into_iter().skip(1) {
         assert_code(&client.request(mutation), "agent_session.read_only");
     }

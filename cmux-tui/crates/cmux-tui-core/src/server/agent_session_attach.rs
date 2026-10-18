@@ -342,6 +342,7 @@ pub(crate) enum Refusal {
     /// person key for the caller's run (cx-0w0jj).
     NeedsKeyedStart,
     ReadOnly,
+    ModeConflict,
 }
 
 impl Refusal {
@@ -366,6 +367,7 @@ impl Refusal {
             Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
             Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
             Self::ReadOnly => "agent_session.read_only",
+            Self::ModeConflict => "agent_session.mode_conflict",
         }
     }
 
@@ -398,6 +400,7 @@ impl Refusal {
                 "acpmux on this machine holds no person key for this caller; restart it with one first"
             }
             Self::ReadOnly => "this agent session attachment is read-only",
+            Self::ModeConflict => "this connection already has the same surface attached in another mode",
         }
     }
 
@@ -580,10 +583,10 @@ fn attach(
 ) -> bool {
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
-        if read_only {
-            attachment.read_only.store(true, Ordering::Release);
+        if attachment.read_only.load(Ordering::Acquire) != read_only {
+            return refuse(writer, id, Refusal::ModeConflict);
         }
-        // Already attached: page only, on the attachment's own link.
+        // Already attached in the same mode: page only, on the attachment's own link.
         return run_on_worker(mux, attachment, id, AgentSessionCommand::Attach(params), writer);
     }
     let Some(session) = tab_session(mux, params.surface) else {
