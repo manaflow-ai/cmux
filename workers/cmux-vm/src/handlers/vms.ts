@@ -349,101 +349,111 @@ const FORK_INCOMPLETE_MESSAGE =
  *   leaves it to expire.
  */
 const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string | undefined) =>
-  withOwnedVm(rawVmId, "vm:write", "write", (caller, source, proofs) =>
+  withCaller("vm:write", "write", (caller, scope) =>
     Effect.gen(function* () {
-      const principal = caller.value;
-      yield* forbidAllowlisted(principal);
-      yield* requireServiceLabels(principal, payload.labels ?? {});
-      const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
-      const spec: NewVm = {
-        displayName: payload.displayName ?? null,
-        labels: payload.labels ?? {},
-        idleTimeoutSeconds,
-        maxRunSeconds: payload.maxRunSeconds,
-        autoDeleteSeconds: payload.autoDeleteSeconds,
-        size: undefined,
-      };
-      const request = [
-        "forkVm",
-        source.value,
-        payload.displayName ?? null,
-        payload.idleTimeoutSeconds ?? null,
-        payload.maxRunSeconds ?? null,
-        payload.autoDeleteSeconds ?? null,
-        sortedLabels(payload.labels),
-      ];
-      const upstream = yield* UpstreamClient;
-      const store = yield* OwnershipStore;
-      const limits = yield* TenantLimits;
-      return yield* idempotent(
-        principal,
-        idempotencyKey,
-        request,
-        (resumeFrom, keyed) => Effect.gen(function* () {
-          const existing = yield* replayRecordedAttempt(caller, proofs.scope, resumeFrom, keyed);
-          if (existing !== null) {
-            if (resumeFrom?.phase === "creating" && resumeFrom.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, proofs.scope, resumeFrom.snapshotId);
-            return existing;
-          }
-          return yield* withCreateSlot(caller, (mayCreate) =>
-            Effect.gen(function* () {
-              let snapshotId: string;
-              if (resumeFrom?.phase === "creating") {
-                if (resumeFrom.snapshotId === undefined) return yield* Effect.fail(unavailable());
-                snapshotId = resumeFrom.snapshotId;
-              } else if (resumeFrom?.phase === "snapshotted") {
-                snapshotId = resumeFrom.snapshotId;
-              } else {
-                const cmuxId = newSnapshotId();
-                const taken = yield* upstream
-                  .snapshotForFork(caller, source, { cmuxId }, { ...proofs, mayCreate })
-                  .pipe(Effect.mapError(onVm("Only a running or paused VM can be forked")));
-                yield* store
-                  .record({
-                    tenantId: principal.tenantId,
-                    kind: "snapshot",
-                    cmuxId,
-                    upstreamId: taken.upstreamId,
-                    createdBy: actorRef(principal.actor),
-                    createdAt: new Date(yield* Clock.currentTimeMillis),
-                    displayName: null,
-                    // A service key's fork snapshot carries its labels, so its own keyed retry can resume from it.
-                    labels: principal.requiredLabels ?? {},
-                  })
-                  .pipe(
-                    Effect.tapError(() => taken.discard),
-                    Effect.mapError(() => unavailable()),
-                  );
-                if (keyed !== null) {
-                  // Without this record a retry would take a second snapshot, so a failed write fails the fork;
-                  // the snapshot stays in the tenant's ownership rows.
-                  yield* limits
-                    .advance(principal.tenantId, keyed, { phase: "snapshotted", snapshotId: cmuxId })
-                    .pipe(Effect.mapError(() => unavailable()));
-                }
-                snapshotId = cmuxId;
-              }
-              const parsed = parseSnapshotId(snapshotId);
-              if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());
-              return yield* name(parsed.value, (snapshot) =>
-                Effect.gen(function* () {
-                  const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
-                  if (owns === null) {
-                    return yield* Effect.fail(conflict("The snapshot from the first attempt is gone; retry with a new Idempotency-Key"));
+      const parsedSource = parseVmId(rawVmId);
+      if (Option.isNone(parsedSource)) return yield* Effect.fail(vmNotFound());
+      return yield* name(parsedSource.value, (source) => Effect.gen(function* () {
+        const principal = caller.value;
+        yield* forbidAllowlisted(principal);
+        yield* requireServiceLabels(principal, payload.labels ?? {});
+        const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
+        const spec: NewVm = {
+          displayName: payload.displayName ?? null,
+          labels: payload.labels ?? {},
+          idleTimeoutSeconds,
+          maxRunSeconds: payload.maxRunSeconds,
+          autoDeleteSeconds: payload.autoDeleteSeconds,
+          size: undefined,
+        };
+        const request = [
+          "forkVm",
+          source.value,
+          payload.displayName ?? null,
+          payload.idleTimeoutSeconds ?? null,
+          payload.maxRunSeconds ?? null,
+          payload.autoDeleteSeconds ?? null,
+          sortedLabels(payload.labels),
+        ];
+        const upstream = yield* UpstreamClient;
+        const store = yield* OwnershipStore;
+        const limits = yield* TenantLimits;
+        return yield* idempotent(
+          principal,
+          idempotencyKey,
+          request,
+          (resumeFrom, keyed) => Effect.gen(function* () {
+            const existing = yield* replayRecordedAttempt(caller, scope, resumeFrom, keyed);
+            if (existing !== null) {
+              if (resumeFrom?.phase === "creating" && resumeFrom.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, resumeFrom.snapshotId);
+              return existing;
+            }
+            // Once a snapshot is retained, the source is no longer an input to this attempt.
+            // Completed retries authorize the destination above; fresh forks still prove the source.
+            const retainedSnapshot = resumeFrom?.phase === "snapshotted" || resumeFrom?.phase === "creating";
+            const sourceOwns = retainedSnapshot ? null : yield* tenantOwnsVm(caller, source).pipe(Effect.mapError(() => unavailable()));
+            if (!retainedSnapshot && sourceOwns === null) return yield* Effect.fail(vmNotFound());
+            return yield* withCreateSlot(caller, (mayCreate) =>
+              Effect.gen(function* () {
+                let snapshotId: string;
+                if (resumeFrom?.phase === "creating") {
+                  if (resumeFrom.snapshotId === undefined) return yield* Effect.fail(unavailable());
+                  snapshotId = resumeFrom.snapshotId;
+                } else if (resumeFrom?.phase === "snapshotted") {
+                  snapshotId = resumeFrom.snapshotId;
+                } else {
+                  if (sourceOwns === null) return yield* Effect.fail(vmNotFound());
+                  const cmuxId = newSnapshotId();
+                  const taken = yield* upstream
+                    .snapshotForFork(caller, source, { cmuxId }, { owns: sourceOwns, scope, mayCreate })
+                    .pipe(Effect.mapError(onVm("Only a running or paused VM can be forked")));
+                  yield* store
+                    .record({
+                      tenantId: principal.tenantId,
+                      kind: "snapshot",
+                      cmuxId,
+                      upstreamId: taken.upstreamId,
+                      createdBy: actorRef(principal.actor),
+                      createdAt: new Date(yield* Clock.currentTimeMillis),
+                      displayName: null,
+                      // A service key's fork snapshot carries its labels, so its own keyed retry can resume from it.
+                      labels: principal.requiredLabels ?? {},
+                    })
+                    .pipe(
+                      Effect.tapError(() => taken.discard),
+                      Effect.mapError(() => unavailable()),
+                    );
+                  if (keyed !== null) {
+                    // Without this record a retry would take a second snapshot, so a failed write fails the fork;
+                    // the snapshot stays in the tenant's ownership rows.
+                    yield* limits
+                      .advance(principal.tenantId, keyed, { phase: "snapshotted", snapshotId: cmuxId })
+                      .pipe(Effect.mapError(() => unavailable()));
                   }
-                  const vm = yield* createRecorded(caller, spec, { mayCreate, scope: proofs.scope, source: { snapshot, owns } }, keyed === null ? undefined : { key: keyed, prior: resumeFrom, snapshotId }).pipe(
-                    Effect.mapError(() => new ForkIncomplete({ message: FORK_INCOMPLETE_MESSAGE, snapshotId: snapshot.value })),
-                  );
-                  yield* cleanupForkSnapshot(caller, proofs.scope, snapshot.value);
-                  return vm;
-                }),
-              );
-            }),
-            resumeSlot(keyed, resumeFrom),
-          );
-        }),
-        (vmId) => replayVm(caller, proofs.scope, vmId),
-      );
+                  snapshotId = cmuxId;
+                }
+                const parsed = parseSnapshotId(snapshotId);
+                if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());
+                return yield* name(parsed.value, (snapshot) =>
+                  Effect.gen(function* () {
+                    const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(() => unavailable()));
+                    if (owns === null) {
+                      return yield* Effect.fail(conflict("The snapshot from the first attempt is gone; retry with a new Idempotency-Key"));
+                    }
+                    const vm = yield* createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns } }, keyed === null ? undefined : { key: keyed, prior: resumeFrom, snapshotId }).pipe(
+                      Effect.mapError(() => new ForkIncomplete({ message: FORK_INCOMPLETE_MESSAGE, snapshotId: snapshot.value })),
+                    );
+                    yield* cleanupForkSnapshot(caller, scope, snapshot.value);
+                    return vm;
+                  }),
+                );
+              }),
+              resumeSlot(keyed, resumeFrom),
+            );
+          }),
+          (vmId) => replayVm(caller, scope, vmId),
+        );
+      }));
     }),
   );
 
