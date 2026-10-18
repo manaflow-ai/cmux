@@ -1413,6 +1413,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Build the web bundles for this source key
         if: steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -1424,6 +1425,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Prebuilt bundles install and stamp (build-web-bundles.sh --from)
         run: bash tests/test_build_web_bundles_from.sh
@@ -1657,11 +1659,11 @@ jobs:
   # cmux-tui wait: the live-daemon suites skip unless the same-tree binary is
   # already published, and daemon-test runs them against it.
   swift-test:
-    needs: [path_route, macos-placement, push-head-preflight]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # Swift is a batch cadence check. A contributor PR gets the fast
     # tier; the full-ci batch integration PR and base pushes run the minis-first
     # Swift suites and serve as the backstop.
-    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
     name: cmux-next swift test
     continue-on-error: false
     # A push's Mac job waits for the same job of the running push run and is
@@ -1803,12 +1805,14 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -1909,10 +1913,10 @@ jobs:
   # which the gate above waits for on Linux. Only the daemon tier runs it:
   # daemon, Rust core, FFI and control paths, a full-ci PR and every push.
   daemon-test:
-    needs: [path_route, macos-placement, push-head-preflight]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
     # This run's own tier on a published tree (path routing's probe), or
     # same-tree mode after the artifacts workflow published it.
-    if: ${{ inputs.same_tree_origin != 'push' && !cancelled() && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon'))) }}
+    if: ${{ inputs.same_tree_origin != 'push' && !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon'))) }}
     name: cmux-next daemon tests
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -2037,12 +2041,14 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -2144,8 +2150,8 @@ jobs:
             || echo "::warning::could not post the $CONTEXT status"
 
   generated-files:
-    needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
+    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/')) }}
     name: cmux-next generated files
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
@@ -2261,6 +2267,7 @@ jobs:
         with:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
 
       - name: Install the restored web bundles
         if: steps.web-bundle-cache.outputs.cache-hit == 'true'
