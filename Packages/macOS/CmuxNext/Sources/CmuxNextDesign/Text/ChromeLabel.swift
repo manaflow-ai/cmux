@@ -285,7 +285,7 @@ open class ChromeLabel: NSView {
         let scale = window?.backingScaleFactor ?? layer.contentsScale
         if fill.frame != layer.bounds { fill.frame = layer.bounds }
         let color = textColor?.cgColor, weight = GlyphMask.weight(of: color)
-        let ink = Ink(text: inkText(color: nil), shape: shape, size: bounds.size)
+        let ink = Ink(text: inkText(color: nil), shape: shape, size: bounds.size, scale: scale)
         guard drawn?.ink != ink || drawn?.weight != weight else { return }
         if drawn?.ink != ink { images = [:] }
         drawn = (ink, weight)
