@@ -14,12 +14,13 @@ import {
 import { readCompare, writeCompare, type CompareState } from "../compare";
 import { readEnv, writeEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
-import { readyEntries } from "../entryStore";
 import { getEntryStore } from "../registry";
 import { DEFAULT_BROWSE, readBrowse, writeBrowse, type BrowseState } from "./browseModel";
 
 export const VIEWS = ["variant", "variants", "locales", "themes", "compare", "browse"] as const;
 export type View = (typeof VIEWS)[number];
+/** The source gallery's stable landing state. A bare `/gallery/` must never be a blank shell. */
+const DEFAULT_ENTRY = "agent-pane.composer";
 /**
  * The controls, the view, the compare view's state (compare.ts; written only in that view), and
  * the edited tunables (experiments/tunable.ts; web only, so not in env.ts's shared contract).
@@ -84,11 +85,14 @@ export function createGalleryRouter(Layout: () => React.ReactNode, history?: Rou
     getParentRoute: () => rootRoute,
     path: "/",
     validateSearch: validateShellSearch,
+    // The bare URL is the link people paste into browsers and chat. Redirect it to a real,
+    // source-backed composer state after only that entry is ready; leaving the index as an empty
+    // Outlet made a cold tab look like a broken white page until a deep link or reload arrived.
     beforeLoad: async ({ search }) => {
-      const entry = readyEntries(await getEntryStore().settled())[0];
-      if (entry)
+      const variant = await firstVariant(DEFAULT_ENTRY);
+      if (variant)
         throw redirect({
-          href: `/${encodeURIComponent(entry.id)}/${encodeURIComponent(Object.keys(entry.variants)[0]!)}${stringifySearch(search)}`,
+          href: `/${encodeURIComponent(DEFAULT_ENTRY)}/${encodeURIComponent(variant)}${stringifySearch(search)}`,
         });
     },
     component: Outlet,
