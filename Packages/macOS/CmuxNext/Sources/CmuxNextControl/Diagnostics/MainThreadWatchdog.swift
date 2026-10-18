@@ -47,7 +47,8 @@ public final class MainThreadWatchdog: Sendable {
             debugBuild && !noActivate ? .seconds(10) : nil
         }
 
-        private static var defaultHangAssertThreshold: Duration? {
+        /// The default hang assertion policy used by the public initializer.
+        public static var defaultHangAssertThreshold: Duration? {
             hangAssertThreshold(debugBuild: ControlService.isDebugBuild,
                                 noActivate: ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
         }
