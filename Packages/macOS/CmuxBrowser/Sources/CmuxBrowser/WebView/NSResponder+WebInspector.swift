@@ -90,15 +90,23 @@ extension NSEvent {
     ///
     /// Native window cycling (Cmd+` and the System Settings binding, each also
     /// with Shift) stays with AppKit so key-window changes do not re-enter the
-    /// direct-to-menu shortcut path.
+    /// direct-to-menu shortcut path. The System Settings "Show Help menu"
+    /// shortcut (Cmd+Shift+/ by default) also stays with AppKit, which opens
+    /// the Help menu search only when no view claims the chord.
     public var cmuxRoutesDirectlyToMainMenu: Bool {
         guard modifierFlags.contains(.command) else { return false }
-        return cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: SystemWindowCyclingShortcut.current())
+        return cmuxRoutesDirectlyToMainMenu(
+            windowCyclingShortcut: SystemWindowCyclingShortcut.current(),
+            helpMenuShortcut: SystemHelpMenuShortcut.current()
+        )
     }
 
     /// Whether this command equivalent should go straight to the main menu,
-    /// given the system's window-cycling shortcut.
-    public func cmuxRoutesDirectlyToMainMenu(windowCyclingShortcut: SystemWindowCyclingShortcut?) -> Bool {
+    /// given the system's window-cycling and Help menu shortcuts.
+    public func cmuxRoutesDirectlyToMainMenu(
+        windowCyclingShortcut: SystemWindowCyclingShortcut?,
+        helpMenuShortcut: SystemHelpMenuShortcut?
+    ) -> Bool {
         let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command) else { return false }
 
@@ -110,6 +118,9 @@ extension NSEvent {
         // ISO keyboards and remapped System Settings cycle windows with another
         // key, such as the section key (keyCode 10).
         if windowCyclingShortcut?.matches(keyCode: keyCode, modifierFlags: flags) == true {
+            return false
+        }
+        if helpMenuShortcut?.matches(keyCode: keyCode, modifierFlags: flags) == true {
             return false
         }
 
