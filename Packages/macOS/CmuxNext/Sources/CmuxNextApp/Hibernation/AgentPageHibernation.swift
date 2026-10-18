@@ -107,7 +107,7 @@ final class AgentPageHibernation {
     /// `changed`: the tabs this change is about (nil: every page), so a switch is O(changed tabs).
     func sync(_ changed: Set<String>? = nil, _ isRendering: (String) -> Bool) {
         guard let tabs = store() else { return }
-        for key in changed ?? Set(tabs.views.keys) where tabs.views[key] != nil {
+        for key in changed ?? Set(tabs.views.keys) where tabs.existingView(key) != nil {
             let visible = isRendering(key)
             if visible != shown.contains(key) { pageVisibility(key, visible: visible) }
         }
