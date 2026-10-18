@@ -1,7 +1,9 @@
 import CmuxTerminalCore
 import Foundation
 
-/// Parses the cmux-owned font settings that historically lived in config.ghostty.
+/// Parses the cmux-owned font settings that historically lived in config.ghostty,
+/// and the surface tab bar layout beside them. An invalid field keeps its last good
+/// value while valid sibling settings from the same edit apply.
 extension CmuxSettingsFileStore {
     func parseFontSections(
         _ root: [String: Any],
@@ -40,6 +42,7 @@ extension CmuxSettingsFileStore {
             snapshot.managedUserDefaults[Layout.widthModeKey] = .string(mode.rawValue)
         } else if tabBar.keys.contains("widthMode") {
             logInvalid(Layout.widthModePath, sourcePath: sourcePath)
+            snapshot.invalidManagedUserDefaultKeys.insert(Layout.widthModeKey)
         }
         let numericFields: [(jsonKey: String, path: String, defaultsKey: String, range: ClosedRange<CGFloat>)] = [
             ("maxTabWidth", Layout.maxTabWidthPath, Layout.maxTabWidthKey, Layout.maxTabWidthRange),
@@ -51,6 +54,7 @@ extension CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[field.defaultsKey] = .double(value)
             } else if tabBar.keys.contains(field.jsonKey) {
                 logInvalid(field.path, sourcePath: sourcePath)
+                snapshot.invalidManagedUserDefaultKeys.insert(field.defaultsKey)
             }
         }
     }

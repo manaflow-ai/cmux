@@ -80,6 +80,7 @@ struct SessionContentWidthSettingsFileStoreTests {
         let suiteName = "cmux-surface-tab-bar-layout-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let layout = Layout(defaults: defaults)
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
@@ -93,15 +94,15 @@ struct SessionContentWidthSettingsFileStoreTests {
             userDefaults: defaults,
             startWatching: false
         )
-        #expect(Layout.widthMode(defaults: defaults) == .fill)
-        #expect(Layout.maxTabWidth(defaults: defaults) == 360)
-        #expect(Layout.height(defaults: defaults) == 36)
+        #expect(layout.widthMode == .fill)
+        #expect(layout.maxTabWidth == 360)
+        #expect(layout.height == 36)
 
         try #"{"surfaceTabBar":{}}"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
         store.reload()
-        #expect(Layout.widthMode(defaults: defaults) == .fixed)
-        #expect(Layout.maxTabWidth(defaults: defaults) == Layout.defaultMaxTabWidth)
-        #expect(Layout.height(defaults: defaults) == Layout.defaultHeight)
+        #expect(layout.widthMode == .fixed)
+        #expect(layout.maxTabWidth == Layout.defaultMaxTabWidth)
+        #expect(layout.height == Layout.defaultHeight)
 
         try #"{"surfaceTabBar":{"widthMode":"fill","maxTabWidth":300,"height":32}}"#
             .write(to: settingsFileURL, atomically: true, encoding: .utf8)
@@ -109,9 +110,18 @@ struct SessionContentWidthSettingsFileStoreTests {
         try #"{"surfaceTabBar":{"widthMode":"wide","maxTabWidth":10,"height":200}}"#
             .write(to: settingsFileURL, atomically: true, encoding: .utf8)
         store.reload()
-        #expect(Layout.widthMode(defaults: defaults) == .fill)
-        #expect(Layout.maxTabWidth(defaults: defaults) == 300)
-        #expect(Layout.height(defaults: defaults) == 32)
+        #expect(layout.widthMode == .fill)
+        #expect(layout.maxTabWidth == 300)
+        #expect(layout.height == 32)
+
+        // An invalid field keeps its last good value without blocking valid siblings.
+        try #"{"surfaceTabBar":{"widthMode":"wide","maxTabWidth":400,"fontSize":13}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        store.reload()
+        #expect(layout.widthMode == .fill)
+        #expect(layout.maxTabWidth == 400)
+        #expect(layout.height == Layout.defaultHeight)
+        #expect(defaults.double(forKey: CmuxJSONFontSettings.surfaceTabBarUserDefaultsKey) == 13)
     }
 
     /// Runs off the main actor on purpose: Swift Testing's cooperative threads

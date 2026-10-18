@@ -4080,20 +4080,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             "divider=\(colors.dividerHex ?? "nil")"
     }
 
-    nonisolated static func bonsplitTabWidthMode(
-        _ mode: SurfaceTabBarLayoutSettings.WidthMode
-    ) -> BonsplitConfiguration.Appearance.TabWidthMode {
-        switch mode {
-        case .fixed: .fixed
-        case .fill: .fill
-        }
-    }
-
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
         splitDividerColor: NSColor? = nil,
-        tabTitleFontSize: CGFloat = 11
+        tabTitleFontSize: CGFloat = 11,
+        tabBarLayout: SurfaceTabBarLayoutSettings = SurfaceTabBarLayoutSettings()
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
@@ -4113,10 +4105,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             increaseContrast: DisplayAccessibilityOptions.current.increaseContrast
         )
         return BonsplitConfiguration.Appearance(
-            tabBarHeight: SurfaceTabBarLayoutSettings.height(),
-            tabMaxWidth: SurfaceTabBarLayoutSettings.maxTabWidth(),
+            tabBarHeight: tabBarLayout.height,
+            tabMaxWidth: tabBarLayout.maxTabWidth,
             tabTitleFontSize: tabTitleFontSize,
-            tabWidthMode: bonsplitTabWidthMode(SurfaceTabBarLayoutSettings.widthMode()),
+            tabWidthMode: tabBarLayout.widthMode.bonsplitTabWidthMode,
             dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
@@ -4126,7 +4118,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
     }
 
-    func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
+    func applyGhosttyChrome(
+        from config: GhosttyConfig,
+        reason: String = "unspecified",
+        tabBarLayout: SurfaceTabBarLayoutSettings = SurfaceTabBarLayoutSettings()
+    ) {
         let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -4153,9 +4149,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
-        let nextTabBarHeight = SurfaceTabBarLayoutSettings.height()
-        let nextTabMaxWidth = SurfaceTabBarLayoutSettings.maxTabWidth()
-        let nextTabWidthMode = Self.bonsplitTabWidthMode(SurfaceTabBarLayoutSettings.widthMode())
+        let nextTabBarHeight = tabBarLayout.height
+        let nextTabMaxWidth = tabBarLayout.maxTabWidth
+        let nextTabWidthMode = tabBarLayout.widthMode.bonsplitTabWidthMode
         let tabBarHeightChanged = abs(currentAppearance.tabBarHeight - nextTabBarHeight) > 0.0001
         let tabMaxWidthChanged = abs(currentAppearance.tabMaxWidth - nextTabMaxWidth) > 0.0001
         let tabWidthModeChanged = currentAppearance.tabWidthMode != nextTabWidthMode

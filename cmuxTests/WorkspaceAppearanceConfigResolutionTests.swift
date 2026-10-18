@@ -76,21 +76,17 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
     }
 
     @MainActor
-    func testSurfaceTabBarLayoutReachesBonsplitAndReappliesOnChange() {
+    func testSurfaceTabBarLayoutReachesBonsplitAndReappliesOnChange() throws {
         typealias Layout = SurfaceTabBarLayoutSettings
-        let defaults = UserDefaults.standard
-        let saved = Layout.allKeys.map { ($0, defaults.object(forKey: $0)) }
-        defer {
-            for (key, value) in saved {
-                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
-            }
-        }
-        Layout.allKeys.forEach { defaults.removeObject(forKey: $0) }
+        let suiteName = "cmux-surface-tab-bar-layout-workspace-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let layout = Layout(defaults: defaults)
 
         let workspace = Workspace(title: "Tests")
         defer { workspace.teardownAllPanels() }
         // Settle colors and font first so the second apply can only change through layout.
-        workspace.applyGhosttyChrome(from: GhosttyConfig(), reason: "test-surface-tab-bar-layout")
+        workspace.applyGhosttyChrome(from: GhosttyConfig(), reason: "test-surface-tab-bar-layout", tabBarLayout: layout)
         var appearance = workspace.bonsplitController.configuration.appearance
         XCTAssertEqual(appearance.tabWidthMode, .fixed)
         XCTAssertEqual(appearance.tabMaxWidth, Layout.defaultMaxTabWidth)
@@ -99,7 +95,7 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
         defaults.set(Layout.WidthMode.fill.rawValue, forKey: Layout.widthModeKey)
         defaults.set(320.0, forKey: Layout.maxTabWidthKey)
         defaults.set(36.0, forKey: Layout.heightKey)
-        workspace.applyGhosttyChrome(from: GhosttyConfig(), reason: "test-surface-tab-bar-layout")
+        workspace.applyGhosttyChrome(from: GhosttyConfig(), reason: "test-surface-tab-bar-layout", tabBarLayout: layout)
 
         appearance = workspace.bonsplitController.configuration.appearance
         XCTAssertEqual(appearance.tabWidthMode, .fill)

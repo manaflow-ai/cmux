@@ -515,7 +515,7 @@ struct WorkspaceContentView: View {
     }
 
     static var tmuxPaneOverlayGeometry: TmuxPaneOverlayGeometry {
-        TmuxPaneOverlayGeometry(topChromeHeight: SurfaceTabBarLayoutSettings.height())
+        TmuxPaneOverlayGeometry(topChromeHeight: SurfaceTabBarLayoutSettings().height)
     }
 
     private static func tmuxWorkspacePaneRects(

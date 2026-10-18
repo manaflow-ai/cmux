@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 
 enum PaneChromeSettings {
@@ -35,12 +36,19 @@ enum PaneChromeSettings {
 /// Surface tab bar layout from `surfaceTabBar.widthMode`, `.maxTabWidth` and
 /// `.height` in cmux.json. Changes post ``PaneChromeSettings/didChangeNotification``,
 /// which already makes every workspace and Dock reapply its Bonsplit appearance.
-enum SurfaceTabBarLayoutSettings {
+struct SurfaceTabBarLayoutSettings {
     enum WidthMode: String {
-        /// Tabs keep their width up to ``maxTabWidth`` and scroll on overflow.
+        /// Tabs keep their width up to ``SurfaceTabBarLayoutSettings/maxTabWidth`` and scroll on overflow.
         case fixed
         /// Tabs stretch to share the pane's tab bar; they still scroll on overflow.
         case fill
+
+        var bonsplitTabWidthMode: BonsplitConfiguration.Appearance.TabWidthMode {
+            switch self {
+            case .fixed: .fixed
+            case .fill: .fill
+            }
+        }
     }
 
     static let widthModePath = "surfaceTabBar.widthMode"
@@ -59,21 +67,28 @@ enum SurfaceTabBarLayoutSettings {
     static let defaultHeight: CGFloat = WindowChromeMetrics.sharedChromeBarHeight
     static let heightRange: ClosedRange<CGFloat> = 24...48
 
-    static var allKeys: [String] { [widthModeKey, maxTabWidthKey, heightKey] }
+    static let allKeys = [widthModeKey, maxTabWidthKey, heightKey]
+    static let allPaths = [widthModePath, maxTabWidthPath, heightPath]
 
-    static func widthMode(defaults: UserDefaults = .standard) -> WidthMode {
-        defaults.string(forKey: widthModeKey).flatMap(WidthMode.init(rawValue:)) ?? defaultWidthMode
+    let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
     }
 
-    static func maxTabWidth(defaults: UserDefaults = .standard) -> CGFloat {
-        clamped(defaults.object(forKey: maxTabWidthKey), to: maxTabWidthRange) ?? defaultMaxTabWidth
+    var widthMode: WidthMode {
+        defaults.string(forKey: Self.widthModeKey).flatMap(WidthMode.init(rawValue:)) ?? Self.defaultWidthMode
     }
 
-    static func height(defaults: UserDefaults = .standard) -> CGFloat {
-        clamped(defaults.object(forKey: heightKey), to: heightRange) ?? defaultHeight
+    var maxTabWidth: CGFloat {
+        clamped(defaults.object(forKey: Self.maxTabWidthKey), to: Self.maxTabWidthRange) ?? Self.defaultMaxTabWidth
     }
 
-    private static func clamped(_ rawValue: Any?, to range: ClosedRange<CGFloat>) -> CGFloat? {
+    var height: CGFloat {
+        clamped(defaults.object(forKey: Self.heightKey), to: Self.heightRange) ?? Self.defaultHeight
+    }
+
+    private func clamped(_ rawValue: Any?, to range: ClosedRange<CGFloat>) -> CGFloat? {
         guard let number = rawValue as? NSNumber, number.doubleValue.isFinite else { return nil }
         return min(max(CGFloat(number.doubleValue), range.lowerBound), range.upperBound)
     }
