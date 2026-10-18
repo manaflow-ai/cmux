@@ -953,11 +953,13 @@ class TabManager: ObservableObject {
     var isFindVisible: Bool {
         selectedTerminalPanel?.searchState != nil ||
             focusedBrowserPanel?.searchState != nil ||
-            focusedMarkdownPanel?.searchState != nil
+            focusedMarkdownPanel?.searchState != nil ||
+            focusedTextFilePreviewPanel?.isTextFindBarVisible == true
     }
 
     var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
+        selectedTerminalPanel?.hasSelection() == true ||
+            focusedTextFilePreviewPanel?.canUseSelectionForFind == true
     }
 
     @discardableResult
@@ -989,24 +991,30 @@ class TabManager: ObservableObject {
             // hidden but the shortcut was handled.
             return browserPanel.searchState != nil || browserPanel.isDiffViewerFindOwner
         }
-        guard let markdownPanel = focusedMarkdownPanel else { return false }
-        markdownPanel.startFind()
-        return markdownPanel.searchState != nil
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.startFind()
+            return markdownPanel.searchState != nil
+        }
+        guard let filePreviewPanel = focusedTextFilePreviewPanel else { return false }
+        return filePreviewPanel.startFind()
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
 #if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+        focusedTextFilePreviewPanel?.useSelectionForFind()
     }
 
     func findNext() {
@@ -1019,7 +1027,11 @@ class TabManager: ObservableObject {
             browserPanel.findNext()
             return
         }
-        focusedMarkdownPanel?.findNext()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.findNext()
+            return
+        }
+        focusedTextFilePreviewPanel?.findNext()
     }
 
     func findPrevious() {
@@ -1032,7 +1044,11 @@ class TabManager: ObservableObject {
             browserPanel.findPrevious()
             return
         }
-        focusedMarkdownPanel?.findPrevious()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.findPrevious()
+            return
+        }
+        focusedTextFilePreviewPanel?.findPrevious()
     }
 
     @discardableResult
@@ -1171,7 +1187,11 @@ class TabManager: ObservableObject {
             browserPanel.hideFind()
             return
         }
-        focusedMarkdownPanel?.hideFind()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.hideFind()
+            return
+        }
+        focusedTextFilePreviewPanel?.hideFind()
     }
 
     func makeWorkspaceForCreation(
