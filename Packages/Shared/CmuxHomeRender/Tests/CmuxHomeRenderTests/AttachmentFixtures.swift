@@ -91,33 +91,20 @@ actor FakeAttachmentLoader: HomeAttachmentLoader {
 }
 
 /// A real four-frame H.264 file, so the player item loads (a missing file
-/// would fail and trigger the expired-URL refetch).
+/// would fail and trigger the expired-URL refetch). It ships pre-encoded:
+/// creating an H.264 writer input hung on CI's virtual Macs, which have no
+/// hardware encoder.
 @MainActor
 enum TestVideo {
     private static var made: URL?
 
     static func url() async throws -> URL {
         if let made { return made }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("home-attach-\(UUID().uuidString).mp4")
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 36,
-        ])
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: 64, kCVPixelBufferHeightKey as String: 36,
-        ])
-        writer.add(input)
-        writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
-        for i in 0..<4 {
-            while !input.isReadyForMoreMediaData { await Task.yield() }
-            var buffer: CVPixelBuffer?
-            if let pool = adaptor.pixelBufferPool { CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) }
-            if let buffer { adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: 30)) }
+        guard let bundled = Bundle.module.url(forResource: "four-frames", withExtension: "mp4") else {
+            throw CocoaError(.fileNoSuchFile)
         }
-        input.markAsFinished()
-        await writer.finishWriting()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("home-attach-\(UUID().uuidString).mp4")
+        try FileManager.default.copyItem(at: bundled, to: url)
         made = url
         return url
     }
