@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4. */
+/* cmux-tui mux protocol 12, IR dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4" as const;
+export const SDK_IR_SHA256 = "dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1862,6 +1862,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "page-tab-route-v1"
       },
+      "split": {
+        "since": null,
+        "capability": "conversation-tab-split-v1"
+      },
       "transaction": {
         "since": null,
         "capability": "conversation-tab-transaction-v1"
@@ -1869,7 +1873,7 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. split (conversation-tab-split-v1) needs pane and excludes workspace. See spec/commands.md."
     ]
   },
   "new-frontend-browser-tab": {
@@ -5810,6 +5814,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "capability": "page-tab-route-v1",
         "description": "What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.",
         "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationTabSplit": {
+    "additional_properties": false,
+    "fields": {
+      "direction": {
+        "description": "The side of pane the new pane takes: right, down, left or up.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pane_id": {
+        "default": null,
+        "description": "Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.",
+        "nullable": true,
         "presence": "optional",
         "type": {
           "kind": "scalar",
@@ -20712,6 +20741,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "split": {
+          "capability": "conversation-tab-split-v1",
+          "default": null,
+          "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabSplit"
           }
         },
         "transaction": {
