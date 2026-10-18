@@ -10,6 +10,8 @@ struct MachinesCloudStatus: View {
     /// Dismissal identity only; upstream details are never presented.
     let listError: String?
     let treeError: String?
+    /// Trusted guidance; the tree error is shown verbatim only when it is this.
+    var treeHint: String? = nil
     let onDismissStale: (String) -> Void
     let onDismissTreeError: (String) -> Void
     /// Runs the fix the status names. The notice and the empty state route the
@@ -42,7 +44,9 @@ struct MachinesCloudStatus: View {
                 perform: performListStatusAction
             )
         } else if let error = treeError {
-            let safeMessage = treeErrorMessage
+            // Tree failures carry raw upstream text, so only a trusted hint
+            // (ownership, availability) is presented verbatim.
+            let safeMessage = !error.isEmpty && error == treeHint ? error : treeErrorMessage
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 10, weight: .semibold))

@@ -21,7 +21,7 @@ extension CmuxWebView {
     /// (`url` is nil when the right-click was not on a link). The backing
     /// stored property lives in `CmuxWebView.swift` because extensions cannot
     /// add stored properties.
-    struct ContextMenuCapturedLink {
+    struct ContextMenuCapturedLink: Sendable {
         public let url: URL?
         public let uptime: TimeInterval
     }
@@ -130,7 +130,7 @@ extension CmuxWebView {
         )
     }
 
-    fileprivate func noteContextMenuCapturedLink(_ url: URL?) {
+    fileprivate nonisolated func noteContextMenuCapturedLink(_ url: URL?) {
         contextMenuCapturedLink = ContextMenuCapturedLink(
             url: url,
             uptime: ProcessInfo.processInfo.systemUptime
@@ -313,14 +313,9 @@ private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMess
         // script already drops synthetic (isTrusted == false) events, so
         // every message is a real right-click report.
         //
-        // WebKit delivers script messages on the main thread (same pattern as
-        // BrowserMediaPlaybackMessageHandler). Apply the capture synchronously
-        // instead of hopping through a `Task` so it stays ordered with the
-        // AppKit click lifecycle: a deferred report from the previous click
-        // must not run after `rightMouseDown` clears the capture and repopulate
-        // it for the menu the new click opens.
-        MainActor.assumeIsolated {
-            webView.noteContextMenuCapturedLink(url)
-        }
+        // WebKit and AppKit serialize this snapshot on the main thread.
+        // Publish before returning so menu tracking sees this click's capture,
+        // without requiring a Swift executor token at the framework boundary.
+        webView.noteContextMenuCapturedLink(url)
     }
 }

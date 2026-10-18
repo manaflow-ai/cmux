@@ -3,6 +3,39 @@ import Foundation
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testNotifyRejectsMissingTextOptionValuesBeforePosting() throws {
+        let socketPath = makeSocketPath("missing-text-value")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let home = makeNotifyHome("missing-text-value")
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
+        }
+        let state = MockSocketServerState()
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.notifyMockResponse(line: line)
+        }
+        let cliPath = try bundledCLIPath()
+
+        for arguments in [
+            ["--title"],
+            ["--title", "--body", "x"],
+            ["--subtitle", "--body", "x"],
+            ["--body", "--title", "x"],
+        ] {
+            let result = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: arguments)
+            XCTAssertNotEqual(result.status, 0, "\(arguments): \(result.stderr)")
+            XCTAssertTrue(result.stderr.contains("unexpected arguments"), result.stderr)
+            XCTAssertTrue(state.snapshot().isEmpty, "\(arguments) sent a socket request")
+        }
+
+        let literal = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title=--body", "--body", "x"])
+        XCTAssertEqual(literal.status, 0, literal.stderr + literal.stdout)
+        let request = try XCTUnwrap(createRequestLines(in: state).last)
+        XCTAssertTrue(request.contains(#""title":"--body""#), request)
+    }
+
     /// `cmux notify --desktop false` must reach the app as `effects: {"desktop":
     /// false}` on the create request, the same shape a hook emits, and the key
     /// must stay absent when the caller did not pass the flag so the app keeps

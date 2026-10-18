@@ -23,7 +23,13 @@ CLIENT="$TEST_DIR/client"
 cat > "$CLIENT" <<'SH'
 #!/bin/sh
 [ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
-printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+if [ "${FAKE_SSH_MACOS_FROM_CLIENT:-0}" = 1 ]; then
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download","ssh-payload-macos-from-client"]}'
+elif [ "${FAKE_SSH_PAYLOAD_DOWNLOAD:-0}" = 1 ]; then
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download"]}'
+else
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+fi
 SH
 chmod +x "$CLIENT"
 
@@ -96,6 +102,16 @@ SH
 cat > "$FAKEBIN/gh" <<SH
 #!/bin/bash
 printf 'gh %s\n' "\$*" >> "$EVENTS"
+# FAKE_GH_RATE_LIMITED_FILE holds how many more calls answer like an exhausted
+# GitHub API installation quota (nightly run 37526635018) before gh recovers.
+if [ -n "\${FAKE_GH_RATE_LIMITED_FILE:-}" ]; then
+  left="\$(cat "\$FAKE_GH_RATE_LIMITED_FILE")"
+  if [ "\$left" -gt 0 ]; then
+    echo \$((left - 1)) > "\$FAKE_GH_RATE_LIMITED_FILE"
+    echo "Error: HTTP 403: API rate limit exceeded for installation." >&2
+    exit 1
+  fi
+fi
 exit "\${FAKE_GH_EXIT:-0}"
 SH
 cat > "$FAKEBIN/lipo" <<'SH'
@@ -152,6 +168,30 @@ if grep -q 'apple-darwin' "$EVENTS"; then
   exit 1
 fi
 echo "PASS: a manifest without a valid attestation installs nothing"
+
+# An exhausted API quota is not a verdict on the attestation. The installer
+# waits and asks again instead of failing a 40-minute signed nightly leg.
+RATE_LIMITED_APP="$TEST_DIR/RateLimited.app"
+echo 2 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  install_remote "$RATE_LIMITED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
+  > "$TEST_DIR/rate-limited.log" 2>&1 || {
+    echo "FAIL: a rate-limited attestation lookup failed the install instead of retrying" >&2
+    cat "$TEST_DIR/rate-limited.log" >&2
+    exit 1
+  }
+cmp "$CLIENT" "$RATE_LIMITED_APP/Contents/Resources/bin/cmux-tui"
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 3 ]
+echo "PASS: a rate-limited attestation lookup is retried, then verified"
+
+# A real verification failure is final on the first answer.
+FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/Rejected.app" \
+  --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/rejected.log" 2>&1 && {
+    echo "FAIL: installed after a rejected attestation" >&2
+    exit 1
+  }
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 1 ]
+echo "PASS: a rejected attestation is not retried"
 
 if install_remote "$TEST_DIR/Malformed.app" --attest-signer-workflow "cmux-tui-artifacts.yml" \
     > "$TEST_DIR/malformed.log" 2>&1; then
@@ -228,6 +268,37 @@ for arch in arm64 x86_64; do
   fi
   grep -q "^lipo .* -verify_arch $arch\$" "$EVENTS"
   echo "PASS: $arch installs its verified client and all verified SSH companion artifacts"
+
+  # A client that downloads unbundled SSH payloads itself gets only the macOS
+  # payloads (signed with the app) plus the manifest that pins every platform.
+  ondemand_app="$TEST_DIR/OnDemand-$arch.app"
+  FAKE_SSH_PAYLOAD_DOWNLOAD=1 install_remote "$ondemand_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/ondemand-$arch.log" 2>&1
+  ondemand_ssh="$ondemand_app/Contents/Resources/bin/cmux-tui-ssh"
+  for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    cmp "$SERVE/cmux-tui-$target" "$ondemand_ssh/cmux-tui-$target"
+  done
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do
+    if [[ -e "$ondemand_ssh/cmux-tui-$target" ]]; then
+      echo "FAIL: $arch bundled cmux-tui-$target although the client downloads it on demand" >&2; exit 1
+    fi
+  done
+  cmp "$SERVE/manifest.json" "$ondemand_ssh/manifest.json"
+  echo "PASS: $arch leaves Linux SSH payloads to a client that downloads them"
+
+  # A client that uploads its own slice to a Mac (and downloads an architecture
+  # it lacks) needs no SSH payload at all, only the manifest's pins.
+  client_app="$TEST_DIR/FromClient-$arch.app"
+  FAKE_SSH_MACOS_FROM_CLIENT=1 install_remote "$client_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/fromclient-$arch.log" 2>&1
+  client_ssh="$client_app/Contents/Resources/bin/cmux-tui-ssh"
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+    if [[ -e "$client_ssh/cmux-tui-$target" ]]; then
+      echo "FAIL: $arch bundled cmux-tui-$target although the client serves macOS hosts itself" >&2; exit 1
+    fi
+  done
+  cmp "$SERVE/manifest.json" "$client_ssh/manifest.json"
+  echo "PASS: $arch bundles no SSH payload for a client that serves macOS hosts itself"
 
   if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/NativeDenied-$arch.app" --arch "$arch" > "$TEST_DIR/native-denied.log" 2>&1; then
     echo "FAIL: native install skipped manifest attestation" >&2; exit 1

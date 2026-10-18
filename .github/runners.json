@@ -28,7 +28,7 @@
   "fleets": {
     "blacksmith": {
       "linux": "blacksmith-4vcpu-ubuntu-2404",
-      "linux_arm64": "ubuntu-24.04-arm",
+      "linux_arm64": "blacksmith-4vcpu-ubuntu-2404-arm",
       "macos_15": "blacksmith-6vcpu-macos-15",
       "macos_15_gui": "blacksmith-6vcpu-macos-15",
       "macos_15_sdk15": "blacksmith-6vcpu-macos-15",

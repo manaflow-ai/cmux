@@ -41,4 +41,15 @@ struct CloudTerminalPaneClosureTests {
         )
         #expect(closing.isEmpty)
     }
+
+    @Test
+    func anIncompleteGraphNeverClosesAPane() {
+        let closing = CloudTerminalPaneClosure.panelsToClose(
+            boundTerminals: [paneA: "term_alive", paneB: "term_pending"],
+            liveTerminalKeys: ["term_alive"],
+            freshness: .current,
+            graphComplete: false
+        )
+        #expect(closing.isEmpty)
+    }
 }

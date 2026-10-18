@@ -20,7 +20,8 @@ struct CloudTreeAvailabilityTests {
         )
         // The link placeholder leads; Ports stays reachable, and Resources is
         // always the final machine section.
-        #expect(CloudTreeNodeBuilder.flattened(asleep).map(\.id) == ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status", "machine:quiet-owl/resources", "machine:quiet-owl/resources/cpu", "machine:quiet-owl/resources/memory", "machine:quiet-owl/resources/disk", "machine:quiet-owl/resources/usage"])
+        // The Coderouter section always closes the tree (#17233).
+        #expect(CloudTreeNodeBuilder.flattened(asleep).map(\.id) == ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status", "machine:quiet-owl/resources", "machine:quiet-owl/resources/cpu", "machine:quiet-owl/resources/memory", "machine:quiet-owl/resources/disk", "machine:quiet-owl/resources/usage", "coderouter-section", "coderouter-section/codex", "coderouter-section/claude", "coderouter-section/opencode-go"])
         if case .placeholder(_, let placeholder) = asleep[0].children[0].kind { #expect(placeholder.style == .dimmed) } else { Issue.record("Unexpected node kind") }
         if case .placeholder(_, let ports) = asleep[0].children[1].children[0].kind { #expect(ports.style == .dimmed) } else { Issue.record("Unexpected node kind") }
 
@@ -44,7 +45,7 @@ struct CloudTreeAvailabilityTests {
             snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("ghost"))], resources: [], projections: []),
             localWorkspaces: []
         )
-        #expect(catalogOnly.map(\.id) == ["machine:ghost"])
+        #expect(catalogOnly.map(\.id) == ["machine:ghost", "coderouter-section"])
     }
 
     @Test

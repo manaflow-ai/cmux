@@ -8,6 +8,7 @@ import {
   verifyBrowserSessionRequest,
   withSubrouterAuthorizationDeadline,
 } from "../../services/vms/auth";
+import { isTransientStackFailure } from "../../services/vms/authErrors";
 import {
   DASHBOARD_RETURN_PATH_HEADER,
   normalizeDashboardReturnPath,
@@ -38,6 +39,10 @@ export class DashboardSessionMissingError extends Error {
 export class DashboardSessionUnavailableError extends Error {
   override readonly name = "DashboardSessionUnavailableError";
 }
+
+/** Message of a `DashboardSessionUnavailableError` caused by a Stack throttle, 5xx or timeout. */
+export const DASHBOARD_SESSION_TRANSIENT_MESSAGE =
+  "Dashboard Stack authorization unavailable: transient";
 
 /**
  * Length of time the browser may reuse a resolved session between client
@@ -114,8 +119,12 @@ async function readCachedDashboardSessionUser(
       console.error("Dashboard Stack authorization unavailable", {
         errorType: error instanceof Error ? error.name : typeof error,
       });
+      // The marker rides in the message: errors leaving the private cache
+      // scope do not keep their prototype or cause.
       throw new DashboardSessionUnavailableError(
-        "Dashboard Stack authorization unavailable",
+        isTransientStackFailure(error)
+          ? DASHBOARD_SESSION_TRANSIENT_MESSAGE
+          : "Dashboard Stack authorization unavailable",
         { cause: error },
       );
     }

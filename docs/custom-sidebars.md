@@ -104,7 +104,13 @@ examples.
 
 `TextField(value, opts)` opts: `placeholder`, `onSubmit(text)`, `onCancel()`,
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
-true; pass `false` for persistent fields so mounting never steals focus).
+true; pass `false` for persistent fields such as a search box). An autofocus
+field takes keyboard focus when it appears only if the user gave the sidebar
+focus: that sidebar's click handler created it (a button, tap, double-click
+or menu item, such as Rename) and keyboard focus hasn't moved since the click,
+or one of that sidebar's fields already has focus. A field that appears any other way, for example after a data update
+while you're typing in a terminal, stays unfocused until clicked, so sidebar
+code can't capture keystrokes meant for another pane.
 Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
 (`tabs[i].id` is the stable panel identity, not interchangeable).
 For remote tmux tabs, `surfaceId` targets the window's active pane and can
@@ -235,6 +241,16 @@ Rules of the runtime:
   (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
 - Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
   a handler.
+- Clipboard: `clipboard.write(text)` copies plain text, e.g. a Copy Workspace
+  ID menu item: `Button("Copy Workspace ID", () => clipboard.write(w().id))`.
+  It only works while cmux is handling a click, double-click, or menu item
+  for the sidebar, and only synchronously inside that handler. Calls from
+  load, data effects, drag/reorder callbacks, text-field submit or edit
+  handlers, or a callback saved for later return `false` and log a
+  `clipboard.write rejected: ...` message, so a sidebar can't swap the
+  clipboard behind your back before you paste into a shell. Text is capped at 64 KB (UTF-8). It is
+  write-only: there is no clipboard read. The remote renderer has no
+  clipboard, so every call returns `false` there.
 - Containment: the context has no filesystem, network, or timers, and a
   runaway evaluation is terminated by a watchdog. Errors show in the sidebar
   with a line number.
@@ -330,9 +346,31 @@ with:
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
-  (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
-  Present when the workspace has them (use `if let` / ternary): `description`,
-  `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
+  (array of Int) + `portCount`, `unread` (Int notifications), `status`, `tabs` +
+  `tabCount`. `status` is the workspace's task-status lane, one of `todo`,
+  `working`, `needs-attention`, `review` or `done`. It is the resolved lane:
+  a manual pin set through `cmux workspace status set` or the sidebar menu
+  while that pin still holds, otherwise the lane cmux infers from live signals
+  (an agent waiting on input, a running agent, an open pull request, a dirty
+  working tree). An external tool that pins the lane through
+  `cmux workspace status set` shows up here too.
+
+  `status` is always reported, independently of whether the built-in status
+  glyph is visible. That glyph needs two further conditions the context does
+  not carry: the workspace-todo feature has to be on, which happens through the
+  beta toggle or through the remote feature flag, and the workspace's own
+  `statusHidden` has to be false. A workspace created in this session starts
+  hidden; one restored from a session snapshot that predates the field starts
+  visible. A custom sidebar therefore has to decide for itself whether to
+  render the lane, and it cannot read `statusHidden` from the context.
+
+  Note the two vocabularies differ: this lane uses `needs-attention`, while
+  `agents[j].status` uses `needs_input`. They are separate values from separate
+  sources and are not interchangeable.
+
+  Present when the workspace has them (use `if let` / ternary): `emoji` (the
+  leading emoji grapheme from the display title), `description`, `color` (hex),
+  `branch` + `dirty` (Bool) from git, `pr`
   (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
   workspace's first pull request in sidebar display order) + `prs` (array of
   the same shape with every pull request cmux knows for the workspace),

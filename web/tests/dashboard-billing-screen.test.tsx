@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createTranslator, type AbstractIntlMessages } from "use-intl/core";
 
-import { stripeCustomers, stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, stripeCustomers, stripeSubscriptions } from "../db/schema";
 import baseEnMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
 import { withAccountMutationLeaseSupport } from
@@ -24,6 +24,7 @@ let currentUser: typeof proUser | null = null;
 let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let customerRows: Array<Record<string, unknown>> = [];
+let appleRows: Array<Record<string, unknown>> = [];
 
 const proUser = {
   id: "user-pro",
@@ -111,6 +112,7 @@ function resetFixtures() {
   subscriptionRows = [];
   subscriptionResults = [];
   customerRows = [];
+  appleRows = [];
   proUser.clientReadOnlyMetadata = {};
   proUser.selectedTeam = null;
   proUser.listTeams.mockClear();
@@ -138,7 +140,7 @@ describe("dashboard.account.billing", () => {
     const body = await response.json();
     expect(body.selectedTeamId).toBe("user-pro");
     expect(body.team).toBeNull();
-    expect(body.personal.planStatus).toEqual({ isPro: true, planId: "pro", billingManagement: "stripe" });
+    expect(body.personal.planStatus).toEqual({ isPro: true, planId: "pro", billingManagement: "stripe", billingSource: "stripe", manageUrl: null, foundersEdition: false });
     expect(body.personal.subscription).toEqual({
       plan: "pro",
       status: "active",
@@ -334,6 +336,91 @@ describe("dashboard billing screen", () => {
     expect(html).not.toContain("Cancel plan");
   });
 
+  test("an App Store-only subscriber gets the App Store notice and no Stripe portal", async () => {
+    appleRows = [appleMaxRow()];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Billed through the App Store");
+    expect(html).toContain('href="https://apps.apple.com/account/subscriptions"');
+    expect(html).not.toContain('href="/api/billing/portal"');
+  });
+
+  test("keeps Stripe management beside the App Store notice when both bill the user", async () => {
+    // Apple Max outranks the Stripe Pro plan, but Stripe still charges for Pro.
+    appleRows = [appleMaxRow()];
+    subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, status: "past_due" })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Billed through the App Store");
+    expect(html).toContain(
+      "Your latest payment failed. Update your payment method to keep your plan active.",
+    );
+    expect(html).toContain('href="/api/billing/portal"');
+  });
+
+  test("a past-due subscriber is asked to fix the payment instead of offered a switch", async () => {
+    subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, status: "past_due" })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).not.toContain("Switch to Max");
+    // Cancelling does not need the payment fixed first.
+    expect(html).toContain("Cancel plan");
+    expect(html).toContain("Update your payment method before changing plans.");
+    expect(html).toContain('href="/api/billing/portal"');
+  });
+
+  test("a granted Pro account is offered Max checkout", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "pro" };
+
+    const html = await renderBillingPage();
+
+    expect(html).toMatch(/data-plan="pro"[^>]*aria-current="true"/);
+    expect(html).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*>Upgrade to Max/);
+    expect(html).not.toContain("Granted by cmux. There is nothing to change.");
+    expect(html).toContain("Granted by cmux, so there is nothing to cancel.");
+  });
+
+  // A Founder's Edition purchase is stored as an active Pro row, but it is
+  // not a subscription: the dashboard must not offer to switch or cancel it.
+  test("a lifetime Founder is offered Max checkout, not a switch of the purchase", async () => {
+    subscriptionRows = [{
+      id: "founders_cs_1", status: "active", plan: "pro", scope: "user", cancelAtPeriodEnd: false,
+      currentPeriodEnd: null, raw: { metadata: { founders_edition: "true" }, items: { data: [] } },
+    }];
+    customerRows = [{ id: "cus_founder" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toMatch(/data-plan="pro"[^>]*aria-current="true"/);
+    expect(html).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*>Upgrade to Max/);
+    expect(html).not.toContain("Switch to Max");
+    expect(html).not.toContain("Cancel plan");
+    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+  });
+
+  test("a Founder on Max is offered Pro by ending Max, not a paid Pro switch", async () => {
+    subscriptionRows = [
+      stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "max", lookupKey: "cmux-max-monthly-200", unitAmount: 20000 }),
+      {
+        id: "founders_cs_1", status: "active", plan: "pro", scope: "user", cancelAtPeriodEnd: false,
+        currentPeriodEnd: null, raw: { metadata: { founders_edition: "true" }, items: { data: [] } },
+      },
+    ];
+    customerRows = [{ id: "cus_founder" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toMatch(/data-plan="max"[^>]*aria-current="true"/);
+    expect(html).toMatch(/data-plan="pro"[\s\S]*?<button[^>]*>Switch to Pro<\/button>/);
+    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+    expect(html).not.toContain("Cancel plan");
+  });
+
   test("renders a past-due banner that links to the Stripe portal", async () => {
     subscriptionRows = [stripeSubscriptionRow({
       cancelAtPeriodEnd: false,
@@ -524,7 +611,7 @@ describe("dashboard billing screen", () => {
   for (const [billing, message] of [
     ["cancelled", "Your plan will cancel at the end of the current billing period."],
     ["resumed", "Your plan has been resumed and will renew normally."],
-    ["nosub", "No active Stripe subscription was found for this account."],
+    ["nosub", "No active web subscription was found for this account."],
     ["error", "Billing could not be updated. Try again shortly."],
   ] as const) {
     test(`renders ${billing} banner`, async () => {
@@ -535,10 +622,19 @@ describe("dashboard billing screen", () => {
   }
 });
 
+function appleMaxRow() {
+  return {
+    originalTransactionId: "otx-apple", planId: "max", status: "active", environment: "Production",
+    bundleId: "com.cmux.app", expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), gracePeriodExpiresAt: null,
+    autoRenewEnabled: true,
+  };
+}
+
 function selectableResult(table: unknown) {
   const rows = () => {
     if (table === stripeSubscriptions) return subscriptionResults.length ? subscriptionResults.shift()! : subscriptionRows;
     if (table === stripeCustomers) return customerRows;
+    if (table === appleSubscriptions) return appleRows;
     return [];
   };
   return {

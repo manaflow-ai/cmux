@@ -472,7 +472,7 @@ private enum CloudSidebarDebugFixture {
         openDesktop: { _ in },
         runCommand: { _, _ in },
         confirmDelete: { _ in },
-        promptRename: { _, _ in },
+        promptRename: { _ in },
         resizeDisk: { _, _ in },
         promptUpgrade: {}
     )

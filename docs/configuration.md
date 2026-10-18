@@ -274,9 +274,9 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 
 ## New Cloud Workspace shortcut and the plus-button menu
 
-Cmd+Shift+Y creates a workspace on the machine that owns the most recently selected Cloud workspace. If no valid Cloud workspace is remembered, it uses the first machine in the current right-hand Cloud sidebar order, including pins and manual reordering. Cmd+Y opens the New Machine flow to provision a machine deliberately. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
+Cmd+Y creates a workspace on the machine that owns the most recently selected Cloud workspace, or the first usable machine in the right-hand Cloud sidebar. If no usable Cloud workspace or machine is available, it opens the New Cloud Machine flow. When a remembered selection is stale, the resolver uses the current right-hand Cloud sidebar order, including pins and manual reordering; an empty or still-loading fleet deterministically stays on the New Cloud Machine flow. Cmd+Shift+Y always opens the New Cloud Machine flow. Cmd+N always creates a local workspace on this Mac. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`.
 
-When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N, local), `cmux.newCloudWorkspace` (Cmd+Y), `cmux.newCloudMachine` (Cmd+Shift+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 
 ## `terminal.textBoxSubmitActions`
 
@@ -333,8 +333,9 @@ Action fields:
 
 Replace the built-in `scp` for terminal file drops and pastes over SSH with a
 command you choose. When you drop or paste a file into a terminal running an SSH
-session, cmux normally `scp`s it to `/tmp/cmux-drop-<uuid>` on the host and types
-the remote path. `terminal.uploadCommands` is an ordered list of host-scoped
+session, cmux normally `scp`s it into a private directory on the host,
+`~/.cache/cmux/paste/<session>/cmux-paste-<uuid>.<ext>`, and types the remote
+path. `terminal.uploadCommands` is an ordered list of host-scoped
 rules; when the ssh destination matches a rule, cmux runs that rule's command
 instead and inserts what the command prints.
 
@@ -360,7 +361,8 @@ instead and inserts what the command prints.
   against either the alias or the real host works.
 - `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
   endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
-  (the `/tmp/cmux-drop-<uuid>` path cmux picked), `CMUX_UPLOAD_DESTINATION`,
+  (the `/tmp/cmux-drop-<uuid>.<ext>` path cmux picked;
+  see below), `CMUX_UPLOAD_DESTINATION`,
   `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE`, and `CMUX_UPLOAD_SSH_OPTIONS`
   (newline-separated; the last three are unset when the session has none). The
   rest of the environment is inherited, so a one-liner resolves tools on `PATH`.
@@ -369,6 +371,32 @@ instead and inserts what the command prints.
 
 **First matching enabled rule wins.** If no rule matches, the built-in `scp` runs
 unchanged, so other hosts are untouched.
+
+### The custom command owns the upload
+
+`CMUX_UPLOAD_REMOTE_PATH` is an absolute path under `/tmp`, with a random name
+and a lowercased file extension. Its parent already exists, so a command can
+copy to it without creating a session directory:
+
+```sh
+scp "$CMUX_UPLOAD_LOCAL_PATH" "$CMUX_UPLOAD_DESTINATION:$CMUX_UPLOAD_REMOTE_PATH"
+```
+
+The example uses your ssh configuration. If the session supplies
+`CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE` or `CMUX_UPLOAD_SSH_OPTIONS`,
+the command must pass those settings to its transport as needed.
+
+The command owns file permissions and cleanup. For sensitive files, use a
+private destination and set appropriate permissions through your upload tool.
+A command that stores the file somewhere else can ignore the suggested path
+and print where it put the file. cmux does not open an extra SSH connection
+before running the command, so authentication wrappers and non-SSH upload
+services can work independently.
+
+The built-in transport uses a private per-session directory under
+`~/.cache/cmux/paste`, creates it with mode `0700`, sets uploaded files to `0600`,
+and removes old or excess files. These directory and cleanup rules apply to
+built-in uploads; custom commands manage their own destinations.
 
 ### How the command's output is used
 
@@ -403,7 +431,7 @@ Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) a
 
 ## `automation.agentAutoResume`
 
-Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
+Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. When the error says when capacity returns, as Subrouter's `retry after <N>s` does once every pooled account is exhausted, the resume waits at least until then plus 30 seconds to 3 minutes, so machines sharing one pool do not all resume at once. The sidebar's **Auto-resumed ×N** marker clears once the agent finishes a turn on its own. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
 
 ```json
 {

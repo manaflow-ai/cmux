@@ -1,5 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxMobileShellModel
+import CmuxMobileSupport
+import os
 import SwiftUI
 
 /// Deterministic Feed fixture for the decision controls and long-list scroll
@@ -9,11 +11,19 @@ public struct AgentFeedDecisionPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .feed
     @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .feed)
     @State private var path: [String] = []
-    @State private var result = ""
+    @State private var stressMonitor = AgentFeedScrollStressFrameMonitor()
+    @State private var stressMetrics = "state=idle"
+    @State private var referenceDate: Date
     @State private var items: [MobileAgentFeedItem]
+    @State private var itemsRevision = 0
 
     public init() {
-        _items = State(initialValue: Self.makeItems(referenceDate: Date()))
+        let referenceDate = Date()
+        _referenceDate = State(initialValue: referenceDate)
+        _items = State(initialValue: Self.makeItems(
+            referenceDate: referenceDate,
+            longRowCount: UITestConfig.agentFeedDecisionPreviewItemCount ?? 36
+        ))
     }
 
     public var body: some View {
@@ -27,12 +37,14 @@ public struct AgentFeedDecisionPreviewView: View {
             NavigationStack(path: $path) {
                 AgentFeedView(
                     items: items,
+                    itemsRevision: AgentFeedItemsRevision(sourceRevision: UInt64(itemsRevision)),
                     status: .ready,
                     pendingReplyRequestIDs: [],
                     pendingTerminalReplyItemIDs: [],
                     refreshesOnAppear: false,
                     actions: actions,
-                    searchText: searchCoordinator.searchDestinationText(for: .feed)
+                    searchText: searchCoordinator.searchDestinationText(for: .feed),
+                    performanceObserver: UITestConfig.agentFeedDecisionPreviewScrollStressEnabled ? stressMonitor : nil
                 )
                 .toolbar { rootToolbar }
                 .navigationDestination(for: String.self) { destination in
@@ -51,6 +63,7 @@ public struct AgentFeedDecisionPreviewView: View {
             ) {
                 AgentFeedView(
                     items: items,
+                    itemsRevision: AgentFeedItemsRevision(sourceRevision: UInt64(itemsRevision)),
                     status: .ready,
                     pendingReplyRequestIDs: [],
                     pendingTerminalReplyItemIDs: [],
@@ -60,30 +73,45 @@ public struct AgentFeedDecisionPreviewView: View {
                 )
             } destination: { _ in EmptyView() }
         }
-        .overlay(alignment: .bottom) {
-            if !result.isEmpty {
-                Text(result)
-                    .font(.footnote.weight(.medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.thinMaterial, in: Capsule())
-                    .padding(.bottom, 12)
-                    .accessibilityIdentifier("MobileAgentFeedDecisionResult")
+        .background {
+            if UITestConfig.agentFeedDecisionPreviewScrollStressEnabled {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("AgentFeedScrollStressMetrics")
+                    .accessibilityValue(stressMetrics)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(UITestConfig.agentFeedDecisionPreviewLightAppearanceEnabled ? .light : .dark)
+        .task {
+            await runScrollStressIfEnabled()
+        }
     }
 
     private var actions: AgentFeedActions {
         AgentFeedActions(
-            permissionReply: { _, mode in result = "Permission reply: \(mode)" },
-            questionReply: { _, _ in result = "Question reply accepted" },
+            permissionReply: { item, mode in
+                resolve(item, decision: MobileAgentFeedDecision(kind: "permission", mode: mode))
+            },
+            questionReply: { item, answers in
+                resolve(item, decision: MobileAgentFeedDecision(kind: "question", selections: answers))
+            },
             openDestination: { item in path = [item.remoteSurfaceID == nil ? "workspace" : "tab"] },
-            viewFullText: { _ in result = "Full text opened" }
+            loadFullText: { item in item.fullTextPreview ?? item.stopReason ?? "" }
         )
     }
 
-    private static func makeItems(referenceDate now: Date) -> [MobileAgentFeedItem] {
+    private func resolve(_ item: MobileAgentFeedItem, decision: MobileAgentFeedDecision) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[index] = item.updating(status: .resolved(decision))
+        itemsRevision &+= 1
+    }
+
+    private static func makeItems(
+        referenceDate now: Date,
+        longRowCount: Int
+    ) -> [MobileAgentFeedItem] {
+        let richText = UITestConfig.agentFeedQuestionMarkdownPreviewEnabled
         let question = MobileAgentFeedItem(
             macDeviceID: "preview-mac",
             macDisplayName: "Preview Mac",
@@ -99,12 +127,12 @@ public struct AgentFeedDecisionPreviewView: View {
                 MobileAgentFeedQuestion(
                     id: "deploy",
                     header: "Deploy target",
-                    prompt: "Where should this deploy?",
+                    prompt: richText ? "Where should **this release** deploy?" : "Where should this deploy?",
                     options: [
                         MobileAgentFeedQuestionOption(
                             id: "production",
-                            label: "Production",
-                            description: "Deploy the current release to production."
+                            label: richText ? "**Production**" : "Production",
+                            description: richText ? "Deploy the `release` to production." : "Deploy the current release to production."
                         ),
                         MobileAgentFeedQuestionOption(
                             id: "staging",
@@ -136,7 +164,7 @@ public struct AgentFeedDecisionPreviewView: View {
                         ),
                     ]
                 ),
-            ],
+            ].filter { !richText || $0.id == "deploy" },
             context: MobileAgentFeedContext(lastUserMessage: "Deploy target and event settings"),
             connectionStatus: .connected
         )
@@ -157,21 +185,10 @@ public struct AgentFeedDecisionPreviewView: View {
             connectionStatus: .connected
         )
 
-        let longRows = (0..<36).map { index in
-            MobileAgentFeedItem(
-                macDeviceID: "preview-mac",
-                macDisplayName: "Preview Mac",
+        let longRows = (0..<longRowCount).map { index in
+            makeScrollRow(
                 itemID: "scroll-preview-\(index)",
-                workstreamID: "codex-scroll-preview-\(index)",
-                source: "codex",
-                kind: .stop,
-                status: .telemetry,
-                createdAt: now.addingTimeInterval(TimeInterval(-100 - index)),
-                updatedAt: now.addingTimeInterval(TimeInterval(-100 - index)),
-                stopReason: "Scroll fixture \(index). The prepared Feed row keeps enough Markdown and text to exercise repeated list layout without creating an empty event.",
-                fullTextPreview: "Scroll fixture \(index). The prepared Feed row keeps enough Markdown and text to exercise repeated list layout without creating an empty event.",
-                fullTextTruncated: true,
-                connectionStatus: .connected
+                createdAt: now.addingTimeInterval(TimeInterval(-100 - index))
             )
         }
 
@@ -200,6 +217,67 @@ public struct AgentFeedDecisionPreviewView: View {
             connectionStatus: .connected
         )
         return [question, permission] + longRows + [emptyAssistant, emptyStop]
+    }
+
+    private static func makeScrollRow(itemID: String, createdAt: Date) -> MobileAgentFeedItem {
+        MobileAgentFeedItem(
+            macDeviceID: "preview-mac",
+            macDisplayName: "Preview Mac",
+            itemID: itemID,
+            workstreamID: "codex-\(itemID)",
+            source: "codex",
+            kind: .stop,
+            status: .telemetry,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+            stopReason: "Scroll fixture \(itemID). The prepared Feed row keeps enough Markdown and text to exercise repeated list layout without creating an empty event.",
+            fullTextPreview: "Scroll fixture \(itemID). The prepared Feed row keeps enough Markdown and text to exercise repeated list layout without creating an empty event.",
+            fullTextTruncated: true,
+            connectionStatus: .connected
+        )
+    }
+
+    private func runScrollStressIfEnabled() async {
+        guard UITestConfig.agentFeedDecisionPreviewScrollStressEnabled else { return }
+
+        let monitor = stressMonitor
+        monitor.start()
+        stressMetrics = monitor.markerValue(state: "running")
+        let clock = ContinuousClock()
+        defer {
+            monitor.stop()
+            let state = Task.isCancelled ? "cancelled" : "complete"
+            stressMetrics = monitor.markerValue(state: state)
+            Logger(subsystem: "dev.cmux.ios", category: "AgentFeedScrollStress").notice(
+                "AFSCROLLSTRESS \(self.stressMetrics, privacy: .public)"
+            )
+        }
+
+        for index in 0..<60 {
+            guard !Task.isCancelled else { return }
+            do {
+                try await clock.sleep(for: .milliseconds(200))
+            } catch {
+                return
+            }
+            injectStressRow(index)
+        }
+    }
+
+    private func injectStressRow(_ index: Int) {
+        let row = Self.makeScrollRow(
+            itemID: "scroll-stress-\(index)",
+            createdAt: referenceDate.addingTimeInterval(TimeInterval(-100 - index))
+        )
+        items.insert(row, at: min(2, items.count))
+        if let oldRowIndex = items.lastIndex(where: { item in
+            (item.itemID.hasPrefix("scroll-preview-")
+                || item.itemID.hasPrefix("scroll-stress-"))
+                && item.id != row.id
+        }) {
+            items.remove(at: oldRowIndex)
+        }
+        itemsRevision &+= 1
     }
 
     private var rootToolbar: some ToolbarContent {
