@@ -80,6 +80,12 @@ extension WorkspaceContentController {
         // `Expect`), and again on each later topology: no re-apply or topology send here.
         focus.expect(.surface(String(surface.rawValue)), target: target, awayFrom: paneKey, generation: generation)
     }
+
+    /// Same, for the tab with resource id `tab`, which this app minted (an optimistic split's
+    /// terminal): the id is the tab's before and after the daemon's echo, the surface is not.
+    func expectFocus(onTab tab: String, generation: UInt64? = nil) {
+        focus.expect(.tab(tab), generation: generation)
+    }
 }
 
 extension FocusTopology.Kind {

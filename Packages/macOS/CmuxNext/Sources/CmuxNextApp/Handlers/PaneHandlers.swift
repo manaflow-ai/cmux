@@ -106,7 +106,9 @@ enum PaneHandlers {
         // Cmd+D on a daemon with client keys: the new pane shows and takes focus in this frame
         // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
-        if let provisional { content?.expectFocus(on: provisional.surface, generation: intent) }
+        // Its tab keeps the client-minted id through the daemon's echo, while its surface changes
+        // there: the focus lands by the id, in the first topology that shows the pane.
+        if let provisional { content?.expectFocus(onTab: provisional.tabID, generation: intent) }
         // The window's keys wait until the new pane has the keyboard (cx-wb5.76): on the old path
         // focus moves only after the reply, and on the optimistic path the swap to the daemon's
         // pane remounts the view. The provisional view takes keys by terminal id at once (cx-wb5.78).
@@ -121,7 +123,7 @@ enum PaneHandlers {
                 } else {
                     try await command.send(on: daemon)
                 }
-                content?.expectFocus(on: created.surface, generation: intent)
+                if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
                 content?.layoutModel.applySplitSizing(sizing)
                 return nil

@@ -211,7 +211,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let run = debugSnapshotRuns > 3 ? "later" : "#\(debugSnapshotRuns)" // a new pane's runs, else another pane's
         let inputs = DebugInputs(tabs: pane.tabs.map(\.snapshot), dormant: pane.tabs.map { services.cache.dormantTabs.contains($0.id) },
                                  connection: String(describing: store.connectionState), generation: store.generation?.rawValue,
-                                 selection: stripSelection, hidden: hidden.sorted(), localTabs: state?.localBrowserTabs[paneKey]?.count ?? 0,
+                                 selection: stripSelection, hidden: hidden.sorted(), localTabs: state?.localBrowserTabs[paneKey].count ?? 0,
                                  tabCount: pane.tabs.count, tabGroups: pane.tabGroups.count, defaultIndex: pane.defaultTabIndex,
                                  handle: pane.handle.rawValue, hidesTabBar: hidesTabBar)
         DebugLayoutCounters.note("snapshot \(run) \(DebugLayoutCounters.changedFields(debugLastSnapshot, result)) inputs \(DebugLayoutCounters.changedFields(debugLastInputs, inputs))", file, line)
