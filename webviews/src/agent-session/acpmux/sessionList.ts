@@ -45,8 +45,8 @@ export type AcpmuxSessionEntry = {
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
   /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
-   *  the person, and it is idle or ready): a New Tab's chip pick starts such a session before its
-   *  first prompt. */
+   *  the person, and no turn running or waiting): a New Tab's chip pick starts such a session before
+   *  its first prompt. */
   unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
@@ -164,7 +164,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       !(Number(session.queued) > 0) &&
       !(Number(session.pendingPermissions) > 0) &&
       session.inputSince == null &&
-      (session.status === undefined || session.status === "idle" || session.status === "ready"),
+      // Running or waiting is a first turn under way; any other state (an agent gone away) is not.
+      session.status !== "running" &&
+      session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
   };
