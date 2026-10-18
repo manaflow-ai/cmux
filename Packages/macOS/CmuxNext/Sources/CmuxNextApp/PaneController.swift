@@ -47,6 +47,21 @@ final class PaneController: SurfacePresenter, PresentablePane {
     #if DEBUG
     private var debugLastSnapshot: Snapshot? // names the fields each re-run changed (DebugLayoutCounters sources)
     private var debugSnapshotRuns = 0
+    private var debugLastInputs: DebugInputs?
+    struct DebugInputs {
+        var tabs: [TabSnapshot]
+        var dormant: [Bool]
+        var connection: String
+        var generation: String?
+        var selection: String?
+        var hidden: [String]
+        var localTabs: Int
+        var tabCount: Int
+        var tabGroups: Int
+        var defaultIndex: Int
+        var handle: UInt64
+        var hidesTabBar: Bool
+    }
     #endif
 
     struct Snapshot: Equatable {
@@ -194,8 +209,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
         #if DEBUG
         debugSnapshotRuns += 1
         let run = debugSnapshotRuns > 3 ? "later" : "#\(debugSnapshotRuns)" // a new pane's runs, else another pane's
-        DebugLayoutCounters.note("snapshot \(run) \(DebugLayoutCounters.changedFields(debugLastSnapshot, result))", file, line)
+        let inputs = DebugInputs(tabs: pane.tabs.map(\.snapshot), dormant: pane.tabs.map { services.cache.dormantTabs.contains($0.id) },
+                                 connection: String(describing: store.connectionState), generation: store.generation?.rawValue,
+                                 selection: stripSelection, hidden: hidden.sorted(), localTabs: state?.localBrowserTabs[paneKey]?.count ?? 0,
+                                 tabCount: pane.tabs.count, tabGroups: pane.tabGroups.count, defaultIndex: pane.defaultTabIndex,
+                                 handle: pane.handle.rawValue, hidesTabBar: hidesTabBar)
+        DebugLayoutCounters.note("snapshot \(run) \(DebugLayoutCounters.changedFields(debugLastSnapshot, result)) inputs \(DebugLayoutCounters.changedFields(debugLastInputs, inputs))", file, line)
         debugLastSnapshot = result
+        debugLastInputs = inputs
         #endif
         return result
     }
@@ -271,6 +292,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func sendTopologyIfChanged() {
         let current = focusPane
         guard current != sentFocusPane else { return }
+        #if DEBUG
+        DebugLayoutCounters.note("pane topology \(DebugLayoutCounters.changedFields(sentFocusPane, current)) applying \(workspace?.isApplying ?? false)", #fileID, #line)
+        #endif
         sentFocusPane = current
         workspace?.sendTopology()
     }
