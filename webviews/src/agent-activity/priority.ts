@@ -44,13 +44,19 @@ function laneFor(session: SessionSummary, workspaceId: string | null | undefined
   };
 }
 
+function isSessionSummary(session: SessionChanged["session"]): session is SessionSummary {
+  if (!session || typeof session !== "object") return false;
+  const candidate = session as Partial<SessionSummary>;
+  return typeof candidate.sessionId === "string" && typeof candidate.status === "string" && typeof candidate.attached === "number";
+}
+
 /** Convert the ACPmux watch payload without inventing a second identity model. */
 export function agentStateEvent(change: SessionChanged, workspaceId?: string | null): AgentStateEvent {
   return {
     kind: change.kind === "purged" ? "purged" : change.kind === "created" ? "created" : "updated",
     sessionId: change.sessionId,
     seq: change.seq,
-    session: change.session && typeof change.session.status === "string" ? change.session : undefined,
+    session: isSessionSummary(change.session) ? change.session : undefined,
     workspaceId,
     peer: change.peer,
   };
