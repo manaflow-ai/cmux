@@ -23,7 +23,72 @@ use cmux_config::schema::Accepted;
 use cmux_config::{FileRead, Refusal, Schema, State};
 use serde_json::{Value, json};
 
-use super::{AppCommand, READ_TIMEOUT, UsageError};
+use std::os::unix::net::UnixStream;
+
+use super::{AppCommand, GlobalArgs, OutputMode, READ_TIMEOUT, UsageError};
+
+/// The verbs of `cmux settings` (and `cmux config`).
+pub(super) const VERBS: &[&str] = &["get", "set", "reset", "unset", "list", "schema", "validate"];
+
+/// A settings verb this module runs itself.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Command {
+    /// An answer this CLI has without the app (`list --keys`, `validate`):
+    /// printed as a success, or as an error with exit 1.
+    Local(Result<Value, Value>),
+    /// A JSON document (`schema`), printed as indented JSON in every output
+    /// mode, so `> file` works.
+    Document(Value),
+    /// `list`: the app's settings (`settings.get`) as schema rows.
+    List { section: Option<String> },
+}
+
+impl Command {
+    /// Runs the command, connecting to the app only for `list`.
+    pub(super) fn run(self, global: &GlobalArgs) -> i32 {
+        if let Command::List { .. } = self {
+            return match super::connect_command(global) {
+                Ok(mut stream) => self.run_on(global, &mut stream),
+                Err(error) => super::super::wire::print_local_error(&error, global.output, 3),
+            };
+        }
+        self.run_on_nothing(global.output)
+    }
+
+    pub(super) fn run_on(self, global: &GlobalArgs, stream: &mut UnixStream) -> i32 {
+        let Command::List { section } = self else { return self.run_on_nothing(global.output) };
+        let wire = super::super::wire::print_local_error;
+        match super::wait::request(global, stream, "settings.get", &json!({}), Some(READ_TIMEOUT)) {
+            Ok(Ok(result)) => {
+                let rows = list_rows(&result, section.as_deref());
+                let human = global.output == OutputMode::Human;
+                let shown = if human { human_rows(&rows) } else { rows };
+                super::super::wire::print_local_success(&shown, global.output)
+            }
+            Ok(Err(error)) => wire(&error, global.output, 1),
+            Err(error) => wire(&error, global.output, 3),
+        }
+    }
+
+    fn run_on_nothing(self, output: OutputMode) -> i32 {
+        match self {
+            Command::Local(Ok(value)) => super::super::wire::print_local_success(&value, output),
+            Command::Local(Err(error)) => super::super::wire::print_local_error(&error, output, 1),
+            Command::Document(document) => print_document(&document),
+            Command::List { .. } => 2,
+        }
+    }
+}
+
+fn print_document(document: &Value) -> i32 {
+    use std::io::Write as _;
+    let text = serde_json::to_string_pretty(document).unwrap_or_default();
+    let mut stdout = std::io::stdout().lock();
+    match writeln!(stdout, "{text}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
 
 /// The app's refusal of a user-only key.
 const USER_ONLY: &str = "setting_user_only";
@@ -36,13 +101,15 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     match verb.as_str() {
         "list" => return parse_list(args).ok_or_else(usage),
         "schema" if args.is_empty() => {
-            return Ok(AppCommand::Document(Schema::embedded().json_schema()));
+            return Ok(AppCommand::Settings(Command::Document(Schema::embedded().json_schema())));
         }
         "validate" => {
             return match args {
-                [] => Ok(AppCommand::Local(validate(&cmux_config::config_path()))),
+                [] => {
+                    Ok(AppCommand::Settings(Command::Local(validate(&cmux_config::config_path()))))
+                }
                 [file] if !file.starts_with("--") => {
-                    Ok(AppCommand::Local(validate(std::path::Path::new(file))))
+                    Ok(AppCommand::Settings(Command::Local(validate(std::path::Path::new(file)))))
                 }
                 _ => Err(usage()),
             };
@@ -137,9 +204,9 @@ fn parse_list(args: &[String]) -> Option<AppCommand> {
         let mut names: Vec<&str> =
             Schema::embedded().rows_in(section.as_deref()).map(|row| row.key.as_str()).collect();
         names.sort_unstable();
-        return Some(AppCommand::Local(Ok(json!(names))));
+        return Some(AppCommand::Settings(Command::Local(Ok(json!(names)))));
     }
-    Some(AppCommand::SettingsList { section })
+    Some(AppCommand::Settings(Command::List { section }))
 }
 
 /// The `settings.list` rows (the daemon's row shape) for the settings the

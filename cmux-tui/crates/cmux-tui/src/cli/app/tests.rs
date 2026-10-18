@@ -15,9 +15,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Local(_)
-        | AppCommand::Document(_)
-        | AppCommand::SettingsList { .. } => {
+        | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
     }
@@ -706,9 +704,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
-        | AppCommand::Local(_)
-        | AppCommand::Document(_)
-        | AppCommand::SettingsList { .. } => {
+        | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
     };
@@ -978,7 +974,7 @@ fn web_urls_are_absolute_http_with_a_host() {
 
 fn local(command: AppCommand) -> Result<Value, Value> {
     match command {
-        AppCommand::Local(answer) => answer,
+        AppCommand::Settings(settings::Command::Local(answer)) => answer,
         _ => panic!("expected a local answer"),
     }
 }
@@ -1010,7 +1006,8 @@ fn settings_list_keys_and_schema_answer_without_the_app() {
     assert!(!section.is_empty() && section.len() < keys.len());
     assert!(!section.contains(&json!("sidebar.side")));
 
-    let AppCommand::Document(schema) = parse(&args(&["settings", "schema"])).unwrap().unwrap()
+    let AppCommand::Settings(settings::Command::Document(schema)) =
+        parse(&args(&["settings", "schema"])).unwrap().unwrap()
     else {
         panic!("schema is a local document")
     };
