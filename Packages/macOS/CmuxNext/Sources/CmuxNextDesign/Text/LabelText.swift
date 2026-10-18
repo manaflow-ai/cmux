@@ -6,8 +6,8 @@ import AppKit
 /// It lays out as a label field does (measured against `NSTextField` on macOS 26 and 27 by
 /// `debug.label_parity`): the text sits 2 pt in from each side (the line fragment padding; the
 /// field's alignment rect excludes it), the first line at the top edge, each line as tall as its
-/// font's ascender and descender each rounded up to a whole point, widths rounded up to a
-/// whole pixel. Only a
+/// font's ascender and descender each rounded up to a whole pixel (their sum to a whole point),
+/// widths rounded up to a whole pixel. Only a
 /// wrapping label (``Shape/wraps``) breaks lines at the width, up to its line count, the line
 /// break mode on its last line; any other label shows each of its lines whole, clipped or
 /// truncated at the width.
@@ -116,7 +116,7 @@ enum LabelText {
         // An empty label is one empty line of its font.
         let shown = text.length > 0 ? text
             : NSAttributedString(string: " ", attributes: [.font: font ?? .systemFont(ofSize: NSFont.systemFontSize)])
-        let range = lay(paragraphed(shown, shape: measuring), shape: measuring, width: width.map { $0 + padding * 2 }, height: nil)
+        let range = lay(paragraphed(shown, shape: measuring), shape: measuring, width: width.map { $0 + padding * 2 }, height: nil, scale: scale)
         guard range.length > 0 else { return Metrics(size: .zero, firstBaseline: 0, lastBaselineFromBottom: 0) }
         let used = manager.usedRect(for: container)
         let scale = max(scale, 1)
@@ -134,8 +134,8 @@ enum LabelText {
     /// view's bounds, padding included) at the origin of the current (flipped) graphics context
     /// `context`. As a field draws them, text of more than one line clips to the text's area (the
     /// padding stays clear) and a single line to the box.
-    static func draw(_ text: NSAttributedString, shape: Shape, in size: NSSize, context: CGContext) {
-        let range = lay(paragraphed(text, shape: shape), shape: shape, width: size.width, height: layoutHeight(shape, size: size))
+    static func draw(_ text: NSAttributedString, shape: Shape, in size: NSSize, scale: CGFloat, context: CGContext) {
+        let range = lay(paragraphed(text, shape: shape), shape: shape, width: size.width, height: layoutHeight(shape, size: size), scale: scale)
         guard range.length > 0 else { return }
         context.saveGState()
         defer { context.restoreGState() }
@@ -146,11 +146,14 @@ enum LabelText {
     }
 
     /// The layout manager delegate that makes every line as tall as a label field's: its font's
-    /// ascender and descender, each rounded up to a whole point, the baseline under the ascender
-    /// (TextKit rounds the sum instead: an 11 pt line is 13 pt, a field's 14 pt).
+    /// ascender and descender, each rounded up to a whole pixel, their sum up to a whole point,
+    /// the baseline under the ascender (TextKit rounds the raw sum instead: an 11 pt line is
+    /// 13 pt, a field's 14 pt).
     nonisolated final class WholePointLines: NSObject, NSLayoutManagerDelegate {
         /// How many lines it was asked about (debug.label_parity).
         var calls = 0
+        /// Pixels per point of the layout it serves.
+        var scale: CGFloat = 2
 
         func layoutManager(_ layoutManager: NSLayoutManager, shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
                            lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
@@ -159,14 +162,15 @@ enum LabelText {
             guard let storage = layoutManager.textStorage else { return false }
             let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            let scale = max(self.scale, 1)
             storage.enumerateAttribute(.font, in: characters) { value, _, _ in
                 guard let font = value as? NSFont else { return }
-                ascent = max(ascent, font.ascender.rounded(.up))
-                descent = max(descent, (-font.descender).rounded(.up))
-                leading = max(leading, font.leading.rounded(.up))
+                ascent = max(ascent, (font.ascender * scale).rounded(.up) / scale)
+                descent = max(descent, (-font.descender * scale).rounded(.up) / scale)
+                leading = max(leading, (font.leading * scale).rounded(.up) / scale)
             }
             guard ascent > 0 else { return false }
-            let height = ascent + descent + leading
+            let height = (ascent + descent + leading).rounded(.up)
             lineFragmentRect.pointee.size.height = height
             lineFragmentUsedRect.pointee.size.height = height
             baselineOffset.pointee = ascent
@@ -178,7 +182,7 @@ enum LabelText {
     /// The shared stack's line delegate calls and one line's numbers (debug.label_parity).
     static func lineReport(_ font: NSFont) -> String {
         let range = lay(NSAttributedString(string: "Hi", attributes: [.font: font]), shape: Shape(lines: 0, wraps: false, lineBreak: .byClipping,
-                        alignment: .left, tightens: false, truncatesLastVisibleLine: false, strategy: []), width: nil, height: nil)
+                        alignment: .left, tightens: false, truncatesLastVisibleLine: false, strategy: []), width: nil, height: nil, scale: 2)
         let rect = range.length > 0 ? manager.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil) : .zero
         return "font \(font.pointSize) raw \(font.ascender - font.descender + font.leading) asc \(font.ascender) desc \(font.descender) "
             + "leading \(font.leading) default \(manager.defaultLineHeight(for: font)) line \(rect.height) used \(manager.usedRect(for: container).height) "
@@ -187,8 +191,13 @@ enum LabelText {
     #endif
 
     /// Lays `text` out in the shared stack and returns the glyphs that fit.
-    private static func lay(_ text: NSAttributedString, shape: Shape, width: CGFloat?, height: CGFloat?) -> NSRange {
+    private static func lay(_ text: NSAttributedString, shape: Shape, width: CGFloat?, height: CGFloat?, scale: CGFloat) -> NSRange {
         let manager = Self.manager // wires the storage, the manager and the container on first use
+        if lineHeights.scale != scale {
+            lineHeights.scale = scale
+            // Line heights depend on the scale: lay the text out again.
+            manager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
+        }
         configure(container, shape: shape, width: width, height: height)
         storage.setAttributedString(text)
         manager.ensureLayout(for: container)
@@ -203,18 +212,22 @@ final class LabelSelectionView: NSTextView {
     var didResign: (() -> Void)?
     /// The text system: the text view does not keep its own storage.
     private var text: NSTextStorage?
-    private static let lineHeights = LabelText.WholePointLines()
+    /// The line heights of this view's text (the layout manager keeps its delegate weakly).
+    private var lineHeights: LabelText.WholePointLines?
 
-    convenience init(text: NSAttributedString, shape: LabelText.Shape, size: NSSize) {
+    convenience init(text: NSAttributedString, shape: LabelText.Shape, size: NSSize, scale: CGFloat) {
         let storage = NSTextStorage(attributedString: LabelText.paragraphed(text, shape: shape))
         let manager = NSLayoutManager()
-        manager.delegate = Self.lineHeights
+        let lineHeights = LabelText.WholePointLines()
+        lineHeights.scale = scale
+        manager.delegate = lineHeights
         let container = NSTextContainer(size: .zero)
         LabelText.configure(container, shape: shape, width: size.width, height: LabelText.layoutHeight(shape, size: size))
         manager.addTextContainer(container)
         storage.addLayoutManager(manager)
         self.init(frame: NSRect(origin: .zero, size: size), textContainer: container)
         self.text = storage
+        self.lineHeights = lineHeights
         isEditable = false
         isSelectable = true
         isRichText = true

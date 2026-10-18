@@ -32,6 +32,7 @@ public struct LabelParityProbe {
                                 "line one\nline two is longer"]
     private static let fonts: [(String, NSFont)] = [
         ("13r", .systemFont(ofSize: 13)), ("11r", .systemFont(ofSize: 11)), ("12m", .systemFont(ofSize: 12, weight: .medium)),
+        ("10.5r", .systemFont(ofSize: 10.5)),
     ]
     private static let lineCounts: [Int?] = [nil, 1, 2, 0]
     /// nil: the factory's; `wrapsTruncating`: a truncating mode, then wrapping turned on (a
