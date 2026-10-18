@@ -9102,6 +9102,36 @@ writes preferences or executes the plan. The admitted job owner must persist
 the exact argv and audit context before execution. Preparation is not a grant
 and cannot complete a job.
 
+### Native visible update job
+
+`agent-cli-update-job-v1` adds the internal native carrier
+`{id, cmd:"agent-cli-update-job", expected_machine_id, cli, idempotency_key}`.
+Only a proved main-app Unix connection without an agent binding may call it.
+The canonical owner condition is required and checked before worker admission
+or socket access. Unknown fields, including argv, shell, socket, session and
+actor claims, refuse. The daemon derives the audit actor from the connection.
+App `agent_cli.update` execution scopes remain unsupported; this carrier does
+not grant one or upgrade an opaque actor forwarded by a provider.
+
+The Rust owner serializes preparation, then looks up stable intent in its
+existing correlated workspace-creation journal before requiring acpmux. The
+intent binds owner, CLI, operation and actor to the original mutation key.
+A receipt replays with acpmux offline or inventory changed; a changed intent
+conflicts. A new job negotiates `harnessUpdatePrepare` on one captured local
+link and sends only `{cli}`. There is no legacy update, owner start, handoff,
+focused-pane or shell-typing fallback. The exact prepared argv and original
+audit actor are journaled before a dedicated terminal workspace is executed.
+
+Successful data is `{machine, cli, path, revision, replayed}`, where path is
+the existing public created-terminal path and revision is decimal text. This
+acknowledges creation, not update completion. The same owner's
+`terminal.wait_exit` supplies the durable outcome; inventory invalidations
+cannot settle the job. A disconnected observer does not end the owner job.
+Executing-unknown recovery stays `mutation.indeterminate` and never triggers
+an automatic new-key run. An unexecuted reservation can resume only when fresh
+preparation still matches its exact persisted argv. Worker admission shares
+the bounded inventory budget; concurrent job preparation may refuse busy.
+
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
 local (Unix) client, the app's Update Everything on this Mac or through the
 SSH or Cloud carrier, update this machine's agent CLIs and move its chats
