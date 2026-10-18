@@ -7,13 +7,14 @@ import { TenantId } from "../../src/lib/ids.ts";
 
 it("persists recovery identity and retained quota through the real SQLite-backed Durable Object RPC", async () => {
   const tenant = TenantId.make(crypto.randomUUID()), id = env.TENANT_LIMITS.idFromName(tenant), first = env.TENANT_LIMITS.get(id);
-  expect(await first.begin("request", "fingerprint", 0)).toEqual({ state: "new" });
-  expect(await first.reserve("vm", 1, 0, 0, "slot")).toMatchObject({ ok: true });
+  const now = Date.now();
+  expect(await first.begin("request", "fingerprint", now)).toEqual({ state: "new" });
+  expect(await first.reserve("vm", 1, 0, now, "slot")).toMatchObject({ ok: true });
   const intent = { phase: "creating" as const, vmId: "vm_00000000000000000000000001", reservationId: "slot", createdBy: "service:team-vm", context: "opaque-context" };
-  expect(await first.advance("request", intent, 1)).toBe(true);
-  await first.abandon("request", 2);
+  expect(await first.advance("request", intent, now + 1)).toBe(true);
+  await first.abandon("request", now + 2);
   await first.release("slot");
-  const reloaded = env.TENANT_LIMITS.get(id), later = IDEMPOTENCY_TTL_MS + 1;
+  const reloaded = env.TENANT_LIMITS.get(id), later = now + IDEMPOTENCY_TTL_MS + 1;
   expect(await reloaded.reserve("vm", 1, 0, later, "extra")).toEqual({ ok: false });
   expect(await reloaded.begin("request", "fingerprint", later)).toEqual({ state: "resume", progress: intent });
   expect(await reloaded.creationReservation("request", intent.vmId)).toBe("slot");

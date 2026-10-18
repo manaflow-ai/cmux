@@ -92,6 +92,8 @@ retrying a deleted allocation cannot create another VM.
 Unresolved allocation intents do not expire at the ordinary 24-hour key or
 five-minute quota-reservation deadlines. They continue to occupy their slot
 until reconciled. Completed keys retain their result for at least 24 hours.
+Legacy pending records without a retained allocation ID also stay unresolved;
+expiry never turns them into permission to allocate again.
 Changed provider credentials, endpoint or effective create intent refuse
 recovery before provider I/O; restore the original context to resume. Unkeyed
 requests do not provide this cross-request recovery contract. Production

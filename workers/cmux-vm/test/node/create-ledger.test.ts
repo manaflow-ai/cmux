@@ -50,3 +50,12 @@ it("rolls quota promotion back when the allocation journal transaction fails", a
   await ledger.release("reserved");
   expect(await ledger.reserve("vm", 1, 0, 2, "another")).toMatchObject({ ok: true });
 });
+
+it("does not reinterpret an expired legacy pending record as permission for a new allocation", async () => {
+  const storage = memoryLedgerStorage(), ledger = new TenantLedger(storage);
+  await storage.put("idem:legacy", { fingerprint: "original", progress: { phase: "pending" }, leaseUntilMs: 0, expiresMs: 0 });
+  await ledger.abandon("legacy", 1);
+  await ledger.begin("unrelated", "new", IDEMPOTENCY_TTL_MS + 1);
+  expect(await ledger.begin("legacy", "original", IDEMPOTENCY_TTL_MS + 2)).toEqual({ state: "in_progress" });
+  expect(await ledger.begin("legacy", "changed", IDEMPOTENCY_TTL_MS + 2)).toEqual({ state: "mismatch" });
+});

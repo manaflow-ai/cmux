@@ -32,13 +32,14 @@ export const RateDecision = Schema.Union(
 export type RateDecision = typeof RateDecision.Type;
 
 /**
- * Progress a create or fork made under one idempotency key: pending (claimed,
- * no VM send yet), creating (durable allocation/context and retained quota),
+ * Progress a create or fork made under one idempotency key: claimed (no VM
+ * send yet), pending (legacy unknown outcome), creating (durable allocation/context and retained quota),
  * snapshotted (a fork took its snapshot, public id, but
  * has not created the VM), done (the VM, public id), snapshotDone (a snapshot
  * create finished, public snapshot id).
  */
 const Progress = Schema.Union(
+  Schema.Struct({ phase: Schema.Literal("claimed") }),
   Schema.Struct({ phase: Schema.Literal("pending") }),
   Schema.Struct({ phase: Schema.Literal("creating"), vmId: Schema.String, reservationId: Schema.String, context: Schema.String, createdBy: Schema.String, snapshotId: Schema.optional(Schema.String) }),
   Schema.Struct({ phase: Schema.Literal("snapshotted"), snapshotId: Schema.String }),
@@ -161,8 +162,11 @@ export class TenantLedger {
       const storageKey = `idem:${key}`;
       const raw = await storage.get(storageKey), record = checked(isRecord, raw);
       if (raw !== undefined && record === undefined) throw new Error("unrecognized idempotency record");
-      if (record !== undefined && (record.expiresMs > nowMs || record.progress.phase === "creating")) {
+      if (record !== undefined && (record.expiresMs > nowMs || record.progress.phase === "creating" || record.progress.phase === "pending")) {
         if (record.fingerprint !== fingerprint) return { state: "mismatch" };
+        // Older pending records may already have sent a provider create without retaining its ID.
+        // They cannot safely become a new allocation, even after their former TTL.
+        if (record.progress.phase === "pending") return { state: "in_progress" };
         if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") return { state: "resume", progress: record.progress };
         if (record.leaseUntilMs > nowMs) return record.progress.phase === "creating" ? { state: "in_progress", progress: record.progress } : { state: "in_progress" };
         if (record.progress.phase === "snapshotted" || record.progress.phase === "creating") {
@@ -172,7 +176,7 @@ export class TenantLedger {
       }
       await storage.put(storageKey, {
         fingerprint,
-        progress: { phase: "pending" },
+        progress: { phase: "claimed" },
         leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS,
         expiresMs: nowMs + IDEMPOTENCY_TTL_MS,
     });
@@ -221,7 +225,7 @@ export class TenantLedger {
       const storageKey = `idem:${key}`;
       const record = checked(isRecord, await storage.get(storageKey));
       if (record === undefined) return;
-      if (record.progress.phase === "pending") await storage.delete(storageKey);
+      if (record.progress.phase === "claimed") await storage.delete(storageKey);
       else await storage.put(storageKey, { ...record, leaseUntilMs: nowMs });
     });
   }
@@ -251,7 +255,7 @@ export class TenantLedger {
     const records = await storage.list({ prefix: "idem:", limit: 64 });
     for (const [key, value] of records) {
       const record = checked(isRecord, value);
-      if (record !== undefined && record.progress.phase !== "creating" && record.expiresMs <= nowMs) await storage.delete(key);
+      if (record !== undefined && record.progress.phase !== "creating" && record.progress.phase !== "pending" && record.expiresMs <= nowMs) await storage.delete(key);
     }
   }
 }
