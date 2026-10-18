@@ -77,8 +77,10 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN" || { echo "::error::staging deploy requires the existing VERCEL_TOKEN secret"; exit 1; }
+          mkdir -p .vercel
+          printf '{"orgId":"team_KndpHsJ15gO2OoAP2SO0thYn","projectId":"%s"}\n' "$VERCEL_PROJECT_ID" > .vercel/project.json
           env_file="$RUNNER_TEMP/cmux-staging.env"
-          bunx vercel@56.3.1 env pull "$env_file" --environment=production --scope manaflow --project "$VERCEL_PROJECT_ID" --token "$VERCEL_TOKEN" >/dev/null
+          bunx vercel@56.3.1 env pull "$env_file" --environment=production --scope manaflow --token "$VERCEL_TOKEN" --cwd "$GITHUB_WORKSPACE/web" >/dev/null
           node - "$env_file" <<'NODE'
           const fs = require("node:fs");
           const path = process.argv[2];
@@ -96,7 +98,7 @@ jobs:
           NODE
           bun scripts/db-migrate.mjs
           bun scripts/db-migrate.mjs
-          bunx vercel@56.3.1 deploy . --prod --yes --scope manaflow --project "$VERCEL_PROJECT_ID" --token "$VERCEL_TOKEN"
+          bunx vercel@56.3.1 deploy . --prod --yes --scope manaflow --token "$VERCEL_TOKEN" --cwd "$GITHUB_WORKSPACE/web"
 
       - name: Guard
         env:
