@@ -119,7 +119,7 @@ jobs:
             expected_sha="$HEAD_SHA"
             if [ "$stage" = base ]; then expected_sha="$base_sha"; fi
             jq -e --arg sha "$expected_sha" \
-              'length > 0 and all(.[]; .revision.sha == $sha and (.revision.source | type == "string"))' \
+              'length > 0 and all(.[]; .revision.sha == $sha and (.revision.source | type == "string" and length > 0))' \
               "$out/results.json" >/dev/null || {
                 echo "Gallery provenance mismatch in $stage: expected $expected_sha" >&2
                 jq '[.[] | {id, engine, revision}]' "$out/results.json" >&2
