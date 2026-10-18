@@ -53,6 +53,7 @@
     "tools.running": "Running {n} commands",
     "tools.searched": "Ran {n} searches",
     "tools.thought": "Thought",
+    "tools.thoughtFor": "Thought for {time}",
     "turn.copied": "Copied",
     "turn.copy": "Copy"
   },
@@ -110,6 +111,7 @@
     "tools.running": "جارٍ تشغيل {n} أوامر",
     "tools.searched": "تم تشغيل {n} عمليات بحث",
     "tools.thought": "تفكير",
+    "tools.thoughtFor": "فكّر لمدة {time}",
     "turn.copied": "تم النسخ",
     "turn.copy": "نسخ"
   },
@@ -167,6 +169,7 @@
     "tools.running": "Pokretanje komandi: {n}",
     "tools.searched": "Pokrenuto pretraga: {n}",
     "tools.thought": "Razmišljanje",
+    "tools.thoughtFor": "Razmišljao {time}",
     "turn.copied": "Kopirano",
     "turn.copy": "Kopiraj"
   },
@@ -224,6 +227,7 @@
     "tools.running": "Kører {n} kommandoer",
     "tools.searched": "Kørte {n} søgninger",
     "tools.thought": "Tanke",
+    "tools.thoughtFor": "Tænkte i {time}",
     "turn.copied": "Kopieret",
     "turn.copy": "Kopiér"
   },
@@ -281,6 +285,7 @@
     "tools.running": "{n} Befehle werden ausgeführt",
     "tools.searched": "{n} Suchen ausgeführt",
     "tools.thought": "Gedanke",
+    "tools.thoughtFor": "Nachgedacht für {time}",
     "turn.copied": "Kopiert",
     "turn.copy": "Kopieren"
   },
@@ -338,6 +343,7 @@
     "tools.running": "Ejecutando {n} comandos",
     "tools.searched": "Ejecutó {n} búsquedas",
     "tools.thought": "Razonamiento",
+    "tools.thoughtFor": "Razonó durante {time}",
     "turn.copied": "Copiado",
     "turn.copy": "Copiar"
   },
@@ -395,6 +401,7 @@
     "tools.running": "{n} commandes en cours",
     "tools.searched": "{n} recherches effectuées",
     "tools.thought": "Réflexion",
+    "tools.thoughtFor": "A réfléchi pendant {time}",
     "turn.copied": "Copié",
     "turn.copy": "Copier"
   },
@@ -452,6 +459,7 @@
     "tools.running": "Esecuzione di {n} comandi",
     "tools.searched": "Eseguite {n} ricerche",
     "tools.thought": "Ragionamento",
+    "tools.thoughtFor": "Ha ragionato per {time}",
     "turn.copied": "Copiato",
     "turn.copy": "Copia"
   },
@@ -509,6 +517,7 @@
     "tools.running": "{n} 件のコマンドを実行中",
     "tools.searched": "{n} 回検索しました",
     "tools.thought": "思考",
+    "tools.thoughtFor": "{time} 思考しました",
     "turn.copied": "コピーしました",
     "turn.copy": "コピー"
   },
@@ -566,6 +575,7 @@
     "tools.running": "កំពុងដំណើរការពាក្យបញ្ជា {n}",
     "tools.searched": "បានដំណើរការការស្វែងរក {n}",
     "tools.thought": "ការគិត",
+    "tools.thoughtFor": "បានគិតរយៈពេល {time}",
     "turn.copied": "បានចម្លង",
     "turn.copy": "ចម្លង"
   },
@@ -623,6 +633,7 @@
     "tools.running": "명령 {n}개 실행 중",
     "tools.searched": "검색 {n}회 실행함",
     "tools.thought": "생각",
+    "tools.thoughtFor": "{time} 동안 생각함",
     "turn.copied": "복사됨",
     "turn.copy": "복사"
   },
@@ -680,6 +691,7 @@
     "tools.running": "Kjører {n} kommandoer",
     "tools.searched": "Kjørte {n} søk",
     "tools.thought": "Tanke",
+    "tools.thoughtFor": "Tenkte i {time}",
     "turn.copied": "Kopiert",
     "turn.copy": "Kopier"
   },
@@ -737,6 +749,7 @@
     "tools.running": "Uruchamianie poleceń: {n}",
     "tools.searched": "Wykonano wyszukiwań: {n}",
     "tools.thought": "Myśl",
+    "tools.thoughtFor": "Myślał przez {time}",
     "turn.copied": "Skopiowano",
     "turn.copy": "Kopiuj"
   },
@@ -794,6 +807,7 @@
     "tools.running": "Executando {n} comandos",
     "tools.searched": "{n} pesquisas executadas",
     "tools.thought": "Raciocínio",
+    "tools.thoughtFor": "Raciocinou por {time}",
     "turn.copied": "Copiado",
     "turn.copy": "Copiar"
   },
@@ -851,6 +865,7 @@
     "tools.running": "Выполняется команд: {n}",
     "tools.searched": "Выполнено поисков: {n}",
     "tools.thought": "Размышление",
+    "tools.thoughtFor": "Размышлял {time}",
     "turn.copied": "Скопировано",
     "turn.copy": "Копировать"
   },
@@ -908,6 +923,7 @@
     "tools.running": "กำลังรัน {n} คำสั่ง",
     "tools.searched": "ค้นหาแล้ว {n} ครั้ง",
     "tools.thought": "ความคิด",
+    "tools.thoughtFor": "คิดเป็นเวลา {time}",
     "turn.copied": "คัดลอกแล้ว",
     "turn.copy": "คัดลอก"
   },
@@ -965,6 +981,7 @@
     "tools.running": "{n} komut çalışıyor",
     "tools.searched": "{n} arama yapıldı",
     "tools.thought": "Düşünce",
+    "tools.thoughtFor": "Şu kadar düşündü: {time}",
     "turn.copied": "Kopyalandı",
     "turn.copy": "Kopyala"
   },
@@ -1022,6 +1039,7 @@
     "tools.running": "Виконується команд: {n}",
     "tools.searched": "Виконано пошуків: {n}",
     "tools.thought": "Роздуми",
+    "tools.thoughtFor": "Розмірковував {time}",
     "turn.copied": "Скопійовано",
     "turn.copy": "Копіювати"
   },
@@ -1079,6 +1097,7 @@
     "tools.running": "Đang chạy {n} lệnh",
     "tools.searched": "Đã chạy {n} lượt tìm kiếm",
     "tools.thought": "Suy nghĩ",
+    "tools.thoughtFor": "Đã suy nghĩ trong {time}",
     "turn.copied": "Đã sao chép",
     "turn.copy": "Sao chép"
   },
@@ -1136,6 +1155,7 @@
     "tools.running": "正在运行 {n} 个命令",
     "tools.searched": "运行了 {n} 次搜索",
     "tools.thought": "思考",
+    "tools.thoughtFor": "已思考 {time}",
     "turn.copied": "已拷贝",
     "turn.copy": "拷贝"
   },
@@ -1193,6 +1213,7 @@
     "tools.running": "正在執行 {n} 個指令",
     "tools.searched": "執行了 {n} 次搜尋",
     "tools.thought": "思考",
+    "tools.thoughtFor": "已思考 {time}",
     "turn.copied": "已拷貝",
     "turn.copy": "複製"
   }
