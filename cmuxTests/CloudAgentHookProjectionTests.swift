@@ -27,20 +27,38 @@ struct CloudAgentHookProjectionTests {
         )
 
         let selected = CmuxTuiSurfaceProvider.mirroredAgentHookProjection(
-            projections: [local, cloud], remoteWorkspaceID: "remote-cloud"
+            projections: [local, cloud], remoteWorkspaceIDs: ["remote-cloud"]
         )
         #expect(selected == cloud)
         #expect(
             CmuxTuiSurfaceProvider.mirroredAgentHookProjection(
-                projections: [local, cloud], remoteWorkspaceID: "remote-missing"
+                projections: [local, cloud], remoteWorkspaceIDs: ["remote-missing"]
             ) == nil,
             "an accepted workspace mismatch must not fall through to the adjacent pane"
         )
         #expect(
             CmuxTuiSurfaceProvider.mirroredAgentHookProjection(
-                projections: [local, cloud], remoteWorkspaceID: nil
+                projections: [local, cloud], remoteWorkspaceIDs: []
             ) == local,
             "legacy snapshots without a workspace identity retain catalog order"
+        )
+        #expect(
+            CmuxTuiSurfaceProvider.mirroredAgentHookProjection(
+                projections: [cloud], remoteWorkspaceIDs: ["remote-elsewhere", "remote-cloud"]
+            ) == cloud,
+            "a terminal shown in several remote workspaces routes to whichever one is open here"
+        )
+        let unscoped = SurfaceProjection(
+            resource: resource,
+            workspaceID: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+            panelID: UUID(uuidString: "00000000-0000-0000-0000-000000000033")!,
+            remoteWorkspaceID: nil
+        )
+        #expect(
+            CmuxTuiSurfaceProvider.mirroredAgentHookProjection(
+                projections: [local, unscoped], remoteWorkspaceIDs: ["remote-cloud"]
+            ) == unscoped,
+            "a projection without a workspace identity still receives hooks"
         )
     }
 }
