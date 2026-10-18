@@ -44,7 +44,11 @@ nonisolated public final class ChromeTextLayer: CALayer {
     }
 
     override public var contentsScale: CGFloat {
-        didSet { glyphs.contentsScale = contentsScale }
+        didSet {
+            guard oldValue != contentsScale else { return }
+            glyphs.contentsScale = contentsScale
+            glyphs.setNeedsDisplay()
+        }
     }
 
     override public var bounds: CGRect {

@@ -63,6 +63,11 @@ public final class ChromeLabel: NSTextField {
         layoutText()
     }
 
+    override public func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        text.contentsScale = window?.backingScaleFactor ?? text.contentsScale
+    }
+
     override public func layout() {
         super.layout()
         layoutText()
