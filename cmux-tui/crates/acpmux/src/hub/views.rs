@@ -74,7 +74,11 @@ impl Hub {
 /// error from it. Waiting reads `inputSince` (when it began waiting), so a
 /// later record or a draft save does not move it.
 ///
-/// `{state, since, error}`; null for a closed session.
+/// `step` is what it is doing now (hq#2509), see `lane_step`. The error and
+/// the step are masked (`secret_scan`) here, before the summary reaches a
+/// client or an acpmux peer.
+///
+/// `{state, since, error, step}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -101,8 +105,29 @@ pub fn lane(summary: &Value) -> Value {
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
-    json!({"state": state, "since": since, "error": error})
+    let error = error.as_str().map_or(Value::Null, |e| Value::String(crate::secret_scan::mask(e)));
+    json!({"state": state, "since": since, "error": error, "step": lane_step(summary)})
 }
+
+/// The lane's step, one line: the running turn's prompt, else the agent's
+/// last reply line. Masked before it is folded and cut, so a cut never
+/// leaves part of a secret unmasked. Null when there is neither, or when a
+/// person's own message is the last one (it says nothing new).
+fn lane_step(summary: &Value) -> Value {
+    let reply = || {
+        (summary["lastMessage"]["role"] == "agent")
+            .then(|| summary["lastMessage"]["text"].as_str())
+            .flatten()
+    };
+    let line = summary["turn"]["prompt"]
+        .as_str()
+        .or_else(reply)
+        .map(|text| super::session::short_text(&crate::secret_scan::mask(text), LANE_STEP_CHARS));
+    line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
+}
+
+/// How long a lane's step may be; the row clips it to its width anyway.
+const LANE_STEP_CHARS: usize = 240;
 
 /// Set the summary's derived fields: its status dot and its lane.
 pub fn decide(summary: &mut Value) {
@@ -347,3 +372,7 @@ impl Hub {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "views_lane_tests.rs"]
+mod lane_tests;

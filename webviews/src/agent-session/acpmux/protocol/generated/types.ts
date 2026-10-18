@@ -58,11 +58,16 @@ export type Isolation = "unverified";
 
 /** The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`). */
 export type Lane = {
-  /** The failed or lost turn's error text. */
+  /** The failed or lost turn's error text, secrets masked (`secret_scan`). */
   error: (string | null);
   /** Unix ms the state began; null when the daemon does not know. */
   since: (number | null);
   state: LaneState;
+  /**
+   * What the session is doing now, one line: the running turn's prompt,
+   * else the agent's last reply line, secrets masked (`secret_scan`).
+   */
+  step: (string | null);
 } & Record<string, unknown>;
 
 export type LaneState = "working" | "input" | "failed" | "lost" | "idle";

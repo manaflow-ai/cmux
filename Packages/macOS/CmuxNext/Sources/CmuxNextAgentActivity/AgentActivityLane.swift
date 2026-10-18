@@ -37,7 +37,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let error: String?
     /// The harness that runs it, as acpmux names it ("claude", "codex").
     public let harness: String?
-    /// What it is doing now: the running turn's prompt, else the agent's last message (hq#2509).
+    /// What it is doing now, one line (hq#2509): the lane's `step`, which acpmux masks secrets in.
     public let step: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
@@ -75,17 +75,10 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let parent = ((summary["tags"] as? [String: Any])?[parentTag] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let workspaceID = (summary["workspaceId"] as? String) ?? (summary["workspace_id"] as? String)
         let harness = (summary["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // Never the raw prompt beside it: only acpmux's masked step leaves the daemon for display.
+        let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
-                                 harness: harness, step: step(of: summary))
-    }
-
-    /// The running turn's prompt, else the agent's last message, on one line; as the web view's `laneStep`.
-    static func step(of summary: [String: Any]) -> String? {
-        let message = summary["lastMessage"] as? [String: Any]
-        let text = (summary["turn"] as? [String: Any])?["prompt"] as? String
-            ?? (message?["role"] as? String == "agent" ? message?["text"] as? String : nil)
-        let line = text?.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(240)
-        return line.flatMap { $0.isEmpty ? nil : String($0) }
+                                 harness: harness, step: step)
     }
 }
