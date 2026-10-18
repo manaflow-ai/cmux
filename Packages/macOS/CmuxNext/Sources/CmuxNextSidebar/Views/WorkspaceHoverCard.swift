@@ -186,7 +186,7 @@ final class WorkspaceHoverCardView: NSView {
     private var customHeight: NSLayoutConstraint?
     /// The last resource line, shown only with the built-in card.
     private var resourceLine: String?
-    private var factViews: [(icon: NSImageView, label: NSTextField)] = []
+    private var factViews: [(icon: NSImageView, label: ChromeLabel)] = []
     /// The built-in card's rows (hidden while the user's card shows).
     private var builtIn: [NSView] = []
     /// The shown content, for the live elapsed times (`tick`).
@@ -294,7 +294,7 @@ final class WorkspaceHoverCardView: NSView {
     func tick(now: Date) -> Bool {
         guard let content else { return false }
         var resized = false
-        func set(_ label: NSTextField, _ text: String) {
+        func set(_ label: ChromeLabel, _ text: String) {
             resized = resized || label.stringValue.count != text.count
             label.stringValue = text
         }
@@ -463,7 +463,7 @@ extension WorkspaceHoverCardView {
 /// An icon on a first-baseline row whose center sits on the middle of `line`'s first line (midway
 /// between its ascender and descender), so it stays with the name's first line when the name wraps.
 private final class LineIconView: NSImageView {
-    weak var line: NSTextField?
+    weak var line: ChromeLabel?
     /// The icon's height (its constraint), not `bounds`, which is zero before the first layout.
     var side: CGFloat = 0
 

@@ -22,7 +22,7 @@ final class SidebarNoticeCardView: NSView {
     private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
     private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
-    private var lineLabels: [NSTextField] = []
+    private var lineLabels: [ChromeLabel] = []
     private let icon = NSImageView()
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()

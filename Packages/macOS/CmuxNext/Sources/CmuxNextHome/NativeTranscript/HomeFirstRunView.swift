@@ -201,7 +201,7 @@ final class HomeFirstRunView: NSView {
 final class HomeFirstRunRow: NSView {
     let surface = NSView()
     let glyph = NSImageView()
-    let label: NSTextField
+    let label: ChromeLabel
     /// The row's cmux icon.
     let icon: IconName
     let shortcutLabel = ChromeLabel(labelWithString: "")

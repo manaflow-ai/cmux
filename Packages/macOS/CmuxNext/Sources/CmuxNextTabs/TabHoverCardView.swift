@@ -171,7 +171,7 @@ final class TabHoverCardView: NSView {
     }
 
     /// A row shows only with text; a stack row that hides gives up its line.
-    private func set(_ label: NSTextField, _ text: String?) {
+    private func set(_ label: ChromeLabel, _ text: String?) {
         label.stringValue = text ?? ""
         label.isHidden = (text ?? "").isEmpty
         rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : Metrics.space1

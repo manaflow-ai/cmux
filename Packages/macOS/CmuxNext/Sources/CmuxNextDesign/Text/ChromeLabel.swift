@@ -348,6 +348,7 @@ open class ChromeLabel: NSView {
 public protocol ShownText: NSView {
     var stringValue: String { get set }
     var textColor: NSColor? { get set }
+    var font: NSFont? { get set }
 }
 
 extension NSTextField: ShownText {}
