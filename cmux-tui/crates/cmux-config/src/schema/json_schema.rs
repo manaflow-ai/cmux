@@ -113,23 +113,15 @@ fn kind_schema(row: &Row) -> Value {
         Kind::FolderList => {
             json!({ "type": "array", "items": { "type": "string", "pattern": "^(/|~/)" } })
         }
-        // A choice set (Swift `choiceSet`, `browser.toolbarButtons`) is exported
-        // as a string list with its choices.
-        Kind::StringList => match exported_choices(row) {
-            Some(choices) => json!({ "type": "array", "items": choice(&choices) }),
-            None => json!({ "type": "array", "items": { "type": "string", "minLength": 1 } }),
-        },
+        Kind::StringList => {
+            json!({ "type": "array", "items": { "type": "string", "minLength": 1 } })
+        }
         Kind::OrderedChoices(choices) => json!({ "type": "array", "items": choice(choices) }),
         Kind::NumberList(range) => json!({ "type": "array", "items": number(range) }),
         Kind::StringMap => {
             json!({ "type": "object", "additionalProperties": { "type": "string" } })
         }
     }
-}
-
-fn exported_choices(row: &Row) -> Option<Vec<Choice>> {
-    let choices: Vec<Choice> = serde_json::from_value(row.raw.get("choices")?.clone()).ok()?;
-    (!choices.is_empty()).then_some(choices)
 }
 
 fn choice(choices: &[Choice]) -> Value {
