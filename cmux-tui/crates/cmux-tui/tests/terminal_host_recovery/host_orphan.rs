@@ -1,9 +1,10 @@
-//! cx-hostorphan: a terminal host whose owner daemon is gone does not hold
-//! its PTY until reboot. With no client stream for the orphan grace
-//! (`CMUX_TUI_HOST_ORPHAN_GRACE_SECS`, 10 min by default) it ends its
-//! terminal and exits with an owner-gone exit record, which the next owner
-//! reads as a host loss (the tab stays and respawns); a plain `SIGTERM` ends an orphaned
-//! host at once. A host its daemon serves outlives the grace, and a
+//! cx-hostorphan: a terminal host of a tagged DEV, staging or debug build
+//! whose owner daemon is gone does not hold its PTY until reboot. With no
+//! client stream for the orphan grace (`CMUX_TUI_HOST_ORPHAN_GRACE_SECS`,
+//! 10 min in those builds) it ends its terminal and exits with an
+//! owner-gone exit record, which the next owner
+//! reads as a host loss (the tab stays); in those builds a plain `SIGTERM`
+//! ends an orphaned host at once (a normal install's host survives it). A host its daemon serves outlives the grace, and a
 //! daemon restart inside the grace adopts the same host.
 
 use super::*;
