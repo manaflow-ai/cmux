@@ -59,7 +59,14 @@ final class WorkspaceRowView: SidebarRowView {
     var grouped = false
     var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
-    var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
+    var isSecondarySelected = false {
+        didSet {
+            guard isSecondarySelected != oldValue else { return }
+            updateAccessibilitySelection()
+            needsDisplay = true
+        }
+    }
+    override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?

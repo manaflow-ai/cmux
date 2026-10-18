@@ -129,9 +129,10 @@ import Testing
     }
 
     /// The dialog's text labels; a button's own title view is the button's (checked by `buttons`).
-    private static func labels(in view: NSView) -> [NSTextField] {
+    private static func labels(in view: NSView) -> [any ShownText] {
         if view is NSButton { return [] }
-        var found: [NSTextField] = []
+        var found: [any ShownText] = []
+        if let label = view as? ChromeLabel, !label.stringValue.isEmpty { found.append(label) }
         if let field = view as? NSTextField, !field.isEditable, !field.stringValue.isEmpty { found.append(field) }
         for subview in view.subviews { found += labels(in: subview) }
         return found

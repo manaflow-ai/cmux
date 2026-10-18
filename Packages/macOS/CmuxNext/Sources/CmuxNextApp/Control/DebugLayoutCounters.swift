@@ -28,6 +28,23 @@ enum DebugLayoutCounters {
     /// Each counted call by kind and call site (`sources`), so a budget breach names its caller.
     static var sources: [String: Int] = [:]
     static func note(_ kind: String, _ file: StaticString, _ line: UInt) { sources["\(kind) \(file):\(line)", default: 0] += 1 }
+    /// The fields `new` changed from `old` (`items.<field>` for a changed tab), "unchanged" for a
+    /// re-run that changed nothing: the observation read something the value does not use (I2).
+    static func changedFields<T>(_ old: T?, _ new: T) -> String {
+        guard let old else { return "first" }
+        func diff(_ a: Any, _ b: Any) -> [String] {
+            zip(Mirror(reflecting: a).children, Mirror(reflecting: b).children).compactMap { x, y in
+                String(describing: x.value) == String(describing: y.value) ? nil : x.label
+            }
+        }
+        let fields = zip(Mirror(reflecting: old).children, Mirror(reflecting: new).children).flatMap { x, y -> [String] in
+            guard String(describing: x.value) != String(describing: y.value), let label = x.label else { return [] }
+            guard let a = x.value as? [Any], let b = y.value as? [Any], a.count == b.count else { return [label] }
+            let inner = Set(zip(a, b).flatMap { diff($0, $1) }).sorted().map { "\(label).\($0)" }
+            return inner.isEmpty ? [label] : inner // elements without fields (ids): the array changed
+        }
+        return fields.isEmpty ? "unchanged" : fields.joined(separator: ",")
+    }
     private static var paneCounts: [ObjectIdentifier: Int] = [:]
 
     static func notePanes(_ count: Int, of view: AnyObject) {

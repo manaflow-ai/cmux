@@ -69,8 +69,9 @@
       // (Lawrence's personal chatmux session for now; replace with a scoped service token). Set with `wrangler secret put` from stdin.
       // Logs also go to Axiom (dataset cmux-api-staging-logs, monitor cmux-api-staging-kms-fallback); query strings
       // (SSO codes, emails) are removed first. Workers Logs stay on (persist).
-      // invocation_logs off (cx-dgsp): invocation logs record every request header but Authorization, and legacy
-      // wire clients still send their token in Sec-WebSocket-Protocol. Turn it on again after the legacy bearer path is removed.
+      // invocation_logs off (cx-dgsp): invocation logs record every request header but Authorization. The API no
+      // longer reads the legacy `bearer.` subprotocol, but a client built before the retirement still sends its
+      // token there and the log would record it. Turn it on again once those clients have aged out.
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": false, "persist": true, "destinations": ["axiom-cmux-api-staging"] } },
       // 23 * * * *: feed text sweep; */15: the Postgres/MySQL projection compare during the dual write.
       "triggers": { "crons": ["23 * * * *", "*/15 * * * *"] },
@@ -108,7 +109,7 @@
     "production": {
       "name": "cmux-api",
       // Logs also go to Axiom (dataset cmux-api-prod-logs, monitor cmux-api-production-kms-fallback); query strings removed first.
-      // invocation_logs off (cx-dgsp), as staging: legacy wire clients send their token in Sec-WebSocket-Protocol.
+      // invocation_logs off (cx-dgsp), as staging: clients built before the retirement still send `bearer.<token>`.
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": false, "persist": true, "destinations": ["axiom-cmux-api-production"] } },
       "triggers": { "crons": ["23 */6 * * *"] },
       "workers_dev": true,

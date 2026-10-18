@@ -38,7 +38,7 @@ describe("team roles review (cx-3bi.4)", { timeout: 60_000 }, () => {
     const billing = await t.join("Billing", ["cmux:billing"])
     const member = await t.join("Member", STACK_MEMBER)
     const wire = (token: string, path: string) =>
-      worker.fetch(`https://api.test/v1/wire/${path}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}, team.${t.team}` } })
+      worker.fetch(`https://api.test/v1/wire/${path}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, team.${t.team}`, authorization: `Bearer ${token}` } })
     for (const who of [guest, billing]) {
       for (const path of ["team", "cloud", "feed", `conv/conv_${"0".repeat(25)}1`, "mux/agent_00000000000000000001"]) {
         expect((await wire(who.token, path)).status, path).toBe(403)

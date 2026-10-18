@@ -435,11 +435,13 @@ export const nextFrame = (run: () => void) => {
 };
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
-/// not one row per chunk.
-export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActivity[] {
+/// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
+/// a folded thought can read "Thought for 12s" (conversation/ThoughtRow.tsx `thoughtDuration`).
+export function appendThought(items: AcpmuxActivity[], text: string, at?: number): AcpmuxActivity[] {
   const last = items.at(-1);
-  if (last?.kind === "thought" && !last.tool) return [...items.slice(0, -1), { ...last, text: last.text + text }];
-  return [...items, { kind: "thought", text }];
+  if (last?.kind === "thought" && !last.tool)
+    return [...items.slice(0, -1), { ...last, text: last.text + text, ...(at !== undefined && { endedAt: at }) }];
+  return [...items, { kind: "thought", text, ...(at !== undefined && { startedAt: at, endedAt: at }) }];
 }
 
 /// Notices made in one millisecond each keep their row: the id carries a counter, not the time.
@@ -636,6 +638,10 @@ export class AcpmuxDirectClient {
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
+  /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
+  /// names the options it runs now), then each newer config update. A replayed update before it is
+  /// history and never takes the current options back (a chat moved from Low to High).
+  private configSeq = 0;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private pendingSecret?: AcpmuxSecretAsk;
@@ -980,6 +986,7 @@ export class AcpmuxDirectClient {
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
+    this.configSeq = 0;
     this.usage = undefined;
     this.queue = [];
     this.turnOpen = false;
@@ -1434,6 +1441,7 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     const detail = result?.session ?? {};
     this.summary = detail;
+    this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = (detail.queue ?? []).map((entry: any) => ({
       id: String(entry.promptId),
       prompt: String(entry.prompt ?? ""),
@@ -1691,7 +1699,11 @@ export class AcpmuxDirectClient {
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {
-      if (Array.isArray(update.configOptions)) this.summary = { ...this.summary, configOptions: update.configOptions };
+      // The event at attach's own lastSeq may be newer than the options it names (acpmux numbers the
+      // event before it writes them): only events before it are history.
+      if (!Array.isArray(update.configOptions) || (event.seq && event.seq < this.configSeq)) return;
+      this.summary = { ...this.summary, configOptions: update.configOptions };
+      if (event.seq) this.configSeq = event.seq;
       return;
     }
     if (event.dir === "mux") {
@@ -1873,7 +1885,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
-        items: appendThought(existing?.items ?? [], text),
+        items: appendThought(existing?.items ?? [], text, event.at),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
