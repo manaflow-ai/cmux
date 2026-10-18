@@ -49,8 +49,9 @@ export type AcpmuxRow = {
   received?: AcpmuxOfferResult;
   /// A prompt another session sent this chat (conversation/receivedMessages.ts).
   message?: AcpmuxAgentMessage;
-  /// How many received lines a "Received N messages" row folds.
+  /// How many received lines a "Received N messages" row folds, and their ids.
   count?: number;
+  lines?: string[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -475,8 +476,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
-  // A received message's 26px line, or the line folding several (conversation/ReceivedMessage.tsx).
-  if (row.message || row.kind === RECEIVED_GROUP) return 34;
+  // The 26px line folding several received messages (conversation/ReceivedMessage.tsx).
+  if (row.kind === RECEIVED_GROUP) return 34;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (
@@ -606,7 +607,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
   // So is another session's message, until it opens (conversation/ReceivedMessage.tsx).
-  if (row.message) return 26 + 16;
+  if (row.message) return 26 + 8;
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {

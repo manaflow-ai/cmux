@@ -44,6 +44,8 @@ function searchableActivityText(item: AcpmuxActivity): string {
 /** What Find reads of a row: a prompt's or reply's text, or its tool calls'. Diffs come last, so
  * the drawn matches keep their order and a diff's match lands on the row's last drawn one. */
 function rowText(row: AcpmuxRow): string | undefined {
+  // Another session's message: its words, never the envelope around them (receivedMessages.ts).
+  if (row.message) return row.message.body;
   if (SEARCHED_KINDS.has(row.kind)) return row.text;
   if (!row.items?.length) return undefined;
   return [...row.items.map(drawnText), ...row.items.map(diffText)].join("\n");

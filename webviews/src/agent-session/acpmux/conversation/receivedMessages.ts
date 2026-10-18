@@ -5,8 +5,8 @@
 // "Received N messages" line.
 import type { AcpmuxAgentMessage, AcpmuxRow } from "../model";
 
-/// The row kind of a message waiting behind a busy turn: its received line, drawn before the
-/// prompt itself lands (direct.ts `queued`).
+/// The drawn kind of a prompt another session sent (App.tsx `rowKind`): its own renderer, so the
+/// line redraws when it opens. A message still waiting behind a turn stays in the composer's queue.
 export const RECEIVED_MESSAGE = "receivedMessage";
 /// The row kind of received lines folded together.
 export const RECEIVED_GROUP = "receivedGroup";
@@ -37,10 +37,14 @@ function messageBody(text: string, msgId: string): string {
 
 /// The message a row draws as a received line, if it is one.
 export const receivedMessage = (row: AcpmuxRow): AcpmuxAgentMessage | undefined =>
-  (row.kind === "user" || row.kind === RECEIVED_MESSAGE) && row.message ? row.message : undefined;
+  row.kind === "user" && row.message ? row.message : undefined;
+
+/// The kind a row draws as: a received message has its own.
+export const drawnKind = (row: AcpmuxRow): string => (receivedMessage(row) ? RECEIVED_MESSAGE : row.kind);
 
 /// `rows` with each run of two or more received lines folded into one "Received N messages" row,
-/// whose id is in `expanded` while its lines show under it.
+/// whose id is in `expanded` while its lines show under it. It lists its lines, so Find can open
+/// the group that hides a match.
 export function groupReceived(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
   const out: AcpmuxRow[] = [];
   let folded = false;
@@ -63,6 +67,7 @@ export function groupReceived(rows: readonly AcpmuxRow[], expanded: ReadonlySet<
       version: run.length * 2 + (open ? 1 : 0),
       at: run[0]!.at,
       count: run.length,
+      lines: run.map((row) => row.id),
     });
     if (open) out.push(...run);
     index = end;

@@ -13,7 +13,7 @@ import type {
   QueueEdit,
   StartSource,
 } from "./model";
-import { RECEIVED_MESSAGE, agentMessage } from "./conversation/receivedMessages";
+import { agentMessage } from "./conversation/receivedMessages";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
@@ -1624,14 +1624,6 @@ export class AcpmuxDirectClient {
       const id = String(msg.promptId ?? "");
       // A task's result waiting behind the turn draws its received line now (offer/SuggestedTasks.tsx).
       if (this.queuedResult(msg, event.at)) return;
-      // So does another session's message, which never shows as the person's queued prompt.
-      const message = agentMessage(msg);
-      if (message) {
-        const row = `${RECEIVED_MESSAGE}-${message.msgId}`;
-        if (!this.rows.has(row))
-          this.rows.set(row, { id: row, version: 1, at: event.at, kind: RECEIVED_MESSAGE, message });
-        return;
-      }
       if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
@@ -1641,11 +1633,9 @@ export class AcpmuxDirectClient {
         this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
-    } else if (event.kind === "queue_removed" || event.kind === "dequeued") {
+    } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-      // A withdrawn message's line goes; a dequeued one's stays until its prompt lands.
-      if (event.kind === "queue_removed") this.rows.delete(`${RECEIVED_MESSAGE}-${String(msg.promptId ?? "")}`);
-    } else if (event.kind === "permission_request") {
+    else if (event.kind === "permission_request") {
       this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
@@ -1753,7 +1743,6 @@ export class AcpmuxDirectClient {
         if (received) this.receivedOffers.add(received.offerId);
         // Another session's message: its received line, never the person's bubble.
         const message = agentMessage(msg);
-        if (message) this.rows.delete(`${RECEIVED_MESSAGE}-${message.msgId}`);
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,

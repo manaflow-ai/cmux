@@ -245,7 +245,7 @@ import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { ReceivedGroup, ReceivedMessage } from "./conversation/ReceivedMessage";
-import { RECEIVED_GROUP, RECEIVED_MESSAGE, groupReceived } from "./conversation/receivedMessages";
+import { RECEIVED_GROUP, RECEIVED_MESSAGE, drawnKind, groupReceived } from "./conversation/receivedMessages";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
@@ -522,20 +522,10 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, githubRepository, expanded, onToggleActivity }: RowProps) {
+  function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another session's message: its received line, which opens to the sender's words.
-    if (row.kind === "user" && row.message)
-      return (
-        <ReceivedMessage
-          message={row.message}
-          open={expanded}
-          onToggle={() => onToggleActivity(row.id)}
-          onOpen={openOfferChat}
-        />
-      );
     if (row.kind === "user") {
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).
@@ -663,11 +653,7 @@ const RenderRow = memo(
     const call = tool && canRender() ? renderCall(tool) : undefined;
     return call ? <RenderCard call={call} /> : null;
   },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.expanded === b.expanded &&
-    a.onToggleActivity === b.onToggleActivity,
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
 const SummaryRow = memo(
@@ -766,8 +752,8 @@ const OfferResultRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
-/// Another session's message waiting behind the turn, and received lines folded together
-/// (conversation/ReceivedMessage.tsx).
+/// Another session's message, which opens to the sender's words, and received lines folded
+/// together (conversation/ReceivedMessage.tsx).
 const ReceivedMessageRow = memo(
   function ReceivedMessageRow({ row, expanded, onToggleActivity }: RowProps) {
     return row.message ? (
@@ -995,7 +981,7 @@ function RowFrame({
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
-const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
+const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : drawnKind(row));
 /// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
