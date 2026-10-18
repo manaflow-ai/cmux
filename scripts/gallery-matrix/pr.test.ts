@@ -118,6 +118,21 @@ test("PR reports reject pass receipts with mismatched result counts", () => {
   }
 });
 
+test("PR reports reject receipts missing results without crashing", () => {
+  const root = mkdtempSync(join(tmpdir(), "gallery-pr-receipt-results-"));
+  const manifest = join(root, "manifest.json");
+  const results = join(root, "results");
+  try {
+    writeFileSync(manifest, JSON.stringify([{ id: "head", path_or_url: "frame.html", params: { entry: "head" } }]));
+    mkdirSync(results);
+    writeFileSync(join(results, "results.json"), JSON.stringify([{ id: "head", params: { entry: "head" }, revision: { sha: "head-a", source: "src/head.gallery.tsx" } }]));
+    writeFileSync(join(results, "receipt.json"), JSON.stringify({ schemaVersion: 1, captureId: "missing-results", scenario: { count: 1, fingerprint: "0".repeat(64) }, quality: "pass" }));
+    expect(() => assertRunRevision(results, "head-a", "head", manifest)).toThrow(/not complete quality evidence/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("PR reports require a receipt when a union capture manifest is supplied", () => {
   const root = mkdtempSync(join(tmpdir(), "gallery-pr-missing-receipt-"));
   const manifest = join(root, "manifest.json");
