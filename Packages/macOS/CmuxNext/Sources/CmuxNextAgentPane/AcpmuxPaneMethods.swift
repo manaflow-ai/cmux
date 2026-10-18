@@ -20,8 +20,8 @@ nonisolated enum AcpmuxPaneMethods {
     public static let requests: Set<String> = [
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
-        // acpmux extensions (direct.ts).
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
@@ -33,9 +33,6 @@ nonisolated enum AcpmuxPaneMethods {
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
         // readBookmarks, setBookmark): a seq and a flag, kept in acpmux's session meta.
         "_acpmux/bookmark_get", "_acpmux/bookmark_set",
-        // A side question about a chat in the pane's scope (direct.ts ask, `/btw`): acpmux answers
-        // it in a throwaway fork under deny-all, so it runs an agent turn like a prompt (cx-ef2m).
-        "_acpmux/ask",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
@@ -67,9 +64,15 @@ nonisolated enum AcpmuxPaneMethods {
         // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
         // `side` with its chat; only that tag, never `_acpmux/tag`.
         "_acpmux/side",
+        // `/btw` (direct.ts btw): a read-only `side` session beside a chat in scope whose first prompt is the
+        // question, so it runs a turn; its reply's session becomes the pane's (``AcpmuxPaneSessions/starting``).
+        "_acpmux/btw",
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
         "_acpmux/offer_respond",
+        // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
+        // which a pending chat's access chip names. Read only.
+        "_acpmux/start_mode",
         // Stop a running Claude subagent or workflow of a chat in the pane's scope (direct.ts
         // stopSubagent, cx-liswe): acpmux sends Claude's stop_task for the task it already holds
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
@@ -210,8 +213,8 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond", "_acpmux/subagent_stop",
     ]
 
@@ -272,8 +275,8 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
-        // A side question runs an agent turn too (in a throwaway fork of the chat).
-        "_acpmux/ask": .always,
+        // A side session's question is its first prompt.
+        "_acpmux/btw": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

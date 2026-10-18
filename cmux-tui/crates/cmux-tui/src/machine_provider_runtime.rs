@@ -5795,8 +5795,11 @@ mod tests {
 
         stop.store(true, Ordering::Release);
         drop(receiver);
-        worker.join().unwrap();
+        // Close the provider stream first: the refresh worker may still wait
+        // on a request this test's server never answers, and the stream's EOF
+        // ends that wait at once instead of after the 30 s request timeout.
         finish.send(()).unwrap();
+        worker.join().unwrap();
         drop(runtime);
         server.join().unwrap();
     }
@@ -6197,8 +6200,11 @@ mod tests {
 
         stop.store(true, Ordering::Release);
         drop(receiver);
-        worker.join().unwrap();
+        // Close the provider stream first: the refresh worker may still wait
+        // on a request this test's server never answers, and the stream's EOF
+        // ends that wait at once instead of after the 30 s request timeout.
         finish.send(()).unwrap();
+        worker.join().unwrap();
         drop(runtime);
         server.join().unwrap();
     }
@@ -6447,8 +6453,11 @@ mod tests {
         let update = expect_ui_update(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
         stop.store(true, Ordering::Release);
         drop(receiver);
-        worker.join().unwrap();
+        // Close the provider stream first: the refresh worker may still wait
+        // on a request this test's server never answers, and the stream's EOF
+        // ends that wait at once instead of after the 30 s request timeout.
         finish.send(()).unwrap();
+        worker.join().unwrap();
         runtime.open = None;
         drop(runtime);
         server.join().unwrap();

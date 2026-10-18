@@ -24,6 +24,7 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let glassTint = GlassTintBlend()
     private let inactiveTintView = NSView()
     private var keyObservers: [NSObjectProtocol] = []
     /// The window gave up the keyboard. Only then does glass go grey; a window
@@ -75,6 +76,9 @@ public final class WindowMaterialView: NSView {
         videoView.frame = bounds
         videoView.autoresizingMask = [.width, .height]
         addSubview(videoView)
+        glassTint.overlay.frame = bounds
+        glassTint.overlay.autoresizingMask = [.width, .height]
+        addSubview(glassTint.overlay)
         tintView.wantsLayer = true
         tintView.frame = bounds
         tintView.autoresizingMask = [.width, .height]
@@ -103,6 +107,13 @@ public final class WindowMaterialView: NSView {
         if let glass = materialView as? GlassPanelView { return glass.tintColor?.cgColor }
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
+
+    /// The layer of the tint over the desktop while it shows (`debug.themes`).
+    var shownTintLayer: CALayer? { tintView.isHidden ? nil : tintView.layer }
+    /// Liquid Glass's own tint (its end color) and the overlay that blends from the old one while
+    /// it shows (`debug.themes`).
+    var glassTintColor: CGColor? { (materialView as? GlassPanelView)?.tintColor?.cgColor }
+    var shownGlassBlendLayer: CALayer? { glassTint.overlay.isHidden ? nil : glassTint.overlay.layer }
 
     /// The theme tint laid over glass while the window is not key: Liquid
     /// Glass drops its `tintColor` then and draws the system's grey, so the
@@ -146,7 +157,16 @@ public final class WindowMaterialView: NSView {
     private func updateInactiveTint() {
         let glass = materialView as? GlassPanelView
         let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
-        inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        let wash = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        // A tint change blends the wash like the glass under it; showing or hiding it applies at once.
+        if let layer = inactiveTintView.layer, layer.backgroundColor != wash {
+            if wash != nil, layer.backgroundColor != nil, !inactiveTintView.isHidden, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: wash)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = wash
+            }
+        }
         inactiveTintView.alphaValue = alpha
         inactiveTintView.isHidden = alpha == 0
     }
@@ -204,18 +224,29 @@ public final class WindowMaterialView: NSView {
             if let materialView {
                 materialView.frame = bounds
                 materialView.autoresizingMask = [.width, .height]
-                addSubview(materialView, positioned: .below, relativeTo: tintView)
+                addSubview(materialView, positioned: .below, relativeTo: glassTint.overlay)
             }
         }
         // Over art the tuner thins the glass only down to the legible tint.
         let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? GlassPanelView
-        glass?.tintColor = color
+        // Liquid Glass takes the new tint once; an overlay blends from the old one on the render
+        // server (appearance.colorTransition).
+        if let glass { glassTint.set(glass, to: color, in: self) }
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
-        tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+        let tint = shows ? color.cgColor : nil
+        if let layer = tintView.layer, layer.backgroundColor != tint {
+            // The tint over the desktop blends like the opaque sheet (appearance.colorTransition).
+            if tint != nil, layer.backgroundColor != nil, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: tint)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = tint
+            }
+        }
         updateInactiveTint()
     }
 

@@ -503,6 +503,9 @@ export function chiefState(
   const chief = others.length === 1 && others[0]!.chief ? others[0]! : undefined;
   if (!chief) return undefined;
   if (active?.has(chief.id)) return "working";
+  // The owner's state when it derives one (home-inbox-v1): its typing and runs in every
+  // conversation; the page re-reads the rows when a run ends or the Chief stops typing.
+  if (conversation.chiefState) return conversation.chiefState;
   if (conversation.lastAuthor === chief.id && conversation.lastWork === "waiting") return "waiting";
   if (conversation.lastAuthor === chief.id && conversation.lastWork === "running") return "working";
   return "idle";

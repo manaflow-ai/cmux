@@ -4,8 +4,9 @@
 // edge instead of a second row inside it, so the card holds one controls row. Only a new chat has
 // it, before its first send (locationRow.ts); a started chat's card stands alone, and its queued
 // prompts sit on the card. The strip keeps one height with a project, without one and while the
-// host's name loads. A new chat's effort and access chips draw what this harness last showed, never a placeholder
-// (`awaiting` against `reported`). test/composer-location-strip.test.ts measures it.
+// host's name loads. A new chat's effort chip draws what this harness last showed and its access
+// chip the start mode acpmux last answered, never a placeholder (`awaiting` against `reported`).
+// test/composer-location-strip.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, noChat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "./model";
@@ -79,6 +80,16 @@ export default agentPaneEntry({
       note: "After the first send: no location strip (a chat cannot change folder or machine), and no gap where it stood.",
       snapshot: started(),
     },
+    "long-folder": {
+      note: 'A new chat in a folder with a long name: in a narrow pane it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',
+      ready: { newSession: true },
+      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-web-checkout-service", branch: "main" }),
+    },
+    "mid-folder": {
+      note: "A new chat in a folder that fits a 341 px pane whole and cuts in the middle at 340, the strip's folder step.",
+      ready: { newSession: true },
+      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-checkout", branch: "main" }),
+    },
     "no-project": {
       note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",
       ready: { newSession: true },
@@ -100,7 +111,7 @@ export default agentPaneEntry({
       },
     },
     awaiting: {
-      note: "A new chat before its session reports effort and access: the chips this harness last showed, or nothing; never grey bars.",
+      note: "A new chat before its session reports effort and access: the effort this harness last showed and acpmux's kept start mode, or nothing; never grey bars.",
       ready: { newSession: true },
       snapshot: fresh(false),
     },

@@ -72,7 +72,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
                 targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: entry.workspace.id,
                 profile: (page?.profileID ?? cache.browserProfile?(tab.id) ?? .default).rawValue.uuidString,
                 url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id))
+                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
         }
     }
 

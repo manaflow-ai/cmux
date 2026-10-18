@@ -191,11 +191,14 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 | FLAG_TERMINAL_METADATA
                 | FLAG_VIEWER_SIZE_PRIORITY
                 | FLAG_PTY_CUSTODY
-                | FLAG_PROGRAM_STATUS)
+                | FLAG_PROGRAM_STATUS
+                | FLAG_SHELL_ACTIVITY)
             != 0
         || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
             && hello_frame.version != PROTOCOL_VERSION)
         || (hello_frame.flags & FLAG_PROGRAM_STATUS != 0
+            && hello_frame.flags & FLAG_TERMINAL_METADATA == 0)
+        || (hello_frame.flags & FLAG_SHELL_ACTIVITY != 0
             && hello_frame.flags & FLAG_TERMINAL_METADATA == 0)
     {
         anyhow::bail!("terminal-host client did not send ClientHello");
@@ -226,6 +229,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         selected_version == PROTOCOL_VERSION && hello_frame.flags & FLAG_TERMINAL_METADATA != 0;
     let program_status_negotiated =
         terminal_metadata && hello_frame.flags & FLAG_PROGRAM_STATUS != 0;
+    let shell_activity_negotiated =
+        terminal_metadata && hello_frame.flags & FLAG_SHELL_ACTIVITY != 0;
     let viewer_size_priority = hello_frame.flags & FLAG_VIEWER_SIZE_PRIORITY != 0
         && hello.role == ClientRole::Renderer
         && granted_rights.contains(CapabilityRights::RESIZE);
@@ -247,6 +252,9 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     }
     if program_status_negotiated {
         hello_response.flags |= FLAG_PROGRAM_STATUS;
+    }
+    if shell_activity_negotiated {
+        hello_response.flags |= FLAG_SHELL_ACTIVITY;
     }
     hello_response.request_id = hello_frame.request_id;
     write_frame(&mut stream, &hello_response)?;
@@ -327,7 +335,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         let replay = term
             .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)?;
         let colors = term.color_overrides();
-        let (osc_progress, program_status) = {
+        let (osc_progress, shell_activity, program_status) = {
             let metadata = host.terminal_metadata.lock().unwrap();
             // The parser feeds the records under the terminal lock held
             // here, so they match the replay.
@@ -336,7 +344,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 records.snapshot()
             });
-            (metadata.osc_progress().to_owned(), records)
+            let shell_activity = shell_activity_negotiated.then(|| metadata.activity.snapshot());
+            (metadata.osc_progress().to_owned(), shell_activity, records)
         };
         let (cols, rows) = *size;
         let cell_pixels = *cell_pixels;
@@ -382,6 +391,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 cwd: snapshot_cwd(&term, host.cwd.as_deref(), &host.owner_token, selected_version),
                 osc_progress,
                 program_status,
+                shell_activity,
             },
             colors,
             snapshot_sequence,

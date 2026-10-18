@@ -367,6 +367,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
         tools: tools.clone(),
         user_env: Default::default(),
         profile_tool: false,
+        chiefs_tool: false,
     };
     session_dir::write(&paths, &setup).unwrap();
     let system = system_text(None, &tools);

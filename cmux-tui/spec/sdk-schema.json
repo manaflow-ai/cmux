@@ -1115,6 +1115,17 @@
        "since": 8,
        "description": "Stable for the lifetime of this split node."
       },
+      "split_id": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": false,
+       "since": 12,
+       "capability": "split-client-split-id-v1",
+       "description": "The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it."
+      },
       "dir": {
        "type": {
         "kind": "ref",
@@ -3521,6 +3532,18 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "closed_ids": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed."
     },
     "generation": {
      "type": {
@@ -7766,6 +7789,141 @@
    },
    "additional_properties": false
   },
+  "HomeInboxKind": {
+   "kind": "enum",
+   "values": [
+    "chief",
+    "direct",
+    "channel",
+    "group"
+   ]
+  },
+  "HomeChiefState": {
+   "kind": "enum",
+   "values": [
+    "working",
+    "waiting",
+    "idle"
+   ]
+  },
+  "HomeInboxRow": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "HomeInboxKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "unread": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "activity_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "preview": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "last_author": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "chief": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "chief_state": {
+     "type": {
+      "kind": "ref",
+      "name": "HomeChiefState"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pin_position": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "marked_unread": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "muted": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "AgentSessionSource": {
    "kind": "object",
    "fields": {
@@ -7807,6 +7965,41 @@
      "nullable": true,
      "default": null,
      "description": "Display name of the host machine: 1 to 255 bytes, no control characters."
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationTabSplit": {
+   "kind": "object",
+   "fields": {
+    "direction": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The side of pane the new pane takes: right, down, left or up."
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed."
+    },
+    "split_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed."
     }
    },
    "additional_properties": false
@@ -12334,6 +12527,23 @@
         "format": "client-minted public tab id"
        }
       ]
+     },
+     "split_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-split-id-v1",
+      "constraints": [
+       {
+        "pattern": "^split_[0-9a-f]{32}$",
+        "format": "client-minted public split id"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -12350,7 +12560,8 @@
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
     "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
-    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
+    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
+    "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
    ]
   },
   "set-ratio": {
@@ -13347,6 +13558,16 @@
       "default": false,
       "capability": "close-workspace-if-empty-v1",
       "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change."
+     },
+     "report_closed_ids": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "With end_terminals: the result names closed_ids, the closed.list groups the close stored. Opt-in so older decoders keep the result shape; a daemon that predates it ignores the field."
      },
      "origin": {
       "type": {
@@ -16379,6 +16600,17 @@
       "default": null,
       "capability": "conversation-tab-transaction-v1",
       "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result."
+     },
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabSplit"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "conversation-tab-split-v1",
+      "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction."
      }
     },
     "additional_properties": false
@@ -16440,7 +16672,7 @@
    },
    "stream": null,
    "constraints": [
-    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. split (conversation-tab-split-v1) needs pane and excludes workspace. See spec/commands.md."
    ]
   },
   "bind-conversation-tab-session": {
@@ -16474,6 +16706,16 @@
       "presence": "required",
       "nullable": true,
       "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches."
+     },
+     "harness": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone."
      }
     },
     "additional_properties": false
@@ -16510,7 +16752,7 @@
    },
    "stream": null,
    "constraints": [
-    "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
+    "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
    ]
   },
   "new-frontend-browser-tab": {
@@ -20711,6 +20953,65 @@
     "Trusted local connections only. op is {kind:\"inbox.pin\", pinned, position?} or {kind:\"inbox.mark_unread\", unread}; it sets the caller's own list state of a conversation it takes part in (not_participant, unknown_conversation), never a conversation op (no rev). position is at most 2^53-2. See spec/commands.md."
    ]
   },
+  "home-inbox": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "home-inbox-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "owners": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "me": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "rows": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "HomeInboxRow"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cloud": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. See spec/commands.md."
+   ]
+  },
   "conversation-search": {
    "authority": "local-admin",
    "since": 12,
@@ -22321,6 +22622,33 @@
     "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-conversation-live": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-chief-live-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "A subscriber of the conversation only (not_subscribed). Asks the Cloud owner for its run.live snapshot on the shared socket (run.live.get); the answer arrives as a cloud-conversation-live event. Answers the subscription's state. See spec/commands.md."
+   ]
+  },
   "browser-host-provider": {
    "authority": "local-admin",
    "since": 12,
@@ -23532,6 +23860,97 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. The steps written after after_rev (default 0), oldest write first, limit 1-500 (default 500). An unknown run is run_rejected unknown_run. See spec/commands.md."
+   ]
+  },
+  "conversation-live-publish": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "chief-live-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "frame": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; the caller's principal must be an agent participant (not_agent), the run its own (not_run_author) and running (run_not_running). frame is {type:\"step.delta\", conversation, run, step, kind:\"talk\"|\"thought\", seq, text, final?} (text 1-4096 characters, seq from 0 without gaps: seq_gap, step_final) or {type:\"run.activity\", conversation, run, line, since, at} (line 1-80 characters). Never stored. See spec/commands.md."
+   ]
+  },
+  "conversation-live": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "chief-live-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "type": {
+      "type": {
+       "kind": "literal",
+       "value": "run.live"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "runs": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "JsonValue"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. The run.live snapshot: the running runs' streamed text so far (each step at most its last 64 KiB) and activity. See spec/commands.md."
    ]
   },
   "cloud-mux-subscribe": {
@@ -25018,6 +25437,56 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "active_pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "zoomed_pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "layout": {
+      "type": {
+       "kind": "ref",
+       "name": "Layout"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
      }
     },
     "additional_properties": false
@@ -27765,6 +28234,44 @@
     "additional_properties": false
    }
   },
+  "conversation-live": {
+   "since": 12,
+   "capability": "chief-live-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "conversation-live"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "frame": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "participant-avatar-changed": {
    "since": 12,
    "capability": "participant-avatars-v1",
@@ -28137,6 +28644,52 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-conversation-live": {
+   "since": 12,
+   "capability": "cloud-chief-live-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-live"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "frame": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
      },
      "account": {
       "type": {

@@ -105,6 +105,7 @@ impl ResourceOperation {
                 | Self::SettingsSnapshot
                 | Self::KeybindingsGet
                 | Self::BrowserDevicesList
+                | Self::BrowserProfileList
                 | Self::SidebarLayoutGet
                 | Self::SidebarGet
                 | Self::ProjectList

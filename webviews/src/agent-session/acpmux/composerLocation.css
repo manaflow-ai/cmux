@@ -7,7 +7,8 @@
    with a project or without, while the host's name loads and after, so nothing under it moves.
    Queued prompts stack above it (.acpmux-composer-queue), never over it. A control is a plain text
    button (no bezel, no fill, no weight change); hover and an open menu lay the bar's own wash under
-   it, and keyboard focus draws a ring in the theme's text color. */
+   it, and keyboard focus draws a ring in the theme's text color. The New Tab draws the same strip
+   as text over its card instead (newtab/screen.css, #21133). */
 .acpmux-composer-strip {
   --acpmux-strip-height: 30px;
   position: relative;
@@ -28,23 +29,80 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
+  /* Its controls answer to its own width (the folder cuts in the middle, the computer gives way
+     to its icon), not the pane's. */
+  container: acpmux-strip / inline-size;
+}
+/* The chat composer's strip (design panel, compact composer): its first and last marks line up
+   with the card's content, the folder icon over the prompt's first letter and the branch chevron
+   over the prompt's last column, so nothing in the strip reads as a stray indent. That puts it
+   9 px in from the card's sides, inside the card's 18 px corner, where the corner has dropped
+   2.4 px from the top edge; a foot of the strip's own fill and sides covers that drop, so the strip
+   still stands on the card. The queue (above) and the seam (below) follow the same inset. */
+.acpmux-composer {
+  --acpmux-strip-inset: 9px;
+  --acpmux-strip-pad: 1.5px;
+}
+.acpmux-composer > .acpmux-composer-strip { z-index: var(--layer-raised, 1); }
+.acpmux-composer > .acpmux-composer-strip-placeholder {
+  /* The location strip leaves after the first send, but its former height remains reserved so the
+     bottom-anchored composer controls do not jump while the first transcript rows mount. A queue
+     replaces this slot below. */
+  flex: none;
+  height: 46px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip-placeholder { display: none; }
+:root[data-top-strip="bump"] .acpmux-composer > .acpmux-composer-strip-placeholder {
+  height: calc(46px + var(--acpmux-strip-gap, 4px));
+}
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip-placeholder {
+  height: calc(46px + var(--acpmux-strip-gap, 4px));
+}
+.acpmux-composer > .acpmux-composer-strip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  background: inherit;
+  box-shadow:
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+  pointer-events: none;
 }
 .acpmux-composer-context {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 6px;
+  /* Keep the folder/computer pair and the optional branch on one optical rhythm.  The
+     controls already carry their own hit-area insets; this is the only inter-control gap. */
+  gap: var(--acpmux-location-gap, 6px);
   min-width: 0;
   height: 100%;
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
-.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: 0; min-width: 0; flex: 1 1 0; }
+/* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
+   floats between them against the folder's chevron. */
+.acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 6px); min-width: 0; flex: 1 1 0; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
 .acpmux-composer-context > .acpmux-location-picker { flex: 0 1 auto; min-width: 0; }
-.acpmux-composer-context > .acpmux-location-picker:last-child { margin-left: auto; }
-.acpmux-location-dot { flex: none; padding: 0 2px; color: var(--agent-muted); opacity: .65; }
+/* The folder gives up width before the computer: the computer never shrinks (even a fraction of a
+   pixel would put an ellipsis on "This Mac"); it drops its name whole instead, and its cap below
+   bounds a long host name. */
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child { flex-shrink: 100; }
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"] { flex-shrink: 0; }
+/* The branch keeps its name: it shrinks only past half the strip. */
+.acpmux-composer-context > .acpmux-location-picker:last-child { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
+/* The folder and the branch cut only when the strip runs out of room (the rules above), never at
+   the controls' fixed cap (190 px, 145 px in a narrow pane, below), which cut a long name beside
+   empty strip. The computer keeps the cap. */
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:not([data-kind="computer"]) :is(.acpmux-location-button, .acpmux-location-readonly),
+.acpmux-composer-context > .acpmux-location-picker:last-child .acpmux-location-button { max-width: none; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -73,6 +131,9 @@
 }
 .acpmux-location-button {
   --ui-ghost-end-bearing: 4px;
+  /* The composer's text is on the one type scale (regular or emphasis), not the shared ghost
+     button's medium label weight. */
+  font-weight: var(--weight-regular);
 }
 .acpmux-location-readonly {
   gap: 4px;
@@ -82,23 +143,63 @@
   font: inherit;
 }
 .acpmux-location-button { cursor: default; }
-.acpmux-location-button:hover,
 .acpmux-location-button[aria-expanded="true"],
 .acpmux-location-button[data-popup-open] {
   background: var(--acpmux-composer-hover);
   color: var(--agent-text);
 }
+@media (hover: hover) and (pointer: fine) {
+  /* A location control is a text/icon affordance.  Its transparent hit area must not turn
+     into a full rounded pill on hover; the open state above remains the persistent menu cue. */
+  .acpmux-location-button.ui-ghost:hover {
+    background: transparent;
+    color: var(--agent-text);
+  }
+}
+/* The strip's buttons are 22 px tall (the small ghost size); their press target reaches 28 px, the
+   bar's chips' height, past the strip's edge without moving anything (cg-composer click polish). */
+.acpmux-location-button { position: relative; }
+.acpmux-location-button::before {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
+}
 .acpmux-location-button:active { background: color-mix(in srgb, var(--agent-text) 18%, var(--agent-page-bg, var(--acpmux-base))); }
 .acpmux-location-button:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
-  outline-offset: 0;
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
+  outline-offset: 2px;
   color: var(--agent-text);
+}
+.acpmux-location-button > .ui-ghost-icon:last-child {
+  /* The chevron path is optically high inside its 14px viewBox. */
+  transform: translateY(0.75px);
 }
 .acpmux-location-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A folder's name cuts in the middle (ComposerContext.tsx splitForMiddleTruncation): the head
+   takes the ellipsis, the tail always shows. */
+.acpmux-location-label[data-middle] { display: inline-flex; min-width: 0; }
+.acpmux-location-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.acpmux-location-tail { flex: none; white-space: pre; }
+/* The strip's steps (compact-composer verdict 4) are pane widths, at or under. They are literals
+   that match COMPOSER_FIT_STEPS in composerRowFit.ts (machineIconOnly 460, folderMiddleTruncate
+   340) once the footer's fit steps land (#20802); the webview is the pane, so a media query reads
+   its width. test/composer-location-strip.test.ts holds each step at its boundary (461/460,
+   341/340).
+   At 460: the computer shows its laptop icon alone, its name in its tooltip and accessible label,
+   so the folder and the branch keep theirs (never "This…"). */
+@media (max-width: 460px) {
+  .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
+}
+/* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
+   last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
+   name. Above it the folder cuts only when the strip runs out of room. */
+@media (max-width: 340px) {
+  .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child :is(.acpmux-location-button, .acpmux-location-readonly) { max-width: 128px; }
 }
 .acpmux-location-button .acpmux-icon,
 .acpmux-location-readonly .acpmux-icon { flex: none; color: currentColor; opacity: .8; }
@@ -141,8 +242,11 @@
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
-  --acpmux-row-gap: 4px;
-  --acpmux-row-group-gap: 12px;
+  /* The model and effort buttons need a 7 px layout gap to draw the same 19 px optical gap as
+     the trailing controls (their 6 px text insets account for the difference). Actions keep the
+     4 px box gap because their icon bearings already add those 3 px visually. */
+  --acpmux-row-gap: 7px;
+  --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
   min-height: 52px;
@@ -191,49 +295,67 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-access-item .ui-menu-check { grid-column: 1; margin: 0; color: var(--agent-text); }
+.acpmux-access-item .ui-menu-check { grid-column: 1; display: inline-flex; width: 16px; justify-content: center; margin: 0; color: var(--agent-text); font-weight: 600; }
 .acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-access-item .acpmux-access-item-icon { grid-column: 2; }
 .acpmux-access-item .acpmux-menu-text { grid-column: 3; min-width: 0; }
-.acpmux-access-item .ui-menu-shortcut { grid-column: 4; margin-inline-start: 0; padding-inline-start: 8px; }
-.acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); font-weight: 500; }
+/* The numbers are secondary, as a native menu's key equivalents: quieter than the row's title. */
+.acpmux-access-item .ui-menu-shortcut { grid-column: 4; margin-inline-start: 0; padding-inline-start: 8px; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
+.acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); }
 .acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
-.acpmux-permission-status { display: inline-flex; flex: none; align-items: center; }
-.acpmux-permission-status-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  height: 28px;
-  padding: 0 5px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--agent-muted);
-  font: inherit;
-  cursor: pointer;
+.acpmux-access-grant-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
 }
-.acpmux-permission-status-trigger:hover,
-.acpmux-permission-status-trigger[aria-expanded="true"] { color: var(--agent-text); background: var(--acpmux-menu-hover); }
-.acpmux-permission-status-trigger:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
-.acpmux-permission-status-trigger .acpmux-icon { width: 14px; height: 14px; }
-.acpmux-permission-status-label { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-detail); }
-.acpmux-permission-status-menu { min-width: 150px; }
-.acpmux-permission-status-undo {
-  height: 24px;
-  padding: 0 6px;
+.acpmux-access-grants {
+  min-inline-size: 0;
+  border: 0;
+  margin: 8px 4px 2px;
+  padding-top: 8px;
+  border-top: .5px solid var(--acpmux-composer-edge);
+}
+.acpmux-access-grants-heading {
+  padding: 0 8px 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-access-grant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--ui-row-height);
+  padding: 2px 8px 2px 10px;
+  border-radius: var(--ui-row-radius);
+}
+.acpmux-access-grant:hover { background: var(--acpmux-menu-hover); }
+.acpmux-access-grant-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); }
+.acpmux-access-grant-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--agent-muted);
-  font: inherit;
-  font-size: var(--text-detail);
+  font-family: system-ui;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
   cursor: pointer;
 }
-.acpmux-permission-status-undo:hover { color: var(--agent-text); background: var(--acpmux-menu-hover); }
-.acpmux-permission-status-undo:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
+.acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
+.acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
 
 /* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
    opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
@@ -264,7 +386,7 @@
   font-size: var(--text-detail);
 }
 @media (max-width: 480px) {
-  .acpmux-composer-context { gap: 2px; }
+  .acpmux-composer-context { --acpmux-location-gap: 4px; }
   .acpmux-location-button,
   .acpmux-location-readonly { max-width: 145px; }
   .acpmux-location-readonly { padding-inline: 4px; }
@@ -284,7 +406,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: var(--acpmux-row-gap);
+  gap: 4px;
   margin-left: 0;
   margin-inline-start: auto;
 }
@@ -303,6 +425,10 @@
   padding-inline: var(--acpmux-row-inset);
   border-radius: 7px;
 }
+.acpmux-composer-bar .acpmux-steer {
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
   min-width: 0;
@@ -319,7 +445,7 @@
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
   height: 28px;
-  border-radius: 7px;
+  border-radius: 999px;
   color: var(--agent-muted);
 }
 /* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
@@ -332,15 +458,23 @@
    control's own ink at 6% over the card, tight to the control, a step further on press; no
    opaque block. */
 .acpmux-composer-bar {
-  --acpmux-row-hover: var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent));
-  --acpmux-row-press: color-mix(in srgb, currentcolor 12%, transparent);
+  --acpmux-row-hover: var(--acpmux-pill-hover, var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent)));
+  --acpmux-row-press: var(--acpmux-pill-press, color-mix(in srgb, currentcolor 12%, transparent));
 }
-.acpmux-composer-bar .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
-.acpmux-composer-bar .acpmux-plan:hover,
-.acpmux-composer-bar .acpmux-steer:hover,
-.acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
-  background: var(--acpmux-row-hover);
+.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"] {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+  box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
+}
+/* Hover only under a fine pointer (cg-composer click polish): a tap never leaves a wash behind. */
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer-bar .acpmux-picker-button:hover,
+  .acpmux-composer-bar .acpmux-plan:hover,
+  .acpmux-composer-bar .acpmux-steer:hover,
+  .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
+    /* Keep hover on the ink, not on the full transparent hit target. */
+    background: transparent;
+    color: var(--agent-text);
+  }
 }
 .acpmux-composer-bar .acpmux-picker-button:active,
 .acpmux-composer-bar .acpmux-plan:active,
@@ -348,18 +482,51 @@
 .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
   background: var(--acpmux-row-press);
 }
+.acpmux-composer-bar
+  :is(.acpmux-model, .acpmux-effort, .acpmux-access)
+  .acpmux-picker-button:focus-visible {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+  box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
+}
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
   color: var(--acpmux-warning);
 }
-.acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
   color: var(--agent-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
+  .acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
+  .acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover {
+    color: var(--agent-text);
+  }
 }
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button:hover,
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button[aria-expanded="true"] {
   color: var(--acpmux-warning);
+}
+.acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
+  outline-offset: 0;
+}
+@media (prefers-contrast: more) {
+  .acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+    outline-offset: 2px;
+  }
+}
+/* Hover is ink-only, but a selected/open control must keep its state wash while the pointer is
+   over it. */
+.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
+.acpmux-composer-bar .acpmux-access-trigger[aria-expanded="true"] {
+  background: var(--acpmux-row-hover);
+}
+.acpmux-composer-bar .acpmux-plan[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
+}
+.acpmux-composer-bar .acpmux-picker-button > .acpmux-icon:last-child,
+.acpmux-composer-bar .acpmux-access-trigger > .acpmux-icon:last-child {
+  /* Match the location strip's optical correction for the shared down-chevron. */
+  transform: translateY(0.75px);
 }
 .acpmux-composer-bar .acpmux-model-name,
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
@@ -385,6 +552,7 @@
 .acpmux-composer-bar > :not(.acpmux-chips),
 .acpmux-composer-bar .acpmux-chips > * { flex: none; }
 .acpmux-composer-bar .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
+.acpmux-composer-bar[data-fit="icons"] .acpmux-chips > .acpmux-effort { min-width: 49px; }
 .acpmux-composer-bar .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
@@ -412,7 +580,7 @@
   background: var(--acpmux-composer-surface);
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer-box:focus-within {
+.acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
@@ -449,13 +617,13 @@
 
 /* The seam: under the strip the card draws its rim (--acpmux-card-ring, resting or focused) on a
    layer that leaves out the stretch the strip stands on, so the strip and the card read as one
-   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
-.nt-composer:has(.acpmux-composer-strip) .nt-box {
+   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it.
+   The New Tab has no tab on its card (newtab/screen.css: its strip is text over the card), so its
+   card keeps its whole rim. */
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
-.nt-composer:has(.acpmux-composer-strip) .nt-box::before {
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -484,6 +652,144 @@
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
     inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
 }
+
+/* The top strip's Debug variants (agentPane.debug.topStripStyle, DEV and NIGHTLY; the app sets
+   data-top-strip on <html>). Without the attribute nothing below applies, so the default is the
+   strip and queue above (and on the New Tab, newtab/screen.css's text over the card). "Top strip" is whatever stands on the card's top edge: the location strip
+   on a new chat, or the queued prompts once the chat started.
+   - bump: the strip (or the queue, with no strip) stands --acpmux-strip-gap above the card inside
+     its own closed hairline, and the card draws its whole rim (#20789).
+   - plain: no fill, no rim and no tab: muted text floating --acpmux-strip-gap above the card, its
+     ink on the card's content edge (where the prompt's text starts), as Codex and Claude Code
+     desktop show the context above their prompt.
+   - tray: a filled tray tucked under the card's top edge, the card's whole rim drawn over it, as
+     ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15). */
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+:root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
+}
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+:root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
+  content: none;
+}
+:root[data-top-strip] .acpmux-composer { --acpmux-strip-gap: 4px; }
+:root[data-top-strip] .nt-composer { --acpmux-strip-gap: 4px; }
+
+/* bump */
+:root[data-top-strip="bump"] .acpmux-composer-strip {
+  margin-bottom: var(--acpmux-strip-gap);
+  border-radius: 10px 10px 5px 5px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-strip-edge);
+}
+:root[data-top-strip="bump"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  border-radius: 0 0 5px 5px;
+  box-shadow:
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge),
+    inset 0 calc(-1 * var(--cmux-hairline, .5px)) 0 var(--acpmux-strip-edge);
+}
+/* A started chat's queue is the top strip: the same gap and closed rim. */
+:root[data-top-strip="bump"] .acpmux-composer:not(:has(> .acpmux-composer-strip)) > .acpmux-composer-queue {
+  --acpmux-queue-edge: var(--acpmux-composer-edge);
+  margin-bottom: var(--acpmux-strip-gap);
+  border-radius: 12px 12px 5px 5px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
+}
+:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+  --acpmux-queue-edge: var(--acpmux-composer-edge-focus);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
+}
+
+/* plain: the content edge is where the prompt's text starts in the card (16 px in the chat's card,
+   the New Tab's 18 px); a small ghost button's icon ink sits 6 px in from its edge (ui/ghost.css). */
+:root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
+:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+:root[data-top-strip="plain"] .acpmux-composer-strip,
+:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  height: auto;
+  margin: 0 0 var(--acpmux-strip-gap);
+  padding-inline: calc(var(--acpmux-top-strip-edge) - 6px);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transition: none;
+}
+/* The default tab's foot (the strip's sides carried down over the card's corner) has no tab to
+   carry here; left on, its side hairlines stood in the gap above the card's top corners. */
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
+:root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+  margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+:root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue { margin-bottom: 0; }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued { padding-inline: 0; color: var(--agent-muted); }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
+/* The row's actions take their own room at its end, with no tray to fade into. */
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-actions { position: static; padding-left: 0; background: none; }
+:root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queue-paused { padding-left: 0; }
+
+/* tray: the location strip and the queue are one tray, set in by one inset from the card's sides and
+   tucked --acpmux-tray-tuck under its top edge, where the card (raised over it) draws its whole rim.
+   Its first ink (the folder icon, a queue number) sits on the card's content edge, the prompt's text
+   column: 16 px in the chat's card, 18 px in the New Tab's. In a light theme the fill is a small
+   step from the card's near-white surface; in a dark one the composer's tray tone. */
+:root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer) {
+  --acpmux-tray-inset: 8px;
+  --acpmux-tray-tuck: 12px;
+  --acpmux-top-tray: light-dark(
+    color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-composer-surface)),
+    var(--acpmux-composer-tray)
+  );
+}
+:root[data-top-strip="tray"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
+:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-box,
+:root[data-top-strip="tray"] .nt-composer .nt-box { z-index: var(--layer-raised, 1); }
+/* A small ghost button's icon ink sits 6 px in from the button's edge (ui/ghost.css). */
+:root[data-top-strip="tray"] .acpmux-composer-strip,
+:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  z-index: var(--layer-base, 0);
+  height: calc(var(--acpmux-strip-height) + var(--acpmux-tray-tuck));
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck);
+  border-radius: 14px 14px 0 0;
+  background: var(--acpmux-top-tray);
+  box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
+}
+:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
+  border-radius: 0;
+  box-shadow: none;
+}
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
+:root[data-top-strip="tray"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
+/* A started chat's queue is the tray: the same inset, tuck, corners, fill and edge. Over a new
+   chat's strip it is the tray's top, flush on the strip. */
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+  --acpmux-composer-tray: var(--acpmux-top-tray);
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
+  border-radius: 14px 14px 0 0;
+  background: var(--acpmux-top-tray);
+  box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
+}
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+  box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus);
+}
+:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+:root[data-top-strip="tray"] .acpmux-composer-queue .acpmux-queued {
+  padding-inline: calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
+}
+:root[data-top-strip="tray"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
 
 /* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
    project and Choose folder…. A row is its check, its project's badge and its name, with a short
@@ -521,7 +827,7 @@
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 12px; color: var(--agent-text); }
+.acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
 /* The name and its suffix on one line, cut at the end: "cmux · cg-lane-adopt". */
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-suffix,

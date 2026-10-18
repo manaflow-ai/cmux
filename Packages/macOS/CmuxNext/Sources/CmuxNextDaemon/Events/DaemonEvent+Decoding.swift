@@ -9,7 +9,7 @@ extension DaemonEvent {
         case .screenAdded(let d), .screenClosed(let d), .screenRenamed(let d), .screenChanged(let d): d.clientTransactionID
         case .paneAdded(let d), .paneClosed(let d): d.clientTransactionID
         case .tabAdded(let d), .tabClosed(let d), .tabRenamed(let d), .tabChanged(let d): d.clientTransactionID
-        case .treeChanged(let transaction), .layoutChanged(_, let transaction): transaction
+        case .treeChanged(let transaction), .layoutChanged(_, _, let transaction): transaction
         case .conversationChanged(let event): event.transaction
         default: nil
         }
@@ -43,7 +43,10 @@ extension DaemonEvent {
             case "personal-changed": return .treeChanged(transaction: nil)
             case "layout-changed":
                 let e = try d(EventPayload.ScreenField.self)
-                return .layoutChanged(screen: e.screen, transaction: e.clientTransactionID)
+                // `layout-delta-v1`: the screen's layout fields, flat. A
+                // payload that does not decode refetches, like no payload.
+                let layout = e.hasLayout ? try? d(ScreenLayoutDelta.self) : nil
+                return .layoutChanged(screen: e.screen, layout: layout, transaction: e.clientTransactionID)
             case "title-changed":
                 let e = try d(EventPayload.TitleChanged.self)
                 return .titleChanged(surface: e.surface, title: e.title ?? "")
@@ -72,6 +75,8 @@ extension DaemonEvent {
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
             case "conversation-draft": return .conversationDraft(try d(ConversationDraft.self))
+            case "conversation-live": return .conversationLive(try d(ConversationLive.self))
+            case "conversation-run-changed": return .conversationRunChanged(try d(ConversationRunChanged.self))
             case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
             case "terminal-clipboard-read-cancelled":
                 return .terminalClipboardReadCancelled(requestID: try d(EventPayload.RequestField.self).requestID)
@@ -129,9 +134,17 @@ private enum EventPayload {
     struct ScreenField: Decodable {
         var screen: ScreenID
         var clientTransactionID: ClientTransactionID?
+        /// The event carries a screen layout (`layout-changed` with `layout-delta-v1`).
+        var hasLayout: Bool
         enum CodingKeys: String, CodingKey {
-            case screen
+            case screen, layout
             case clientTransactionID = "transaction"
+        }
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            screen = try c.decode(ScreenID.self, forKey: .screen)
+            clientTransactionID = try c.decodeIfPresent(ClientTransactionID.self, forKey: .clientTransactionID)
+            hasLayout = c.contains(.layout)
         }
     }
 

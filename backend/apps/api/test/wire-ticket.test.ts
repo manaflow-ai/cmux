@@ -150,14 +150,22 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
   })
 
   it("one person mints at most 60 tickets a minute", async () => {
-    const a = await person("limit")
-    // The limit is a fixed 60 s window, and the run may cross one window edge: 121 mints span at
-    // most two windows of 60 each, so at least one is refused, and at least 60 succeed.
-    // All at once, so a slow host cannot stretch the 121 mints over more than two windows.
-    const statuses = (await Promise.all(Array.from({ length: 121 }, () => mint(a.token)))).map((r) => r.status)
-    expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(60)
-    expect(statuses.every((s) => s === 200 || s === 429)).toBe(true)
-    expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0)
+    // The limit is a fixed 60 s window on the Worker's own limiter, keyed by the user id. Each minted ticket makes a
+    // ticket shard object, and 60 real mints took 5 s on a loaded host, so 59 of the person's 60 are spent on that
+    // limiter directly; the 60th and 61st go through the Worker. A run that crosses a minute boundary proves nothing,
+    // so it runs once more for a new person; two short runs in a row never both cross one.
+    for (let attempt = 0; ; attempt++) {
+      const a = await person(`limit-${attempt}`)
+      const minute = () => Math.floor(Date.now() / 60_000)
+      const start = minute()
+      await Promise.all(Array.from({ length: 59 }, () => testEnv.WIRE_TICKET_LIMIT!.limit({ key: a.user })))
+      const sixtieth = await mint(a.token)
+      const sixtyFirst = await mint(a.token)
+      if (minute() !== start && attempt === 0) continue
+      expect(sixtieth.status).toBe(200)
+      expect(sixtyFirst.status).toBe(429)
+      break
+    }
     // Another person is not limited by the first.
     expect((await mint((await person("limit-other")).token)).status).toBe(200)
   })

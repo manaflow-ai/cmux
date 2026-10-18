@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36'
+IR_SHA256 = '0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc'
 
 
 @dataclass(frozen=True)
@@ -120,6 +120,7 @@ COMMANDS = {
         None,
         {
             'expected_session': CommandFieldMetadata(None, None),
+            'harness': CommandFieldMetadata(None, None),
             'session': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
         },
@@ -478,6 +479,7 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
             'reason': CommandFieldMetadata(None, 'close-reason-v1'),
+            'report_closed_ids': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
@@ -546,6 +548,17 @@ COMMANDS = {
             'before_seq': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-live': CommandMetadata(
+        'cloud-conversation-live',
+        'local-admin',
+        12,
+        'cloud-chief-live-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-conversation-op': CommandMetadata(
@@ -928,6 +941,29 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+        },
+    ),
+    'conversation-live': CommandMetadata(
+        'conversation-live',
+        'local-admin',
+        12,
+        'chief-live-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-live-publish': CommandMetadata(
+        'conversation-live-publish',
+        'local-admin',
+        12,
+        'chief-live-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'frame': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-op': CommandMetadata(
@@ -1535,6 +1571,17 @@ COMMANDS = {
             'query': CommandFieldMetadata(None, None),
         },
     ),
+    'home-inbox': CommandMetadata(
+        'home-inbox',
+        'local-admin',
+        12,
+        'home-inbox-v1',
+        ('local-admin',),
+        None,
+        {
+            'owners': CommandFieldMetadata(None, None),
+        },
+    ),
     'identify': CommandMetadata(
         'identify',
         'control',
@@ -2091,6 +2138,7 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
             'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
+            'split': CommandFieldMetadata(None, 'conversation-tab-split-v1'),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),
             'workspace': CommandFieldMetadata(None, None),
         },
@@ -3227,6 +3275,7 @@ COMMANDS = {
             'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'split_id': CommandFieldMetadata(12, 'split-client-split-id-v1'),
             'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
@@ -3669,6 +3718,7 @@ EVENTS = {
     'client-detached': EventMetadata('client-detached', 6, None, ('subscribe',), 'emitted'),
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-conversation-live': EventMetadata('cloud-conversation-live', 12, 'cloud-chief-live-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-run-changed': EventMetadata('cloud-conversation-run-changed', 12, 'cloud-conversation-runs-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-changed': EventMetadata('cloud-inbox-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
@@ -3682,6 +3732,7 @@ EVENTS = {
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
     'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
+    'conversation-live': EventMetadata('conversation-live', 12, 'chief-live-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),

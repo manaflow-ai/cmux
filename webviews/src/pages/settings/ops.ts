@@ -103,8 +103,9 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
-   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `video`) and its
-   * localized title. `video: true` marks a moving wallpaper.
+   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
+   * its localized title. `video: true` marks a moving wallpaper; a macOS still (`apple`) says
+   * whether macOS has downloaded the full picture.
    */
   backdrops?: Array<{
     id: string;
@@ -113,6 +114,7 @@ export type HostLists = {
     collection?: string;
     collection_title?: string;
     video?: boolean;
+    downloaded?: boolean;
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
@@ -321,6 +323,8 @@ export type SettingsOps = {
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
   /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
   "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
+  "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */
   "cmux.settings.backdrop.workspace": [{ workspace: string }, WorkspaceBackground];
   /** Native: save a workspace's own background; null follows appearance.background again. */

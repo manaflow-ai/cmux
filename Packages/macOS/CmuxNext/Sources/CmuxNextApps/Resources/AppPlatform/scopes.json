@@ -129,6 +129,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.reload": {
       "scope": "browser:write",
       "class": "mutation"
@@ -1827,6 +1839,7 @@
     "agent.message.mark",
     "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",

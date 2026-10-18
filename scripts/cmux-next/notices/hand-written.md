@@ -873,6 +873,30 @@ playwright-core 1.57.0, `LICENSE` from the npm package (Apache License 2.0; show
 
 ---
 
+## uBlock Origin (built-in content blocker)
+
+- **License:** GNU General Public License v3.0 or later (GPL-3.0-or-later)
+- **Copyright:** Copyright (C) Raymond Hill and the uBlock Origin contributors
+- **Source:** https://github.com/gorhill/uBlock (tag 1.75.0; corresponding source
+  https://github.com/gorhill/uBlock/archive/refs/tags/1.75.0.tar.gz, sha256
+  a518c7d6e6b3f81d1a738befeb617abba59f93bd6b1e626da079a1003e9db52b)
+
+The cmux-next app bundles the unmodified uBlock Origin 1.75.0 release build for
+Chromium (uBlock0_1.75.0.chromium.zip, sha256
+393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582) in
+`Contents/Resources/Extensions/ublock-origin`; the only change is the manifest's
+`key` field (the Chrome Web Store extension id; the manifest is rewritten with
+two-space indentation). The folder carries the full
+GPL-3.0 text (`LICENSE.txt`) and `SOURCE.txt`. uBlock Origin is a separate
+program that cmux loads into Chromium; it is not linked into cmux.
+Its bundled libraries keep their own licenses (CodeMirror, csstree, hsluv and
+js-beautify: MIT; diff: BSD-3-Clause; lz4-wasm and other files under `lib/`: see
+the license files there), and so do its filter lists under `assets/thirdparties/`
+(EasyList and EasyPrivacy: GPL-3.0 or CC BY-SA 3.0; Peter Lowe's list and the
+URLhaus filter: their own terms, shipped beside them; publicsuffix.org: MPL-2.0).
+
+---
+
 ## x264 (remote desktop host encoder)
 
 - **License:** GNU General Public License v2.0 or later (GPL-2.0-or-later)

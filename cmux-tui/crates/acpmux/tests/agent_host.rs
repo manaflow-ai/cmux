@@ -6,6 +6,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::agent_host::link::{self, Connect, HostLauncher, Link};
 use acpmux::agent_host::{

@@ -12,6 +12,7 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextBrowserImport
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
 import os
@@ -54,9 +55,9 @@ final class AppServices {
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
-    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater))  // first read in init (no IUO)
-    /// cmux.json controller; set by `AppDelegate` once it starts.
-    var settings: SettingsController?
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
+    /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
@@ -117,9 +118,10 @@ final class AppServices {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
+        SidebarDocWiring.start(self, layout: service)
         return service
     }()
-    /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
+    /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
@@ -209,6 +211,8 @@ final class AppServices {
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
+        // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
+        DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
@@ -299,7 +303,11 @@ final class AppServices {
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
-        cache.presentationChanges.subscribe("browser-host") { [weak self] in self?.browserHost?.provider.refreshTabs() }
+        cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
+            guard let self else { return }
+            let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }
+            if onlyTerminalsAndAgents != true { self.browserHost?.provider.refreshTabs() }
+        }
         _ = resources  // built here, as before
         _ = windows  // built here, as before
         windows.incognitoHistoryReset = { [weak cache, weak self] in
@@ -340,24 +348,18 @@ final class AppServices {
         }
     }
     // MARK: Lookup
-    /// The tab with durable id `id` and the pane that holds it.
+    /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
+    /// and the pane that holds it, on any machine (O(1) per daemon).
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
-        for (workspace, _) in machines.allWorkspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    // A tab first seen without a `tab_` resource id keeps its first id; links
-                    // (and TabMirror's wait) name it by the observed resource id.
-                    if let tab = pane.tabs.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) {
-                        return (tab, pane)
-                    }
-                }
-            }
+        for daemon in machines.daemons {
+            if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
         }
         return nil
     }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
-        daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == surface }
+        _ = daemon.store.tabListRevision // a tracked wait hears the tab appear
+        return daemon.store.tab(surface: surface)
     }
 
     func workspace(id: String) -> WorkspaceModel? {

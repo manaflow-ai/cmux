@@ -31,11 +31,18 @@ export function clamp(value: number, range: NumberRange | undefined): number {
   return Math.min(range.max, Math.max(range.min, value));
 }
 
-/** The unit beside a number field ("pt", "s", "min", "days", "%", or nothing for counts). */
+/** The unit beside a number field ("pt", "ms", "s", "min", "days", "%", or nothing for counts). */
 export function unitLabel(range: NumberRange | undefined): string {
   switch (range?.unit) {
     case "points":
       return unitSuffix("settingsPage.points");
+    case "milliseconds":
+      // The short millisecond unit of the page's locale ("ms"), from Intl.
+      return (
+        new Intl.NumberFormat(locale(), { style: "unit", unit: "millisecond", unitDisplay: "short" })
+          .formatToParts(2)
+          .find((part) => part.type === "unit")?.value ?? "ms"
+      );
     case "seconds":
       return unitSuffix("settingsPage.seconds");
     case "minutes":

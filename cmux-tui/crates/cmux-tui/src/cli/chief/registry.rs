@@ -18,7 +18,7 @@ use crate::cli::OutputMode;
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
 
 /// The registry words `cmux chief` takes first.
-pub(super) const WORDS: [&str; 5] = ["list", "new", "adopt", "edit", "delete"];
+pub(super) const WORDS: [&str; 6] = ["list", "get", "new", "adopt", "edit", "delete"];
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Request {
@@ -52,7 +52,7 @@ struct Text {
 }
 
 static ENGLISH: Text = Text {
-    usage: "usage: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools and memory. CHIEF is an id (agent_...) or a name.\n  adopt makes AGENT, an agent already in your conversations (agent_...), a Chief\n  under its own id: its conversations and history stay; it gets a new Chief's defaults.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   its engine\n  --chief-home DIR         an isolated Chief home",
+    usage: "usage: cmux chief list\n       cmux chief get CHIEF\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  Your Chiefs: each has its own name, role, picture, personality, instructions,\n  tools and memory. CHIEF is an id (agent_...) or a name.\n  adopt makes AGENT, an agent already in your conversations (agent_...), a Chief\n  under its own id: its conversations and history stay; it gets a new Chief's defaults.\n\n  PROFILE:\n  --name NAME              1 to 100 characters\n  --role TEXT              one line, for example \"Release captain\"\n  --personality TEXT       tone and style\n  --instructions TEXT      added to the Chief's system prompt (after the base rules)\n  --instructions-file F    the same, read from file F\n  --avatar FILE            a PNG, JPEG, GIF or WebP picture, at most 1 MiB\n  --tools a,b              from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces\n  --harnesses a,b          the harnesses its subagents may use (empty: all)\n  --self-edit a,b          what the Chief may change itself: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   its engine\n  --chief-home DIR         an isolated Chief home",
     needs_name: "cmux chief new needs --name NAME",
     needs_chief: "give the Chief: an id (agent_...) or its name; cmux chief list shows them",
     no_such: "no Chief is named {chief}; cmux chief list shows them",
@@ -70,7 +70,7 @@ static ENGLISH: Text = Text {
 };
 
 static JAPANESE: Text = Text {
-    usage: "使い方: cmux chief list\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n  adopt は会話にすでにいるエージェント AGENT (agent_...) を、その id のまま Chief にします。\n  会話と履歴はそのまま残り、新しい Chief の既定値が付きます。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   エンジン\n  --chief-home DIR         独立した Chief ホーム",
+    usage: "使い方: cmux chief list\n       cmux chief get CHIEF\n       cmux chief new --name NAME [PROFILE]\n       cmux chief adopt AGENT [PROFILE]\n       cmux chief edit CHIEF [PROFILE] [--clear-avatar]\n       cmux chief delete CHIEF\n\n  あなたの Chief たち。それぞれに名前、役割、画像、性格、指示、ツール、記憶があります。\n  CHIEF は id (agent_...) または名前です。\n  adopt は会話にすでにいるエージェント AGENT (agent_...) を、その id のまま Chief にします。\n  会話と履歴はそのまま残り、新しい Chief の既定値が付きます。\n\n  PROFILE:\n  --name NAME              1 から 100 文字\n  --role TEXT              1 行。例: \"リリース担当\"\n  --personality TEXT       口調とスタイル\n  --instructions TEXT      Chief のシステムプロンプトに追加 (基本ルールの後)\n  --instructions-file F    同じ内容をファイル F から読む\n  --avatar FILE            PNG、JPEG、GIF または WebP の画像 (1 MiB まで)\n  --tools a,b              browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces から\n  --harnesses a,b          サブエージェントが使えるハーネス (空ならすべて)\n  --self-edit a,b          Chief が自分で変えられる項目: avatar, display_name, role, personality, instructions\n  --harness H --model M --effort E   エンジン\n  --chief-home DIR         独立した Chief ホーム",
     needs_name: "cmux chief new には --name NAME が必要です",
     needs_chief: "Chief を指定してください: id (agent_...) または名前。cmux chief list で一覧を表示します",
     no_such: "{chief} という名前の Chief はいません。cmux chief list で一覧を表示します",
@@ -148,6 +148,11 @@ fn parse(args: &[String]) -> Result<Request, String> {
         index += 1;
     }
     let word = request.word.as_str();
+    if word == "get"
+        && (request.chief.is_none() || !request.fields.is_empty() || request.avatar.is_some())
+    {
+        return Err("cmux chief get takes only the Chief".into());
+    }
     if word == "list" && (request.chief.is_some() || !request.fields.is_empty()) {
         return Err("cmux chief list takes no Chief or profile".into());
     }
@@ -257,7 +262,101 @@ pub(in crate::cli) fn agent_app_action_refusal(action: &str) -> Option<Value> {
     agent_control_refusal(&format!("cmux action run {}", action.trim()), action.trim())
 }
 
-/// `cmux chief list|new|edit|delete …`.
+/// The env key of a Chief host's turn key: its own turn sessions have it,
+/// subagents never (optchat-chief chief_profile.rs `TURN_KEY_ENV`).
+#[cfg(unix)]
+const TURN_KEY_ENV: &str = "OPTCHAT_TURN_SEAL";
+
+/// `cmux chief new|edit` inside a Chief's own turn: the request goes to the
+/// turn's Chief host (`$MUX_HOME/optchat/tools.sock`, tool `chiefs`) with
+/// the turn key the host gave that turn; the host answers only with that key
+/// and sends the write on its own bound connection, where the daemon decides
+/// (the Chief's `chiefs` grant and ceiling). The env only finds the host and
+/// carries the key: it grants nothing. `None` when this is no Chief turn
+/// (no key or no home): the caller is refused as any agent caller.
+#[cfg(unix)]
+fn relay_to_turn_host(request: &Request, output: OutputMode) -> Option<i32> {
+    use std::io::{BufRead, BufReader, Write};
+    let key = std::env::var(TURN_KEY_ENV).ok().filter(|k| !k.is_empty())?;
+    let home = std::env::var("MUX_HOME").ok().filter(|h| !h.is_empty())?;
+    let socket = Path::new(&home).join("optchat").join("tools.sock");
+    let mut call = request.fields.clone();
+    call.insert("tool".into(), json!("chiefs"));
+    call.insert("turn_key".into(), json!(key));
+    let action = if request.word == "new" { "create" } else { "update" };
+    call.insert("action".into(), json!(action));
+    if let Some(chief) = &request.chief {
+        call.insert("chief".into(), json!(chief));
+    }
+    if let Some(path) = &request.avatar {
+        let absolute = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        call.insert("avatar_path".into(), json!(absolute.display().to_string()));
+    }
+    if request.clear_avatar {
+        call.insert("clear_avatar".into(), json!(true));
+    }
+    let json_out = request.json || super::json_output(output);
+    let fail = |message: String| -> i32 {
+        if json_out {
+            let error = json!({"code": "operation.failed", "message": message,
+                               "details": {"reason": "chief_host"}, "retryable": false});
+            super::super::wire::print_operation_error(&error, OutputMode::Json)
+        } else {
+            eprintln!("cmux: {message}");
+            1
+        }
+    };
+    let mut stream = match std::os::unix::net::UnixStream::connect(&socket) {
+        Ok(stream) => stream,
+        Err(error) => {
+            return Some(fail(format!(
+                "this Chief's host is not running ({}: {error})",
+                socket.display()
+            )));
+        }
+    };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(120)));
+    if writeln!(stream, "{}", Value::Object(call)).is_err() {
+        return Some(fail("this Chief's host closed the connection".into()));
+    }
+    let mut line = String::new();
+    if BufReader::new(stream).read_line(&mut line).unwrap_or(0) == 0 {
+        return Some(fail("this Chief's host gave no answer".into()));
+    }
+    let answer: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+    match (answer.get("text").and_then(Value::as_str), answer.get("error").and_then(Value::as_str))
+    {
+        (Some(answer_text), _) => {
+            // The record (JSON) first, then a note line.
+            let (record, note) = answer_text
+                .split_once("\n}\n")
+                .map_or((answer_text.to_owned(), ""), |(r, n)| (format!("{r}\n}}"), n));
+            if json_out {
+                let compact = serde_json::from_str::<Value>(&record)
+                    .map_or(record.clone(), |v| v.to_string());
+                println!("{compact}");
+            } else {
+                let value = serde_json::from_str::<Value>(&record).unwrap_or(Value::Null);
+                let template = if request.word == "new" { text().created } else { text().updated };
+                println!("{}", fill(&value, template));
+                if !note.is_empty() {
+                    println!("{note}");
+                }
+            }
+            Some(0)
+        }
+        (None, Some(error)) => Some(fail(error.to_owned())),
+        _ => Some(fail("this Chief's host gave an empty answer".into())),
+    }
+}
+
+/// No Chief host off Unix (its tools socket is a Unix socket).
+#[cfg(not(unix))]
+fn relay_to_turn_host(_request: &Request, _output: OutputMode) -> Option<i32> {
+    None
+}
+
+/// `cmux chief list|get|new|edit|delete …`.
 pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let t = text();
     let request = match parse(args) {
@@ -275,6 +374,13 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         && let Some(marker) = super::super::federation::agent_marker(|key| std::env::var(key).ok())
     {
         let output = if request.json { OutputMode::Json } else { global.output };
+        // A Chief's own turn: its host decides, on its bound connection.
+        if matches!(what, "new" | "edit")
+            && request.chief_home.is_none()
+            && let Some(code) = relay_to_turn_host(&request, output)
+        {
+            return code;
+        }
         return super::super::wire::print_operation_error(&agent_refused(what, marker), output);
     }
     let socket = match super::target(global, request.chief_home.as_deref()) {
@@ -354,6 +460,16 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         Err(error) => return Err(error.into()),
     };
     let records = chiefs.get("chiefs").and_then(Value::as_array).cloned().unwrap_or_default();
+    if request.word == "get" {
+        let wanted = request.chief.as_deref().unwrap_or_default();
+        let found = resolve(&records, wanted).map_err(Failure::Usage)?;
+        if json_out {
+            println!("{found}");
+        } else {
+            println!("{}", serde_json::to_string_pretty(&found).unwrap_or_default());
+        }
+        return Ok(());
+    }
     if request.word == "list" {
         if json_out {
             println!("{chiefs}");

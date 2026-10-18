@@ -32,7 +32,7 @@ public final class TerminalHostView: NSView {
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
         get { restartButton.onRestart }
-        set { restartButton.onRestart = newValue }
+        set { restartButton.onRestart = newValue; needsLayout = true }
     }
 
     /// The first cell's top-left in this view's coordinates (top-left
@@ -55,30 +55,19 @@ public final class TerminalHostView: NSView {
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
+        // A surface frame of another size (the host-sized drawable before its
+        // next draw) never draws past the host.
+        layer?.masksToBounds = true
         paintBackground()
-        banner.translatesAutoresizingMaskIntoConstraints = false
+        // Frame layout (`layout()`), not Auto Layout: a pane resized every
+        // frame of a drag solves no constraints here.
         addSubview(banner)
         addSubview(scroller, positioned: .below, relativeTo: banner)
         scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
-        NSLayoutConstraint.activate([
-            banner.centerXAnchor.constraint(equalTo: centerXAnchor),
-            banner.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            banner.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -24),
-        ])
-        restartButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(restartButton, positioned: .above, relativeTo: banner)
-        NSLayoutConstraint.activate([
-            restartButton.centerXAnchor.constraint(equalTo: centerXAnchor),
-            restartButton.bottomAnchor.constraint(equalTo: banner.topAnchor, constant: -8),
-        ])
-        retryButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(retryButton, positioned: .above, relativeTo: banner)
-        NSLayoutConstraint.activate([
-            retryButton.centerXAnchor.constraint(equalTo: centerXAnchor),
-            retryButton.bottomAnchor.constraint(equalTo: banner.topAnchor, constant: -8),
-        ])
         // The same re-attach a click in the disconnected terminal starts.
         retryButton.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
         // A config reload can change window-padding-x.
@@ -108,12 +97,9 @@ public final class TerminalHostView: NSView {
     private func installFindBar(_ find: TerminalFindController) {
         guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
         let bar = TerminalFindBarView(find: find)
+        bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
         addSubview(bar, positioned: .above, relativeTo: banner)
-        NSLayoutConstraint.activate([
-            bar.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.panelInset),
-            bar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.panelInset),
-            bar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.panelInset),
-        ])
+        needsLayout = true
     }
 
     /// The link status label over the terminal (hidden while connected).
@@ -126,18 +112,21 @@ public final class TerminalHostView: NSView {
         banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
         restartButton.show(status)
         retryButton.show(status)
+        needsLayout = true
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
         banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
+        needsLayout = true
     }
 
     /// A shell the daemon cannot reach is labeled even while the view's link is up.
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
+        needsLayout = true
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -187,6 +176,46 @@ public final class TerminalHostView: NSView {
         if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
         let strip = scroller.strip(in: bounds)
         if scroller.frame != strip { scroller.frame = strip }
+        layoutOverlays()
+    }
+
+    /// The status banner centered 12 pt above the bottom (at most the width
+    /// less 24), the restart and retry buttons centered 8 pt above it, and
+    /// the find bar in the top-trailing corner. Hidden ones are skipped.
+    private func layoutOverlays() {
+        let buttons = [restartButton, retryButton].filter { !$0.isHidden } as [NSView]
+        if !banner.isHidden || !buttons.isEmpty {
+            layoutStatus(buttons: buttons)
+        }
+        let inset = Metrics.panelInset
+        // Framed hidden too: the bar shows itself when find opens.
+        for case let bar as TerminalFindBarView in subviews {
+            _ = place(bar, maxWidth: bounds.width - inset * 2, evenHidden: true) { size in
+                CGPoint(x: self.bounds.width - inset - size.width, y: self.bounds.height - inset - size.height)
+            }
+        }
+    }
+
+    private func layoutStatus(buttons: [NSView]) {
+        let banner = place(self.banner, maxWidth: bounds.width - 24) { size in
+            CGPoint(x: (self.bounds.width - size.width) / 2, y: 12)
+        }
+        for button in buttons {
+            _ = place(button, maxWidth: bounds.width) { size in
+                CGPoint(x: (self.bounds.width - size.width) / 2, y: banner.maxY + 8)
+            }
+        }
+    }
+
+    /// Sizes `view` to its fitting size (no wider than `maxWidth`) at
+    /// `origin`; returns its frame (the banner's, even while hidden, which
+    /// places the buttons above where it shows).
+    private func place(_ view: NSView, maxWidth: CGFloat, evenHidden: Bool = false, origin: (CGSize) -> CGPoint) -> CGRect {
+        let fitting = view.fittingSize
+        let size = CGSize(width: max(0, min(fitting.width, maxWidth)), height: fitting.height)
+        let frame = CGRect(origin: origin(size), size: size).integral
+        if !view.isHidden || evenHidden, view.frame != frame { view.frame = frame }
+        return frame
     }
 
     /// Anything that lands on the host itself goes to the surface.

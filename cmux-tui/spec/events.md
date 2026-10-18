@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -47,11 +47,13 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
 | `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
+| `conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `chief-live-v1` |
 | `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
 | `chief-changed` | subscribe | `chief` | protocol 12 additive extension; capability `chief-events-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
+| `cloud-conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-chief-live-v1` |
 | `cloud-inbox-changed` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-inbox-reset` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-subscription-state` | subscribe | `scope`, `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
@@ -67,7 +69,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `tab-renamed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-changed` | subscribe (`deltas`) | `surface` | protocol 12 additive extension; capability `tab-metadata-v1`; parents `workspace`, `screen`, `pane` |
 | `tree-changed` | subscribe (`coarse`; `deltas` fallback) | session | protocol 5; `coarse` is the default and exact v6 behavior |
-| `layout-changed` | subscribe | `screen` | protocol 6 |
+| `layout-changed` | subscribe | `screen` | protocol 6; `workspace`, the screen layout fields and `transaction` are a protocol 12 additive extension, capability `layout-delta-v1` |
 | `surface-output` | subscribe | `surface` | protocol 5 |
 | `surface-resized` | subscribe | `surface` | protocol 5 |
 | `surface-exited` | subscribe | `surface` | protocol 5 |
@@ -568,6 +570,22 @@ that echoed `conversation-runs-v1` in `set-client-info`. Not a conversation
 change: it carries no conversation `rev` and never reaches
 `conversation.events` or the remote relay.
 
+### conversation-live
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-live` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-live-v1` |
+
+`object{event:"conversation-live", conversation:string, frame:object}`, one
+accepted `conversation-live-publish` frame of a running run (`step.delta` or
+`run.activity`, unchanged; see `commands.md`), only to trusted local
+connections that echoed `chief-live-v1` in `set-client-info`. Never stored and
+never replayed: a client that missed a frame (a `seq` gap) reads
+`conversation-live`. It never reaches `conversation.events` or the remote
+relay.
+
 ### participant-avatar-changed
 
 | Field | Value |
@@ -617,6 +635,20 @@ conversation change: it carries no conversation or `rev` and never reaches
 a Cloud Chief's run change in a subscribed Cloud conversation (the owner's
 `conversation-run-changed` frame), only to the person's connections that
 echoed `conversation-runs-v1`. Never replayed.
+
+### cloud-conversation-live
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-live` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-chief-live-v1` |
+
+`object{event:"cloud-conversation-live", conversation:string, frame:object, account?:string}`,
+a Cloud Chief's live frame in a subscribed Cloud conversation (the owner's
+`step.delta`, `run.activity` or `run.live`, with both `type` and `t`, unchanged), only to
+the person's connections that echoed `chief-live-v1`. Never stored or
+replayed.
 
 ### terminal-registry-changed
 
@@ -862,15 +894,17 @@ Example:
 Payload:
 
 ```text
-object{event:"layout-changed",screen:Id}
+object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pane?:Id|null,layout?:Layout,viewport_splits?:array,viewport_base_width?:number,columns?:array,transaction?:string}
 ```
 
-Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, apply-layout, swap, or zoom. The event is emitted once per settled command and does not include the new layout. Clients should re-fetch `export-layout` or `list-workspaces`.
+Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
+
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
 ```json
-{"event":"layout-changed","screen":3}
+{"event":"layout-changed","screen":3,"workspace":1,"active_pane":7,"zoomed_pane":null,"layout":{"type":"split","split":4,"dir":"right","ratio":0.42,"a":{"type":"leaf","pane":7},"b":{"type":"leaf","pane":8}},"transaction":"1729150000000256"}
 ```
 
 ### surface-output

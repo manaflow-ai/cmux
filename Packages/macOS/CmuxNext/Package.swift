@@ -17,7 +17,7 @@ import PackageDescription
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
-//   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
@@ -62,6 +62,8 @@ import PackageDescription
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentCursorVisibility -> AgentCursor (pure visibility rules for a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
+//   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, Design (hq#1957: the name a workspace takes from a moved
+//     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
 //   CmuxNextAgentLanes -> AgentActivity, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
@@ -69,6 +71,8 @@ import PackageDescription
 //   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
+//   CmuxNextFocus -> CCmuxAppFFI (the window focus machine: focus state view, events, effects,
+//     topology, and FocusMachine over cmux-focus-core's cmux_focus_* C ABI; no AppKit; cx-8w027.2)
 //   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
 //     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
@@ -121,8 +125,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-4f33baa5d8670ef9066883ed9ae7fa891a7651b7/CCmuxAppFFI.xcframework.zip",
-    checksum: "42ae442948b6e4944f2c66de523b98f618dcce39e9244e6e8aaa45136d739227"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b17c7f9395f1fed20891728654581ac30af6a4d4/CCmuxAppFFI.xcframework.zip",
+    checksum: "891bb8c8a69dcf5ae5b88035992856bd781e8ce93a99a06433bb8b3b3f887614"
 )
 
 let package = Package(
@@ -181,6 +185,7 @@ let package = Package(
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextDaemonService",
+                "CmuxNextFocus",
                 "CmuxNextFocusUI",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
@@ -234,6 +239,7 @@ let package = Package(
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
+                "CmuxNextWorkspaceNaming",
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
@@ -421,8 +427,17 @@ let package = Package(
         ),
         // AppKit overlays of keys (moved out of CmuxNextApp/Focus): the shortcut hint
         // overlay and its capture waiter, the which-key controller, overlay, rows and
-        // the WhichKey strings. The focus state machine, the key rules and key
-        // delivery stay in the App.
+        // the WhichKey strings. The key rules and key delivery stay in the
+        // App; the focus state machine is CmuxNextFocus.
+        // The window focus machine (plans/cmux-next/focus.md section 4): the
+        // read view of the focus state, its events, effects and topology,
+        // and FocusMachine, the typed C ABI of cmux-focus-core (the state
+        // and rules live in Rust; cx-8w027.2). No AppKit, no app imports.
+        .target(
+            name: "CmuxNextFocus",
+            dependencies: ["CCmuxAppFFI"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextFocusUI",
             dependencies: ["CmuxNextActions", "CmuxNextDesign"],
@@ -494,6 +509,20 @@ let package = Package(
         .target(
             name: "CmuxNextAgentCursorVisibility",
             dependencies: ["CmuxNextAgentCursor"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Workspace naming (hq#1957): the name a workspace made from a moved tab
+        // takes, and the name a default-named workspace takes from its front tab
+        // (live label, or variant B's one-time rename). Pure rules; the App
+        // supplies its browser pages, New Tab pages and the rename command.
+        .target(
+            name: "CmuxNextWorkspaceNaming",
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextWorkspaceNamingTests",
+            dependencies: ["CmuxNextWorkspaceNaming"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
@@ -717,6 +746,8 @@ let package = Package(
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
+                // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
+                "CCmuxAppFFI",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -830,7 +861,8 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings
+            // The pinned FFI has the sidebar document mirror (cmux_sidebar_mirror_*, sidebar-doc-v1).
+            swiftSettings: uiSwiftSettings + [.define("CMUX_SIDEBAR_MIRROR_FFI")]
         ),
         .target(
             name: "CmuxNextPalette",
@@ -934,7 +966,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.

@@ -161,6 +161,19 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
+/// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
+/// power loss keeps each acknowledged commit. Unit tests open hundreds of
+/// throwaway registries in one process and never cut power: there, a plain
+/// fsync (synchronous=FULL stays) keeps every commit ordering and restart
+/// result they check, while F_FULLFSYNC serialized the device across all test
+/// threads (notification_reads_survive_restart_and_eviction_prunes_them:
+/// 19.3 s on a fleet Mac, 0.18 s on Linux). Daemon binaries, including every
+/// integration test's daemon, keep F_FULLFSYNC.
+#[cfg(not(test))]
+const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=ON;";
+#[cfg(test)]
+const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=OFF;";
+
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -2452,6 +2465,8 @@ impl WorkspaceRegistry {
         database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        // Before the first write, so every commit of this connection uses it.
+        connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
         let fresh_database = connection.query_row(
             "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
             [],
@@ -2464,7 +2479,6 @@ impl WorkspaceRegistry {
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
              PRAGMA synchronous=FULL;
-             PRAGMA fullfsync=ON;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (

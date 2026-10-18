@@ -37,7 +37,7 @@ mod page;
 mod run;
 mod settings;
 mod skew;
-mod wait;
+pub(super) mod wait;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[

@@ -57,7 +57,28 @@ WINDOWS_NAMES = ("cmux-tui-x86_64-pc-windows-gnu.exe",)
 # published when the Windows commit manifest attests it, skipped when that
 # manifest predates it, so republishing an older tree writes the same
 # completion-windows.json bytes. --list-windows-optional-companions lists it.
-WINDOWS_OPTIONAL_NAMES = ("cmux-tui-host-x86_64-pc-windows-gnu.exe",)
+# acpmux for GPUI on Windows (cx-ephhf; scripts/fetch-acpmux.sh in cmux-gpui)
+# is optional the same way: its own build job may fail, and Windows builds
+# from before it have none.
+WINDOWS_OPTIONAL_NAMES = (
+    "cmux-tui-host-x86_64-pc-windows-gnu.exe",
+    "cmux-tui-acpmux-x86_64-pc-windows-gnu.exe",
+)
+# acpmux for GPUI on Linux and macOS (hq-1f; the Windows build is a Windows
+# companion above). The cmux-tui build makes it for every Unix target and the
+# commit manifest attests it, so a tree carries each one that manifest attests
+# (a pull request tree's manifest, built from its downloaded artifacts, has
+# none). completion.json attests them: a new tree's completion.json lists
+# them beside GATE_NAMES. A republication of a tree whose completion.json
+# exists keeps that file's names (existing_completion_file), so a tree
+# published before acpmux writes the same immutable bytes and gets no acpmux.
+# The workflow reads this list with --list-acpmux-companions.
+ACPMUX_NAMES = (
+    "cmux-tui-acpmux-x86_64-unknown-linux-musl",
+    "cmux-tui-acpmux-aarch64-unknown-linux-musl",
+    "cmux-tui-acpmux-aarch64-apple-darwin",
+    "cmux-tui-acpmux-x86_64-apple-darwin",
+)
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
 
@@ -159,6 +180,7 @@ def publish_tree(
     publish_source: bool = False,
     windows_manifest_file: Path | None = None,
     windows_source_commit: str | None = None,
+    existing_completion_file: Path | None = None,
     conflict_exit_code: int | None = None,
 ) -> dict[str, str]:
     """Validate and publish all tree companions (COMPANION_NAMES).
@@ -171,6 +193,12 @@ def publish_tree(
     ``windows_manifest_file`` and ``windows_source_commit`` (together) also
     publish WINDOWS_NAMES from ``assets_dir``, attested by that commit's
     manifest, and record them in completion-windows.json.
+
+    ACPMUX_NAMES that ``manifest_file`` attests are published too and listed
+    in completion.json. ``existing_completion_file`` is the tree's published
+    completion.json, when there is one: completion.json is write-once, so the
+    publication then lists exactly that file's names again (and publishes no
+    acpmux that it does not list).
     """
     if len(key) != 40 or any(character not in "0123456789abcdef" for character in key):
         raise PublicationError(f"invalid tree key {key!r}")
@@ -205,6 +233,45 @@ def publish_tree(
                 f"companion {name} digest {actual} does not match commit manifest {expected}"
             )
         digests[name] = actual
+
+    existing_gate: set[str] | None = None
+    if existing_completion_file is not None:
+        existing = _load_json(existing_completion_file, "published completion.json")
+        if existing.get("key") != key:
+            raise PublicationError("published completion.json key does not match requested key")
+        existing_binaries = existing.get("binaries")
+        if not isinstance(existing_binaries, dict):
+            raise PublicationError("published completion.json has no binaries object")
+        existing_gate = set(existing_binaries)
+        unknown = existing_gate - set(GATE_NAMES) - set(ACPMUX_NAMES)
+        if unknown:
+            raise PublicationError(
+                f"published completion.json lists binaries this publisher does not know: {sorted(unknown)}"
+            )
+    for name in ACPMUX_NAMES:
+        if binaries.get(name) is None:
+            if existing_gate is not None and name in existing_gate:
+                raise PublicationError(
+                    f"published completion.json lists {name}, which the commit manifest does not attest"
+                )
+            continue
+        if existing_gate is not None and name not in existing_gate:
+            continue
+        expected = _require_sha(binaries.get(name), f"manifest binary {name}")
+        path = assets_dir / name
+        if not path.is_file():
+            raise PublicationError(f"missing companion {name} in {assets_dir}")
+        actual = _sha256(path)
+        if actual != expected:
+            raise PublicationError(
+                f"companion {name} digest {actual} does not match commit manifest {expected}"
+            )
+        digests[name] = actual
+    gate_names = set(GATE_NAMES) | (set(digests) & set(ACPMUX_NAMES))
+    if existing_gate is not None and existing_gate != gate_names:
+        raise PublicationError(
+            f"published completion.json lists {sorted(existing_gate)}, this publication {sorted(gate_names)}"
+        )
 
     windows_digests: dict[str, str] = {}
     if (windows_manifest_file is None) != (windows_source_commit is None):
@@ -329,9 +396,9 @@ def publish_tree(
 
         if windows_digests and windows_source_commit is not None:
             write_completion("completion-windows.json", windows_digests, windows_source_commit)
-        write_completion("completion-linux.json", {n: d for n, d in digests.items() if n not in GATE_NAMES})
+        write_completion("completion-linux.json", {n: d for n, d in digests.items() if n not in gate_names})
         # Last: the cmux-next gate reads completion.json as "the tree is complete".
-        write_completion("completion.json", {n: d for n, d in digests.items() if n in GATE_NAMES})
+        write_completion("completion.json", {n: d for n, d in digests.items() if n in gate_names})
     return {**digests, **windows_digests}
 
 
@@ -346,6 +413,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv == ["--list-windows-optional-companions"]:
         print("\n".join(WINDOWS_OPTIONAL_NAMES))
         return 0
+    if argv == ["--list-acpmux-companions"]:
+        print("\n".join(ACPMUX_NAMES))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-companions", action="store_true",
                         help="print the companion names, one per line, and exit")
@@ -353,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="print the Windows companion names, one per line, and exit")
     parser.add_argument("--list-windows-optional-companions", action="store_true",
                         help="print the optional Windows companion names, one per line, and exit")
+    parser.add_argument("--list-acpmux-companions", action="store_true",
+                        help="print the acpmux companion names, one per line, and exit")
     parser.add_argument("--key", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)
@@ -363,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="the commit manifest that attests the Windows companions")
     parser.add_argument("--windows-source-commit",
                         help="the commit whose build the Windows companions are")
+    parser.add_argument("--existing-completion-file", type=Path,
+                        help="the tree's published completion.json: this publication lists the same names")
     parser.add_argument("--uploader", type=Path, required=True)
     parser.add_argument("--endpoint-url", required=True)
     parser.add_argument("--bucket", required=True)
@@ -383,6 +457,7 @@ def main(argv: list[str] | None = None) -> int:
             publish_source=args.publish_source,
             windows_manifest_file=args.windows_manifest_file,
             windows_source_commit=args.windows_source_commit,
+            existing_completion_file=args.existing_completion_file,
             conflict_exit_code=args.conflict_exit_code,
         )
     except PublicationConflict as error:

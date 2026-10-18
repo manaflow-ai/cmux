@@ -14,11 +14,11 @@ import CmuxNextWakeups
 /// card hides; nothing is sampled while no card is pending or shown.
 final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
-    /// Hover time before a card shows: a native-tooltip dwell (Leo
-    /// 2026-10-13), so a sweep down the list shows none and leaving a row
-    /// cancels its pending card. Once a card shows, moving down the list
-    /// slides it over.
-    var delay: Duration { HoverIntentTiming.current.cardDwell }
+    /// Hover time before a card shows: Chrome's tab hover card delay, or
+    /// `sidebar.hoverCards.delay` (cx-23e1f), so a sweep down the list shows
+    /// none and leaving a row cancels its pending card. Once a card shows,
+    /// moving down the list slides it over at once.
+    var delay: Duration { DesignSettings.shared.hoverCardDelay }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
     var coordinator: HoverCardCoordinator {
@@ -167,21 +167,21 @@ final class WorkspaceHoverCardView: NSView {
         return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
     }
 
-    private let titleLabel = NSTextField(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
     /// The kind or host icon, leading the name on the card's icon column.
     private let kindIcon = LineIconView()
     /// The workspace's status in the shared indicator, on its own row under the name with its
     /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
-    private let activityLabel = NSTextField(labelWithString: "")
+    private let activityLabel = ChromeLabel(labelWithString: "")
     private let activityRow = NSStackView()
-    private let ageLabel = NSTextField(labelWithString: "")
+    private let ageLabel = ChromeLabel(labelWithString: "")
     private let factsStack = NSStackView()
-    private let resourceLabel = NSTextField(labelWithString: "")
+    private let resourceLabel = ChromeLabel(labelWithString: "")
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
     /// Why the user's card did not render: shown under the built-in card, which stays.
-    private let customError = NSTextField(wrappingLabelWithString: "")
+    private let customError = ChromeLabel(wrappingLabelWithString: "")
     private weak var customView: NSView?
     private var customHeight: NSLayoutConstraint?
     /// The last resource line, shown only with the built-in card.
@@ -418,7 +418,7 @@ final class WorkspaceHoverCardView: NSView {
 
     private func addFactRow() {
         let icon = NSImageView()
-        let label = NSTextField(labelWithString: "")
+        let label = ChromeLabel(labelWithString: "")
         label.font = Typography.body
         label.lineBreakMode = .byTruncatingMiddle
         // The card takes its width from its content (cx-k9mc).

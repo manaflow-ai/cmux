@@ -290,6 +290,79 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>shrink</string>
+			<key>pfm_description</key>
+			<string>Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.</string>
+			<key>pfm_name</key>
+			<string>tabs.overflow</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>shrink</string>
+				<string>scroll</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Overflow</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Widest a tab gets when the strip has room.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMaxWidth</string>
+			<key>pfm_range_max</key>
+			<real>320</real>
+			<key>pfm_range_min</key>
+			<real>120</real>
+			<key>pfm_title</key>
+			<string>Maximum Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMinActiveWidth</string>
+			<key>pfm_range_max</key>
+			<real>200</real>
+			<key>pfm_range_min</key>
+			<real>32</real>
+			<key>pfm_title</key>
+			<string>Minimum Selected Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMinInactiveWidth</string>
+			<key>pfm_range_max</key>
+			<real>120</real>
+			<key>pfm_range_min</key>
+			<real>16</real>
+			<key>pfm_title</key>
+			<string>Minimum Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Width of a pinned tab.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabPinnedWidth</string>
+			<key>pfm_range_max</key>
+			<real>120</real>
+			<key>pfm_range_min</key>
+			<real>24</real>
+			<key>pfm_title</key>
+			<string>Pinned Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click.</string>
@@ -323,60 +396,6 @@
 			<string>Swap Cmd-T and Cmd-N</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>auto</string>
-			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
-			<key>pfm_name</key>
-			<string>tabs.tabBar.terminal</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>auto</string>
-				<string>always</string>
-				<string>never</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Tab Bar in Terminal Panes</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>auto</string>
-			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
-			<key>pfm_name</key>
-			<string>tabs.tabBar.browser</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>auto</string>
-				<string>always</string>
-				<string>never</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Tab Bar in Browser Panes</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>auto</string>
-			<key>pfm_description</key>
-			<string>Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.</string>
-			<key>pfm_name</key>
-			<string>tabs.tabBar.agent</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>auto</string>
-				<string>always</string>
-				<string>never</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Tab Bar in Agent Chats</string>
-			<key>pfm_type</key>
-			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -848,6 +867,18 @@
 			<string>sidebar.groupByComputer</string>
 			<key>pfm_title</key>
 			<string>Group Workspaces by Computer</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.</string>
+			<key>pfm_name</key>
+			<string>workspaces.autoName</string>
+			<key>pfm_title</key>
+			<string>Name Workspaces from Tabs</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1713,6 +1744,20 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>Text size of tabs, the sidebar and other controls. Terminal text has its own size.</string>
+			<key>pfm_name</key>
+			<string>appearance.interfaceScale</string>
+			<key>pfm_range_max</key>
+			<real>1.25</real>
+			<key>pfm_range_min</key>
+			<real>0.90000000000000002</real>
+			<key>pfm_title</key>
+			<string>Interface Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_name</key>
 			<string>appearance.metrics.sidebarWidth</string>
 			<key>pfm_range_max</key>
@@ -1820,7 +1865,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>default</string>
+			<string>flat-sidebar-line</string>
 			<key>pfm_description</key>
 			<string>The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.</string>
 			<key>pfm_name</key>
@@ -1844,7 +1889,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.</string>
 			<key>pfm_name</key>
@@ -1868,7 +1913,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>A new workspace row opens in the sidebar. Off shows it there at once.</string>
 			<key>pfm_name</key>
@@ -2915,6 +2960,213 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>A card with details opens when the pointer rests on a workspace or a tab.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.enabled</string>
+			<key>pfm_title</key>
+			<string>Show Hover Cards</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1300</integer>
+			<key>pfm_description</key>
+			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
+			<key>pfm_name</key>
+			<string>sidebar.hoverCards.delay</string>
+			<key>pfm_range_max</key>
+			<real>5000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Hover Card Delay</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.enabled</string>
+			<key>pfm_title</key>
+			<string>Animate Color Changes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>200</integer>
+			<key>pfm_description</key>
+			<string>How long a color change takes. 0 changes colors at once.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.duration</string>
+			<key>pfm_range_max</key>
+			<real>2000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Color Change Duration</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>easeOut</string>
+			<key>pfm_description</key>
+			<string>How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.curve</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>easeOut</string>
+				<string>easeInOut</string>
+				<string>linear</string>
+				<string>spring</string>
+				<string>cubicBezier</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Color Change Curve</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.29999999999999999</real>
+			<key>pfm_description</key>
+			<string>Seconds a spring color change takes to reach its new colors.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.springResponse</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.050000000000000003</real>
+			<key>pfm_title</key>
+			<string>Spring Response</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.springDamping</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.10000000000000001</real>
+			<key>pfm_title</key>
+			<string>Spring Damping</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.41999999999999998</real>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierX1</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Bezier X1</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierY1</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>-1</real>
+			<key>pfm_title</key>
+			<string>Bezier Y1</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.57999999999999996</real>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierX2</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Bezier X2</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.bezierY2</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>-1</real>
+			<key>pfm_title</key>
+			<string>Bezier Y2</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>oklab</string>
+			<key>pfm_description</key>
+			<string>OKLab blends with even lightness. sRGB mixes the red, green and blue channels.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.colorSpace</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>oklab</string>
+				<string>srgb</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Color Blend Space</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>crossfade</string>
+			<key>pfm_description</key>
+			<string>What color changes do while Reduce Motion is on in macOS.</string>
+			<key>pfm_name</key>
+			<string>appearance.colorTransition.reduceMotion</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>crossfade</string>
+				<string>instant</string>
+				<string>full</string>
+			</array>
+			<key>pfm_title</key>
+			<string>With Reduce Motion</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>The icon or emoji you chose for a workspace.</string>
 			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.icon</string>
@@ -3867,7 +4119,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>transparent</string>
+			<string>off</string>
 			<key>pfm_description</key>
 			<string>The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.</string>
 			<key>pfm_name</key>
@@ -3944,6 +4196,22 @@
 			<string>Address Bar Shadow</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.backgroundOpacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Address Bar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -4049,6 +4317,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.</string>
+			<key>pfm_name</key>
+			<string>browser.openLinksInCmuxBrowser</string>
+			<key>pfm_title</key>
+			<string>Open Links in cmux Browser</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>When off, links clicked in terminal output open in your default browser.</string>
 			<key>pfm_name</key>
 			<string>browser.openTerminalLinksInCmuxBrowser</string>
@@ -4082,7 +4362,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.</string>
+			<string>Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.</string>
 			<key>pfm_name</key>
 			<string>browser.urlsToAlwaysOpenExternally</string>
 			<key>pfm_subkeys</key>
@@ -4098,6 +4378,18 @@
 			<string>URLs to Always Open Externally</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.</string>
+			<key>pfm_name</key>
+			<string>files.textEditor</string>
+			<key>pfm_title</key>
+			<string>Text Editor</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -4144,6 +4436,18 @@
 			<string>home.attachments.keepLocation</string>
 			<key>pfm_title</key>
 			<string>Keep Location in Photos and Videos</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.</string>
+			<key>pfm_name</key>
+			<string>home.channelsEnabled</string>
+			<key>pfm_title</key>
+			<string>Channels</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

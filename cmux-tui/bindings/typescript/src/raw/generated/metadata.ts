@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36" as const;
+export const SDK_IR_SHA256 = "0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -178,7 +178,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
+      "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
     ]
   },
   "browser-activate": {
@@ -550,6 +550,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
+  "cloud-conversation-live": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-chief-live-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "A subscriber of the conversation only (not_subscribed). Asks the Cloud owner for its run.live snapshot on the shared socket (run.live.get); the answer arrives as a cloud-conversation-live event. Answers the subscription's state. See spec/commands.md."
+    ]
+  },
   "cloud-conversation-op": {
     "authority": "local-admin",
     "since": 12,
@@ -848,6 +858,26 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. See spec/commands.md."
+    ]
+  },
+  "conversation-live": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "chief-live-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. The run.live snapshot: the running runs' streamed text so far (each step at most its last 64 KiB) and activity. See spec/commands.md."
+    ]
+  },
+  "conversation-live-publish": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "chief-live-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; the caller's principal must be an agent participant (not_agent), the run its own (not_run_author) and running (run_not_running). frame is {type:\"step.delta\", conversation, run, step, kind:\"talk\"|\"thought\", seq, text, final?} (text 1-4096 characters, seq from 0 without gaps: seq_gap, step_final) or {type:\"run.activity\", conversation, run, line, since, at} (line 1-80 characters). Never stored. See spec/commands.md."
     ]
   },
   "conversation-op": {
@@ -1340,6 +1370,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only; advertised while the daemon has a search index. query is trimmed, 1-200 characters, no control characters; kinds are chat, command, scrollback, tab or workspace; limit is 1-100 (default 20). See spec/commands.md."
     ]
   },
+  "home-inbox": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "home-inbox-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. See spec/commands.md."
+    ]
+  },
   "identify": {
     "authority": "control",
     "since": 5,
@@ -1822,6 +1862,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "page-tab-route-v1"
       },
+      "split": {
+        "since": null,
+        "capability": "conversation-tab-split-v1"
+      },
       "transaction": {
         "since": null,
         "capability": "conversation-tab-transaction-v1"
@@ -1829,7 +1873,7 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. split (conversation-tab-split-v1) needs pane and excludes workspace. See spec/commands.md."
     ]
   },
   "new-frontend-browser-tab": {
@@ -2903,6 +2947,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-shell-args-v1"
       },
+      "split_id": {
+        "since": 12,
+        "capability": "split-client-split-id-v1"
+      },
       "tab_id": {
         "since": 12,
         "capability": "split-client-keys-v1"
@@ -2921,7 +2969,8 @@ export const COMMAND_METADATA = {
       "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
       "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
       "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
-      "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
+      "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
+      "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
     ]
   },
   "subscribe": {
@@ -3466,6 +3515,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "cloud-conversation-live": {
+    "since": 12,
+    "capability": "cloud-chief-live-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "cloud-conversation-resynced": {
     "since": 12,
     "capability": "cloud-conversations-v1",
@@ -3565,6 +3622,14 @@ export const EVENT_METADATA = {
   "conversation-inbox-changed": {
     "since": 12,
     "capability": "conversation-inbox-state-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "conversation-live": {
+    "since": 12,
+    "capability": "chief-live-v1",
     "streams": [
       "subscribe"
     ],
@@ -5763,6 +5828,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ConversationTabSplit": {
+    "additional_properties": false,
+    "fields": {
+      "direction": {
+        "description": "The side of pane the new pane takes: right, down, left or up.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pane_id": {
+        "default": null,
+        "description": "Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "split_id": {
+        "default": null,
+        "description": "Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ConversationTextRun": {
     "additional_properties": false,
     "fields": {
@@ -6743,6 +6843,141 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "HomeChiefState": {
+    "kind": "enum",
+    "values": [
+      "working",
+      "waiting",
+      "idle"
+    ]
+  },
+  "HomeInboxKind": {
+    "kind": "enum",
+    "values": [
+      "chief",
+      "direct",
+      "channel",
+      "group"
+    ]
+  },
+  "HomeInboxRow": {
+    "additional_properties": false,
+    "fields": {
+      "activity_at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "chief": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "chief_state": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "HomeChiefState"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HomeInboxKind"
+        }
+      },
+      "last_author": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "marked_unread": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "muted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "owner": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pin_position": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pinned": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "preview": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "unread": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "Id": {
     "kind": "alias",
     "target": {
@@ -7163,6 +7398,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "type": {
               "kind": "ref",
               "name": "Id"
+            }
+          },
+          "split_id": {
+            "capability": "split-client-split-id-v1",
+            "description": "The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it.",
+            "nullable": false,
+            "presence": "optional",
+            "since": 12,
+            "type": {
+              "kind": "scalar",
+              "name": "string"
             }
           },
           "type": {
@@ -12738,6 +12984,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "closed_ids": {
+        "description": "close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
       "generation": {
         "nullable": false,
         "presence": "required",
@@ -13129,6 +13387,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches.",
           "nullable": true,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "harness": {
+          "default": null,
+          "description": "The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone.",
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -14362,6 +14630,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "CloseReason"
           }
         },
+        "report_closed_ids": {
+          "default": false,
+          "description": "With end_terminals: the result names closed_ids, the closed.list groups the close stored. Opt-in so older decoders keep the result shape; a daemon that predates it ignores the field.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "workspace": {
           "default": null,
           "nullable": true,
@@ -14857,6 +15135,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-live": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
@@ -16320,6 +16618,83 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "conversation-live": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "runs": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "kind": "array"
+          }
+        },
+        "type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "literal",
+            "value": "run.live"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-live-publish": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "frame": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
     }
   },
   "conversation-op": {
@@ -18564,6 +18939,58 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "home-inbox": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "owners": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "cloud": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "me": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "rows": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "HomeInboxRow"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "identify": {
     "request": {
       "additional_properties": false,
@@ -20340,6 +20767,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "split": {
+          "capability": "conversation-tab-split-v1",
+          "default": null,
+          "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabSplit"
           }
         },
         "transaction": {
@@ -24763,6 +25201,23 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "array"
           }
         },
+        "split_id": {
+          "capability": "split-client-split-id-v1",
+          "constraints": [
+            {
+              "format": "client-minted public split id",
+              "pattern": "^split_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "tab_id": {
           "capability": "split-client-keys-v1",
           "constraints": [
@@ -26654,6 +27109,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "cloud-conversation-live": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-live"
+        }
+      },
+      "frame": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "cloud-conversation-resynced": {
     "additional_properties": false,
     "fields": {
@@ -27253,6 +27746,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "conversation-live": {
+    "additional_properties": false,
+    "fields": {
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "conversation-live"
+        }
+      },
+      "frame": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "conversation-run-changed": {
     "additional_properties": false,
     "fields": {
@@ -27698,6 +28221,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "layout-changed": {
     "additional_properties": false,
     "fields": {
+      "active_pane": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -27706,9 +28239,49 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": "layout-changed"
         }
       },
+      "layout": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "Layout"
+        }
+      },
       "screen": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "transaction": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace": {
+        "capability": "layout-delta-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "zoomed_pane": {
+        "capability": "layout-delta-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "ref",
           "name": "Id"

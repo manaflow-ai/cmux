@@ -100,7 +100,9 @@ auto-clear (TTL, owner terminal exit, owner process exit with start-time identit
 `workspace status set` in the Rust CLI (cli/status.rs, cli/command/state/status_flags.rs). A process owner is
 accepted only from a local actor (the user's CLI or the verified app; never an app or a remote peer) and only
 where the daemon can watch a process exit (not Windows). Behavior proof: cmux-tui `tests/cli/status.rs`.
-Not landed: `--notify`, `cmux status wait`, `terminal wait --until` (section 9), the `braille` style hint, and
+`cmux terminal <t> wait --until idle|prompt` is built (cx-6so.14, `extra.prompt`), and `cmux status wait KEY
+[--until settled|cleared|state=S]` (cx-6so.14; `settled`, the default, is the exit-code contract below). Not landed:
+`--notify`, the `braille` style hint, and
 agent-session owners (accepted and stored, not yet cleared on session end). OSC 7501 program status
 (`extra.program_status`) is a separate source and is not stored as status rows.
 
@@ -129,7 +131,7 @@ cmux status set [KEY] --label T [--target ws_|tab_|term_|current] [--state busy|
 cmux status clear [KEY] [--target ...] [--all]
 cmux status list [--target ...] [--json]            # raw entries and terminal facts, merged order
 cmux status run [--label T] [--target ...] [--notify auto|always|never] [--badge-ttl 8s] -- CMD ...
-cmux status wait KEY [--target ...] [--timeout D]   # 0 success/cleared, 1 error, 124 timeout
+cmux status wait KEY [--target ...] [--until settled|cleared|state=S] [--timeout D]   # settled: 0 success/cleared, 1 error; 124 timeout
 cmux terminal <term_…> wait --until idle|exit|prompt|output RE [--timeout D]   # next to the existing terminal wait verbs
 ```
 
@@ -176,9 +178,12 @@ Open: `none` hides loading but keeps waiting/error/done marks (current); alterna
 
 - Rust (landed on feat-cmux-next, bead cx-6so.54; PR 16819 closed): `workspace_status.set` loading fields
   and owners, daemon auto-clear (TTL, owner terminal exit, owner process exit with start-time identity),
-  `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. Not built yet: `cmux status wait` and
-  `cmux terminal <term> wait --until idle|prompt` (need a new connection-owned wait op; `exit` and `output` exist
-  as `terminal <term> process wait` and `terminal <term> screen wait --pattern`).
+  `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. `cmux terminal <term> wait --until
+  idle|prompt` (cx-6so.14): no new op; the CLI holds `session.events` and rereads the terminal record, whose
+  new `extra.prompt` fact (OSC 133 A until the next C) answers `prompt`, and `idle` is no `running` command,
+  no OSC 7501 `working` record and no OSC 9;4 progress (exit 124 on `--timeout`; `exit` and `output` stay
+  `terminal <term> process wait` and `screen wait --pattern`). `cmux status wait KEY` (cx-6so.14): no new op either; it holds `session.events`
+  and rereads `workspace_status.list` (every set, clear and auto-clear commits a `workspace_status` change).
 - Swift: renders agent states, and plain shell commands only when `status.inferCommandBusy` is on (off by
   default since cx-ag5.6.5; `extra.busy`, source `command`, after `status.inferCommandBusyAfter`; never for an
   `extra.activity` `in_use` command; not on an agent's terminal, which shows the agent's own state; cx-urd.65).

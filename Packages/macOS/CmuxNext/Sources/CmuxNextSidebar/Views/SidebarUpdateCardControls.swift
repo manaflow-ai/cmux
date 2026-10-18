@@ -41,7 +41,7 @@ final class SidebarUpdateButton: NSView {
     /// A secondary button (the tip card's Try It): the hover fill and the
     /// primary text, never the call-to-action fill.
     var isQuiet = false { didSet { if isQuiet != oldValue { needsDisplay = true } } }
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
     /// Full Keyboard Access focus: a ring in the theme's focus color, not the system's blue.
@@ -193,7 +193,7 @@ final class SidebarUpdateCheckbox: NSView {
     private(set) var isOn = false
     private let box = CALayer()
     private let mark = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     /// Full Keyboard Access focus: the box's edge in the theme's focus color, not the system's blue ring.
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }

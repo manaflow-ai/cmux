@@ -27,6 +27,8 @@ final class TabContentCache {
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm (memory budget; pressure).
     var warmBudget = WarmSetBudget.standard
+    /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
+    var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
     /// Hibernates hidden pages (time, memory pressure) and restores them.
     var hibernation: BrowserHibernation?
@@ -35,10 +37,12 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
-    /// Browser pages' hover card thumbnails, captured when a page leaves the
-    /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
-    /// apart from `previews`, whose full-size page images hibernation shows.
+    /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
+    /// each, with the page version each shows (`pageVersion`): a page is captured again only when
+    /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    var pageThumbnailVersions: [String: Int] = [:]
+    var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this
     /// deadline use the shared 30 s test configuration.
@@ -68,7 +72,7 @@ final class TabContentCache {
     let browserTabs: BrowserTabService
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
-    private var pendingBrowsers: Set<String> = []
+    private(set) var pendingBrowsers: Set<String> = [] // Chromium pages being created (ChromiumWarmup waits)
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
     /// until the user reloads one: set after cmux quit unexpectedly twice in
     /// a row (`LaunchRecovery.restartedSafely`).
@@ -79,7 +83,7 @@ final class TabContentCache {
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
-        try await cef.makeTab($0)
+        try await cef.makeUserTab($0)
     }
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
@@ -398,8 +402,9 @@ final class TabContentCache {
         browserTabs.untrack(key)
         previews.remove(key)
         pageThumbnails.remove(key)
+        pageThumbnailVersions[key] = nil
         shownPages.remove(key)
-        presentationChanges.notify()
+        presentationChanges.notify(changed: [key])
     }
 }
 

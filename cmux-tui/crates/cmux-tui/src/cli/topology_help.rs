@@ -50,10 +50,12 @@ the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
 the session closes at its next start. Workspace groups and rooms are
 personal: they live in this Mac's home session. A group or room is named by
-its id or exact name. list (--order session, the default) gives the
-session's workspace order: creation order unless a workspace was moved; it
-is not the sidebar order. list --order personal gives the sidebar order: loose
-workspaces, and each group's workspaces where the group shows. The app's
+its id or exact name. list --order session gives the session's workspace
+order: creation order unless a workspace was moved. list --order personal
+gives the cmux app's sidebar order: loose workspaces, and each group's
+workspaces where the group shows. Without --order, list gives the sidebar
+order in the app's context (an app terminal or Chief addressing the app's
+own daemon), else the session order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
@@ -150,6 +152,7 @@ USAGE
   cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
+  cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
@@ -161,6 +164,10 @@ passes without a match. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
+wait --until prompt returns when the shell shows its prompt; --until idle
+when no command runs and no program reports work. Both need OSC 133 shell
+integration to see commands, and print the terminal record; a passed
+--timeout exits 124.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

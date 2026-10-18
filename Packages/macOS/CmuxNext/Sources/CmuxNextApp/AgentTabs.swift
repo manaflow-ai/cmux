@@ -36,11 +36,11 @@ final class AgentTabStore {
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
-    /// the pane's daemon). Returns it and the daemon event sequence read after the reply (nil
+    /// the pane's daemon), in a new split of the pane with `split`. Returns it and the daemon event sequence read after the reply (nil
     /// when the connection ended: the next snapshot holds the tab).
     var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String,
-                            _ transaction: ClientTransactionID) async throws
-        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _ in throw DaemonError.notConnected }
+                            _ transaction: ClientTransactionID, _ split: ConversationTabSplit?) async throws
+        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _, _ in throw DaemonError.notConnected }
     /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface,
     /// where the pane still selects it (AppServices: every pane controller).
     var moveSelection: @MainActor (_ provisional: String, _ surface: SurfaceID) -> Void = { _, _ in }
@@ -50,11 +50,10 @@ final class AgentTabStore {
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
-    /// Sets tab `surface`'s session by compare-and-swap from `expected` (AppServices:
-    /// `bind-conversation-tab-session` on the tab's daemon): the store's answer and, when it took
-    /// it, the daemon event sequence read after the reply (nil when the connection ended).
-    var bind: @MainActor (_ key: String, _ surface: SurfaceID, _ expected: String?, _ session: String) async
-        -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _ in (.taken, nil) }
+    /// Sets tab `surface`'s session (and harness) by compare-and-swap from `expected` (AppServices: `bind-conversation-tab-session`
+    /// on the tab's daemon): the store's answer and, when it took it, the daemon event sequence read after the reply (nil: connection ended).
+    var bind: @MainActor (_ key: String, _ surface: SurfaceID, _ expected: String?, _ session: String, _ harness: String?) async
+        -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _, _ in (.taken, nil) }
     /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
     var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
@@ -133,10 +132,7 @@ final class AgentTabStore {
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
-        didSet {
-            let ids = Set(newTabPages.keys)
-            if pageTabs.ids != ids { pageTabs.ids = ids }
-        }
+        didSet { pageTabs.set(Set(newTabPages.keys)) }
     }
     /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
     let pageTabs = NewTabPageIDs()
@@ -178,8 +174,7 @@ final class AgentTabStore {
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
-    /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
-    /// (AppDelegate makes it before any agent tab).
+    /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
@@ -367,6 +362,7 @@ final class AgentTabStore {
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key) { sendSession(session, for: key) }
         }
+        model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional)) } }
         unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional) ?? provisional }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
@@ -376,7 +372,10 @@ final class AgentTabStore {
         }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
-        model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
+        model.onRememberNewTab = { [weak self, weak model] pick in
+            if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
+            self?.pageHandler(provisional)?.remember(pick)
+        }
         model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
@@ -402,7 +401,12 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
-        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
+        model.onChatsPage = { [weak self] query in
+            let answer = await self?.pageChats.page?(query)
+            // A New Tab page on screen gives the frame of the list it draws now.
+            if let self, let view = views[resolve(provisional)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
+            return answer
+        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)
@@ -426,6 +430,7 @@ final class AgentTabStore {
 
     /// A pane view on this store's page and host, with the shared pushes.
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
+        AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")

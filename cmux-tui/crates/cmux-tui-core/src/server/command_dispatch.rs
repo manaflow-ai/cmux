@@ -578,6 +578,7 @@ pub(super) fn handle_command_with_cancellation(
             conversations::link_resolve(mux, client, params)
         }
         Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
+        Command::HomeInbox(params) => conversations::home_inbox(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
@@ -618,6 +619,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudConversationUnsubscribe(params) => {
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
+        Command::CloudConversationLive(params) => cloud_conversations::live(mux, client, params),
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
@@ -627,6 +629,8 @@ pub(super) fn handle_command_with_cancellation(
         Command::ConversationRunAppend(p) => conversation_runs::append(mux, client, p),
         Command::ConversationRuns(p) => conversation_runs::runs(mux, client, p),
         Command::ConversationRun(p) => conversation_runs::run(mux, client, p),
+        Command::ConversationLivePublish(p) => conversation_live::publish(mux, client, p),
+        Command::ConversationLive(p) => conversation_live::live(mux, client, p),
         Command::ConversationImport(params) => conversations::import(mux, client, params),
         Command::CreateProfile {
             name,
@@ -784,8 +788,21 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloseScreen { screen, end_terminals } => {
             cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
-        Command::CloseWorkspace { workspace, key, end_terminals, reason, if_empty, mutation } => {
-            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason, if_empty };
+        Command::CloseWorkspace {
+            workspace,
+            key,
+            end_terminals,
+            reason,
+            if_empty,
+            report_closed_ids,
+            mutation,
+        } => {
+            let ending = cmd_workspaces::Ending {
+                terminals: end_terminals,
+                reason,
+                if_empty,
+                report_closed_ids,
+            };
             cmd_workspaces::close_workspace(mux, client, workspace, key, ending, mutation)
         }
         Command::MarkWorkspacesProviderManaged { authority } => {

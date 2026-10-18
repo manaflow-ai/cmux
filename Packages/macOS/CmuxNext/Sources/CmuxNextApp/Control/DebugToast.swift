@@ -15,6 +15,7 @@ import CmuxNextSettings
 ///   active one by default) as Cmd-Z does.
 /// - `{press: "<toast id>", window?}` runs the action of the newest toast
 ///   with that id, as its button does.
+/// Every reply also has `undo_steps`: the sidebar and pin undo steps registered so far.
 @MainActor
 enum DebugToast {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
@@ -56,6 +57,8 @@ enum DebugToast {
         result["windows"] = .array(windows)
         // Every refusal HUD message so far, newest last.
         result["refusals"] = .array(services.refusalHUD.history.map(JSONValue.string))
+        // Sidebar and pin undo steps registered so far (a change's step comes with its daemon reply, after the change shows).
+        result["undo_steps"] = .number(Double(PinUndoStep.registered))
         return .object(result)
     }
 

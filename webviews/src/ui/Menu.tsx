@@ -17,6 +17,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
+import { focusAfterEscape } from "./escapeFocus";
 
 export interface MenuProps {
   open?: boolean;
@@ -29,6 +30,8 @@ const POINTER_SLOP = 4;
 type PointerSession = { pointerId: number; x: number; y: number; moved: boolean; handled: boolean };
 interface MenuContextValue {
   isOpen: boolean;
+  /** The menu button, where Escape hands the keyboard back. */
+  trigger: RefObject<HTMLButtonElement | null>;
   beginPointer(event: PointerEvent<HTMLElement>): void;
   movePointer(event: PointerEvent<HTMLElement>): void;
   activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
@@ -41,6 +44,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   const [internalOpen, setInternalOpen] = useState(open ?? false);
   const session = useRef<PointerSession | null>(null);
   const pointerCleanup = useRef<(() => void) | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
   const isOpen = open ?? internalOpen;
   const setMenuOpen = (next: boolean) => {
     if (open === undefined) setInternalOpen(next);
@@ -48,6 +52,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   };
   const context: MenuContextValue = {
     isOpen,
+    trigger,
     beginPointer(event) {
       if (!isMousePress(event)) return;
       const wasOpen = isOpen;
@@ -136,6 +141,7 @@ export function MenuButton({
   const context = use(MenuContext);
   return (
     <BaseMenu.Trigger
+      ref={context?.trigger}
       className={cx("ui-button", className)}
       aria-label={label}
       title={title}
@@ -197,6 +203,8 @@ export interface MenuPopupProps {
 /// The surface class of the popup a submenu sits in, so the submenu wears the same surface (a themed
 /// menu never gets a bare, see-through submenu).
 const PopupSurface = createContext<string | undefined>(undefined);
+/// Inside a menu's popup: a submenu's popup leaves its focus return to Base UI (its own item).
+const InPopup = createContext(false);
 
 export function MenuPopup({
   id,
@@ -213,6 +221,8 @@ export function MenuPopup({
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
   const host = usePopupHost();
+  const menu = use(MenuContext);
+  const nested = use(InPopup);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
@@ -238,9 +248,22 @@ export function MenuPopup({
           aria-label={label}
           className={cx("ui-popup ui-menu", className)}
           finalFocus={finalFocus}
-          onKeyDown={onKeyDown}
+          onKeyDown={(event) => {
+            // Escape puts the keyboard back on the menu button (escapeFocus.ts). Its own Escape
+            // only, not a submenu's (React carries that one up through the portal).
+            if (
+              event.key === "Escape" &&
+              !nested &&
+              finalFocus === undefined &&
+              event.currentTarget.contains(event.target as Node)
+            )
+              focusAfterEscape(menu?.trigger.current);
+            onKeyDown?.(event);
+          }}
         >
-          <PopupSurface value={className}>{children}</PopupSurface>
+          <InPopup value>
+            <PopupSurface value={className}>{children}</PopupSurface>
+          </InPopup>
         </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>

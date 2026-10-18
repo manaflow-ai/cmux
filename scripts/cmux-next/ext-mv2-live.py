@@ -165,7 +165,7 @@ class Job:
         # Chromium starts with the first Chromium tab (CEFRuntime.start is lazy).
         self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": "about:blank"},
                                  "focus": True, "origin": "remote"})
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             try:
                 cdp.targets(self.port)
@@ -192,8 +192,13 @@ class Job:
         before = {t.get("id") for t in cdp.targets(self.port)}
         # A tab a person opens (origin remote), not an agent-driven one: extensions
         # cannot reach agent-driven tabs (fork API 20, cmux_tab_set_extension_access).
-        opened = self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": url},
-                                          "focus": True, "origin": "remote"})
+        for _ in range(3):  # right after a start the action can miss its 2 s deadline
+            opened = self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": url},
+                                              "focus": True, "origin": "remote"})
+            if (opened.get("error") or {}).get("code") != "timeout":
+                break
+            time.sleep(2)
+        self.last_created = ((opened.get("result") or {}).get("created") or [None])[0]
         key = match or url
         target = cdp.wait_target(self.port, lambda t: t.get("type") == "page" and t.get("id") not in before
                                  and key in t.get("url", ""), timeout)
@@ -522,12 +527,23 @@ def phase_ublock(args):
     job = Job(args.label or ("ublock" if args.ubo else "builtin"), extensions=[args.ubo] if args.ubo else [])
     ctx = {}
 
+    def person_load():
+        """The person's own copy: Load Unpacked (Extensions menu action) of `--load-unpacked`."""
+        result = job.call("action.run", {"action": "browser.extensions.loadUnpacked",
+                                         "args": {"path": args.load_unpacked}, "origin": "remote"})
+        job.row("person: Load Unpacked of a uBlock Origin copy", "error" not in result, result)
+        time.sleep(3)
+
     def loaded():
         ubo = None
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline and not ubo:
             ubo = next((e for e in job.extensions_report() if e.get("name") == UBO_NAME), None)
             time.sleep(0.5)
+        if not args.ubo and not args.person and "false" in Job.config.replace(" ", ""):
+            job.row("builtin-off: with browser.builtInAdBlocker false uBlock Origin does not run",
+                    not (ubo and ubo.get("enabled")), ubo or "not listed")
+            return "stop"
         job.row("ublock: loaded and enabled", bool(ubo and ubo.get("enabled")), ubo or "not listed")
         if not ubo:
             return "stop"
@@ -655,16 +671,20 @@ def phase_ublock(args):
                 state.get("slot") == "hidden", state, gating=False)
         session = job.open_tab("https://example.com/", match="example.com")
         try:
-            poll(session, "document.readyState === 'complete'", 20)
+            poll(session, "location.host === 'example.com' && document.readyState === 'complete' && !!document.body", 30)
+            time.sleep(1)
             session.evaluate("document.body.insertAdjacentHTML('beforeend', '<div id=\"mv2-slot\" class=\"adsbygoogle-box\" "
                              "style=\"width:300px;height:100px;background:#fdd\">ad slot</div>'); true")
-            hidden = poll(session, "getComputedStyle(document.getElementById('mv2-slot')).display === 'none'", 10)
+            hidden = poll(session, "(() => { const e = document.getElementById('mv2-slot');"
+                                   " return e && getComputedStyle(e).display === 'none'; })()", 10)
+            hidden = {"hidden": bool(hidden), "slot": session.evaluate("(() => { const e = document.getElementById('mv2-slot');"
+                                                                      " return e ? getComputedStyle(e).display : 'missing'; })()")}
             world = ubo_world_state(session)
             shot = job.page_shot(session, f"{job.phase}-cosmetic-example")
         finally:
             session.close()
         job.row("ublock: EasyList generic cosmetic filter hides an ad slot (##.adsbygoogle-box on example.com)",
-                bool(hidden), {"hidden": hidden, "ubo_world": world, "shot": shot})
+                hidden["hidden"], {"result": hidden, "ubo_world": world, "shot": shot})
 
     def insert_css():
         """The API uBlock Origin's cosmetic filtering uses (tabs.insertCSS, user origin)."""
@@ -672,6 +692,7 @@ def phase_ublock(args):
         bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
         try:
             poll(session, "window.mv2 && window.mv2.done", 20)
+            time.sleep(2)  # the tab's URL reaches chrome.tabs after load
             result = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => {
               const t = tabs.find(t => (t.url || '').includes('?css=1'));
               if (!t) return r({error: 'no tab'});
@@ -723,6 +744,30 @@ def phase_ublock(args):
                 before == "loaded" and (outcomes["jQuery"] == "blocked" or state.get("jq") == "blocked") and bool(ctx.get("rule")),
                 {"before": before, "rule": ctx.get("rule"), "after": outcomes["jQuery"], "page": state})
 
+    def agent_read():
+        """An agent's page read (`cmux browser <tab> eval`, the CLI over the app
+        socket) of a page every enabled extension can reach (example.com)."""
+        session = job.open_tab("https://example.com/?agent=1", match="example.com/?agent=1")
+        try:
+            poll(session, "document.readyState === 'complete'", 20)
+        finally:
+            session.close()
+        tab = job.last_created
+        cli = os.path.join(job.app, "Contents/Resources/bin/cmux")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX")}
+        env["CMUX_SOCKET_PATH"] = job.socket
+        for _ in range(3):  # a page that reopens (password fill guard) asks for a retry
+            done = subprocess.run([cli, "browser", str(tab), "eval", "document.title"], env=env,
+                                  capture_output=True, text=True, timeout=60)
+            out = (done.stdout + done.stderr).strip()
+            if "retry" not in out:
+                break
+            time.sleep(2)
+        refused = "enabled extension with access" in out or "extension_host_access" in out
+        want = args.agent_read
+        ok = ("Example Domain" in out and not refused) if want == "allowed" else refused
+        job.row(f"agent: page read is {want}", ok, {"tab": tab, "exit": done.returncode, "output": out[:400]})
+
     def menu_note():
         """The Extensions menu says the full uBlock Origin is built in (the Web Store
         lists only uBlock Origin Lite)."""
@@ -735,7 +780,9 @@ def phase_ublock(args):
         shot = job.window_shot("builtin-extensions-menu", popups=True)
         job.call("debug.extensions.menu", {"dismiss": True})
         note = [i for i in state.get("items", []) if isinstance(i, dict) and str(i.get("identifier", "")).endswith(".builtInAdBlocker")]
-        job.row("builtin: Extensions menu says uBlock Origin (full) is built in", bool(note), {"note": note, "shot": shot, "open": state.get("open")})
+        want = getattr(main, "menu_note", None) or "present"
+        job.row(f"menu: the built-in line is {want} (built-in copy {'loaded' if want == 'present' else 'skipped'})",
+                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "shot": shot, "open": state.get("open")})
 
     def dashboard():
         """Automation may not open extension pages as tabs; a person's tab is
@@ -756,11 +803,12 @@ def phase_ublock(args):
         job.row("ublock: dashboard loads", bool(ready), {"pane": ready, "url": where, "shot": shot})
         job.window_shot("ublock-window")
 
-    return run_phase(job, [("ublock: loaded", loaded), ("ublock: background", background),
+    return run_phase(job, [*([("person: load", person_load)] if args.load_unpacked else []), ("ublock: loaded", loaded), ("ublock: background", background),
+                           *([("menu note", menu_note)] if not args.ubo or args.menu_note else []),
+                           *([("agent read", agent_read)] if args.agent_read else []),
                            ("ublock: ready", ready), ("ublock: network", network),
                            ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
-                           *([] if args.ubo else [("builtin: menu note", menu_note)]),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
 
@@ -780,13 +828,21 @@ def main():
     parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
     parser.add_argument("--label", help="artifact folder name (default: the phase)")
+    parser.add_argument("--load-unpacked", help="builtin: first Load Unpacked this folder as the person's own copy")
+    parser.add_argument("--agent-read", choices=["allowed", "refused"],
+                        help="check an agent page read on example.com (the extension guard)")
+    parser.add_argument("--person", action="store_true", help="builtin: the profile holds the person's copy (expect it to run)")
+    parser.add_argument("--menu-note", choices=["present", "absent"],
+                        help="check the Extensions menu's built-in line (default: present for builtin)")
     parser.add_argument("--config", default="{}", help="cmux.json the app starts with, e.g. {\"browser\": {\"builtInAdBlocker\": false}}")
     args = parser.parse_args()
     Job.config = args.config
+    main.menu_note = args.menu_note
     if args.phase == "ublock" and not args.ubo:
         parser.error("--ubo is required")
     if args.phase == "builtin":
         args.ubo = None
+    args.person = args.person or bool(args.load_unpacked)
     return {"store": phase_store, "baseline": phase_baseline, "ublock": phase_ublock, "builtin": phase_ublock}[args.phase](args)
 
 

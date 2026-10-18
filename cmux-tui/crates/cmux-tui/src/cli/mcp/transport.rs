@@ -5,13 +5,13 @@
 //! so the CLI and MCP send identical requests.
 
 use std::io::{BufRead, BufReader};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
 
 use super::super::GlobalArgs;
-use super::super::command::RequestPlan;
+use super::super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
 use super::super::{app, resolve, wire};
 
 /// How a request that did not succeed ended: the owner rejected it, it
@@ -157,6 +157,102 @@ pub(super) fn resource(
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() }),
         Err(message) => Err(fail(sent, "transport.failed", message)),
+    }
+}
+
+/// Opens the session daemon's `session.events` stream, from `cursor` when
+/// given, and calls `on_wake` with each item (its initial snapshot first, or
+/// the journal batches after `cursor`), and with `None` after each
+/// `tick` without one, until `on_wake` returns `true`, the stream ends or
+/// `deadline` passes. Blocking reads bounded by the tick; the daemon is
+/// never polled, and dropping the connection ends the stream.
+pub(super) fn session_events(
+    global: &GlobalArgs,
+    cursor: Option<&Value>,
+    deadline: Instant,
+    tick: Duration,
+    on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+) -> Result<(), CallFailure> {
+    use FailureKind::{NotRun, Rejected};
+    let local = |code: &str, message: String| CallFailure::local(NotRun, code, message);
+    let stream_id = random_prefixed("stream").map_err(|error| local("usage.invalid", error.0))?;
+    let mut plan = RequestPlan {
+        operation: WireOperation::Typed(ResourceOperation::SessionEvents),
+        params: json!({"machine": "current", "session": "current", "stream_id": stream_id}),
+        idempotency_key: None,
+        stream: true,
+        resolve: Vec::new(),
+        view: ResponseView::Full,
+    };
+    if let Some(cursor) = cursor {
+        plan.params["cursor"] = cursor.clone();
+    }
+    resolve::apply_global_route(global, &mut plan.params)
+        .map_err(|error| local("usage.invalid", error.into()))?;
+    let request = wire::request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
+    let request_id = request["id"].clone();
+    let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|error| {
+        CallFailure { kind: NotRun, error: wire::resolve_failure(&error), idempotency_key: None }
+    })?;
+    let stream =
+        cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
+            let message = format!("cannot connect to session socket {}: {error}", socket.display());
+            local("transport.unavailable", message)
+        })?;
+    let mut reader = BufReader::new(stream);
+    let encoded = resolve::encode_request_bytes(&request)
+        .map_err(|message| local("validation.invalid", message))?;
+    resolve::send(&mut reader, &encoded).map_err(|message| local("transport.failed", message))?;
+    let mut opened = false;
+    let mut line = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(());
+        }
+        let _ = reader.get_mut().set_read_timeout(Some(left.min(tick)));
+        // A read cut by the timeout keeps its bytes in `line` for the next one.
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) if opened => return Ok(()),
+            Ok(0) => return Err(local("transport.failed", "the daemon closed the stream".into())),
+            Ok(_) if line.ends_with(b"\n") => {}
+            Ok(_) => continue,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if opened && on_wake(None) {
+                    return Ok(());
+                }
+                continue;
+            }
+            Err(_) if opened => return Ok(()),
+            Err(error) => return Err(local("transport.failed", error.to_string())),
+        }
+        let frame = serde_json::from_slice::<Value>(&line);
+        line.clear();
+        let Ok(frame) = frame else { continue };
+        match frame["type"].as_str() {
+            Some("response") if frame["id"] == request_id => {
+                if frame["ok"] != true {
+                    let error = frame.get("error").cloned().unwrap_or(Value::Null);
+                    return Err(CallFailure { kind: Rejected, error, idempotency_key: None });
+                }
+                opened = true;
+            }
+            // An item the caller does not stop on keeps the stream open.
+            Some("stream_item")
+                if opened
+                    && frame["stream_id"] == plan.params["stream_id"]
+                    && on_wake(Some(&frame["item"])) =>
+            {
+                return Ok(());
+            }
+            Some("stream_end") if opened => return Ok(()),
+            _ => {}
+        }
     }
 }
 

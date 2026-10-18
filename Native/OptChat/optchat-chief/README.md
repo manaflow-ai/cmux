@@ -711,6 +711,21 @@ blocks with cache_control`) reruns the turn once without the marker, and
 the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
 
+**Frozen view and delta (spec 5a, cx-d7a4d).** A turn sends the view frozen at
+the last re-render (`optchat_core::turn_input`; the host keeps only the
+`frozen` record in its state), then every log entry after the view's front as
+`<id>+1|<kind>: <text>` lines, one block per run of user or of other kinds
+(the turn's new messages always start one; the view keeps an unbuilt line as
+the placeholder until the next re-render), then the turn's images, then the per-turn tail (subagents at work, the Home
+workspace, resume notes). Our three marks sit on the `<chat>` header, the
+view's end and the delta's end, so a turn reads the whole previous input. An
+edit or retraction of a logged message is logged as a note (`edit of <id>:
+<text>`, `retracted <id>`; a queued one takes the edit or leaves the queue). A re-render happens past 8,000 delta bytes when the
+compactor folded over the front, past 32,000 bytes, or with no frozen view
+(optchat-core `turn_input`, shared with the Cloud brain). Claude Code's own system message after our blocks (deferred
+tools and the rest, below) stays uncached each request: 3,400 tokens with the
+cmux MCP server's 165 deferred tools (measured 2026-10-16).
+
 **Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
 sends (a capture proxy on a scratch route, 2026-10-08): Claude Code sends its
 tools, a marked system block of its own, our system prompt (marked), our
@@ -1473,3 +1488,24 @@ an old host.json moves into the database once; `tests/backup.rs` pushes to a
 local bare repository (holds on a secret, retries offline, never forces).
 In optchat-host, `tests/bench.rs` is
 the ignored benchmark above.
+
+### First-turn cost guard
+
+A gate step of optchat-chief changes (not of every CI run): a new Chief's
+first turn must stay under 50,000 input tokens. `scripts/ci/chief-first-turn-cost.sh`
+runs the production trio on a scratch brain (`measure/chief_driver.py`,
+smoke turn `s01`) with Claude Code against a local stand-in
+(`measure/first_turn_cost.py proxy`) that answers with one canned reply,
+so no model runs and no credential reaches the worker. It then counts each
+recorded `/v1/messages` request with `count_tokens` on the team subrouter
+(the request's own `anthropic-beta`, so deferred tools count as the API
+counts them) and fails over the limit, or when no request names a cmux MCP
+tool (the server never reached the turn). `force_full_tools=1` proves it
+red: a `--settings` file turns tool search off, the behavior before
+`session_dir::TURN_SETTINGS_ENV`, and every cmux MCP tool loads with the turn.
+
+```bash
+gate-run.sh --head "$HEAD_SHA" --out /tmp/gates/$HEAD_SHA.json -- \
+  ~/.local/bin/cmux-ci run --class isolated --script scripts/ci/chief-first-turn-cost.sh --ref "$HEAD_SHA" \
+  --key chief-first-turn-${HEAD_SHA:0:8} --arg=count_url=http://ROUTER:PORT --timeout 6000
+```

@@ -90,11 +90,13 @@ public final class TerminalSession {
         didSet { surfaceView.mirrorDemand = mirrorDemand }
     }
 
-    private let io: any TerminalIO
+    let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
     private let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
+    /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
+    public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
     private var canonicalGrid: TerminalGridSize?
     /// True once the current surface received a replay or output; a later
@@ -234,6 +236,8 @@ public final class TerminalSession {
     public func close() {
         eventsTask?.cancel()
         eventsTask = nil
+        closeCancels.forEach { $0.cancel() }
+        closeCancels = []
         input.finish()
         surfaceView.removeFromSuperview()
     }
@@ -284,6 +288,7 @@ public final class TerminalSession {
         case .status(let status):
             model.connection = status
             model.hasExited = status == .exited
+            surfaceView.updateReflowPreview()
             view.showStatus(status)
         }
     }
@@ -323,6 +328,7 @@ public final class TerminalSession {
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false)
+        TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }

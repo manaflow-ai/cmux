@@ -45,6 +45,15 @@ export type AgentSessionTheme = {
   /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
   /// `borderStrong` are already transparent then. Absent means default.
   borders?: "default" | "none";
+  /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
+  /// `standard`, `wide` or `wideBlocks`. Absent means standard.
+  chatWidth?: string;
+  /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
+  /// acpmux codexToolRuns.ts). Native hosts send their default explicitly; absent keeps the
+  /// browser fallback off. true opts in and false opts out.
+  codexToolRuns?: boolean;
+  /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
+  turnActionsPlacement?: "left" | "right";
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
   /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
   /// `hoverOut` is how fast a hover fill clears (0 by default, as in Edge). `move` is the native

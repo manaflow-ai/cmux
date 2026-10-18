@@ -29,6 +29,15 @@ export type ChatAllowance = {
 
 export type CoverageLabel = "acp_requests_only";
 
+export type DeliveryReceipt = {
+  messageId: string;
+  recipient: string;
+  state: DeliveryState;
+  updatedAt: number;
+} & Record<string, unknown>;
+
+export type DeliveryState = "queued" | "acknowledged";
+
 /** What limits the session's agent as far as acpmux can tell. */
 export type Enforcement = {
   detail: string;
@@ -78,6 +87,81 @@ export type LastTurn = {
   status?: (string | null);
   stopReason?: (string | null);
   turnId?: (string | null);
+} & Record<string, unknown>;
+
+/** A durable lifecycle fact supplied by an explicit producer. */
+export type LifecycleReceipt = {
+  id: string;
+  sequence: number;
+  source: string;
+  state: string;
+} & Record<string, unknown>;
+
+export interface MailAckParams {
+  messageId: string;
+  recipient: string;
+}
+
+export type MailAckResult = {
+  delivery: DeliveryReceipt;
+} & Record<string, unknown>;
+
+export type MailMessage = {
+  body: string;
+  createdAt: number;
+  id: string;
+  metadata?: Record<string, unknown>;
+  recipient: string;
+  sender: string;
+  seq: number;
+} & Record<string, unknown>;
+
+export type MailPageResult = {
+  cursor: number;
+  messages: MailRow[];
+  nextCursor?: (number | null);
+} & Record<string, unknown>;
+
+export interface MailReadParams {
+  after?: (number | null);
+  limit?: (number | null);
+  recipient: string;
+}
+
+export type MailRow = {
+  delivery: DeliveryReceipt;
+  message: MailMessage;
+} & Record<string, unknown>;
+
+export interface MailSendParams {
+  body: string;
+  id: string;
+  metadata?: (Record<string, unknown> | null);
+  recipient: string;
+  sender: string;
+}
+
+export type MailSendResult = {
+  created: boolean;
+  delivery: DeliveryReceipt;
+  duplicate: boolean;
+  message: MailMessage;
+} & Record<string, unknown>;
+
+export interface MailWaitParams {
+  after?: (number | null);
+  limit?: (number | null);
+  recipient: string;
+  timeoutMs?: (number | null);
+}
+
+/** `failed` also for one that waits on a sign-in (Claude Code `needs-auth`). */
+export type McpServerStatus = "connected" | "failed" | "pending";
+
+/** One MCP server a harness loaded (`SessionSummary::mcp_servers`). */
+export type McpServerSummary = {
+  name: string;
+  status: McpServerStatus;
 } & Record<string, unknown>;
 
 export type MessageRole = "agent" | "user";
@@ -268,6 +352,13 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
+  /** An optional explicit lifecycle receipt; absent until a producer supplies validated evidence. */
+  lifecycleReceipt?: (LifecycleReceipt | null);
+  /**
+   * The MCP servers the harness says it loaded, from its own report (Claude
+   * Code's system/init); null when it reports none (every ACP harness).
+   */
+  mcpServers?: (McpServerSummary[] | null);
   model?: (string | null);
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
@@ -287,6 +378,11 @@ export type SessionSummary = {
   sessionId: string;
   /** Some attached client shows the chat. */
   shown: boolean;
+  /**
+   * The session whose agent started this one (its `spawnedBy` tag), kept
+   * only while that parent is listed; one level.
+   */
+  spawnedBy?: (string | null);
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;

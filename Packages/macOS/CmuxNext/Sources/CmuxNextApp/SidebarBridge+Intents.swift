@@ -12,7 +12,7 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
-        if CloudCreationRows.handle(intent, bridge: self, state: state) { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)
@@ -24,7 +24,7 @@ extension SidebarBridge {
         // that are all pinned already only snaps back.
         if case .reorder(let ids, let position) = intent {
             switch position.section {
-            case .pinned:
+            case .pinned, .custom: // a custom section lists only on the sidebar document, which took the intent above
                 let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
                 guard !unpinned.isEmpty else { return resync() }
                 model.apply(intent)

@@ -83,7 +83,10 @@ public final class CmuxToastCenter {
     /// focused responder has nothing to undo (a text field, terminal, editor
     /// or page with its own undo keeps the key).
     public func takesUndoKey(in window: NSWindow) -> Bool {
-        stacks[ObjectIdentifier(window)]?.newestUndo != nil && !Self.responderCanUndo(window.firstResponder)
+        guard let serial = stacks[ObjectIdentifier(window)]?.newestUndo else { return false }
+        let responder = window.firstResponder
+        // The toast's own step on top of the responder's undo stack does not take the key from it.
+        return !Self.responderCanUndo(responder) || entries[serial]?.handle.ownsUndoTop?(responder?.undoManager) == true
     }
 
     /// Runs the newest undo toast's action in `window`; false when none shows.
@@ -167,6 +170,10 @@ public final class CmuxToastHandle {
     public let toast: CmuxToast
     public var onAction: (() -> Void)?
     public var onDismiss: ((CmuxToastDismissReason) -> Void)?
+    /// Whether this toast's step is the top of the given undo stack (an undo
+    /// toast that also put its step on the window's undo stack): Cmd-Z then
+    /// stays the toast's while it shows.
+    public var ownsUndoTop: ((UndoManager?) -> Bool)?
     public private(set) var isDismissed = false
     let serial: Int
     private weak var center: CmuxToastCenter?

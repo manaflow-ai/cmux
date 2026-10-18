@@ -1,6 +1,6 @@
 public import CoreGraphics
 public import CmuxNextDesign
-import Foundation
+public import Foundation
 public import Observation
 
 /// Input and UI state for one window's sidebar.
@@ -38,8 +38,22 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return sectionsRevision
     }
+    /// `sectionsRevision` when the user last moved rows (a keyboard move; never a drop): the next structural set may scroll to
+    /// the moved active row. Nil: no move of the user's waits. Changes from others never move the view (DESIGN.md
+    /// scroll reveal, cx-ml98q).
+    @ObservationIgnored public private(set) var userMoveRevision: UInt64?
+    /// The user moved rows: the structural set that shows the move may reveal the active row.
+    public func noteUserMove() { userMoveRevision = sectionsRevision }
+    /// True once: at the first structural set after the user's move.
+    public func takeUserMove() -> Bool {
+        guard let mark = userMoveRevision, mark != sectionsRevision else { return false }
+        userMoveRevision = nil
+        return true
+    }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
+    /// `itemOrder` and the inputs it was made from.
+    @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
@@ -69,14 +83,9 @@ public final class SidebarModel {
     /// Client-only items above the top band's sections (the What's New item
     /// after an update). Never in `layout`: they cannot be moved, edited or
     /// hidden, and activate like any item (`SidebarIntent.activateItem`).
+    /// An item with an anchor (`SidebarTransientItem.after`) draws right after it instead
+    /// (`placingTransientItems`): the Channels entry after Home.
     public var transientTopItems: [SidebarTransientItem] = []
-
-    /// The section that draws `transientTopItems` first in the top band, or
-    /// nil without any (built-in look, no title, one row per item).
-    var transientTopSection: LayoutSection? {
-        transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
-                                                        region: .top, look: .builtIn, items: transientTopItems.map(\.item))
-    }
     /// The current profile's avatar: the account item draws it as the
     /// profile control (`resolvedItemInfo`; SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
     public var profileAvatar: SidebarAvatar?
@@ -182,15 +191,24 @@ public final class SidebarModel {
     public var isFiltering: Bool { filterMatches != nil }
 
     /// Drag and keyboard reorder are off while the drawn order is not the
-    /// model's: filtering, or grouping by folder.
-    public var locksReorder: Bool { isFiltering || groupsByFolder }
+    /// model's: filtering, or grouping by folder. On the sidebar document a
+    /// drag moves next to the row it is dropped by (an anchor), so it also
+    /// works while filtering.
+    public var locksReorder: Bool { (isFiltering && docDrag == nil) || groupsByFolder }
+    /// The sidebar document's drag half (sidebar-v2 S5), set by the App
+    /// while the document is active.
+    @ObservationIgnored public var docDrag: SidebarDocDrag?
+    /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it.
+    public static var itemFavicon: ((String) -> SidebarFavicon?)?
+    /// Posted when favicons arrived: every list draws its link rows again.
+    public static let itemFaviconsChanged = Notification.Name("cmux.sidebar.itemFaviconsChanged")
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
     /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
     /// select first/last, arrow keys) may land on: every row but
     /// placeholders, which are no workspace yet.
-    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { $0.rowState != .placeholder } }
+    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { !$0.rowState.isPending } }
 
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
@@ -223,11 +241,13 @@ public final class SidebarModel {
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .close(ids):
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
@@ -257,7 +277,8 @@ public final class SidebarModel {
     /// Shows `new` (the App's mapping of daemon state) with this window's
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
-        var shown = new
+        // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
+        var shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         for index in shown.indices {
             let collapsed = collapsedSections.contains(shown[index].id)
             if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
@@ -306,12 +327,34 @@ public final class SidebarModel {
         return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
     }
 
+    /// Whether these sections list workspace `id`: O(1) through `rowIndex`
+    /// (built once per structural set), never a walk of every row.
+    public func lists(_ id: WorkspaceID) -> Bool { !listedPaths(of: id).isEmpty }
+
+    /// Whether `id` sits in a collapsed group: the list then draws its row
+    /// only while it is the active workspace, so a selection change there
+    /// moves rows.
+    func isInCollapsedGroup(_ id: WorkspaceID) -> Bool {
+        listedPaths(of: id).contains { path in
+            guard path.member != nil, case let .group(group) = storedSections[path.section].nodes[path.node] else { return false }
+            return group.isCollapsed
+        }
+    }
+
+    private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
+        if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
+        return rowIndex?.paths(of: id) ?? []
+    }
+
     /// Clears closed workspaces from the selection and picks a new active one.
-    private func dropClosed(_ closed: Set<WorkspaceID>) {
+    private func dropClosed(_ closed: Set<WorkspaceID>, oldOrder: [WorkspaceID]) {
+        let oldActive = activeWorkspaceID
         selection.subtract(closed)
-        if let active = activeWorkspaceID, closed.contains(active) {
-            activeWorkspaceID = selection.first ?? allWorkspaces.first?.id
-            if let next = activeWorkspaceID { selection.insert(next) }
+        if let oldActive, closed.contains(oldActive) {
+            let surviving = allWorkspaces.map(\.id)
+            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving)
+            activeWorkspaceID = next
+            selection = next.map { [$0] } ?? []
         }
     }
 
@@ -319,7 +362,7 @@ public final class SidebarModel {
 
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
-    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
+    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {
@@ -375,7 +418,13 @@ public final class SidebarModel {
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
         guard !locksReorder else { return false }
         let ids = orderedSelection
+        if isFiltering, let docDrag {
+            guard docDrag.keyboardMove(ids, up: direction == .up, model: self) else { return false }
+            noteUserMove()
+            return true
+        }
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
+        noteUserMove()
         send(.reorder(ids, to: position))
         return true
     }
@@ -433,17 +482,5 @@ public final class SidebarModel {
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
         presentation = presentation == .hidden ? .shown : .hidden
-    }
-}
-
-/// A client-only top item and its look (`SidebarModel.transientTopItems`).
-public nonisolated struct SidebarTransientItem: Hashable, Sendable {
-    public var item: LayoutItem
-    public var info: SidebarItemInfo
-
-    /// `id` must carry the `client.` prefix (`LayoutItemID.isTransient`).
-    public init(id: LayoutItemID, info: SidebarItemInfo) {
-        item = LayoutItem(id: id, ref: LayoutItemRef(kind: "client", value: id.rawValue))
-        self.info = info
     }
 }

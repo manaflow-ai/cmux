@@ -22,9 +22,9 @@ pub use handles::state_ops::{
     StateDeleteResult, TAB_GROUP_MAX_TABS, TAB_HISTORY_MAX_URLS, TabGroupCreateOptions,
     TabGroupMoveOptions, TabGroupReleaseResult, TabGroupSnapshot, TabGroupUpdateOptions,
     TabUpdateOptions, WINDOW_RECORD_MAX_BYTES, WindowRecordDeleteResult, WindowRecordSnapshot,
-    WorkspaceGroupCreateOptions, WorkspaceGroupDeleteResult, WorkspaceGroupSnapshot,
-    WorkspaceGroupUpdateOptions, WorkspacePlaceOptions, WorkspacePlacementSnapshot, WorkspaceRef,
-    WorkspaceUpdateOptions,
+    WorkspaceCloseResult, WorkspaceGroupCreateOptions, WorkspaceGroupDeleteResult,
+    WorkspaceGroupSnapshot, WorkspaceGroupUpdateOptions, WorkspacePlaceOptions,
+    WorkspacePlacementSnapshot, WorkspaceRef, WorkspaceUpdateOptions,
 };
 pub use handles::{
     Agent, Browser, ConnectedClient, FrontendProjection, Machine, Notification, PairingRequest,

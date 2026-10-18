@@ -38,6 +38,7 @@ import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
+import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -176,14 +177,16 @@ export function NewTabScreen(props: Props) {
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
   const chrome = useComposerChrome();
+  // A press outside an open chip menu only closes it (menuPressGuard.ts).
+  useMenuPressGuard();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent),
-    [snapshot.sessions, at, t, device, sections.recent],
+    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
+    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
@@ -457,6 +460,8 @@ export function NewTabScreen(props: Props) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
       setDismissed(undefined);
+    } else if (event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -497,8 +502,8 @@ export function NewTabScreen(props: Props) {
     >
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
-          chat starts in heads it, a tab on its top edge (ComposerContext, the composer's own; hq#1957
-          composer location strip). */}
+          chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
+          composer location strip; newtab/screen.css). */}
       <div className="nt-composer">
         {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
             composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}

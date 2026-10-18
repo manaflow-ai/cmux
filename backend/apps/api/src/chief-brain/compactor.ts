@@ -116,24 +116,77 @@ export interface PumpHost {
   onFirstFailure(l: number, i: number, error: string): void;
   /** A failed node waits RETRY; the host makes sure something wakes the object then (eviction). */
   onRetryWait(at: number): void | Promise<void>;
+  /** First retry delay in ms (default RETRY_BASE_MS); tests make it small. */
+  readonly retryBaseMs?: number;
+  /** Random number in [0, 1) for the jitter (default Math.random; tests inject one). */
+  readonly random?: () => number;
+}
+
+/** First retry delay and the cap of the exponential backoff (spec 4.1 retries forever; this spaces them). */
+export const RETRY_BASE_MS = 2_000
+export const RETRY_CAP_MS = 5 * 60_000
+
+/** A provider's rate limit (Workers AI "rate limiting ... rate reached", HTTP 429, capacity errors). */
+export const isRateLimit = (msg: string): boolean => /\b429\b|rate[ -]?limit|too many requests|capacity temporarily exceeded|\b3040:/i.test(msg)
+
+/** A Retry-After the error names (seconds, or "retry after N s"), in ms; undefined when it names none. */
+export const retryAfterMs = (msg: string): number | undefined => {
+  const m = /retry[- ]after[^0-9]{0,4}(\d+(?:\.\d+)?)\s*(ms|milliseconds?|min(?:utes?)?|s|sec|seconds?)?/i.exec(msg)
+  if (!m) return undefined
+  const n = Number(m[1])
+  if (!Number.isFinite(n)) return undefined
+  const unit = (m[2] ?? "s").toLowerCase()
+  return unit.startsWith("min") ? n * 60_000 : unit === "ms" || unit.startsWith("milli") ? n : n * 1000
+}
+
+/**
+ * The next wait of a failed node (try `n`, from 1): the error's Retry-After when it names one, else
+ * exponential backoff with full jitter, uniform in [0, min(cap, base * 2^(n-1))], at least 100 ms.
+ */
+export const backoffMs = (n: number, msg: string, base: number, random: () => number): number => {
+  const told = retryAfterMs(msg)
+  if (told !== undefined) return Math.min(RETRY_CAP_MS, Math.max(100, told))
+  return Math.max(100, Math.floor(random() * Math.min(RETRY_CAP_MS, base * 2 ** Math.min(n - 1, 20))))
 }
 
 /**
  * The background compactor (spec 4.1). `pump()` starts every node the core says may start (rule 1
  * not built or running, rule 2 sources built, rule 3 everything before it summarized), up to JOBS
  * model calls; the host calls it after every append, and it calls itself after every node finishes.
- * A failed node is reported once, stays busy for RETRY (10 s, no backoff), then is released and
- * pumped again, forever. `settle()` is spec 6: it resolves when every view line is a summary,
- * checked again after every fit.
+ * A failed node is reported once, stays busy for its backoff (exponential with full jitter, capped
+ * at 5 min, or the error's Retry-After), then is released and pumped again, forever. A rate limit
+ * also holds every new node until the wait ends, so 8 jobs do not hammer a limited provider.
+ * `settle()` is spec 6: it resolves when every view line is a summary, checked again after every fit.
  */
 export class Compactor {
   private readonly running = new Set<string>();
   private readonly failing = new Map<string, string>();
   private readonly waiters = new Set<() => void>();
+  /** Tries per failing node (reset when it builds). */
+  private readonly tries = new Map<string, number>();
+  /** After a rate limit: no new node starts before this time. */
+  private coolUntil = 0;
+  private coolTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Rate limits in a row, for the whole compactor (a success resets it): the shared wait grows with it. */
+  private rateTries = 0;
 
   constructor(private readonly host: PumpHost) {}
 
+  /** The wait before a cooled pump; 0 when not cooling. */
+  cooling(now = Date.now()): number {
+    return Math.max(0, this.coolUntil - now);
+  }
+
   pump(): void {
+    const cool = this.cooling();
+    if (cool > 0) {
+      // A provider said "slow down": take no new node until the wait ends (the core would mark it busy).
+      this.coolTimer ??= setTimeout(() => {
+        this.coolTimer = undefined;
+        this.pump();
+      }, cool);
+      return;
+    }
     let work: ReturnType<Memory["pump"]> = [];
     try {
       work = this.host.memory.pump();
@@ -162,6 +215,8 @@ export class Compactor {
       .then(
         () => {
           this.failing.delete(key);
+          this.tries.delete(key);
+          this.rateTries = 0;
           this.running.delete(key);
           this.host.onBuilt(l, i);
           this.pump();
@@ -172,13 +227,21 @@ export class Compactor {
             this.failing.set(key, msg);
             this.host.onFirstFailure(l, i, msg);
           }
-          void this.host.onRetryWait(Date.now() + RETRY_MS);
+          const n = (this.tries.get(key) ?? 0) + 1;
+          this.tries.set(key, n);
+          const wait = backoffMs(n, msg, this.host.retryBaseMs ?? RETRY_BASE_MS, this.host.random ?? Math.random);
+          if (isRateLimit(msg) || retryAfterMs(msg) !== undefined) {
+            this.rateTries++;
+            const shared = backoffMs(this.rateTries, msg, this.host.retryBaseMs ?? RETRY_BASE_MS, this.host.random ?? Math.random);
+            this.coolUntil = Math.max(this.coolUntil, Date.now() + Math.max(wait, shared));
+          }
+          void this.host.onRetryWait(Date.now() + wait);
           // The node stays busy during the wait, as the spec's pump does.
           setTimeout(() => {
             this.running.delete(key);
             this.host.memory.fail(l, i);
             this.pump();
-          }, RETRY_MS);
+          }, wait);
           this.wake();
         },
       );

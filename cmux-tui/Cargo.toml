@@ -323,3 +323,12 @@ lto = "off"
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# acpmux's own code does not make its tests faster when optimized (rbx,
+# 2026-10-17: cargo nextest -p acpmux 16.2 s at opt-level 1, 16.5 s at 0), but
+# optimizing it is most of the edit loop: an edit in acpmux rebuilt its test
+# library in 24.5 s at opt-level 1 and 4.4 s at 0. cmux-tui-core keeps 1: its
+# tests take 16.1 s at 1 and 30.0 s at 0. Measure a package the same way
+# before it joins this list.
+[profile.dev.package.acpmux]
+opt-level = 0

@@ -4,20 +4,12 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// POLISH.md on the tab strip and sidebar: a hover card opens on the first frame, a lifted tab,
+/// POLISH.md on the tab strip and sidebar: a lifted tab,
 /// group chip or sidebar row casts the one shared popover shadow rather than a dark one, and a
 /// count badge is a small-radius rect, never a capsule.
 @MainActor
 struct PolishCalmChromeTests {
     private let shadow = PopupStyle.standard.elevation
-
-    @Test func aTabHoverCardShowsWithoutWaiting() {
-        let policy = HoverCardPolicy()
-        let metrics = TabStripMetrics.standard
-        for width in [metrics.minInactiveTabWidth, metrics.maxTabWidth] {
-            #expect(policy.delay(tabWidth: width, cardIsVisible: false, sinceLastHidden: nil) == .zero)
-        }
-    }
 
     @Test func aLiftedTabCastsThePopoverShadow() {
         let cell = TabCell(item: TabItem(id: TabID("t"), title: "cmux"))

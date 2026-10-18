@@ -166,11 +166,14 @@ pub(crate) use browser_tab_create::{
     FrontendTabPlacement, TRANSACTION_FIELD as FRONTEND_BROWSER_TRANSACTION_FIELD,
     effect_transaction as frontend_browser_transaction, frontend_fields as frontend_browser_fields,
 };
-pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
+pub(crate) use spawn_options::{
+    CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
+};
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+pub(crate) mod agent_message_pump;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -226,7 +229,7 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
-pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
 mod notification_types;
 mod notifications;
 pub use notification_types::{
@@ -331,6 +334,7 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
+use resource_content::ensure_screen_split_public_ids;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
 };
@@ -615,14 +619,14 @@ pub struct Mux {
     journal_plugin: crate::journal_plugin::JournalPluginRuntime,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    /// Each terminal agent's last prompt (at most 200 characters), memory only: never
-    /// journaled, persisted or logged (`agent_prompts.rs`).
-    agent_prompts: Mutex<HashMap<TerminalPublicId, Arc<str>>>,
+    /// Each terminal agent's last prompt and reply, memory only (`agent_prompts.rs`).
+    agent_prompts: Mutex<agent_prompts::AgentTexts>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
+    agent_message_pump: agent_message_pump::AgentMessagePump,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -736,8 +740,7 @@ pub struct Mux {
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
     creating_inputs: creating_input::CreatingInputs,
-    /// The running reaper's event receiver, so keep and grace changes can
-    /// wake it.
+    /// The running reaper's event receiver, so keep and grace changes can wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,

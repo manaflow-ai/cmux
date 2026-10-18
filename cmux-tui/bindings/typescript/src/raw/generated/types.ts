@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -338,6 +338,15 @@ export type ConversationTabRecord = {
   "route"?: string;
 };
 
+export type ConversationTabSplit = {
+  /** The side of pane the new pane takes: right, down, left or up. */
+  "direction": string;
+  /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
+  "pane_id"?: (string) | null;
+  /** Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed. */
+  "split_id"?: (string) | null;
+};
+
 export type ConversationTextRun = {
   "length": number;
   "link"?: string;
@@ -508,6 +517,27 @@ export type HistorySearchRange = {
   "start": number;
 };
 
+export type HomeChiefState = "working" | "waiting" | "idle";
+
+export type HomeInboxKind = "chief" | "direct" | "channel" | "group";
+
+export type HomeInboxRow = {
+  "activity_at": string;
+  "chief"?: string;
+  "chief_state"?: HomeChiefState;
+  "id": string;
+  "kind": HomeInboxKind;
+  "last_author"?: string;
+  "marked_unread": boolean;
+  "muted": boolean;
+  "name": string;
+  "owner": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
+  "preview"?: string;
+  "unread": bigint;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -569,6 +599,8 @@ export type Layout = ({ "type": "leaf" } & {
   "ratio": number;
   /** Stable for the lifetime of this split node. */
   "split"?: Id;
+  /** The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it. */
+  "split_id"?: string;
   "type": "split";
 }) | ({ "type": "stack" } & {
   "expanded": Id;
@@ -1473,6 +1505,8 @@ export type Workspace = {
 
 export type WorkspaceMutationResult = {
   "changed"?: boolean;
+  /** close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed. */
+  "closed_ids"?: Array<string>;
   "generation": string;
   "index": bigint;
   "key": string;

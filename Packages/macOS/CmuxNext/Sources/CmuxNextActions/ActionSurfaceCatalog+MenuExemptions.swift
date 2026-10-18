@@ -11,7 +11,7 @@ nonisolated extension ActionSurfaceCatalog {
             // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
             // setting-driven New Tab stays in the File menu and the palette.
             "newTab.default",
-            // The pane's menu offers Show Tab Bar, and the bar's + adds a tab once it shows.
+            // The pane's menu offers Show Tab Bar (Hide Tab Bar while shown), and the bar's + adds a tab once it shows.
             "newTab.horizontal",
         ],
         .secondaryEngine: [

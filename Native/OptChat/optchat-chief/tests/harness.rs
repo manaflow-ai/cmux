@@ -2,14 +2,14 @@
 //! and cache layout), against the fake acpmux port:
 //!
 //! - Claude harnesses: each turn sets the turn preset's system prompt to the
-//!   system text plus the view up to its first cache mark (acpmux writes it
-//!   into its own preset directory), and the prompt carries the rest of the
-//!   view with ONE `cache_control` marker at the last mark, then the new
-//!   messages; the session directory then holds no CLAUDE.md (the system
+//!   system text (acpmux writes it into its own preset directory), and the
+//!   prompt carries the frozen view, then the delta after it (spec 5a: the
+//!   new messages are its last lines), with marks on the `<chat>` header,
+//!   the view's end and the delta's end; the session directory then holds no CLAUDE.md (the system
 //!   prompt carries it). A 4-breakpoint refusal reruns the turn without the
 //!   marker. An acpmux without `systemPrompt` keeps the old layout.
 //! - Any other harness (codex): no system prompt and no marker; the view
-//!   first and the new messages last, byte-stable for automatic prefix
+//!   first and the delta last, byte-stable for automatic prefix
 //!   caching, instructions in the session directory's AGENTS.md with the
 //!   memory tools as `chief zoom` / `chief date` commands.
 //! - Usage lines for both answer shapes; the harness switch.
@@ -21,9 +21,7 @@ use std::sync::{Arc, Mutex};
 use common::*;
 use optchat_chief::brain::Settings;
 use optchat_chief::fold::{Usage, answer_usage};
-use optchat_chief::prompt::{
-    CacheTtl, Mark, Tools, cached_layout_marked, claude_md, system_text, turn_blocks,
-};
+use optchat_chief::prompt::{CacheTtl, Tools, claude_md, input_blocks, input_layout, system_text};
 use optchat_core::Kind;
 use serde_json::{Value, json};
 
@@ -57,6 +55,14 @@ fn markers(blocks: &[Value]) -> Vec<usize> {
         .collect()
 }
 
+/// The log id of the user message `text`.
+fn logged(h: &Harness, text: &str) -> u64 {
+    h.log()
+        .iter()
+        .position(|(kind, t)| kind == "user" && t == text)
+        .expect("the message is logged") as u64
+}
+
 fn owner() -> Arc<Mutex<Owner>> {
     Arc::new(Mutex::new(Owner {
         summary: Some(summary()),
@@ -77,7 +83,7 @@ fn harness_with(settings: impl FnOnce(&std::path::Path) -> Settings) -> Harness 
 /// system): soak at 80935c94f722, turns during an import read nothing at all,
 /// not even the system prompt, once the view changed near its start.
 #[test]
-fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
+fn a_claude_turn_sends_the_frozen_view_then_the_delta_with_three_marks() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 1_200);
@@ -86,6 +92,7 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     h.connect();
     h.say("user_local", "where is project 7?");
     h.settle();
+    let id = logged(&h, "where is project 7?");
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.specs[0].preset.as_deref(), Some(TURN_PRESET));
     assert_eq!(
@@ -95,35 +102,32 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     assert_eq!(inner.systems[0].as_deref(), Some(claude_md(None).as_str()));
     let blocks = &inner.prompts[0];
     let t = texts(blocks);
-    assert_eq!(t[..t.len() - 1].concat(), view);
-    assert_eq!(t.len(), pieces.len() + 1);
-    assert_eq!(t.last().unwrap(), "where is project 7?");
-    // The header, then the last whole block (the piece before the
-    // incomplete one).
-    assert_eq!(markers(blocks), vec![0, t.len() - 3]);
-    assert_eq!(t[0], "<chat>\n");
+    // Spec 5a: the view (rendered at this first turn, before the message),
+    // then the delta: the new message as a line after </chat>.
+    assert_eq!(t[..pieces.len()].concat(), view);
+    let delta = t[pieces.len()..].to_vec();
     assert_eq!(
-        blocks[0]["cache_control"],
-        json!({"type": "ephemeral", "ttl": "1h"})
+        delta.last().unwrap(),
+        &format!("{id}+1|user: where is project 7?\n")
     );
-    let marked = &t[t.len() - 3];
-    assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
-    // A 1-hour mark on the Claude Code path.
-    assert_eq!(
-        blocks[t.len() - 3]["cache_control"],
-        json!({"type": "ephemeral", "ttl": "1h"})
-    );
-    let mut expected = cached_layout_marked(
+    // The header, the view's end and the delta's end, at 1 hour.
+    assert_eq!(markers(blocks), vec![0, pieces.len() - 1, t.len() - 1]);
+    for m in markers(blocks) {
+        assert_eq!(
+            blocks[m]["cache_control"],
+            json!({"type": "ephemeral", "ttl": "1h"})
+        );
+    }
+    let expected = input_layout(
         &claude_md(None),
         &view,
-        "where is project 7?",
-        Some(Mark {
-            piece: t.len() - 3,
-            ttl: CacheTtl::OneHour,
-        }),
+        &delta,
+        None,
+        &[],
+        "",
+        Some(CacheTtl::OneHour),
     )
     .blocks;
-    expected[0]["cache_control"] = json!({"type": "ephemeral", "ttl": "1h"});
     assert_eq!(*blocks, expected);
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
@@ -157,11 +161,15 @@ fn without_system_prompt_support_a_claude_turn_keeps_the_old_layout_and_its_clau
     h.connect();
     h.say("user_local", "hello");
     h.settle();
+    let id = logged(&h, "hello");
     let inner = h.agents.inner.lock().unwrap();
     assert!(inner.prompt_sets.is_empty());
     assert_eq!(inner.systems[0], None);
     assert_eq!(inner.specs[0].preset, None);
-    assert_eq!(inner.prompts[0], turn_blocks(&view, &["hello".to_owned()]));
+    assert_eq!(
+        inner.prompts[0],
+        input_blocks(&view, &[format!("{id}+1|user: hello\n")], &[], "")
+    );
     assert_eq!(
         std::fs::read_to_string(h.dir.path().join("session").join("CLAUDE.md")).unwrap(),
         claude_md(None)
@@ -184,6 +192,7 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
     h.settle();
     h.say("user_local", "two");
     h.settle();
+    let id = logged(&h, "one");
     let inner = h.agents.inner.lock().unwrap();
     assert!(
         inner.prompt_sets.is_empty(),
@@ -191,13 +200,17 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
     );
     assert_eq!(inner.specs[0].harness, "codex");
     assert_eq!(inner.specs[0].preset, None);
-    assert_eq!(inner.prompts[0], turn_blocks(&view, &["one".to_owned()]));
+    assert_eq!(
+        inner.prompts[0],
+        input_blocks(&view, &[format!("{id}+1|user: one\n")], &[], "")
+    );
     assert!(inner.prompts.iter().all(|b| markers(b).is_empty()));
-    // Automatic prefix caching: the second turn's prompt starts with the
-    // first turn's view pieces up to the first mark, byte for byte.
+    // Automatic prefix caching (spec 5a): the second turn's input starts
+    // with the first turn's whole input, block for block.
     let first = texts(&inner.prompts[0]);
     let second = texts(&inner.prompts[1]);
-    assert_eq!(first[0], second[0], "the view's first piece is unchanged");
+    assert_eq!(second[..first.len()], first[..]);
+    assert!(second.last().unwrap().ends_with("|user: two\n"));
 }
 
 #[test]
@@ -241,8 +254,8 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
             2,
             "the refused prompt, then the same turn again"
         );
-        // The header's mark and the view's.
-        assert_eq!(markers(&inner.prompts[0]).len(), 2);
+        // The header's mark, the view's end and the delta's end.
+        assert_eq!(markers(&inner.prompts[0]).len(), 3);
         assert!(markers(&inner.prompts[1]).is_empty());
         assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
         assert_ne!(
@@ -360,6 +373,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
         tools: Tools::Cli(paths.bin.join("chief").display().to_string()),
         user_env: Default::default(),
         profile_tool: false,
+        chiefs_tool: false,
     };
     optchat_chief::session_dir::write(&paths, &setup).unwrap();
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
@@ -625,9 +639,13 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
+    // Only acpmux's cmux MCP server in a turn (cx-4a5w2).
     assert_eq!(
         bare.env,
-        std::collections::BTreeMap::from([("CODEX_PROMPT_CACHE_KEY".to_owned(), key)])
+        std::collections::BTreeMap::from([
+            ("ACPMUX_AGENT_TOOL_SERVERS".to_owned(), "cmux".to_owned()),
+            ("CODEX_PROMPT_CACHE_KEY".to_owned(), key),
+        ])
     );
     let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, false, "SYS").unwrap();
     assert_eq!(claude.system_prompt.as_deref(), Some("SYS"));
@@ -766,6 +784,7 @@ fn the_session_settings_carry_the_users_settings_env() {
         tools: Tools::Mcp,
         user_env,
         profile_tool: false,
+        chiefs_tool: false,
     };
     let settings = settings_json(&setup, &paths, &[]);
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
@@ -795,6 +814,7 @@ fn the_session_settings_files_are_private_and_the_copy_is_gated() {
         tools: Tools::Mcp,
         user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
         profile_tool: false,
+        chiefs_tool: false,
     };
     write(&paths, &setup).unwrap();
     for name in ["settings.json", "settings.local.json"] {
@@ -841,7 +861,7 @@ fn turns_run_at_medium_effort_on_both_engines() {
 /// small view had no marker, and each turn wrote the whole view again
 /// (~8,000 tokens) while 90% of it was unchanged.
 #[test]
-fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary() {
+fn the_next_turn_repeats_the_whole_last_input_and_marks_its_ends_within_the_lookback() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 120);
@@ -852,41 +872,23 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 2);
-    // (offset of each block end, the text before it) over the view blocks.
-    let ends = |blocks: &[Value]| -> Vec<(usize, String)> {
-        let t = texts(blocks);
-        let mut acc = String::new();
-        t[..t.len() - 1]
-            .iter()
-            .map(|piece| {
-                acc.push_str(piece);
-                (acc.len(), acc.clone())
-            })
-            .collect()
-    };
-    let first = &inner.prompts[0];
-    let marked = markers(first);
-    // The header's mark, then the view's.
-    assert_eq!(marked.len(), 2, "two markers of ours in a small view too");
-    assert_eq!(marked[0], 0);
-    let at = marked[1];
-    assert!(
-        at + 1 < first.len() - 1,
-        "the marker leaves the view's newest lines out"
+    let (a, b) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    // Spec 5a: nothing before the last delta's end changes, so the first
+    // turn's input is a prefix of the second's, block for block, and the
+    // provider reads it from the first turn's last mark.
+    assert_eq!(b[..a.len()], a[..]);
+    let (ma, mb) = (markers(&inner.prompts[0]), markers(&inner.prompts[1]));
+    assert_eq!(
+        ma.len(),
+        3,
+        "the header, the view's end and the delta's end"
     );
-    let (offset, prefix) = ends(first)[at].clone();
-    assert!(
-        prefix.ends_with('\n'),
-        "the marked piece ends at a line end"
-    );
-    let second = ends(&inner.prompts[1]);
-    assert!(
-        second.iter().any(|(o, p)| *o == offset && *p == prefix),
-        "the next turn has a block boundary at the marker with the same bytes before it"
-    );
-    // And its own marker is at or after the first turn's.
-    let next = *markers(&inner.prompts[1]).last().unwrap();
-    assert!(second[next].0 >= offset);
+    assert_eq!(ma[2], a.len() - 1, "the first input's end is marked");
+    // The second turn marks the same view end, the first turn's end (the
+    // exact entry it wrote: Bedrock has no look-back) and its own end.
+    assert_eq!(mb.len(), 3, "marks {ma:?} then {mb:?}");
+    assert_eq!(mb[..2], ma[1..], "the view's end and the first input's end");
+    assert_eq!(mb[2], b.len() - 1, "and its own end");
 }
 
 /// The Chief's own codex (the cmux codex fork, which reads the Chief's
@@ -1026,4 +1028,33 @@ fn the_compactor_follows_the_engines_claude_harness() {
             "set {set:?}, engine.json harness {engine_harness:?}, host turn {turn}"
         );
     }
+}
+
+/// Spec 5a.2: a block once sent is sent again byte for byte. A user entry
+/// logged right after a turn's messages (a turn that logged no reply, then
+/// an approval answer or a resume note) must not join the last turn's last
+/// block: the next turn's input starts with the whole last input.
+#[test]
+fn a_user_entry_right_after_the_last_turns_messages_keeps_its_input_a_prefix() {
+    let silent: Script = Box::new(|_, _| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ]
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(dir.path());
+    let mut h = Harness::configured(dir, silent, owner(), s, Arc::new(|_: &str| {}));
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    h.chat.append(Kind::User, "yes").unwrap();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 2);
+    let (a, b) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    assert_eq!(b[..a.len()], a[..], "the first turn's input is a prefix");
 }

@@ -24,6 +24,9 @@ name: cmux-tui artifacts
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
 #   cmux-tui/tree/<tree-key>/source.json           the commit and run that built it
+#   cmux-tui/tree/<tree-key>/cmux-tui-acpmux-<musl or darwin target>(.sha256)
+#                                                  acpmux for GPUI, listed in completion.json
+#                                                  (trees published after hq-1f only)
 #   cmux-tui/tree/<tree-key>/cmux-tui-x86_64-pc-windows-gnu.exe(.sha256)  the
 #                                                  Windows daemon (unsigned) for GPUI;
 #                                                  completion-windows.json names its commit
@@ -931,6 +934,15 @@ jobs:
       # a later republication (cmux-tui-pin-* push or dispatch), and
       # pin-cmux-tui.sh fetch on Windows fails fast until then.
       windows_optional: true
+      # acpmux for GPUI on Windows (cx-ephhf): cmux-tui-acpmux-x86_64-pc-windows-gnu.exe
+      # in cmux-tui-windows/<sha>/ and in the tree beside the Windows daemon
+      # (an optional Windows companion, attested in completion-windows.json),
+      # never in cmux-tui/<sha>/. Its own optional job: a failed acpmux build
+      # publishes the Windows daemon without it.
+      # Also for pull_request_target runs (chief 2026-10-17): publish-pr-tree
+      # publishes the Windows daemon and acpmux, so a tree a PR publishes
+      # first is complete for Windows too.
+      windows_acpmux: true
       # Same-repository PRs (pull_request_target) publish the tree that their
       # same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -1083,7 +1095,12 @@ jobs:
     # these tests gate the nightly-next promotion, so they never wait for the
     # shared side pool. Clearing the variable rolls it back. The fork gate
     # stays first (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+    # vars.CI_NEXT_DAEMON_POOL, when set, takes that same slot ahead of the
+    # promote pool. One mini serves CI_NEXT_PROMOTE_POOL, so these tests
+    # queued an hour behind the Release compile and promotion stalled
+    # (2026-10-15); a separate pool keeps promotion's two halves from queuing
+    # behind each other. Clearing it restores the shared promote pool.
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1280,7 +1297,8 @@ jobs:
       # The Windows build artifact (cmux-tui-x86_64-pc-windows-gnu) carries
       # the hook and both relays too. Only the daemon and its per-terminal
       # host (cmux-tui-host, cx-1vlzr: the daemon spawns it beside itself)
-      # are published, and in their own prefix (see the build job).
+      # are published, and in their own prefix (see the build job), with
+      # acpmux (its own optional artifact, cx-ephhf) when that build made it.
       - name: Move the Windows daemon to its own prefix
         id: windows
         run: |
@@ -1288,6 +1306,9 @@ jobs:
           if [[ ! -f assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe ]]; then
             echo "::warning title=no Windows daemon::the optional Windows build made no cmux-tui-x86_64-pc-windows-gnu.exe; publishing without cmux-tui-windows/$GITHUB_SHA"
             echo "present=false" >> "$GITHUB_OUTPUT"
+            # The acpmux job (cx-ephhf) is separate and may have succeeded:
+            # no Windows file ever goes to cmux-tui/<sha>/.
+            rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
             exit 0
           fi
           echo "present=true" >> "$GITHUB_OUTPUT"
@@ -1300,6 +1321,11 @@ jobs:
             exit 1
           fi
           mv assets/cmux-tui/cmux-tui-host-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          if [[ -f assets/cmux-tui/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe ]]; then
+            mv assets/cmux-tui/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          else
+            echo "::warning title=no Windows acpmux::the optional Windows acpmux build made no cmux-tui-acpmux-x86_64-pc-windows-gnu.exe; cmux-tui-windows/$GITHUB_SHA has no acpmux"
+          fi
           # The rest of the Windows build: the hook and both relays.
           rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
           ls assets/cmux-tui assets/cmux-tui-windows
@@ -1557,6 +1583,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1810,6 +1837,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1909,6 +1937,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1954,6 +1983,7 @@ jobs:
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
             python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
@@ -2332,6 +2362,23 @@ jobs:
           PY
             source_args=(--source-file tree/source.json --publish-source)
           fi
+          # acpmux for Linux and macOS (hq-1f): each one the source commit's
+          # manifest attests, as that commit published it (cmux-tui/<commit>/,
+          # the bytes its manifest names). completion.json lists them, except
+          # in a republication of a tree whose completion.json exists: that
+          # file is write-once, so the helper lists its names again and a tree
+          # published before acpmux gets none.
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
+            if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) is not None else 1)' manifest.json "$asset"; then
+              fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
+            else
+              echo "::warning title=tree without $asset::the manifest of $source_commit attests no $asset; tree $KEY is published without it"
+            fi
+          done
+          completion_args=()
+          if fetch "$base/completion.json" tree/existing-completion.json 2>/dev/null; then
+            completion_args=(--existing-completion-file tree/existing-completion.json)
+          fi
           # The Windows daemon has its own attestation (completion-windows.json)
           # and commit prefix (cmux-tui-windows/<commit>/): the build of the
           # commit an earlier publication of this tree named there; else the
@@ -2359,7 +2406,7 @@ jobs:
             # Optional (cx-1vlzr host): only when that commit's manifest
             # attests it; a Windows build from before it has none.
             for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
-              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) else 1)' tree/windows-manifest.json "$asset"; then
+              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) is not None else 1)' tree/windows-manifest.json "$asset"; then
                 fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
               fi
             done
@@ -2380,6 +2427,7 @@ jobs:
             --manifest-file manifest.json \
             "${source_args[@]}" \
             "${windows_args[@]}" \
+            "${completion_args[@]}" \
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
@@ -2414,12 +2462,25 @@ jobs:
           verify_tree() {
           local base="https://files.cmux.com/cmux-tui/tree/$1" name published_sha
           names="cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-unknown-linux-musl cmux-tui-aarch64-unknown-linux-musl"
-          # The Windows daemon is optional: verified when the tree has it.
-          if curl -fsSL --proto '=https' -o /dev/null "$base/completion-windows.json?verify=$GITHUB_RUN_ID-check"; then
+          # The Windows daemon is optional: verified when the tree has it, with
+          # each optional Windows companion (host, acpmux) its completion attests.
+          if curl -fsSL --proto '=https' -o completion-windows.json "$base/completion-windows.json?verify=$GITHUB_RUN_ID-check"; then
             names="$names cmux-tui-x86_64-pc-windows-gnu.exe"
+            for name in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+              if python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])).get("binaries", {}) else 1)' completion-windows.json "$name"; then
+                names="$names $name"
+              fi
+            done
           else
             echo "::warning title=tree without Windows::$base has no completion-windows.json"
           fi
+          # acpmux for Linux and macOS (hq-1f): each one completion.json lists.
+          curl -fsSL --proto '=https' -o completion.json "$base/completion.json?verify=$GITHUB_RUN_ID-check"
+          for name in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
+            if python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])).get("binaries", {}) else 1)' completion.json "$name"; then
+              names="$names $name"
+            fi
+          done
           for name in $names; do
             curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID-check"
             published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID-check" | awk 'NR==1{print $1}')"
@@ -2588,6 +2649,36 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: assets/tree
 
+      # acpmux for GPUI (hq-1f): the macOS x86_64 build carries
+      # cmux-tui-acpmux-x86_64-apple-darwin; the three downloads above carry
+      # the other three. A PR tree lists them in its write-once completion.json
+      # like a push tree: a tree a PR publishes first never gets them later.
+      # Optional: without it the tree is published without that one acpmux.
+      - name: Download the macOS x86_64 cmux-tui
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-apple-darwin
+          path: assets/tree
+
+      # The Windows daemon, its host and acpmux (chief 2026-10-17): a push run
+      # of the same key finds the tree ready and builds nothing, so a PR tree
+      # without them never got completion-windows.json. Optional, as in
+      # publish-tree: without the daemon the tree has no Windows files.
+      - name: Download the Windows x86_64 cmux-tui
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: assets/windows
+
+      - name: Download the Windows x86_64 acpmux
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-acpmux-x86_64-pc-windows-gnu
+          path: assets/windows
+
       - name: Publish the PR tree with the trusted helper
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -2630,9 +2721,29 @@ jobs:
           else
             source_args=(--source-file tree/source.json --publish-source)
           fi
-          python3 - "$source_commit" "$KEY" "$helper" > manifest.json.tmp <<'PY'
+          # acpmux for GPUI (hq-1f), from the downloaded build. A base helper
+          # from before it lists none. A repair of an earlier publication
+          # (source.json exists) uses that commit's published acpmux, and the
+          # helper keeps the names of an existing completion.json (write-once).
+          acpmux_names="$(python3 "$helper" --list-acpmux-companions 2>/dev/null || true)"
+          completion_args=()
+          if [[ -n "$acpmux_names" ]]; then
+            if [[ "${source_args[*]}" != *"--publish-source"* ]]; then
+              for asset in $acpmux_names; do
+                fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset" 2>/dev/null \
+                  || rm -f "assets/tree/$asset"
+              done
+            fi
+            if fetch "$base/completion.json" tree/existing-completion.json 2>/dev/null; then
+              completion_args=(--existing-completion-file tree/existing-completion.json)
+            fi
+            for asset in $acpmux_names; do
+              [[ -f "assets/tree/$asset" ]] || echo "::warning title=tree without $asset::this run has no $asset; PR tree $KEY is published without it"
+            done
+          fi
+          python3 - "$source_commit" "$KEY" "$helper" "$acpmux_names" > manifest.json.tmp <<'PY'
           import hashlib, json, pathlib, subprocess, sys
-          commit, key, helper = sys.argv[1:]
+          commit, key, helper, acpmux_names = sys.argv[1:]
           names = subprocess.check_output([sys.executable, helper, "--list-companions"], text=True).split()
           binaries = {}
           for name in names:
@@ -2640,9 +2751,41 @@ jobs:
               if not path.is_file():
                   raise SystemExit(f"missing opaque build companion {name}; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication")
               binaries[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+          # acpmux (hq-1f): each one this run has; the helper publishes them.
+          for name in acpmux_names.split():
+              path = pathlib.Path("assets/tree") / name
+              if path.is_file():
+                  binaries[name] = hashlib.sha256(path.read_bytes()).hexdigest()
           print(json.dumps({"commit": commit, "key": key, "binaries": binaries}, indent=2))
           PY
           mv manifest.json.tmp manifest.json
+          # Windows (chief 2026-10-17): this run's Windows daemon, with its
+          # host and acpmux when built, attested in completion-windows.json by
+          # this run's merge commit. A tree that already has
+          # completion-windows.json keeps it (write-once): no Windows change.
+          windows_args=()
+          windows_names="$(python3 "$helper" --list-windows-companions)"
+          windows_optional="$(python3 "$helper" --list-windows-optional-companions 2>/dev/null || true)"
+          if fetch "$base/completion-windows.json" tree/existing-completion-windows.json 2>/dev/null; then
+            echo "Tree $KEY already has completion-windows.json; its Windows files stay as they are."
+          elif python3 - "$SOURCE_COMMIT" "$windows_names" "$windows_optional" > tree/windows-manifest.json <<'PY'
+          import hashlib, json, pathlib, shutil, sys
+          commit, required, optional = sys.argv[1:]
+          binaries = {}
+          for name in required.split() + optional.split():
+              path = pathlib.Path("assets/windows") / name
+              if path.is_file():
+                  shutil.copyfile(path, pathlib.Path("assets/tree") / name)
+                  binaries[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+              elif name in required.split():
+                  sys.exit(f"no {name}")
+          print(json.dumps({"commit": commit, "binaries": binaries}, indent=2))
+          PY
+          then
+            windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$SOURCE_COMMIT")
+          else
+            echo "::warning title=PR tree without Windows::this run built no Windows daemon; PR tree $KEY is published without Windows files"
+          fi
           if [[ "${source_args[*]}" == *"--publish-source"* ]]; then
             python3 - "$KEY" "$SOURCE_COMMIT" "$tui_tree" "$ghostty_commit" "$ghostty_next_commit" manifest.json > tree/source.json <<'PY'
           import json, os, sys
@@ -2669,6 +2812,8 @@ jobs:
             --assets-dir assets/tree \
             --manifest-file manifest.json \
             "${source_args[@]}" \
+            "${completion_args[@]}" \
+            "${windows_args[@]}" \
             --uploader "$uploader" \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries

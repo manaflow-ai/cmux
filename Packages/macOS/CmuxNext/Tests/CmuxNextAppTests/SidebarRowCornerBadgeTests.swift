@@ -5,27 +5,32 @@ import Foundation
 import Testing
 
 /// Leo and Lawrence 2026-10-14: no count numbers on NEXT sidebar rows ("maybe we can do unreads
-/// like this", T3 Code's thread list). A row leads with its harness logo (an agent row) or its
-/// kind icon (terminal, browser), and its state is one small badge on that icon's bottom-right
-/// corner, avatar-presence style: a blue dot when unread, a grey ring while working, the waiting
+/// like this", T3 Code's thread list). A row's state is one small badge, avatar-presence style, on
+/// its icon's bottom-right corner when the row has the user's icon or a favicon; a row without one
+/// is text only (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence: no kind icon or agent logo) and draws
+/// that one glyph in the trailing slot: a blue dot when unread, a grey ring while working, the waiting
 /// and error glyphs when it needs the user, the most urgent first. The right side shows the dim
 /// time since the last change. The count reads in the row's hover card and its accessibility label.
 @MainActor @Suite(.serialized) struct SidebarRowCornerBadgeTests {
     private static let agent = WorkspaceID("ws-agent")
     private static let terminal = WorkspaceID("ws-terminal")
     private static let failing = WorkspaceID("ws-failing")
+    private static let custom = WorkspaceID("ws-custom")
     private static let now = Date()
 
     private static func sidebar(_ style: SidebarRowBadgeStyle? = nil) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let agentRow = SidebarWorkspace(id: agent, title: "cmux-next", lastActivity: now.addingTimeInterval(-180),
-                                        kind: .harness, unread: .count(1), activity: .success, agentBrand: "claude")
+                                        kind: .harness, kindBrand: "claude", unread: .count(1), activity: .success, agentBrand: "claude")
         let terminalRow = SidebarWorkspace(id: terminal, title: "workspace-1", lastActivity: now.addingTimeInterval(-60),
                                            kind: .terminal, unread: .count(2))
         let failingRow = SidebarWorkspace(id: failing, title: "api", lastActivity: now.addingTimeInterval(-60),
                                           kind: .terminal, unread: .count(3), activity: .error)
+        let customRow = SidebarWorkspace(id: custom, title: "notes", lastActivity: now.addingTimeInterval(-60),
+                                         icon: .emoji("🦊"), kind: .terminal, unread: .count(1))
         let model = SidebarModel(sections: [
-            SidebarSection(kind: .machine(machine), nodes: [.workspace(agentRow), .workspace(terminalRow), .workspace(failingRow)]),
+            SidebarSection(kind: .machine(machine), nodes: [.workspace(agentRow), .workspace(terminalRow), .workspace(failingRow),
+                                                            .workspace(customRow)]),
         ])
         model.rowBadgeStyle = style
         let sidebar = SidebarView(model: model, design: DesignSettings())
@@ -53,21 +58,27 @@ import Testing
         return found
     }
 
-    /// The badge on the leading icon's bottom-right corner: a status glyph whose center sits right
-    /// of and below the icon's center, overlapping the icon.
+    /// The corner badge: on a row with an icon, a status glyph whose center sits right of and below
+    /// the icon's center, overlapping the icon; on a text-only row, one glyph right of the title.
     private static func cornerBadge(_ row: WorkspaceRowView) throws -> StatusIndicatorView {
         let icon = row.icon.frame
         let badge = visible(StatusIndicatorView.self, in: row).first { _, frame in
-            frame.intersects(icon) && frame.midX > icon.midX && (row.isFlipped ? frame.midY > icon.midY : frame.midY < icon.midY)
+            if row.icon.isHidden { return frame.minX > row.title.frame.minX }
+            return frame.intersects(icon) && frame.midX > icon.midX && (row.isFlipped ? frame.midY > icon.midY : frame.midY < icon.midY)
         }
-        return try #require(badge?.view, "no badge on the icon's corner: icon \(icon)")
+        return try #require(badge?.view, "no corner badge: icon \(icon) hidden \(row.icon.isHidden)")
     }
 
-    @Test func rowsLeadWithTheirLogoOrKindIconAndDrawNoCountNumber() throws {
+    @Test func rowsAreTextOnlyUnlessTheUserSetAnIconAndDrawNoCountNumber() throws {
         let sidebar = Self.sidebar()
-        for id in [Self.agent, Self.terminal, Self.failing] {
+        for id in [Self.agent, Self.terminal, Self.failing, Self.custom] {
             let row = try Self.row(sidebar, id)
-            #expect(!row.icon.isHidden && row.icon.frame.width > 0, "\(id): no leading icon")
+            if id == Self.custom {
+                #expect(!row.icon.isHidden && row.icon.frame.width > 0, "\(id): the user's icon does not draw")
+            } else {
+                #expect(row.icon.isHidden || row.icon.frame.width == 0, "\(id): a kind icon or agent logo draws")
+                #expect(row.debugIcon == nil, "\(id): debug icon \(row.debugIcon ?? "")")
+            }
             #expect(Self.visible(UnreadBadgeView.self, in: row).isEmpty, "\(id): a count badge still draws")
             #expect(!row.timeLabel.isHidden && !row.timeLabel.stringValue.isEmpty, "\(id): no time on the right")
             #expect(row.timeLabel.frame.minX > row.title.frame.minX, "\(id): the time is not on the right")
@@ -85,6 +96,7 @@ import Testing
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.agent)).state == .success, "unread: the blue dot")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.terminal)).state == .success, "unread: the blue dot")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.failing)).state == .error, "an error outranks unread")
+        #expect(try Self.cornerBadge(Self.row(sidebar, Self.custom)).state == .success, "on the user's icon: the blue dot")
     }
 
     @Test func theCountReadsInTheHoverCardAndTheLabel() throws {

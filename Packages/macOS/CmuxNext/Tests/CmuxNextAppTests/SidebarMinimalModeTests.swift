@@ -27,7 +27,7 @@ struct SidebarMinimalModeTests {
         mirror.workspaceStatus[reported] = WorkspaceStatus(
             workspaceID: reported, entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: "hammer", color: "#ff8800"),
                                          WorkspaceStatus.Entry(key: "tests", text: "412 passed")])
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+        store.session.apply(.snapshot(mirror), in: store)
         let mapped = SidebarMapping.shared.sections(store.sidebarSections,
                                                     machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))
         let section = mapped[0]

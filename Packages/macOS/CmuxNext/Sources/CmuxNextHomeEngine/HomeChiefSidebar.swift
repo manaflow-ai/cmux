@@ -17,7 +17,9 @@ import CmuxNextCompat
 @MainActor
 public final class HomeChiefSidebar: NSView {
     public static let width: CGFloat = 280
-    private let muxHome: URL
+    /// The shown Chief's mux home (its avatar, traces, the brain line); `use` moves it.
+    private var muxHome: URL
+    private let brain = ThemedLabel(wrappingLabelWithString: "")
     private let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
@@ -102,7 +104,7 @@ public final class HomeChiefSidebar: NSView {
         replies.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         replies.ink = .secondary
         stack.addArrangedSubview(replies)
-        let brain = ThemedLabel(wrappingLabelWithString: String(format: HomeEngineStrings.brainFormat, muxHome.path))
+        brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         brain.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         brain.ink = .secondary
         stack.addArrangedSubview(brain)
@@ -163,6 +165,11 @@ public final class HomeChiefSidebar: NSView {
     @discardableResult
     public func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
         self.source = source
+        // A named Chief's panel keeps its own files (cx-327wl), never the default's.
+        if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
+            muxHome = files.muxHome
+            brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
+        }
         for view in localViews { view.isHidden = !source.isLocal }
         place.isHidden = source.isLocal
         place.stringValue = source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? ""
@@ -207,12 +214,14 @@ public final class HomeChiefSidebar: NSView {
     @discardableResult
     public func refresh() -> Task<Void, Never> {
         let source = source
+        let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown
         return Task { [weak self] in
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
-            guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place else { return }
+            // A read of the Chief shown before (another conversation) is not shown.
+            guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place, muxHome == home else { return }
             switch result {
             case .success(let snapshot): show(snapshot)
             case .failure(let error): say(error, readable: false)
@@ -222,16 +231,19 @@ public final class HomeChiefSidebar: NSView {
 
     /// Sets (nil: clears) one engine field on the brain, then shows the result.
     @discardableResult
-    func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
+    public func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
         let source = source
+        let home = muxHome
         // task-owner: one write off the main actor; ends when its result is shown
         return Task { [weak self] in
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.set(key, value)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
+            // A pick for the Chief shown before (another conversation) is not shown.
+            guard let self, muxHome == home else { return }
             switch result {
-            case .success(let snapshot): self?.show(snapshot)
-            case .failure(let error): self?.say(error, readable: true)
+            case .success(let snapshot): show(snapshot)
+            case .failure(let error): say(error, readable: true)
             }
         }
     }

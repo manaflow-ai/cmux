@@ -447,10 +447,12 @@ export function ModelPicker(props: ModelPickerProps) {
       if (!root.current?.contains(event.target as Node)) close(false);
     };
     const blur = () => close(false);
-    document.addEventListener("pointerdown", away);
+    // In the capture phase, as Base UI's menus close: a press outside only closes the picker, and
+    // nothing under it sees the press (menuPressGuard.ts).
+    document.addEventListener("pointerdown", away, true);
     window.addEventListener("blur", blur);
     return () => {
-      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
@@ -691,7 +693,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           // The anchor's room above or below the chip, between the picker's minimum and maximum
@@ -777,7 +779,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     <AgentMark agent={entry.mark ?? entry.id} size={16} />
                   ) : (
                     // A harness without a mark: its initial, never an empty tab.
-                    <span aria-hidden="true" className="text-control font-medium">
+                    <span aria-hidden="true" className="text-control font-semibold">
                       {entry.name.trim().charAt(0).toUpperCase()}
                     </span>
                   )}
@@ -794,7 +796,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 type="search"
                 // The picker opens with focus here; its row shows the focus, not a ring inside it.
                 data-focus-ring="none"
-                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-body text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
                 aria-label={searchText}
                 aria-autocomplete="list"
                 aria-controls={`${menuId}-models`}

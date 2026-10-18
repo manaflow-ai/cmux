@@ -67,7 +67,7 @@ if sys.argv[1:2] == ["run"]:
     while True:
         conn = s.accept()[0]
         threading.Thread(target=serve, args=(conn,), daemon=True).start()
-elif sys.argv[1:2] == ["shutdown"]:
+elif sys.argv[1:] == ["shutdown", "--end-agents"]:  # the brain ends its agents (cx-qryd0)
     record("shutdown")
     os.kill(int(open(home + "/run.pid").read()), signal.SIGTERM)
 "#;

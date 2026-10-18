@@ -12,7 +12,7 @@ final class WorkspaceStatusView: NSView {
     private var status = SidebarWorkspaceStatus()
     private var reservesBar = false
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
 
     /// `reservesBar`: the row has a progress bar, drawn between the log line and the label.
@@ -20,7 +20,7 @@ final class WorkspaceStatusView: NSView {
         self.status = status
         self.reservesBar = reservesBar
         while labels.count < status.lines.count {
-            let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+            let label = SidebarRowView.attributedLabel(font: SidebarStyle.subtitleFont)
             labels.append(label)
             addSubview(label)
         }

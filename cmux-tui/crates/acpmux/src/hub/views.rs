@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// The tag naming the session whose agent started this one (`Hub::spawned_by`).
+pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
@@ -159,6 +162,20 @@ impl Hub {
         enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy))
     }
 
+    /// The session whose agent started this one: its `spawnedBy` tag, which the acpmux client
+    /// sets after a `session/new` sent from inside a session (the caller's `ACPMUX_SESSION_ID`).
+    /// A child lists under it, never on its own in a chat list. Kept only while that session is
+    /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
+    /// parent nobody sees never hides a chat.
+    pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
+        let parent = live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned();
+        let session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
+        let tags = live_tags(&session.meta());
+        let listed = tags.get(SPAWNED_BY_TAG).is_none() && tags.get("archived").is_none();
+        (parent != m.id && listed).then_some(parent)
+    }
+
     pub fn session_summary(&self, session: &Session) -> Value {
         use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
         let m = session.meta();
@@ -179,6 +196,7 @@ impl Hub {
             parent_id: m.parent_id.clone(),
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
+            spawned_by: self.spawned_by(&m),
             title: m.title.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
@@ -230,6 +248,8 @@ impl Hub {
             // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
             tools: m.tools.rows.iter().map(Into::into).collect(),
             tools_mutable: m.tools.mutable,
+            // The MCP servers the harness reported loaded (cx-ncc.105), never guessed from config.
+            mcp_servers: crate::protocol::session::McpServerSummary::loaded(&m.tools.rows),
             tags: live_tags(&m),
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
@@ -240,9 +260,18 @@ impl Hub {
             // Set from the summary's own fields by `decide`.
             indicator: None,
             lane: None,
+            lifecycle_receipt: None,
             peer: None,
         };
+        let receipt = SessionReceipt::new(
+            LOCAL_HOST_ID,
+            m.id.clone(),
+            m.agent_session_id.clone(),
+            self.started_at,
+        );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
+        summary["sessionReceipt"] = receipt.to_value();
         decide(&mut summary);
         summary
     }
@@ -261,6 +290,8 @@ impl Hub {
         // The folder's branch and HEAD when the session started (`git_state.rs`).
         v["gitBranch"] = json!(m.git_branch);
         v["gitHead"] = json!(m.git_head);
+        // What the session's turns cost together (`turn_usage.rs`).
+        v["totals"] = json!(m.totals);
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());

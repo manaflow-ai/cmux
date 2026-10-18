@@ -287,6 +287,14 @@ export class SettingsStore {
     else await Promise.all([this.refresh(), this.refreshHost()]);
   }
 
+  /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
+   * lists as not downloaded. macOS says nothing when it finishes, so the lists are read again
+   * once the person is back in this window. */
+  async openWallpaperSettings(): Promise<void> {
+    window.addEventListener("focus", () => void this.refreshHost(), { once: true });
+    await this.request("cmux.settings.backdrop.wallpaper_settings", {});
+  }
+
   /** The workspace `id`'s own background, or null when the host has none or the workspace is gone. */
   async workspaceBackground(id: string): Promise<WorkspaceBackground | null> {
     const reply = await this.request("cmux.settings.backdrop.workspace", { workspace: id });

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
+/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
 
 
 import type * as T from "./types.js";
@@ -109,6 +109,13 @@ export type CloudConversationChangedEvent = { event: "cloud-conversation-changed
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & {
+  "account"?: string;
+  "conversation": string;
+  "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
   "account"?: string;
   "conversation": string;
@@ -212,6 +219,12 @@ export type ConversationInboxChangedEvent = { event: "conversation-inbox-changed
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationLiveEvent = { event: "conversation-live" } & {
+  "conversation": string;
+  "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationRunChangedEvent = { event: "conversation-run-changed" } & {
   "conversation": string;
   "run": (T.JsonValue) | null;
@@ -287,7 +300,12 @@ export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
+  "active_pane"?: T.Id;
+  "layout"?: T.Layout;
   "screen": T.Id;
+  "transaction"?: string;
+  "workspace"?: T.Id;
+  "zoomed_pane"?: (T.Id) | null;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -680,6 +698,7 @@ export type KnownCmuxEvent =
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
+  | CloudConversationLiveEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudInboxChangedEvent
@@ -693,6 +712,7 @@ export type KnownCmuxEvent =
   | ConversationChangedEvent
   | ConversationDraftEvent
   | ConversationInboxChangedEvent
+  | ConversationLiveEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
@@ -765,6 +785,7 @@ export type KnownSubscribeEvent =
   | ClientChangedEvent
   | ClientDetachedEvent
   | CloudConversationChangedEvent
+  | CloudConversationLiveEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudInboxChangedEvent
@@ -777,6 +798,7 @@ export type KnownSubscribeEvent =
   | ConversationChangedEvent
   | ConversationDraftEvent
   | ConversationInboxChangedEvent
+  | ConversationLiveEvent
   | ConversationRunChangedEvent
   | ConversationTypingEvent
   | EmptyEvent

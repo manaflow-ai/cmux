@@ -129,7 +129,7 @@ fn run_reading(
     };
     let native = payload()?;
     // Read before the journal event redacts it; it travels beside the event, never inside it.
-    let live_prompt = cmux_tui_core::agent_hook_live_prompt(&args.native_event, &native);
+    let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
     let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
@@ -138,7 +138,7 @@ fn run_reading(
     )?;
     cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
     let event = serde_json::to_value(ingress)?;
-    let (request_id, encoded) = encode_request(event, live_prompt.as_deref())?;
+    let (request_id, encoded) = encode_request(event, live)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => {}
@@ -381,13 +381,17 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
-/// `live_prompt` is a turn-start hook's prompt for the hover card: the daemon keeps it in
-/// memory only (`session.journal.append` `live_prompt`), never in the journal.
-fn encode_request(event: Value, live_prompt: Option<&str>) -> anyhow::Result<(String, Vec<u8>)> {
+/// `live` holds a turn-start hook's prompt for the hover card and a finished turn's last
+/// message for its banner (`agent_hook_live_fields`): the daemon keeps them in memory only
+/// (`session.journal.append` `live_prompt`, `live_reply`), never in the journal.
+fn encode_request(
+    event: Value,
+    live: serde_json::Map<String, Value>,
+) -> anyhow::Result<(String, Vec<u8>)> {
     let (request_id, idempotency_key) = random_identifiers()?;
     let mut params = json!({"machine":"current","session":"current","event":event});
-    if let Some(prompt) = live_prompt {
-        params["live_prompt"] = json!(prompt);
+    if let Some(object) = params.as_object_mut() {
+        object.extend(live);
     }
     let request = json!({
         "protocol":"cmux.protocol/2",

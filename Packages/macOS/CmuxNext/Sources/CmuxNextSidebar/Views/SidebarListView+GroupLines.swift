@@ -13,7 +13,7 @@ struct SidebarGroupLine: Equatable {
 // under the rows (SidebarGroupLineViews), from under the header bar to the
 // end of the last member row. Per-row pieces left gaps at the row spacing and
 // under the header (cx-qno.17 proof), so the line is drawn per group.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The list's lines. Rows a drag hides (`suppressed`) have none: a lifted
     /// group's line goes with its card (SidebarListLift). `current` places
     /// each row where its view is now, the animation's start, so a new line
@@ -26,9 +26,10 @@ extension SidebarListView {
 }
 
 extension SidebarGroupLine {
-    /// Every open group in `rows` with shown members: its line from the
-    /// header's middle (the opaque header bar covers the top) to the last
-    /// member row's bottom, rounded off just above it, in the members'
+    /// Every open group in `rows` with shown members: its line from just
+    /// under the header bar, rounded off there (cg-design-judge 2026-10-14: a
+    /// line under the bar cut its rounded corner), to the last member row's
+    /// bottom, rounded off just above it, in the members'
     /// gutter (`SidebarStyle.groupGutter`), so no row fill covers it
     /// (cx-q5jw: straight and unbroken, Edge style). `frame` places a row.
     static func lines(_ rows: [SidebarRow], colors: [GroupID: SidebarGroup], frame: (SidebarRow) -> CGRect) -> [SidebarGroupLine] {
@@ -37,7 +38,7 @@ extension SidebarGroupLine {
         for row in rows {
             switch row.key {
             case let .group(id): headers.append((id, row))
-            case .workspace, .tab: if let group = row.group { last[group] = row }
+            case .workspace, .tab, .item: if let group = row.group { last[group] = row }
             default: break
             }
         }
@@ -45,7 +46,8 @@ extension SidebarGroupLine {
         return headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
-            let top = head.midY, bottom = tail.maxY - Metrics.space1
+            let bar = header.isThinHeader ? 0 : SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
+            let top = head.midY + bar / 2 + (bar > 0 ? Metrics.space1 : 0), bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
             return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))

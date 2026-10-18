@@ -19,6 +19,9 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var grid: TerminalGridSize?
     /// Grid the view's size fits: `grid` lags it until the owner announces the view's report.
     public var fitGrid: TerminalGridSize? = nil
+    /// Grid of the terminal Ghostty's last frame drew: the reflow preview
+    /// (``fitGrid``) during a resize the owner has not announced yet, else ``grid``.
+    public var drawnGrid: TerminalGridSize? = nil
     /// The live surface view is installed in the session's host view.
     public var surfaceInHost: Bool
     /// The surface view is in a window.
@@ -61,6 +64,11 @@ extension TerminalSession {
             fitGrid: surface.surface.map { surface in
                 let size = ghostty_surface_size(surface)
                 return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+            },
+            drawnGrid: surface.surface.flatMap { surface in
+                var columns: UInt16 = 0, rows: UInt16 = 0
+                guard ghostty_surface_drawn_grid(surface, &columns, &rows) else { return nil }
+                return TerminalGridSize(columns: Int(columns), rows: Int(rows))
             },
             surfaceInHost: surface.superview === view,
             inWindow: surface.window != nil,

@@ -18,6 +18,8 @@ enum DebugCEF {
             "likely": services.chromiumWarmup.reason.map { .string($0.rawValue) } ?? .null,
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "footprint_mb": .number(footprintMegabytes()),
+            "spare_window": .string(services.cache.cef.spareWindowState),
+            "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
         ]
         if case let browserTabs = services.cache.browserTabs {
             object["default_engine"] = .string(browserTabs.preference.defaultEngine.rawValue)

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36.
+// cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -554,6 +554,19 @@ pub struct ConversationTabRecord {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTabSplit {
+    /// The side of pane the new pane takes: right, down, left or up.
+    pub direction: String,
+    /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    /// Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split_id: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationTextRun {
     pub length: u32,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -843,6 +856,54 @@ pub struct HistorySearchRange {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HomeChiefState {
+    #[serde(rename = "working")]
+    Working,
+    #[serde(rename = "waiting")]
+    Waiting,
+    #[serde(rename = "idle")]
+    Idle,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HomeInboxKind {
+    #[serde(rename = "chief")]
+    Chief,
+    #[serde(rename = "direct")]
+    Direct,
+    #[serde(rename = "channel")]
+    Channel,
+    #[serde(rename = "group")]
+    Group,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HomeInboxRow {
+    pub activity_at: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub chief: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub chief_state: Option<HomeChiefState>,
+    pub id: String,
+    pub kind: HomeInboxKind,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub last_author: Option<String>,
+    pub marked_unread: bool,
+    pub muted: bool,
+    pub name: String,
+    pub owner: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<u64>,
+    pub pinned: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+    pub unread: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdMappingKind {
     #[serde(rename = "workspace")]
     Workspace,
@@ -938,6 +999,8 @@ pub enum Layout {
         ratio: f32,
         #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
         split: Option<Id>,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        split_id: Option<String>,
     },
     #[serde(rename = "stack")]
     Stack {
@@ -2636,6 +2699,9 @@ pub struct Workspace {
 pub struct WorkspaceMutationResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub changed: Option<bool>,
+    /// close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub closed_ids: Option<Vec<String>>,
     pub generation: String,
     pub index: u64,
     pub key: String,

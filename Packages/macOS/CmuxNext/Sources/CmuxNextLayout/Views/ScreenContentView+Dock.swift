@@ -22,24 +22,30 @@ extension ScreenContentView {
     /// edge): strip rings and highlights are clipped out of these.
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
-    /// The frames of shown panes stacked above `host` that overlap it (local coordinates). Only
-    /// mid-motion: an unzoom's pane springing back over the panes it uncovers, a zoom's growing
-    /// over the others. Their headers are see-through, so what is under them is masked out.
-    func panes(above host: PaneHostView) -> [CGRect] {
-        guard let index = subviews.firstIndex(of: host) else { return [] }
-        var rects: [CGRect] = []
-        for case let above as PaneHostView in subviews[(index + 1)...] where !above.isHidden && above.alphaValue > 0.99 {
+    /// For each shown pane host, the frames of shown panes stacked above it
+    /// that overlap it (local coordinates), from one walk of the subviews
+    /// front to back. Overlaps happen only mid-motion (an unzoom's pane
+    /// springing back over the panes it uncovers, a zoom's growing over the
+    /// others) and under docked columns; their headers are see-through, so
+    /// what is under them is masked out. Computed once per presentation
+    /// pass, not once per host (which walked every subview per host).
+    func panesAbove() -> [ObjectIdentifier: [CGRect]] {
+        var covers: [ObjectIdentifier: [CGRect]] = [:]
+        var front: [CGRect] = []
+        for case let host as PaneHostView in subviews.reversed() {
+            let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
+            if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
+            guard !host.isHidden && host.alphaValue > 0.99 else { continue }
             // A host a spring rect reveals hides only what shows of it, not its whole (final-size) frame.
-            let shown = above.revealRect.map(above.frame.intersection) ?? above.frame
-            if shown.intersection(host.frame).width > 0.5 && shown.intersection(host.frame).height > 0.5 { rects.append(shown) }
+            front.append(host.revealRect.map(host.frame.intersection) ?? host.frame)
         }
-        return rects
+        return covers
     }
 
     /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
-    /// and the panes in front of it (`panes(above:)`).
-    func ringCovers(of host: PaneHostView, docks: [CGRect]) -> [CGRect] {
-        (isStripHost(host) ? docks : []) + panes(above: host)
+    /// and the panes in front of it (`above`, from `panesAbove()`).
+    func ringCovers(of host: PaneHostView, docks: [CGRect], above: [ObjectIdentifier: [CGRect]]) -> [CGRect] {
+        (isStripHost(host) ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
     }
 
     /// True when the scroll moves this divider or column edge.
@@ -66,11 +72,11 @@ extension ScreenContentView {
     /// `clip` is that range (`PaneArrival.stripClip`, which follows a dock
     /// growing in); a pane growing in from an edge is also masked to
     /// `revealing`, the part its spring shows.
-    /// Any part under a pane in front (`panes(above:)`) is cut off too.
-    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, revealing: CGRect? = nil) {
+    /// Any part under a pane in front (`above`, from `panesAbove()`) is cut off too.
+    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, revealing: CGRect? = nil, above: [ObjectIdentifier: [CGRect]]) {
         var visible = revealing.map(host.frame.intersection) ?? host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
-        for cover in panes(above: host) { visible = visible.remainder(outside: cover) }
+        for cover in above[ObjectIdentifier(host)] ?? [] { visible = visible.remainder(outside: cover) }
         // A split's presented rect is the content itself: rounded as at rest.
         let changed = visible == host.frame
             ? host.setStripClip(nil)

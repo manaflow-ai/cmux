@@ -2754,6 +2754,138 @@
         }
       }
     },
+    "home.chief.memoryPaused": {
+      "comment": "Home system notice in the Chief conversation while the Chief's memory compactor cannot build summaries (cx-oqnw3).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief memory summaries are paused. The Chief still answers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملخصات ذاكرة Chief متوقفة مؤقتًا. لا يزال Chief يجيب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažeci memorije za Chief su pauzirani. Chief i dalje odgovara."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs hukommelsesresuméer er sat på pause. Chief svarer stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Gedächtniszusammenfassungen von Chief sind pausiert. Chief antwortet weiterhin."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los resúmenes de memoria de Chief están en pausa. Chief sigue respondiendo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les résumés de mémoire de Chief sont en pause. Chief répond toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I riepiloghi della memoria di Chief sono in pausa. Chief risponde comunque."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief のメモリ要約は一時停止中です。Chief は引き続き応答します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសង្ខេបការចងចាំរបស់ Chief ត្រូវបានផ្អាក។ Chief នៅតែឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 메모리 요약이 일시 중지되었습니다. Chief는 계속 응답합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs minnesammendrag er satt på pause. Chief svarer fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podsumowania pamięci Chief są wstrzymane. Chief nadal odpowiada."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os resumos de memória do Chief estão pausados. O Chief continua respondendo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сводки памяти Chief приостановлены. Chief по-прежнему отвечает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การสรุปหน่วยความจำของ Chief หยุดชั่วคราว Chief ยังคงตอบอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief bellek özetleri duraklatıldı. Chief yanıt vermeye devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підсумки пам'яті Chief призупинено. Chief і далі відповідає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tóm tắt bộ nhớ của Chief đang tạm dừng. Chief vẫn trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的记忆摘要已暂停。Chief 仍会回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的記憶摘要已暫停。Chief 仍會回覆。"
+          }
+        }
+      }
+    },
     "home.chief.organizing": {
       "comment": "Home notice while older cmux DEV builds still run their own Chief, so its history cannot be merged yet.",
       "extractionState": "manual",

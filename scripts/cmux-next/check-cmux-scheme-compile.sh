@@ -20,9 +20,12 @@
 #   a kept host-wide DerivedData reused modules built from an older xcframework
 #   header (check-release-compile.sh failed this way on cmuxs-Mac-mini-4,
 #   2026-10-06). A caller's path (the glaeda job's per-runner cache) builds
-#   incrementally and is kept; precompiled modules a different checkout left
-#   there are dropped and the build retried once, as the fleet's dev builds
-#   do. A fresh directory has no such modules, so it is never retried.
+#   incrementally and is kept. Before its build the binary-module guard
+#   (scripts/ci/swiftpm-binary-module-guard.sh, xcode_binary_module_guard)
+#   removes its build outputs when a binary target's headers changed since the
+#   last build there; precompiled modules that still fail as stale are dropped
+#   and the build retried once, as the fleet's dev builds do. A fresh
+#   directory has no such modules, so it is neither guarded nor retried.
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -72,6 +75,11 @@ build() {
     build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
+if (( kept_path )); then
+  # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+  source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
+  xcode_binary_module_guard "$repo_root" "$derived_data" -project cmux.xcodeproj -scheme cmux
+fi
 status=0
 build || status=$?
 if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then

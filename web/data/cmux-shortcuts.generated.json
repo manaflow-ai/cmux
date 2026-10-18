@@ -1525,24 +1525,12 @@
           "shortcut": {
             "key": "]",
             "modifiers": [
-              "shift",
+              "ctrl",
               "cmd"
             ]
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "shift",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -1608,24 +1596,12 @@
           "shortcut": {
             "key": "[",
             "modifiers": [
-              "shift",
+              "ctrl",
               "cmd"
             ]
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "shift",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -4003,6 +3979,18 @@
                 }
               ],
               "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
             }
           ]
         },
@@ -4047,6 +4035,18 @@
                   "modifiers": [
                     "ctrl",
                     "shift"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
                   ]
                 }
               ],

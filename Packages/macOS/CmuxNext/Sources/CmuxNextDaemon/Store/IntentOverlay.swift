@@ -17,6 +17,8 @@ import Foundation
             if source === target, from == final { return nil }
             guard let tab = source.removeTab(surface: surface) else { return nil }
             target.insertTab(tab, at: final)
+            store.index.insert(tab, in: target)
+            store.index.noteTabOrderChanged()
             return .moveTab(surface: surface, fromPane: source.handle, fromIndex: from, toPane: target.handle)
         case .renameTab(let surface, let requested):
             // An empty name clears it, as the daemon stores it.
@@ -58,18 +60,21 @@ import Foundation
             guard let pane = store.panesByHandle[paneHandle], store.tabsBySurface[provisional.surface] == nil else { return nil }
             let tab = TabModel(provisional)
             pane.insertTab(tab, at: pane.tabs.count)
-            store.tabsBySurface[provisional.surface] = tab
+            store.index.insert(tab, in: pane)
             return .createdTab(surface: provisional.surface, pane: paneHandle)
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
-        case .bindAgentSession(let surface, let session):
-            guard let tab = store.tabsBySurface[surface], var record = tab.agentSession, record.session != session else { return nil }
+        case .bindAgentSession(let surface, let session, let harness):
+            guard let tab = store.tabsBySurface[surface], var record = tab.agentSession,
+                  record.session != session || (harness != nil && record.harness != harness) else { return nil }
             let previous = tab.snapshot
             var next = previous
             record.session = session
+            record.harness = harness ?? record.harness
             next.conversation = ConversationTabRef(agentSession: record)
             tab.update(next)
+            if let pane = store.pane(holding: tab) { store.index.insert(tab, in: pane) }
             return .tabSnapshot(surface: surface, previous: previous)
         }
     }
@@ -113,6 +118,8 @@ import Foundation
                 return store.reportMirrorViolation("intent overlay undo found surface \(surface) missing from pane \(toPane)")
             }
             source.insertTab(tab, at: fromIndex)
+            store.index.insert(tab, in: source)
+            store.index.noteTabOrderChanged()
         case .tabName(let surface, let name):
             store.tabsBySurface[surface]?.setName(name)
         case .tabPinned(let surface, let pinned):
@@ -133,14 +140,17 @@ import Foundation
                 return store.reportMirrorViolation("intent overlay undo found column \(column) without its rows")
             }
         case .tabSnapshot(let surface, let previous):
-            store.tabsBySurface[surface]?.update(previous)
+            guard let tab = store.tabsBySurface[surface] else { return }
+            tab.update(previous)
+            if let pane = store.pane(holding: tab) { store.index.insert(tab, in: pane) }
         case .splitPane(let screen, let layout, let columns, let pane):
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
         case .createdTab(let surface, let pane):
-            store.tabsBySurface[surface] = nil
-            guard store.panesByHandle[pane]?.removeTab(surface: surface) != nil else {
+            guard let tab = store.panesByHandle[pane]?.removeTab(surface: surface) else {
+                if let stray = store.tabsBySurface[surface] { store.index.remove(stray) }
                 return store.reportMirrorViolation("intent overlay undo found provisional surface \(surface) missing from pane \(pane)")
             }
+            store.index.remove(tab)
         }
     }
 
@@ -154,6 +164,7 @@ import Foundation
         if index != from {
             store.workspaces.remove(at: from)
             store.workspaces.insert(model, at: index)
+            store.index.noteTabOrderChanged()
         }
         store.sidebarNeedsRecompute = true
         return undo

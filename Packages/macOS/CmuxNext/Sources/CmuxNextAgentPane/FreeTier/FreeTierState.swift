@@ -12,4 +12,7 @@ public nonisolated enum FreeTierState: String, Sendable, Hashable, CaseIterable 
     case notVerified = "not_verified"
     case serviceOff = "service_off"
     case backoff
+    /// The Mac's Keychain refused access to the free-tier key id: no lease
+    /// until the next launch or a settings change.
+    case storeFailed = "store_failed"
 }

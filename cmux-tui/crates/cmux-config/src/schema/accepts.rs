@@ -134,6 +134,7 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
             value.as_str().is_some_and(|text| font_ok(text, domains.font_families.as_ref()))
         }
         Kind::Sound => value.as_str().is_some_and(|text| sound_ok(text, domains.sounds.as_ref())),
+        Kind::Text => value.is_string(),
         Kind::FolderList => value.as_array().is_some_and(|items| {
             items.iter().all(|item| {
                 item.as_str().is_some_and(|path| path.starts_with('/') || path.starts_with("~/"))
@@ -231,6 +232,7 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
             domain(domain_name(DomainKind::FontFamily), domains.font_families.as_ref())
         }
         Kind::Sound => domain(domain_name(DomainKind::Sound), domains.sounds.as_ref()),
+        Kind::Text => Accepted::Shape("a string"),
         Kind::FolderList => Accepted::Shape("an array of /absolute or ~/ folder paths"),
         Kind::StringList => Accepted::Shape("an array of non-empty strings"),
         Kind::OrderedChoices(choices) => Accepted::Choices(values(choices)),

@@ -632,6 +632,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LD_EXPORT_SYMBOLS = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.65.0;
 				ONLY_ACTIVE_ARCH = NO;

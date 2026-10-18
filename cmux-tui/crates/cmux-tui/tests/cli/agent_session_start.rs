@@ -8,7 +8,8 @@
 //! environment (`CMUX_AGENT_START_HOST`), which can only make the daemon
 //! stricter than what it detects.
 
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::mpsc;
 
 use serde_json::{Value, json};
 
@@ -20,6 +21,10 @@ mod agent_chat_notices;
 mod agent_home_reopen;
 #[path = "agents_cli_receipt.rs"]
 mod agents_cli_receipt;
+#[path = "agents_events_cli.rs"]
+mod agents_events_cli;
+#[path = "agents_wait_cli.rs"]
+mod agents_wait_cli;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 /// The app's install key, so one connection can prove itself the verified
@@ -260,7 +265,7 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
         let _ = Command::new(bin())
-            .args(["acp", "daemon", "shutdown"])
+            .args(["acp", "daemon", "shutdown", "--end-agents"])
             .env("HOME", self.dir.join("home"))
             .env("ACPMUX_HOME", self.dir.join("acpmux"))
             .output();
@@ -376,6 +381,81 @@ fn agent_session_start_starts_the_sample_harness_in_its_asking_mode() {
     assert_eq!(started["ok"], true, "{started}");
     assert!(started["data"]["session"].as_str().is_some_and(|s| !s.is_empty()), "{started}");
     assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
+}
+
+/// An acpmux stand-in on the machine's socket that answers a start's calls
+/// with a trusted folder and an asking session, and hands every `session/new`
+/// params it receives to the test.
+fn fake_acpmux(socket: PathBuf) -> mpsc::Receiver<Value> {
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let sender = sender.clone();
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { return };
+                    let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
+                    let Some(id) = message.get("id").cloned() else { continue };
+                    let params = &message["params"];
+                    let modes = json!({"refusedFamilies": [], "families": {"fake": ["ask"]}});
+                    let result = match message["method"].as_str().unwrap_or_default() {
+                        "_acpmux/web_modes" if params.get("sessionId").is_some() => json!({
+                            "refusedFamilies": [], "families": {"fake": ["ask"]},
+                            "session": {"family": "fake", "mode": "ask"},
+                        }),
+                        "_acpmux/web_modes" => modes,
+                        "_acpmux/harnesses" => {
+                            json!({"defaultHarness": "fake", "families": {"fake": {}}})
+                        }
+                        "acp.trust.get" => {
+                            json!({"cwd": params["cwd"], "decided": true, "level": "trusted"})
+                        }
+                        "session/new" => {
+                            let _ = sender.send(params.clone());
+                            json!({"sessionId": "fake-session-1"})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                    if writeln!(writer, "{reply}").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    receiver
+}
+
+/// The agent of a chat started on this machine works in the workspace of
+/// its tab (cx-ncc.5): the daemon names that workspace to acpmux on
+/// `session/new` (`_meta.acpmux.workspaceId`, which picks the session's
+/// display), with no session env. The client never names it.
+#[test]
+fn agent_session_start_sends_the_tab_workspace_to_acpmux() {
+    let daemon = Daemon::start_with("wsid", None, None);
+    let new_sessions = fake_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let identity = daemon.rpc(json!({"id": 1, "cmd": "identify"}));
+    let session_id = identity["data"]["session_id"].as_str().unwrap().to_owned();
+    let workspace = daemon.rpc(json!({"id": 2, "cmd": "create-workspace", "name": "wsid"}));
+    assert_eq!(workspace["ok"], true, "{workspace}");
+    let key = workspace["data"]["key"].as_str().unwrap().to_owned();
+    let tab = daemon.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
+                               "workspace": workspace["data"]["workspace"],
+                               "agent_session": {"host": format!("registry:{session_id}")}}));
+    assert_eq!(tab["ok"], true, "{tab}");
+    let surface = tab["data"]["surface"].as_u64().unwrap();
+    let started = daemon.start_chat(surface);
+    assert_eq!(started["ok"], true, "{started}");
+    let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
+    let acpmux = &new["_meta"]["acpmux"];
+    assert_eq!(acpmux["workspaceId"], json!(key), "{new}");
+    assert_eq!(acpmux.get("env"), None, "{new}");
+    assert_eq!(acpmux["policy"], "ask", "{new}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }
 
 /// The person answers the folder trust question of a chat of this machine
@@ -717,6 +797,6 @@ impl PeerAcpmux {
 
 impl Drop for PeerAcpmux {
     fn drop(&mut self) {
-        let _ = self.command(&["acp", "daemon", "shutdown"]).output();
+        let _ = self.command(&["acp", "daemon", "shutdown", "--end-agents"]).output();
     }
 }

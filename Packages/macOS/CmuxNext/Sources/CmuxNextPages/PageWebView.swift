@@ -42,6 +42,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var popupHost: WebPopupHost?
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
+    /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
+    /// shown after a change paints its first frame in the new colors (cx-8w027.12).
+    private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     private var uiScaleObservation: Task<Void, Never>?
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
@@ -61,6 +64,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var countsTouches = true
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
+    /// The modifier keys of the click whose link ``onOpenExternal`` is opening (Shift-Command: the other browser).
+    public internal(set) var externalLinkModifiers: NSEvent.ModifierFlags = []
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
     public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
     /// The page's web content crashed. `reloading` is false once it crashed more often than
@@ -206,6 +211,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.navigationDelegate = self
         webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
+        webView.pageAcceptsFirstMouse = { [weak self] in self?.descriptor.acceptsFirstMouse ?? false }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
@@ -254,17 +260,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
         }
     }
 
-    /// Keeps first-party pages proportional to native chrome as the live
-    /// interface scale changes.
+    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
     func applyUIScale() {
         webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -406,7 +412,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         applyTheme()
     }
 
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        themeFollower.rebind()
+    }
+
     func applyTheme(force: Bool = false) {
+        themeFollower.rebind()
         guard loaded else { return }
         let theme = currentTheme()
         guard force || theme.payloadJSON != appliedTheme else { return }
@@ -430,7 +442,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         case .allow:
             return .allow
         case .openExternal:
-            if let url { onOpenExternal?(url) }
+            // A page whose host routes nothing itself (Settings, What's New, Cloud, Keybindings...)
+            // opens the link through the shared rule; Shift-Command asks for the other browser.
+            externalLinkModifiers = action.modifierFlags
+            let other = LinkRouter.isOtherTarget(action.modifierFlags)
+            if let url { (onOpenExternal ?? { LinkRouter.shared.open($0, otherTarget: other) })(url) }
             return .cancel
         case .cancel:
             return .cancel

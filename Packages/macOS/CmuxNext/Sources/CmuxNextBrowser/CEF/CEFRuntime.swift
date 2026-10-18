@@ -65,6 +65,11 @@ final class CEFRuntime {
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
+    /// Results Chromium sends while `shim.devToolsCall` is still running: a
+    /// method the browser process answers synchronously (for example
+    /// `Emulation.setEmitTouchEventsForMouse` or `setGeolocationOverride`)
+    /// replies before its caller can wait. Non-nil only during that call.
+    var synchronousDevToolsResults: [CEFDevToolsKey: Result<String, any Error>]?
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// Browser of each pending site reply, so a closed browser fails them.
     var siteReplyBrowsers: [Int32: Int32] = [:]
@@ -98,7 +103,7 @@ final class CEFRuntime {
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
-    private var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -219,7 +224,7 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
-            try initialize(library, environment: environment)
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             startChildMonitor()
             windowGuard.start()
@@ -300,19 +305,20 @@ final class CEFRuntime {
         self.layout = layout
 
         let pump = CEFMessagePump(
-            work: { [weak self] in self?.shim?.doWork() },
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
             safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
         )
         self.pump = pump
         pump.start()
 
         storage.prepareForLaunch()
+        let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
+            .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
-            builtInExtensions: CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
-                .folders(resources: Bundle.main.resourceURL)
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
@@ -383,7 +389,7 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] { return host }
+        if let host = hosts[key] ?? CEFSpareWindow.shared.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host

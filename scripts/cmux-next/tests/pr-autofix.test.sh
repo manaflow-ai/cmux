@@ -58,4 +58,28 @@ echo new > "$repo/.github/workflows/x.yml"
 git -C "$repo" diff --binary > "$tmp/workflow.patch"
 git -C "$repo" checkout -q -- .
 bash "$APPLY" "$tmp/workflow.patch" "$repo" > "$tmp/out" 2>&1 && fail "a workflow file must be refused"
+
+# A formatter patch is produced from the merge tree but applied to the exact
+# PR head. The functional file must survive that handoff, and the repair
+# commit must have the PR head as its parent. This guards against a collapsed
+# formatter-only autofix commit.
+fixture="$tmp/ancestry"
+mkdir -p "$fixture/webviews" "$fixture/src"
+printf 'const functional = "PR behavior";\n' > "$fixture/src/feature.ts"
+printf 'const formatted = 1;\n' > "$fixture/webviews/App.tsx"
+git -C "$fixture" init -q
+git -C "$fixture" add -A
+git -C "$fixture" -c user.name=t -c user.email=t@t commit -qm base
+printf 'const functional = "PR behavior + test";\n' > "$fixture/src/feature.ts"
+git -C "$fixture" add src/feature.ts
+git -C "$fixture" -c user.name=t -c user.email=t@t commit -qm pr
+head_sha="$(git -C "$fixture" rev-parse HEAD)"
+printf 'const formatted = 2;\n' > "$fixture/webviews/App.tsx"
+git -C "$fixture" diff --binary -- webviews/App.tsx > "$tmp/formatter.patch"
+git -C "$fixture" checkout -q -- .
+bash "$APPLY" "$tmp/formatter.patch" "$fixture" > "$tmp/out" 2>&1 || fail "the formatter patch must apply to the PR head"
+git -C "$fixture" add -A
+git -C "$fixture" -c user.name=t -c user.email=t@t.com commit -qm autofix
+[[ "$(git -C "$fixture" rev-parse HEAD^)" == "$head_sha" ]] || fail "autofix parent must remain the exact PR head"
+grep -q 'PR behavior + test' "$fixture/src/feature.ts" || fail "autofix must preserve the PR functional file"
 echo "pr autofix: ok"

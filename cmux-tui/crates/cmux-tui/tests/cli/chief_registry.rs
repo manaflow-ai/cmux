@@ -7,6 +7,9 @@ use super::super::conversation_tree::{TOKEN, Ws, ws_addr};
 use super::*;
 use serde_json::{Value, json};
 
+#[path = "chief_manage.rs"]
+mod manage;
+
 /// A 1x1 PNG.
 const PNG: &[u8] = &[
     0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 0, 0, 13, b'I', b'H', b'D', b'R', 0, 0,
@@ -202,24 +205,54 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
     ));
     assert_eq!(set["value"]["avatar"]["bytes"], PNG.len());
 
-    // Everything outside self_edit is the person's.
-    for (operation, params) in [
-        ("chief.profile.update", json!({"chief": scout, "display_name": "Boss"})),
-        ("chief.profile.update", json!({"chief": scout, "tools": ["browser", "cloud_vms"]})),
-        ("chief.profile.update", json!({"chief": scout, "self_edit": ["avatar", "instructions"]})),
-        ("chief.profile.update", json!({"chief": scout, "harness": "codex"})),
-        ("chief.profile.update", json!({"chief": "agent_mux", "role": "x"})),
-        ("chief.profile.avatar.set", json!({"chief": "agent_mux", "clear": true})),
-        ("chief.profile.delete", json!({"chief": scout})),
-        ("chief.profile.create", json!({"display_name": "Stronger", "tools": ["browser"]})),
+    // Everything of itself outside self_edit is the person's; its `chiefs`
+    // grant (on by default) never reaches past its own grant
+    // (chief_manage.rs; the cases are in chief_manage.rs's tests).
+    for (operation, params, expected) in [
+        (
+            "chief.profile.update",
+            json!({"chief": scout, "display_name": "Boss"}),
+            "chief_self_edit_denied",
+        ),
+        (
+            "chief.profile.update",
+            json!({"chief": scout, "tools": ["browser", "cloud_vms"]}),
+            "chief_self_edit_denied",
+        ),
+        (
+            "chief.profile.update",
+            json!({"chief": scout, "self_edit": ["avatar", "instructions"]}),
+            "chief_self_edit_denied",
+        ),
+        (
+            "chief.profile.update",
+            json!({"chief": scout, "harness": "codex"}),
+            "chief_self_edit_denied",
+        ),
+        (
+            "chief.profile.update",
+            json!({"chief": "agent_mux", "role": "x"}),
+            "target_exceeds_caller",
+        ),
+        (
+            "chief.profile.avatar.set",
+            json!({"chief": "agent_mux", "clear": true}),
+            "target_exceeds_caller",
+        ),
+        ("chief.profile.delete", json!({"chief": scout}), "chief_delete_denied"),
+        (
+            "chief.profile.create",
+            json!({"display_name": "Stronger", "tools": ["browser"]}),
+            "grant_exceeds_caller",
+        ),
     ] {
         let key = format!("deny-{operation}-{params}");
         let refused = v2(&mut chief, operation, params.clone(), Some(&key));
-        assert_eq!(reason(&refused), "chief_self_edit_denied", "{operation} {params}: {refused}");
+        assert_eq!(reason(&refused), expected, "{operation} {params}: {refused}");
     }
     let unchanged = ok(&v2(&mut home, "chief.profile.get", json!({"chief": scout}), None));
     assert_eq!(unchanged["display_name"], "Scout");
-    assert_eq!(unchanged["tools"], json!(["spawn", "tell", "workspaces"]));
+    assert_eq!(unchanged["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]));
     assert_eq!(unchanged["self_edit"], json!(["avatar"]));
 
     // The person allows the role; then the Chief may change it.

@@ -76,7 +76,7 @@ await requireBrowserLane("permission-panel-buttons.test.ts", async () => {
     ],
   };
 
-  test("a tall edit approval keeps Allow once, Allow for this chat and Deny in view", async () => {
+  test("a tall edit approval keeps Allow, Always and Deny in view", async () => {
     const page = await browser!.newPage({ viewport: { width: 880, height: 640 } });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/permission-panel.html`);
@@ -92,7 +92,7 @@ await requireBrowserLane("permission-panel-buttons.test.ts", async () => {
     await page
       .waitForFunction(
         () =>
-          [".acpmux-permission-panel", ".acpmux-permission-items"].some((selector) => {
+          [".acpmux-permission-panel", ".acpmux-ask"].some((selector) => {
             const node = document.querySelector(selector);
             return node !== null && node.scrollHeight > node.clientHeight + 1;
           }),
@@ -104,12 +104,12 @@ await requireBrowserLane("permission-panel-buttons.test.ts", async () => {
       const panel = document.querySelector(".acpmux-permission-panel")!.getBoundingClientRect();
       return {
         // The request does not fit the panel: something has to scroll.
-        tall: [".acpmux-permission-panel", ".acpmux-permission-items"].some((selector) => {
+        tall: [".acpmux-permission-panel", ".acpmux-ask"].some((selector) => {
           const node = document.querySelector(selector)!;
           return node.scrollHeight > node.clientHeight + 1;
         }),
         // Each answer, wholly inside the panel's view.
-        answers: [...document.querySelectorAll<HTMLElement>(".acpmux-permission-buttons button")].map((button) => {
+        answers: [...document.querySelectorAll<HTMLElement>(".acpmux-ask-action")].map((button) => {
           const box = button.getBoundingClientRect();
           return { text: button.textContent, inView: box.top >= panel.top && box.bottom <= panel.bottom };
         }),

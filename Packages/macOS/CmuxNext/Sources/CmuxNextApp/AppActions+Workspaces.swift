@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextLayout
+import CmuxNextSettings
 import CmuxNextSidebar
 
 extension AppActions {
@@ -33,12 +34,16 @@ extension AppActions {
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
         services.pages.register(HomeChannelsPageTab(services: services))
+        // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
+        services.pages.register(HomeDockTab(services: services))
         #if DEBUG
         services.pages.register(DebugHomeNativeFixture())
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
-        // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it.
-        registry.bind("home.show") { showHome(services) }
+        // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
+        // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
+        registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
+        HomeChannelsSetting().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady)
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
         // without one the shown composer opens its file picker.
@@ -123,13 +128,22 @@ extension AppActions {
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
            lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
-        guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
+        guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
+              !ClosingWorkspaces.shared.ids.contains(workspace.id) else { return } // a second press during the close sends nothing
         let daemon = services.activeDaemon
-        let terminals = WorkspaceClose.closing(workspace, on: daemon)
+        let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
+        // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
+        let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
         services.registry.track(lanes.run(in: window) {
-            await daemon.failure("close-workspace") { connection in
+            let failure = await daemon.failure("close-workspace") { connection in
+                try await ClosingWorkspaces.shared.refusal()
                 try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }
+            guard hidden else { return failure }
+            // A close that went through stays hidden until the store has applied its events (the row is gone there).
+            if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+            ClosingWorkspaces.shared.end(id, refused: failure != nil, in: owner.flatMap { services.windows.controller(for: $0)?.window })
+            return failure
         })
     }
 

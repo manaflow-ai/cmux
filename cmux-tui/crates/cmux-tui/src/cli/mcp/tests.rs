@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
@@ -26,12 +26,97 @@ struct Fake {
     /// The app's transport drops after a `feed.*` request is sent, as
     /// `transport::app_method` reports it.
     lose_app_transport: bool,
+    /// Owner state that changes while a call waits (`agents_wait`).
+    live: RefCell<Live>,
+    /// This daemon operation answers `selector.not_found` after the delay,
+    /// as a wait on a terminal that closes.
+    fail_after: Option<(&'static str, Duration)>,
+    /// The app's `feed.list` and `snapshot.get` take this long, and fail
+    /// when it is longer than the caller's timeout.
+    app_delay: Option<Duration>,
     sent: RefCell<Vec<Value>>,
+}
+
+/// The daemon's snapshot and the app's pending dialogs at set times after
+/// the test starts, as when an agent finishes or asks while a wait runs.
+#[derive(Default)]
+struct Live {
+    daemon: Option<Value>,
+    feed: Option<Value>,
+    /// The app's topology (`snapshot.get`); a fixed window without it.
+    topology: Option<Value>,
+    /// The daemon's journal: batch `i` is revision `i + 1` of
+    /// [`GENERATION`]. With it, the snapshot carries a cursor and the event
+    /// stream resumes from one (`agents_events`).
+    journal: Option<Vec<Value>>,
+    /// The journal's generation; [`GENERATION`] when unset.
+    generation: Option<String>,
+    /// Revisions before this one are no longer kept: an older cursor
+    /// expired.
+    oldest: usize,
+    /// Every daemon read fails.
+    daemon_down: bool,
+    changes: Vec<(Instant, Change)>,
+}
+
+impl Live {
+    fn generation(&self) -> String {
+        self.generation.clone().unwrap_or_else(|| GENERATION.to_owned())
+    }
+}
+
+/// The fake daemon's journal generation.
+const GENERATION: &str = "gen_fake";
+
+enum Change {
+    Daemon(Value),
+    Feed(Value),
+    Topology(Value),
+    /// One journal batch: its changes.
+    Journal(Value),
+    /// The daemon restarted with a new journal generation.
+    Generation(&'static str),
+    /// The journal dropped the revisions before this one.
+    Expire(usize),
+    /// Daemon reads fail (true) or answer again (false).
+    DaemonDown(bool),
+}
+
+impl Live {
+    /// Applies the changes that are due.
+    fn settle(&mut self) {
+        let now = Instant::now();
+        let (due, later) = std::mem::take(&mut self.changes)
+            .into_iter()
+            .partition::<Vec<_>, _>(|(at, _)| *at <= now);
+        self.changes = later;
+        for (_, change) in due {
+            match change {
+                Change::Daemon(value) => self.daemon = Some(value),
+                Change::Feed(value) => self.feed = Some(value),
+                Change::Topology(value) => self.topology = Some(value),
+                Change::Journal(changes) => self.journal.get_or_insert_with(Vec::new).push(changes),
+                Change::Generation(generation) => self.generation = Some(generation.to_owned()),
+                Change::Expire(oldest) => self.oldest = oldest,
+                Change::DaemonDown(down) => self.daemon_down = down,
+            }
+        }
+    }
 }
 
 impl Fake {
     fn with_actions() -> Self {
         Self { actions: fixture_actions(), ..Self::default() }
+    }
+
+    /// A daemon snapshot and pending dialogs that `then` changes later.
+    fn live(daemon: Option<Value>, feed: Option<Value>) -> Self {
+        Self { live: RefCell::new(Live { daemon, feed, ..Live::default() }), ..Self::default() }
+    }
+
+    fn then(self, after: Duration, change: Change) -> Self {
+        self.live.borrow_mut().changes.push((Instant::now() + after, change));
+        self
     }
 
     fn last(&self, kind: &str) -> Value {
@@ -68,10 +153,33 @@ impl Backend for Fake {
                 idempotency_key: key,
             });
         }
+        if let Some((operation, delay)) = self.fail_after
+            && request["operation"] == operation
+        {
+            std::thread::sleep(delay);
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "selector.not_found", "message": "the terminal closed"}),
+                idempotency_key: None,
+            });
+        }
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
             return Ok(result.clone());
+        }
+        let mut live = self.live.borrow_mut();
+        live.settle();
+        if live.daemon_down {
+            return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if let Some(daemon) = &live.daemon {
+            let mut daemon = daemon.clone();
+            if let Some(journal) = &live.journal {
+                daemon["cursor"] =
+                    json!({"generation": live.generation(), "revision": journal.len().to_string()});
+            }
+            return Ok(daemon);
         }
         Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
@@ -80,10 +188,18 @@ impl Backend for Fake {
         &self,
         method: &str,
         params: Value,
-        _timeout: Duration,
+        timeout: Duration,
         idempotency_key: Option<&str>,
         mutation: bool,
     ) -> Result<Value, CallFailure> {
+        if let Some(delay) = self.app_delay
+            && matches!(method, "feed.list" | "snapshot.get")
+        {
+            std::thread::sleep(delay.min(timeout));
+            if delay > timeout {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+        }
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
@@ -109,8 +225,63 @@ impl Backend for Fake {
         }
         match method {
             "action.list" => Ok(self.actions.clone()),
-            "snapshot.get" => Ok(json!({"topology": {"windows": [{"id": "win_a"}]}})),
+            "snapshot.get" => {
+                let mut live = self.live.borrow_mut();
+                live.settle();
+                Ok(live
+                    .topology
+                    .clone()
+                    .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
+            "feed.list" => {
+                let mut live = self.live.borrow_mut();
+                live.settle();
+                Ok(live.feed.clone().unwrap_or_else(|| json!({"ran": true})))
+            }
             _ => Ok(json!({"ran": true})),
+        }
+    }
+
+    /// The daemon's stream: its snapshot, then a delta when a daemon change
+    /// is due (a dialog is the app's and has none), and a tick without one.
+    fn session_events(
+        &self,
+        _session: Option<&str>,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "events", "cursor": cursor}));
+        if self.fail_resources || self.live.borrow().daemon_down {
+            return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if self.live.borrow().journal.is_some() {
+            return self.journal_events(cursor, deadline, tick, on_wake);
+        }
+        if on_wake(Some(&json!({"kind": "snapshot"}))) {
+            return Ok(());
+        }
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let next_change = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Daemon(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = next_change.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            let delta = next_change.is_some_and(|at| at <= wake);
+            let item = json!({"kind": "delta"});
+            if on_wake(delta.then_some(&item)) {
+                return Ok(());
+            }
         }
     }
 
@@ -127,6 +298,96 @@ impl Backend for Fake {
             "mutation": mutation,
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
+    }
+}
+
+impl Fake {
+    /// `session.events` over the fake journal, as the daemon streams it:
+    /// a snapshot without a cursor (or with another generation's), else the
+    /// batches after the cursor, then each batch as it is due.
+    fn journal_events(
+        &self,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        let head = || {
+            let mut live = self.live.borrow_mut();
+            live.settle();
+            live.journal.as_ref().map_or(0, Vec::len)
+        };
+        let generation = self.live.borrow().generation();
+        let oldest = self.live.borrow().oldest;
+        let mut next = match cursor {
+            Some(cursor)
+                if cursor["generation"] == generation.as_str()
+                    && cursor["revision"].as_str().unwrap().parse::<usize>().unwrap() >= oldest =>
+            {
+                let revision = cursor["revision"].as_str().unwrap().parse::<usize>().unwrap();
+                if revision > head() {
+                    return Err(CallFailure {
+                        kind: FailureKind::Rejected,
+                        error: json!({"code": "cursor.invalid", "message": "ahead"}),
+                        idempotency_key: None,
+                    });
+                }
+                revision
+            }
+            other => {
+                let revision = head();
+                let item = json!({
+                    "kind": "snapshot",
+                    "cursor": {"generation": generation, "revision": revision.to_string()},
+                    "reset_reason": match other {
+                        None => "initial",
+                        Some(cursor) if cursor["generation"] == generation.as_str() => {
+                            "cursor_expired"
+                        }
+                        Some(_) => "generation_changed",
+                    },
+                    "snapshot": self.live.borrow().daemon.clone().unwrap_or_else(|| json!({})),
+                });
+                if on_wake(Some(&item)) {
+                    return Ok(());
+                }
+                revision
+            }
+        };
+        loop {
+            let pending = head();
+            while next < pending {
+                let changes = self.live.borrow().journal.as_ref().unwrap()[next].clone();
+                let item = json!({
+                    "kind": "delta",
+                    "cursor": {"generation": generation, "revision": (next + 1).to_string()},
+                    "previous_revision": next.to_string(),
+                    "revision": (next + 1).to_string(),
+                    "changes": changes,
+                });
+                next += 1;
+                if on_wake(Some(&item)) {
+                    return Ok(());
+                }
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let due = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Journal(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = due.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            if head() == next && on_wake(None) {
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -821,6 +1082,35 @@ fn agents_action_tools_are_listed_with_strict_schemas() {
 }
 
 #[test]
+fn agents_doctor_is_a_read_only_tool_that_changes_nothing() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "agents_doctor")
+        .unwrap_or_else(|| panic!("agents_doctor is not listed"));
+    assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
+    assert_eq!(tool["annotations"]["destructiveHint"], false, "{tool}");
+    assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{tool}");
+    assert_eq!(
+        tool["inputSchema"]["properties"].as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["checks"],
+        "{tool}"
+    );
+    server.backend.sent.borrow_mut().clear();
+    let result = call(&mut server, "agents_doctor", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    // At most the one read of the app's Computer Use grants; no run, no change.
+    let sent = server.backend.sent.borrow().clone();
+    assert!(
+        sent.iter().all(|sent| sent["kind"] == "app" && sent["method"] == "computer_use.status"),
+        "{sent:?}"
+    );
+}
+
+#[test]
 fn agents_workspace_select_focuses_through_the_owners_and_returns_a_receipt() {
     let mut server = Server::new(
         Fake {
@@ -1111,3 +1401,6 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
         assert_eq!(refused["structuredContent"]["state"], "not_run");
     }
 }
+
+mod agent_events;
+mod agent_wait;

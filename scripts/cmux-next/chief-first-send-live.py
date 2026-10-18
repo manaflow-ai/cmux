@@ -143,10 +143,10 @@ def end_round(app, cache):
         os.kill(app.pid, signal.SIGKILL)
         app.wait(timeout=10)
     env = {**os.environ, "ACPMUX_HOME": ACPMUX_HOME, "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env=env, capture_output=True, timeout=30)
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=env, capture_output=True, timeout=30)
     tag_env = {k: v for k, v in os.environ.items() if not k.startswith("ACPMUX_")}
     tag_env["ACPMUX_HOME"] = TAG_ACPMUX_HOME
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env=tag_env, capture_output=True, timeout=30)
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=tag_env, capture_output=True, timeout=30)
     # Each acpmux daemon starts a detached local router (its own session); it stops on its admin socket.
     for home in (TAG_ACPMUX_HOME, ACPMUX_HOME):
         try:

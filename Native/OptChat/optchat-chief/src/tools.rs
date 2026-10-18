@@ -94,6 +94,11 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             Ok(v @ Value::Object(_)) => Call::parse("profile", &v),
             _ => return Ok(Command::Usage(usage(tool))),
         },
+        ("chiefs", []) => Call::parse("chiefs", &serde_json::json!({"action": "list"})),
+        ("chiefs", [args]) => match serde_json::from_str::<Value>(args) {
+            Ok(v @ Value::Object(_)) => Call::parse("chiefs", &v),
+            _ => return Ok(Command::Usage(usage(tool))),
+        },
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" ")}),
@@ -112,6 +117,8 @@ pub fn usage(tool: &str) -> String {
             "date" => "ID",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
+            "chiefs" =>
+                "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             _ => "ID \"message\"",
         }
     )
@@ -155,6 +162,12 @@ pub enum Call {
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
     Profile {
         args: Value,
+    },
+    /// `chiefs` (chief_profile.rs): see, make and edit other Chiefs. Only a
+    /// caller with this host's turn key (`turn_key`) gets an answer.
+    Chiefs {
+        args: Value,
+        turn_key: Option<String>,
     },
 }
 
@@ -245,6 +258,18 @@ impl Call {
                     args: Value::Object(args),
                 })
             }
+            "chiefs" => {
+                let mut args = args.as_object().cloned().unwrap_or_default();
+                args.remove("tool");
+                args.remove("from");
+                let turn_key = args
+                    .remove("turn_key")
+                    .and_then(|v| v.as_str().map(str::to_owned));
+                Ok(Call::Chiefs {
+                    args: Value::Object(args),
+                    turn_key,
+                })
+            }
             other => Err(format!("unknown tool {other}")),
         }
     }
@@ -257,8 +282,10 @@ impl Call {
             Call::Spawn { .. }
             | Call::Tell { .. }
             | Call::ZoomAgent { .. }
-            | Call::Profile { .. } => {
-                "spawn, tell, profile and a subagent's zoom are served by the Chief host".to_owned()
+            | Call::Profile { .. }
+            | Call::Chiefs { .. } => {
+                "spawn, tell, profile, chiefs and a subagent's zoom are served by the Chief host"
+                    .to_owned()
             }
         }
     }
@@ -285,6 +312,17 @@ impl Call {
                     v = json!({});
                 }
                 v["tool"] = json!("profile");
+                v
+            }
+            Call::Chiefs { args, turn_key } => {
+                let mut v = args.clone();
+                if !v.is_object() {
+                    v = json!({});
+                }
+                v["tool"] = json!("chiefs");
+                if let Some(key) = turn_key {
+                    v["turn_key"] = json!(key);
+                }
                 v
             }
         }
@@ -488,11 +526,24 @@ fn connection(conn: UnixStream, served: &Served) {
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
                 let answer = match Call::parse(tool, &req) {
-                    Ok(Call::Spawn { .. } | Call::Tell { .. } | Call::Profile { .. })
-                        if subagent =>
-                    {
-                        Err("subagents have no spawn, tell or profile".to_owned())
+                    Ok(
+                        Call::Spawn { .. }
+                        | Call::Tell { .. }
+                        | Call::Profile { .. }
+                        | Call::Chiefs { .. },
+                    ) if subagent => {
+                        Err("subagents have no spawn, tell, profile or chiefs".to_owned())
                     }
+                    // `chiefs` only for this host's own turn: the turn key the
+                    // host gave its turn sessions alone (rule C: a subagent,
+                    // or any process without it, gets nothing).
+                    Ok(Call::Chiefs { args, turn_key }) => match &served.chief {
+                        Some(chief) if chief.is_turn(turn_key.as_deref()) => {
+                            chief.chiefs_call(&args)
+                        }
+                        Some(_) => Err(NOT_THE_TURN.to_owned()),
+                        None => Err(crate::chief_profile::Grant::refusal("chiefs")),
+                    },
                     // The person's grant (chief_profile.rs), by the tool's name.
                     Ok(Call::Spawn { .. }) if grant.is_some_and(|g| !g.allows("spawn")) => {
                         Err(crate::chief_profile::Grant::refusal("spawn"))
@@ -531,6 +582,26 @@ fn connection(conn: UnixStream, served: &Served) {
         if writeln!(out, "{answer}").is_err() {
             return;
         }
+    }
+}
+
+/// The answer to a `chiefs` call without this host's turn key.
+pub const NOT_THE_TURN: &str = "chiefs: only this Chief's own turn may use it";
+
+/// `call` with this process's turn key ([`crate::chief_profile::TURN_KEY_ENV`],
+/// which only the host's own turn sessions have) when it is a `chiefs` call.
+pub fn with_turn_key(call: Call) -> Call {
+    match call {
+        Call::Chiefs {
+            args,
+            turn_key: None,
+        } => Call::Chiefs {
+            args,
+            turn_key: std::env::var(crate::chief_profile::TURN_KEY_ENV)
+                .ok()
+                .filter(|k| !k.is_empty()),
+        },
+        other => other,
     }
 }
 

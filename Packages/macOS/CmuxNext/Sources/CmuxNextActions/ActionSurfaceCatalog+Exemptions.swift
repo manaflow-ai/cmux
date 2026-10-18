@@ -73,7 +73,7 @@ nonisolated extension ActionSurfaceCatalog {
         "resumeCommandClear", "palette.terminalOpenDirectory", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "browser.resetPinnedTab", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
-        "browserScreenshotPage", "browserTheme", "browserDevice", "browserFitDesktop", 
+        "browserScreenshotPage", "browserTheme", "browserDevice", "browserFitDesktop", "browserFit", "browserFitDesktop1280", 
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions",
         "browser.pageInfo.reenableCertificateWarnings",
         "browser.extensions.loadUnpacked", "browser.extension.run", "browser.extension.pin", "browser.extension.unpin",

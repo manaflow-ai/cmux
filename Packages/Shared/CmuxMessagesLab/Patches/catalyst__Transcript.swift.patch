@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
-@@ -609,8 +609,7 @@
+@@ -638,8 +638,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -10,7 +10,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -683,7 +682,7 @@
+@@ -712,7 +711,7 @@
              guard let spec else { return nil }
              switch spec.kind {
              case let .part(p): return p.text?.text ?? p.part.plainText
@@ -18,8 +18,8 @@
 +            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
              case let .receipt(b, r): return b + " " + r
              case let .label(text, _, _): return text
-             default: return nil
-@@ -756,7 +755,7 @@
+             case let .notice(text): return text
+@@ -787,7 +786,7 @@
              // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
@@ -28,7 +28,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1381,6 +1380,16 @@
+@@ -1440,6 +1439,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  

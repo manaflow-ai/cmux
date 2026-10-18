@@ -156,6 +156,7 @@ mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
 mod conversation_attachments;
+mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
 mod resource_trust;
@@ -236,6 +237,7 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
+pub(crate) use screen_json::screen_layout_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
@@ -250,6 +252,7 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+pub use capabilities::build_capabilities;
 mod daemon_build;
 pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
@@ -265,6 +268,7 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_inspect;
+mod chief_manage;
 mod chief_registry_resource;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
@@ -282,6 +286,10 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// `layout-changed` carries the screen's layout fields, its workspace and
+/// the transaction of the request that caused it (events.md
+/// `layout-changed`): a frontend patches that one screen.
+pub const LAYOUT_DELTA_CAPABILITY: &str = "layout-delta-v1";
 /// A docked column marked permanent stays docked on its edge for every
 /// client: `set-column-dock` takes `permanent`, and an undock, another edge,
 /// a replacement or a close or move that would remove it answers
@@ -1659,6 +1667,8 @@ enum Command {
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
     ConversationInboxOp(conversations::InboxOpParams),
+    /// The Home list rows (`home-inbox-v1`, server/conversations.rs).
+    HomeInbox(conversations::HomeInboxParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1690,6 +1700,7 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    CloudConversationLive(cloud_conversations::TargetParams),
     /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
     /// chief token), and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
@@ -1707,6 +1718,8 @@ enum Command {
     ConversationRunAppend(conversation_runs::AppendParams),
     ConversationRuns(conversation_runs::RunsParams),
     ConversationRun(conversation_runs::RunParams),
+    ConversationLivePublish(conversation_live::PublishParams),
+    ConversationLive(conversation_live::LiveParams),
     ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
@@ -1967,6 +1980,11 @@ enum Command {
         /// at commit time (`workspace_not_empty` otherwise).
         #[serde(default)]
         if_empty: bool,
+        /// With `end_terminals`: answer `closed_ids`, the closed groups the
+        /// close stored. Opt-in: older raw decoders refuse an unknown result
+        /// field (Python `unexpected fields`).
+        #[serde(default)]
+        report_closed_ids: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2593,17 +2611,30 @@ use connection_frame::{
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 
-fn node_json(node: &Node, active_pane: PaneId) -> Value {
+/// One layout node. `split_ids`: the public ids of the splits
+/// (`State::resource_indexes`); a split with one carries it as `split_id`
+/// (`split-client-split-id-v1`).
+fn node_json(
+    node: &Node,
+    active_pane: PaneId,
+    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
+) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => json!({
-            "type": "split",
-            "split": id,
-            "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-            "ratio": ratio,
-            "a": node_json(a, active_pane),
-            "b": node_json(b, active_pane),
-        }),
+        Node::Split { id, dir, ratio, a, b } => {
+            let mut value = json!({
+                "type": "split",
+                "split": id,
+                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
+                "ratio": ratio,
+                "a": node_json(a, active_pane, split_ids),
+                "b": node_json(b, active_pane, split_ids),
+            });
+            if let Some(public_id) = split_ids.get(id) {
+                value["split_id"] = json!(public_id);
+            }
+            value
+        }
         Node::Stack { panes, expanded } => json!({
             "type": "stack",
             "panes": panes.as_slice(),

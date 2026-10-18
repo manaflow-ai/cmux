@@ -3,15 +3,27 @@
 use super::*;
 
 mod composer;
+mod events;
+#[path = "requests/mailbox.rs"]
+mod mailbox;
 mod presets;
 
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
+    let resolved = hub.resolve(id).ok();
     if conn.subscribe(id)
-        && let Ok(s) = hub.resolve(id)
+        && let Some(s) = &resolved
     {
-        hub.attach_count(&s, 1, true);
+        hub.attach_count(s, 1, true);
+    }
+    if let Some(s) = resolved {
+        conn.bind_mailbox_receipt(crate::session_identity::SessionReceipt::new(
+            crate::session_identity::LOCAL_HOST_ID,
+            s.id.clone(),
+            s.meta().agent_session_id,
+            hub.started_at,
+        ));
     }
 }
 
@@ -46,8 +58,8 @@ pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &st
 
 /// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
 const ARCHIVED_TAG: &str = "archived";
-/// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
-const SIDE_TAG: &str = "side";
+// The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
+use crate::hub::SIDE_TAG;
 
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
@@ -135,8 +147,8 @@ async fn dispatch_request(
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
-                    method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_KILL,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
+                    method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory", "promptWithdraw", "processes"], "trustGate": true}}
@@ -268,6 +280,13 @@ async fn dispatch_request(
             let policy = pick("policy")
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
+            let env = crate::session_env::parse(meta)?;
+            let route = pick("route");
+            if let Some(r) = &route
+                && !crate::routes::is_route_id(r)
+            {
+                return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
+            }
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),
@@ -277,10 +296,12 @@ async fn dispatch_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
-                env: crate::session_env::parse(meta)?,
+                workspace_id: crate::session_env::workspace_id(meta, &env)?,
+                env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
                 keep_harness_mode: false,
+                route,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
@@ -405,8 +426,9 @@ async fn dispatch_request(
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
             let env = crate::session_env::parse(mux_meta(&params))?;
+            let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
-            let new = hub.fork(&s, name, cwd, env, through).await?;
+            let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(
@@ -481,6 +503,19 @@ async fn dispatch_request(
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
             })
+            .await
+        }
+        // Read only. A connection asks for its own context: a remote-origin
+        // one (Web, Peer) gets the answer its own session/new would get,
+        // which sets no start mode.
+        method::MUX_START_MODE => {
+            let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            hub.start_mode_answer(
+                s("harness"),
+                s("preset"),
+                s("cwd").map(PathBuf::from),
+                conn.origin.web_class(),
+            )
             .await
         }
         "_acpmux/set_default_policy" => {
@@ -659,7 +694,10 @@ async fn dispatch_request(
             if conn.origin == Origin::Local
                 && let Some(obj) = detail.as_object_mut()
             {
-                obj.insert("sessionEnv".into(), json!(s.meta().session_env));
+                obj.insert(
+                    "sessionEnv".into(),
+                    json!(crate::session_env::shown(&s.meta().session_env)),
+                );
             }
             Ok(detail)
         }
@@ -783,29 +821,11 @@ async fn dispatch_request(
             conn.watch_all.store(on, Ordering::SeqCst);
             crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
         }
-        method::MUX_EVENTS => {
-            let s = hub.resolve(session_key(&params)?)?;
-            let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
-            let before = params.get("beforeSeq").and_then(Value::as_u64);
-            let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
-            let max_bytes = params.get("maxBytes").and_then(Value::as_u64).map(|b| b as usize);
-            let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
-            let last = s.meta().last_seq;
-            if after > last {
-                return Err(RpcError::invalid_params(format!(
-                    "cursor_future: afterSeq {after} is beyond the last event {last}"
-                )));
-            }
-            // beforeSeq pages backwards: the newest `limit` records before it.
-            let page = hub
-                .events_page(&s.id, after, before, limit, max_bytes, before.is_some(), &filter)
-                .map_err(|e| RpcError::internal(e.to_string()))?;
-            Ok(json!({
-                "events": page.events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>(),
-                "hasMore": page.has_more,
-                "lastSeq": last,
-            }))
-        }
+        method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
+        method::MUX_MAIL_SEND
+        | method::MUX_MAIL_READ
+        | method::MUX_MAIL_WAIT
+        | method::MUX_MAIL_ACK => mailbox::handle(hub, conn, m, &params).await,
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;
             let name = str_param(&params, "newName")

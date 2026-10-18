@@ -32,6 +32,13 @@ final class SidebarRegionView: NSView {
     var dropToListProbe: ((NSPoint?) -> Bool)?
     /// A workspace item was dropped on the list.
     var onDropToList: ((LayoutItemID) -> Void)?
+    /// The list this region draws one section in (the sidebar document's
+    /// one renderer, `SidebarBlockRowView`): its item drags are the list's.
+    weak var docList: SidebarListView?
+    /// The item whose press the list's drag holds (it stays in the window, hidden, until the release).
+    var docPressedItem: LayoutItemID?
+    /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
+    var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The region's height changed outside its host's layout (a drag's
     /// preview, a landed drop): the host lays its bands out again.
@@ -75,10 +82,13 @@ final class SidebarRegionView: NSView {
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
     private var animatesFrames = false
-    private var cardLayers: [CALayer] = []
+    /// Frames go to their place on the drag's additive spring (`springShow`); a new view is placed at once.
+    private var springsFrames = false
+    /// Card backgrounds by section: a card keeps its layer (and its spring) when sections are added, removed or reordered.
+    private var cardLayers: [LayoutSectionID: CALayer] = [:]
     /// Section lines (lines looks), or under `appearance.borders = none`
-    /// the tonal step: every other section a shade lighter.
-    private var lineLayers: [CALayer] = []
+    /// the tonal step: every other section a shade lighter. By key (the section below a line, or `tone:<section>`).
+    private var lineLayers: [String: CALayer] = [:]
     private var drawsLines = true
 
     init(region: SidebarRegion) {
@@ -112,6 +122,35 @@ final class SidebarRegionView: NSView {
         layoutResult = result
         apply(shown)
     }
+
+    /// Shows `content` (a list block, `SidebarBlockRowView`): animated, the
+    /// items spring to their new frames, as the list's rows do for a gap.
+    func show(_ content: Content, width: CGFloat, animated: Bool) {
+        guard animated, self.content != nil, content != self.content || width != self.width else { return update(content, width: width) }
+        self.content = content
+        self.width = width
+        relayout(animated: true)
+    }
+
+    /// Shows `content` with every item, header, card and line on the drag's
+    /// one additive spring (`SidebarDragSpring`): a drag's gap opens and
+    /// closes, a drop adopts its slot, with no re-layout jump. The height
+    /// change does not call `onHeightChange`: the list moves the rows below
+    /// with the same spring.
+    func springShow(_ content: Content, width: CGFloat) {
+        guard self.content != nil else { return update(content, width: width) }
+        guard content != self.content || width != self.width else { return }
+        self.content = content
+        self.width = width
+        let shown = displayed(content)
+        layoutResult = Self.layout(shown, width: width)
+        springsFrames = true
+        apply(shown)
+        springsFrames = false
+    }
+
+    /// The layout of `content` at `width` (a list block's height and hit test).
+    static func layout(of content: Content, width: CGFloat) -> SidebarRegionLayout { layout(content, width: width) }
 
     /// Lays out the shown order again; animated, every row springs to its frame.
     func relayout(animated: Bool) {
@@ -156,8 +195,9 @@ final class SidebarRegionView: NSView {
         return widths
     }
 
-    private func place(_ view: NSView, _ frame: CGRect) {
-        if animatesFrames { view.animator().frame = frame } else { view.frame = frame }
+    private func place(_ view: NSView, _ frame: CGRect, new: Bool = false) {
+        if springsFrames, !new { return SidebarDragSpring.move(view, to: frame) }
+        if animatesFrames, !new { view.animator().frame = frame } else if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
     }
 
     /// Icon + label width of every item of an inline section.
@@ -183,21 +223,24 @@ final class SidebarRegionView: NSView {
             case let .header(id):
                 guard let section = sections[id] else { continue }
                 liveHeaders.insert(id)
+                let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
-                place(view, row.frame)
+                place(view, row.frame, new: new)
             case let .app(id):
                 guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
                 liveApps.insert(id)
+                let new = view.superview !== self
                 if view.superview !== self {
                     addSubview(view)
                     (view as? SidebarHoverRevealing)?.setHoverRevealed(chromeRevealed)
                 }
                 appViews[id] = view
-                place(view, row.frame)
+                place(view, row.frame, new: new)
             case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
                 liveItems.insert(id)
+                let new = itemViews[id] == nil
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
@@ -213,12 +256,18 @@ final class SidebarRegionView: NSView {
                 default: section.look == .builtIn ? .builtIn : .list
                 }
                 view.configure(content.infos[id] ?? .fallback(for: item), style: style)
-                place(view, row.frame)
+                place(view, row.frame, new: new)
+                if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
             }
         }
         // A dragged item's view owns the press (AppKit sends it the drags
         // and the release): it stays, hidden, while a preview leaves it out.
-        let pressed = Set((reorder?.hidden ?? []).map(ObjectIdentifier.init))
+        var pressed = Set((reorder?.hidden ?? []).map(ObjectIdentifier.init))
+        // A list block's tile the list's drag lifted: it holds the press, so it stays (hidden) until the release.
+        if let id = docPressedItem, let view = itemViews[id], !liveItems.contains(id) {
+            pressed.insert(ObjectIdentifier(view))
+            view.alphaValue = 0
+        }
         for (id, view) in itemViews where !liveItems.contains(id) && !pressed.contains(ObjectIdentifier(view)) {
             view.removeFromSuperview()
             itemViews[id] = nil
@@ -235,27 +284,45 @@ final class SidebarRegionView: NSView {
         PointerHover.refresh(in: window)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        while cardLayers.count > layoutResult.cards.count { cardLayers.removeLast().removeFromSuperlayer() }
-        while cardLayers.count < layoutResult.cards.count {
+        // Cards and lines are matched by section, not by position: a section added above another
+        // keeps that one's card on its spring instead of moving a neighbour's card into its place.
+        let cards = Dictionary(zip(layoutResult.cardSections, layoutResult.cards), uniquingKeysWith: { a, _ in a })
+        for (id, card) in cardLayers where cards[id] == nil {
+            card.removeFromSuperlayer()
+            cardLayers[id] = nil
+        }
+        for (id, frame) in cards {
+            if let card = cardLayers[id] {
+                if springsFrames { SidebarDragSpring.move(card, to: frame) } else { card.frame = frame }
+                continue
+            }
             let card = CALayer()
             card.cornerCurve = .continuous
-            layer?.insertSublayer(card, at: 0)
-            cardLayers.append(card)
-        }
-        for (card, frame) in zip(cardLayers, layoutResult.cards) {
-            card.frame = frame
             card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
+            layer?.insertSublayer(card, at: 0)
+            card.frame = frame
+            cardLayers[id] = card
         }
         drawsLines = Borders.drawsLines
-        let lineFrames = drawsLines ? layoutResult.separators
-            : content.look.separatesSections ? layoutResult.sectionFrames.enumerated().filter { $0.offset % 2 == 1 }.map(\.element) : []
-        while lineLayers.count > lineFrames.count { lineLayers.removeLast().removeFromSuperlayer() }
-        while lineLayers.count < lineFrames.count {
+        let lineFrames: [(String, CGRect)] = drawsLines ? Array(zip(layoutResult.separatorKeys, layoutResult.separators))
+            : content.look.separatesSections
+            ? zip(layoutResult.sectionIDs, layoutResult.sectionFrames).enumerated().filter { $0.offset % 2 == 1 }.map { ("tone:" + $0.element.0.rawValue, $0.element.1) }
+            : []
+        let lines = Dictionary(lineFrames, uniquingKeysWith: { a, _ in a })
+        for (key, line) in lineLayers where lines[key] == nil {
+            line.removeFromSuperlayer()
+            lineLayers[key] = nil
+        }
+        for (key, frame) in lines {
+            if let line = lineLayers[key] {
+                if springsFrames { SidebarDragSpring.move(line, to: frame) } else { line.frame = frame }
+                continue
+            }
             let line = CALayer()
             layer?.insertSublayer(line, at: 0)
-            lineLayers.append(line)
+            line.frame = frame
+            lineLayers[key] = line
         }
-        for (line, frame) in zip(lineLayers, lineFrames) { line.frame = frame }
         CATransaction.commit()
         needsDisplay = true
     }
@@ -302,12 +369,13 @@ final class SidebarRegionView: NSView {
         performWithTheme {
             // A tiles card takes the next tonal step so it reads as its own
             // shelf above the session list, not one more card.
-            for (index, card) in cardLayers.enumerated() {
-                let fill = layoutResult.tiledCards.contains(index) ? Palette.selectionFill : Palette.hoverFill
+            let tiled = Set(layoutResult.tiledCards.compactMap { layoutResult.cardSections.indices.contains($0) ? layoutResult.cardSections[$0] : nil })
+            for (id, card) in cardLayers {
+                let fill = tiled.contains(id) ? Palette.selectionFill : Palette.hoverFill
                 card.backgroundColor = fill.cgColor
             }
             let lineColor = drawsLines ? Palette.separator : Palette.hoverFill.withAlphaComponent(Palette.hoverFill.alphaComponent * 0.6)
-            for line in lineLayers { line.backgroundColor = lineColor.cgColor }
+            for line in lineLayers.values { line.backgroundColor = lineColor.cgColor }
         }
     }
 

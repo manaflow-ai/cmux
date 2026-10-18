@@ -1074,18 +1074,6 @@
         {
           "keys" : [
             {
-              "key" : "]",
-              "modifiers" : [
-                "shift",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
               "key" : "",
               "modifiers" : [
                 "opt",
@@ -1123,7 +1111,7 @@
       "default_shortcut" : {
         "key" : "]",
         "modifiers" : [
-          "shift",
+          "ctrl",
           "cmd"
         ]
       },
@@ -1151,18 +1139,6 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "[",
-              "modifiers" : [
-                "shift",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
         {
           "keys" : [
             {
@@ -1203,7 +1179,7 @@
       "default_shortcut" : {
         "key" : "[",
         "modifiers" : [
-          "shift",
+          "ctrl",
           "cmd"
         ]
       },
@@ -7874,6 +7850,18 @@
             }
           ],
           "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
         }
       ],
       "default_chord" : null,
@@ -7914,6 +7902,18 @@
               "modifiers" : [
                 "ctrl",
                 "shift"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "shift",
+                "cmd"
               ]
             }
           ],
@@ -8892,6 +8892,90 @@
       "palette_suggested" : null,
       "title" : "Open Channels",
       "title_key" : "action.home.channels",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home switch-view",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.switchView",
+      "main_menu" : "view",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Switch Home View",
+      "title_key" : "action.home.switchView",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home enable-channels",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.enableChannels",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Enable Channels",
+      "title_key" : "action.home.enableChannels",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home disable-channels",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.disableChannels",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Disable Channels",
+      "title_key" : "action.home.disableChannels",
       "title_table" : "HomeActions"
     },
     {
@@ -14191,6 +14275,62 @@
       "palette_suggested" : null,
       "title" : "Fit as 16:9 Desktop",
       "title_key" : "action.browserFitDesktop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser fit",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserFit",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fit as Desktop…",
+      "title_key" : "action.browserFit",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser fit-desktop-1280",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserFitDesktop1280",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fit as Desktop (1280)",
+      "title_key" : "action.browserFitDesktop1280",
       "title_table" : "ActionCatalog"
     },
     {
@@ -23104,6 +23244,118 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "settings use-scrolling-tabs",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.overflow.scroll",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Tabs: Use Scrolling Tabs",
+      "title_key" : "action.tabs.overflow.scroll",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings use-shrinking-tabs",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabs.overflow.shrink",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Tabs: Use Shrinking Tabs",
+      "title_key" : "action.tabs.overflow.shrink",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings open-links-in-cmux-browser",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "links.openInCmuxBrowser",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Links: Open in cmux Browser",
+      "title_key" : "action.links.openInCmuxBrowser",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings open-links-in-default-browser",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "links.openInDefaultBrowser",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Links: Open in Default Browser",
+      "title_key" : "action.links.openInDefaultBrowser",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "settings toggle-focus-ring",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -29906,8 +30158,88 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "browserFitDesktop1280",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "browserFocused"
+                ]
+              }
+            },
+            {
+              "choices" : {
+                "argument" : "fit",
+                "more_opens_palette" : true,
+                "values" : [
+                  {
+                    "title" : "16:9",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "16:9"
+                  },
+                  {
+                    "title" : "16:10",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "16:10"
+                  },
+                  {
+                    "title" : "4:3",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "4:3"
+                  },
+                  {
+                    "title" : "21:9",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "21:9"
+                  },
+                  {
+                    "title" : "1,280 px",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "1280"
+                  },
+                  {
+                    "title" : "1,440 px",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "1440"
+                  },
+                  {
+                    "title" : "1,920 px",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "1920"
+                  },
+                  {
+                    "title" : "Turn Off",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "off"
+                  }
+                ]
+              },
+              "enabled_when" : "can_perform",
+              "id" : "browserFit",
+              "kind" : "choices",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "browserFocused"
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 5
+              "order" : 7
             },
             {
               "children" : [
@@ -30069,7 +30401,7 @@
               ],
               "id" : "browser.pageInfo",
               "kind" : "submenu",
-              "order" : 6,
+              "order" : 8,
               "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
@@ -30083,7 +30415,7 @@
               "enabled_when" : "can_perform",
               "id" : "showBrowserJavaScriptConsole",
               "kind" : "action",
-              "order" : 7,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30096,7 +30428,7 @@
               "enabled_when" : "can_perform",
               "id" : "inspectBrowserElement",
               "kind" : "action",
-              "order" : 8,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30107,37 +30439,11 @@
             },
             {
               "kind" : "separator",
-              "order" : 9
+              "order" : 11
             },
             {
               "enabled_when" : "can_perform",
               "id" : "browser.extensions.menu",
-              "kind" : "action",
-              "order" : 10,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browser.extensions.manage",
-              "kind" : "action",
-              "order" : 11,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "browser.extensions.webStore",
               "kind" : "action",
               "order" : 12,
               "visible_when" : {
@@ -30150,9 +30456,35 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "browser.extensions.loadUnpacked",
+              "id" : "browser.extensions.manage",
               "kind" : "action",
               "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browser.extensions.webStore",
+              "kind" : "action",
+              "order" : 14,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "browser.extensions.loadUnpacked",
+              "kind" : "action",
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

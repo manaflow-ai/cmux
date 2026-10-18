@@ -3,26 +3,21 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextWakeups
 
-/// Pending window record saves: at most one write in flight and one
-/// requested after it, so saves are bounded and land in order.
+/// Pending window record saves: at most one in flight and one after it, in order.
 struct WindowRecordSaves {
     var requested = false
     var scheduled = false
     var inFlight = false
-    /// Tickets of the actions whose changes the next write carries; they
-    /// close once it lands, so `action.run` answers after the record is
-    /// stored (plans/cmux-next/state-ownership.md 3 and 4).
+    /// Tickets of the actions the next write carries; they close once it lands, so `action.run`
+    /// answers after the record is stored (plans/cmux-next/state-ownership.md 3 and 4).
     var tickets: [CommandTicket] = []
     /// The task draining saves, so the quit flush can await it.
     var drain: Task<Void, Never>?
 }
 
-/// Writes the window records in the daemon's `personal` projection
-/// (state-ownership.md 3): each holds the window's selected tab per pane and
-/// its focused pane, and is written on every selection or focus change,
-/// coalesced within one main-actor turn. Geometry still settles for 500 ms
-/// first, so a window drag does not write per frame. Owned by
-/// `WindowManager` (`recordSaver`).
+/// Writes the window records in the daemon's `personal` projection (state-ownership.md 3): tab per
+/// pane and focused pane, on each selection or focus change, coalesced per turn (`WindowRecordSaves`);
+/// an unchanged document writes nothing. Geometry settles for 500 ms first. Owned by `WindowManager`.
 @MainActor
 final class WindowRecordSaver {
     unowned let manager: WindowManager
@@ -32,6 +27,7 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
+    private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -55,8 +51,7 @@ final class WindowRecordSaver {
         stateDidChange(any)
     }
 
-    /// Records the window's focused pane when it changed (the focus
-    /// coordinator settled), and saves.
+    /// Records the window's focused pane when it changed (the focus coordinator settled), and saves.
     func focusDidSettle(_ state: WindowState, pane: String?) {
         guard state.savedFocusedPane != pane else { return }
         state.savedFocusedPane = pane
@@ -76,8 +71,7 @@ final class WindowRecordSaver {
         }
     }
 
-    /// Writes the records once more through the same queue, after any write
-    /// in flight, so an older write cannot land after it (quit).
+    /// Writes the records once more after any write in flight, so an older one cannot land after it (quit).
     func flushSaves() async {
         requestSave()
         await saves.drain?.value
@@ -152,26 +146,32 @@ final class WindowRecordSaver {
         }
     }
 
-    /// The pane last focused in each workspace the window lists: the focus
-    /// machine's memory, and the shown workspace's current pane.
+    /// The pane last focused in each workspace the window lists (focus memory, the shown one's pane).
     private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
         guard let state = manager.states[window.id] else { return [:] }
         let focus = state.focus.state
-        var panes = focus.remembered
+        var panes = state.focus.rememberedPanes()
         if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
         let listed = Set(window.workspaceIDs)
         return panes.filter { listed.contains($0.key) }
     }
 
-    /// Remembered tab per pane across the window's workspaces.
+    /// Remembered tab per pane across the window's workspaces, read again only when an input moved
+    /// (its tab memory, its workspaces, a daemon batch): a save after a switch reads no pane.
     private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
         guard let state = manager.states[window.id] else { return [:] }
+        let key = SelectedTabsKey(selection: state.selection.revision, workspaces: window.workspaceIDs,
+                                  batches: services.machines.daemons.map(\.store.appliedSequence))
+        if let cached = selectedTabsCache[window.id], cached.key == key { return cached.tabs }
         var selected: [String: String] = [:]
         for id in window.workspaceIDs {
             for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
                 if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
             }
         }
+        selectedTabsCache[window.id] = (key, selected)
         return selected
     }
 }
+
+private struct SelectedTabsKey: Equatable { var selection: UInt64, workspaces: [String], batches: [UInt64] }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// The Now Playing card in the bottom-left slot (cx-ouoxo, a preview
 /// feature): the artwork, title and artist, a scrubber that seeks, and
@@ -13,8 +14,8 @@ final class SidebarNowPlayingCardView: NSView {
     private(set) var nowPlaying: SidebarNowPlaying?
     let surface = CardSurfaceView()
     let artworkView = NSImageView()
-    let titleLabel = NSTextField(labelWithString: "")
-    let artistLabel = NSTextField(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
+    let artistLabel = ChromeLabel(labelWithString: "")
     let scrubber = SidebarNowPlayingScrubber()
     let previousButton = SidebarIconButton(icon: .mediaPrevious, label: "")
     let playPauseButton = SidebarIconButton(icon: .mediaPlay, label: "")
@@ -153,8 +154,13 @@ final class SidebarNowPlayingScrubber: NSView {
     private(set) var nowPlaying: SidebarNowPlaying?
     private let track = CALayer()
     let fill = CALayer()
-    /// The position a drag shows until the source reports again.
+    /// The position a drag shows until the source reports again, or until ``seekWait`` passes
+    /// with no report (a source that ignored the seek): then it runs on from where it plays.
     private var dragged: TimeInterval?
+    private let seekWait = DemandTimer(owner: "sidebar.now-playing.seek")
+    /// Bumped by each press and release, so a wait that fires as a new drag starts leaves that drag.
+    private var seekCount = 0
+    static let seekWaitDelay: Duration = .seconds(2)
     /// Pins Reduce Motion for this scrubber only (tests), instead of the
     /// process-wide `Motion.reduceMotionOverride`, which leaks into every
     /// test that runs alongside.
@@ -185,6 +191,7 @@ final class SidebarNowPlayingScrubber: NSView {
     func show(_ nowPlaying: SidebarNowPlaying?) {
         self.nowPlaying = nowPlaying
         dragged = nil
+        seekWait.cancel()
         isHidden = nowPlaying?.canSeek != true
         update()
     }
@@ -256,6 +263,8 @@ final class SidebarNowPlayingScrubber: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let seconds = seconds(at: event) else { return }
+        seekWait.cancel()
+        seekCount &+= 1
         dragged = seconds
         update()
     }
@@ -272,6 +281,15 @@ final class SidebarNowPlayingScrubber: NSView {
         let expected = nowPlaying?.position(at: Date())
         dragged = expected.map { abs($0 - seconds) < 1.5 } == true ? nil : seconds
         update()
+        seekCount &+= 1
+        if dragged != nil {
+            let seek = seekCount
+            seekWait.schedule(after: Self.seekWaitDelay) { @MainActor [weak self] in
+                guard let self, self.seekCount == seek else { return }
+                self.dragged = nil
+                self.update()
+            }
+        }
         onSeek?(seconds)
     }
 

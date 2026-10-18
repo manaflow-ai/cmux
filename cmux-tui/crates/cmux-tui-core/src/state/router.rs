@@ -129,11 +129,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogAppend
             | Op::WorkspaceLogList
             | Op::WorkspaceLogClear
-            | Op::AgentMessageSend
-            | Op::AgentMessageList
-            | Op::AgentMessageMark
-            | Op::AgentMessageRelease
-    )
+    ) || agent_message_router::handles(operation)
 }
 
 /// Map a state failure to its typed protocol error. Registry validation
@@ -353,7 +349,12 @@ pub(crate) fn dispatch(
                         "bad request: give fit alone, without device, custom or orientation"
                     )));
                 }
-                EmulationChange::Fit(fit)
+                // `fit: "off"` ends the fit (as browser.tab.emulate.clear).
+                if fit.trim().eq_ignore_ascii_case("off") {
+                    EmulationChange::Clear
+                } else {
+                    EmulationChange::Fit(fit)
+                }
             } else {
                 EmulationChange::Set {
                     device: string(fields, "device"),
@@ -908,10 +909,9 @@ pub(crate) fn dispatch(
             state_result(mux, commit)
         }
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
-        Op::AgentMessageList
-        | Op::AgentMessageSend
-        | Op::AgentMessageMark
-        | Op::AgentMessageRelease => agent_message_router::dispatch(mux, &request),
+        operation if agent_message_router::handles(operation) => {
+            agent_message_router::dispatch(mux, &request)
+        }
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),
             "state router received an operation it does not own",

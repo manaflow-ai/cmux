@@ -2,7 +2,10 @@
 
 The wasm-bindgen output of the Rust OptChat core (`Native/OptChat/optchat-core`, bindings in
 `Native/OptChat/optchat-wasm`) for `wasm32-unknown-unknown` (`wasm-bindgen --target web`). Copied
-verbatim; byte-identical to `experiments/chief-optmem/src/optchat-wasm/` (same four files, same
-SHA-1). The Chief brain (`../brain-do.ts`) keeps its memory with it. Rebuild with
+verbatim (since 2026-10-16 newer than the copy in `experiments/chief-optmem/src/optchat-wasm/`). The Chief brain (`../brain-do.ts`) keeps its memory with it. Rebuild with
 `experiments/chief-optmem/scripts/build-optchat-wasm.sh` on a build host (never the laptop), then
 copy the four files here and in the experiment.
+
+2026-10-16: rebuilt on cmux-rust-builder-1 (rbx lane hqec-optchat-wasm; rustc stable, wasm-bindgen-cli 0.2.129)
+from this tree's `Native/OptChat/optchat-wasm`, which now exposes the core's checkpoint and lazy resume
+(`checkpoint`, `OptChat.resume`, `makeLazy`, `isLazy`, `appendIn`, `completeIn`) for `../memory.ts`.

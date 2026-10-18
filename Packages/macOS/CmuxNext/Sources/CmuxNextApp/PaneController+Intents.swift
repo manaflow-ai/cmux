@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextFocus
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -70,8 +71,9 @@ extension PaneController {
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         state.selection.select(id.rawValue, in: paneKey)
-        stripModel.selectedID = id
-        PaneSelectionPresenter(pane: self).present()
+        setStripSelection(id)
+        presentSelection()
+        remapViewedTab()
         services.windows.recordSaver.stateDidChange(state)
     }
 
@@ -156,7 +158,7 @@ extension PaneController {
         var surfaces: [SurfaceID] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
-                state?.localBrowserTabs[paneKey]?.removeAll { $0.id == id.rawValue }
+                state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)
                 continue
             }

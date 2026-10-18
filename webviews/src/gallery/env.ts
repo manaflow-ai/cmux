@@ -3,7 +3,7 @@
 // matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
 // GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
 // fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
-// frame, window, zoom, layout.
+// frame, window, zoom, layout, source.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
@@ -69,6 +69,8 @@ export type GalleryEnv = {
   density: Density;
   /** Interface scale (WKWebView pageZoom, DesignSettings.uiScale). */
   scale: number;
+  /** Chrome token multiplier (opt-in, Debug Settings `chrome.interfaceSize`), independent of document zoom. */
+  interfaceScale: number;
   /** A named width or a number of px. */
   width: WidthName | number;
   /** Px; 0 fits the state's own height. */
@@ -97,6 +99,7 @@ export const DEFAULT_ENV: GalleryEnv = {
   fontSize: 0,
   density: "comfortable",
   scale: 1,
+  interfaceScale: 1,
   width: "normal",
   height: 0,
   reducedMotion: false,
@@ -154,6 +157,7 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   env.fontSize = finite(params.get("fontSize"), 0, 0, 40);
   if (params.get("density") === "compact") env.density = "compact";
   env.scale = finite(params.get("scale"), 1, 0.5, 3);
+  env.interfaceScale = finite(params.get("interfaceScale"), 1, 0.9, 1.25);
   const width = params.get("width");
   if (width && width in WIDTHS) env.width = width as WidthName;
   else if (width && /^\d+$/.test(width)) env.width = Math.min(Math.max(Number(width), 240), 3000);
@@ -190,12 +194,13 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
  * gallery's edited tunables (experiments/tunable.ts `writeTunes`), outside the shared contract:
  * the native gallery has no tunables.
  */
-export type StageAddress = { entry: string; variant: string; tune?: string };
+export type StageAddress = { entry: string; variant: string; tune?: string; source?: string };
 
 export function frameQuery(address: StageAddress, env: GalleryEnv): string {
   const params = writeEnv(env);
   params.set("entry", address.entry);
   params.set("variant", address.variant);
   if (address.tune) params.set("tune", address.tune);
+  if (address.source) params.set("source", address.source);
   return params.toString();
 }

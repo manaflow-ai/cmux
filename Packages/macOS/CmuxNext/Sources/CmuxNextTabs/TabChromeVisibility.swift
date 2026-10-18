@@ -34,7 +34,9 @@ public struct TabChromeVisibility: Equatable, Sendable {
         if isPinned {
             return TabChromeVisibility(showsIcon: true, showsTitle: false, showsClose: false, centersContent: true)
         }
-        if width + 0.5 < metrics.minInactiveTabWidth { return .hidden }
+        // Narrower than an icon-only tab (Chrome's inactive minimum, 32; an opening or closing tab): nothing
+        // shows. Not the strip's crowding minimum, which keeps a title (cx-kp9b4) and in Scroll mode is 140.
+        if width + 0.5 < min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth) { return .hidden }
         let contents = width - metrics.contentLeadingInset - metrics.contentTrailingInset
         let roomy = contents >= metrics.closeMinContentsWidth
         let showsClose: Bool

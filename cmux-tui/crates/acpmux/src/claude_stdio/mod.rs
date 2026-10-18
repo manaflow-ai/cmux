@@ -34,7 +34,7 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-const MODES: [(&str, &str); 4] = [
+pub(crate) const MODES: [(&str, &str); 4] = [
     ("default", "Normal"),
     ("plan", "Plan"),
     ("auto", "Auto"),
@@ -291,6 +291,11 @@ pub struct Translator {
     /// suggested with its permission ask (`session_rules`), held until the
     /// answer: an "Allow for this session" hands them back.
     suggestions: Mutex<HashMap<String, Value>>,
+    /// claude control request_id -> the tool input of its `can_use_tool`
+    /// ask, held until the answer: Claude Code takes an allow only with
+    /// `updatedInput` (its permission reply schema), so an allow the hub
+    /// did not rewrite hands the input back as it came.
+    inputs: Mutex<HashMap<String, Value>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -300,9 +305,17 @@ pub struct Translator {
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
     in_turn: AtomicBool,
+    /// Claude Code wrote something for the prompt (an assistant line, a
+    /// conversation reset): its result ends the turn, never startup noise.
+    turn_output: AtomicBool,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Prompts still unanswered when the next one went out: acpmux ended
+    /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
+    /// Claude Code's result for them comes before it reads the next prompt,
+    /// or after its echo but before any of its output.
+    abandoned: Mutex<Vec<String>>,
     /// Steered prompts (user lines written during a turn) Claude Code has
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
     /// answered at its echo.
@@ -366,6 +379,9 @@ struct BackgroundShell {
     launched: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
+    /// The file Claude Code writes its output to (`output_file`), once a
+    /// task event named it.
+    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -393,6 +409,7 @@ impl Translator {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
             suggestions: Mutex::new(HashMap::new()),
+            inputs: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -401,7 +418,9 @@ impl Translator {
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
+            turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),

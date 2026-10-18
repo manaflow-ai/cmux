@@ -50,8 +50,8 @@
      #a6e22e). */
   --cmux-diff-addition-fg: var(--cmux-diff-addition-fg-light);
   --cmux-diff-deletion-fg: var(--cmux-diff-deletion-fg-light);
-  --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 78%, var(--cmux-diff-solid-bg));
-  --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 78%, var(--cmux-diff-solid-bg));
+  --cmux-diff-count-added: color-mix(in srgb, var(--cmux-diff-addition-fg) 66%, var(--cmux-diff-solid-bg));
+  --cmux-diff-count-deleted: color-mix(in srgb, var(--cmux-diff-deletion-fg) 66%, var(--cmux-diff-solid-bg));
   /* Dim text: directories, file names in the tree, placeholders, icons. */
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
@@ -1527,7 +1527,6 @@ body[data-loading="true"] #status::before {
   --agent-input-bg: var(--cmux-diff-solid-bg);
   --agent-accent: var(--cmux-diff-accent);
   --agent-danger: var(--cmux-diff-deletion-fg);
-  --acpmux-motion-hover: 80ms;
   --acpmux-motion-ease: ease-out;
   --acpmux-step-pressed: color-mix(in srgb, var(--agent-text) 16%, transparent);
 }
@@ -2066,6 +2065,8 @@ svg[data-icon-fill] {
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 14px;
   line-height: 20px;
+  /* Regular weight, as the code below it (diffWeight.ts). */
+  font-weight: 400;
   color: var(--cmux-diff-fg);
   white-space: nowrap;
   cursor: pointer;

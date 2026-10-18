@@ -20,9 +20,9 @@ final class AgentQuestionOptionRowView: NSView {
     var onClick: (() -> Void)?
     private(set) var content: Content?
     private let keycap = CALayer()
-    private let keycapLabel = NSTextField(labelWithString: "")
-    private let title = NSTextField(wrappingLabelWithString: "")
-    private let detail = NSTextField(wrappingLabelWithString: "")
+    private let keycapLabel = ChromeLabel(labelWithString: "")
+    private let title = ChromeLabel(wrappingLabelWithString: "")
+    private let detail = ChromeLabel(wrappingLabelWithString: "")
     private let check = NSImageView()
     private var frames: AgentQuestionCardLayout.Row?
 

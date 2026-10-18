@@ -105,6 +105,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
     /// asks for the chat folder's pull request again.
     case tabState(refresh: Bool)
+    /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
+    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
+    case tabRowTools(width: Double)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
     /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.

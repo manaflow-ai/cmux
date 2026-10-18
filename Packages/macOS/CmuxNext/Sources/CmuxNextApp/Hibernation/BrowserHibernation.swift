@@ -34,8 +34,7 @@ final class BrowserHibernation {
     private var pressureSource: (any DispatchSourceMemoryPressure)?
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
-    /// Memory pressure changed (the App resizes the terminal warm set and
-    /// the parked workspaces).
+    /// Memory pressure changed (the App resizes the terminal warm set).
     var onPressureChange: ((MemoryPressureLevel) -> Void)?
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
     private var settingsObservation: Task<Void, Never>?
@@ -231,6 +230,8 @@ final class BrowserHibernation {
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
+        // A probe that kept the page before no longer applies (`debug.surfaces`).
+        exemptions[key] = nil
         hibernatedCount += 1
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
     }

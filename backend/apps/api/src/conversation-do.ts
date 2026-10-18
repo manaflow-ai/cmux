@@ -12,6 +12,7 @@ import * as gc from "./home-attachment-gc.ts"
 import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
 import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
+import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-live.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
@@ -57,6 +58,7 @@ export type InvitePreviewResult =
  * mode. Token hashes and accept proofs stay here (conversationRedact, private `invhash`).
  */
 export class ConversationDO extends OwnerDO<Head> {
+  protected override readonly welcomeCapabilities: ReadonlyArray<string> = [LIVE_CAPABILITY] // Chief live frames (conversation-live.ts)
   constructor(ctx: DurableObjectState, env: Env) {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
     const domain = conversation.makeConversationDomain({
@@ -97,11 +99,11 @@ export class ConversationDO extends OwnerDO<Head> {
    * from the socket: a frame would carry client-chosen values and skip the accept lock. They go
    * through POST /v1/ops; other ops may use the socket.
    */
-  protected routeFrame(ws: WebSocket, _a: unknown, frame: { readonly t?: string; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
+  protected routeFrame(ws: WebSocket, a: { principal: Principal }, frame: { readonly t?: string; readonly type?: unknown; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
+    const state = this.boundEngine?.currentState // Live Chief frames: run.live on subscribe and run.live.get (conversation-live.ts).
+    if (liveSocketFrame(this.ctx, ws, frame, state?.id, !!state && this.member(state, a.principal) !== undefined)) return true
     if (frame.t !== "op" || typeof frame.op !== "string" || !WORKER_DERIVED_OPS.has(frame.op)) return false
-    try {
-      ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false }))
-    } catch {}
+    try { ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false })) } catch {}
     return true
   }
 
@@ -207,9 +209,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const a = ws.deserializeAttachment() as ConvAttachment | null
     const state = this.boundEngine?.currentState
     const fail = (code: string, message: string) => {
-      try {
-        ws.send(JSON.stringify({ t: "error", code, message }))
-      } catch {}
+      try { ws.send(JSON.stringify({ t: "error", code, message })) } catch {}
       return true
     }
     if (typeof frame.on !== "boolean" || (frame.conversation !== undefined && frame.conversation !== state?.id)) return fail("validation.invalid", "typing needs a boolean `on` (and this conversation, when named)")
@@ -232,12 +232,13 @@ export class ConversationDO extends OwnerDO<Head> {
     await super.webSocketClose(ws, code)
   }
 
-  /** A chief brain's ephemeral frames (chief-brain/brain-do.ts), never committed: typing (a socket's gate) or a run change. */
-  async agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> }): Promise<void> {
+  /** A chief brain's ephemeral frames (chief-brain/brain-do.ts), never committed: typing (a socket's gate), a run change, or a live frame (conversation-live.ts). */
+  async agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> } | { live: unknown }): Promise<void> {
     const state = this.isBound(entity) ? this.bind(entity).currentState : null
     if (!state?.participants.some((p) => p.id === agent && p.kind === "agent" && p.left_at === undefined)) return
     if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null))
-    this.toMembers(state, null, JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }))
+    const live = "live" in f ? liveBuffer(this.ctx).apply(state.id, agent, f.live) : (liveBuffer(this.ctx).runChanged(agent, f.run, f.steps), { frame: JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }), reset: false })
+    if (live) [this.toMembers(state, null, live.frame), live.reset && this.toMembers(state, null, liveBuffer(this.ctx).snapshot(state.id))]
   }
 
   private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket | null, force = false) {

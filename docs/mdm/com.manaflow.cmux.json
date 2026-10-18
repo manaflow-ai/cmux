@@ -584,7 +584,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -599,6 +599,102 @@
       ],
       "title" : "Window Style",
       "type" : "string"
+    },
+    "appearance.colorTransition.bezierX1" : {
+      "default" : 0.42,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierX2" : {
+      "default" : 0.58,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Bezier X2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY1" : {
+      "default" : 0,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y1",
+      "type" : "number"
+    },
+    "appearance.colorTransition.bezierY2" : {
+      "default" : 1,
+      "description" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier().",
+      "maximum" : 2,
+      "minimum" : -1,
+      "title" : "Bezier Y2",
+      "type" : "number"
+    },
+    "appearance.colorTransition.colorSpace" : {
+      "default" : "oklab",
+      "description" : "OKLab blends with even lightness. sRGB mixes the red, green and blue channels.",
+      "enum" : [
+        "oklab",
+        "srgb"
+      ],
+      "title" : "Color Blend Space",
+      "type" : "string"
+    },
+    "appearance.colorTransition.curve" : {
+      "default" : "easeOut",
+      "description" : "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values.",
+      "enum" : [
+        "easeOut",
+        "easeInOut",
+        "linear",
+        "spring",
+        "cubicBezier"
+      ],
+      "title" : "Color Change Curve",
+      "type" : "string"
+    },
+    "appearance.colorTransition.duration" : {
+      "default" : 200,
+      "description" : "How long a color change takes. 0 changes colors at once.",
+      "maximum" : 2000,
+      "minimum" : 0,
+      "title" : "Color Change Duration",
+      "type" : "number"
+    },
+    "appearance.colorTransition.enabled" : {
+      "default" : true,
+      "description" : "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once.",
+      "title" : "Animate Color Changes",
+      "type" : "boolean"
+    },
+    "appearance.colorTransition.reduceMotion" : {
+      "default" : "crossfade",
+      "description" : "What color changes do while Reduce Motion is on in macOS.",
+      "enum" : [
+        "crossfade",
+        "instant",
+        "full"
+      ],
+      "title" : "With Reduce Motion",
+      "type" : "string"
+    },
+    "appearance.colorTransition.springDamping" : {
+      "default" : 1,
+      "description" : "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner.",
+      "maximum" : 2,
+      "minimum" : 0.1,
+      "title" : "Spring Damping",
+      "type" : "number"
+    },
+    "appearance.colorTransition.springResponse" : {
+      "default" : 0.3,
+      "description" : "Seconds a spring color change takes to reach its new colors.",
+      "maximum" : 2,
+      "minimum" : 0.05,
+      "title" : "Spring Response",
+      "type" : "number"
     },
     "appearance.density" : {
       "default" : "compact",
@@ -644,6 +740,13 @@
       "title" : "Hue",
       "type" : "number"
     },
+    "appearance.interfaceScale" : {
+      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "maximum" : 1.25,
+      "minimum" : 0.9,
+      "title" : "Interface Size",
+      "type" : "number"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
@@ -663,6 +766,34 @@
       "maximum" : 420,
       "minimum" : 160,
       "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMaxWidth" : {
+      "description" : "Widest a tab gets when the strip has room.",
+      "maximum" : 320,
+      "minimum" : 120,
+      "title" : "Maximum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinActiveWidth" : {
+      "description" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
+      "maximum" : 200,
+      "minimum" : 32,
+      "title" : "Minimum Selected Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinInactiveWidth" : {
+      "description" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
+      "maximum" : 120,
+      "minimum" : 16,
+      "title" : "Minimum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabPinnedWidth" : {
+      "description" : "Width of a pinned tab.",
+      "maximum" : 120,
+      "minimum" : 24,
+      "title" : "Pinned Tab Width",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
@@ -1064,6 +1195,14 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.backgroundOpacity" : {
+      "default" : 0,
+      "description" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Address Bar Opacity",
+      "type" : "number"
+    },
     "browser.omnibar.calculator" : {
       "default" : true,
       "description" : "Shows the answer to arithmetic you type. Return copies it.",
@@ -1081,7 +1220,7 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "transparent",
+      "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
         "transparent",
@@ -1135,6 +1274,12 @@
       "default" : false,
       "description" : "A soft shadow under the glass address bar.",
       "title" : "Address Bar Shadow",
+      "type" : "boolean"
+    },
+    "browser.openLinksInCmuxBrowser" : {
+      "default" : true,
+      "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+      "title" : "Open Links in cmux Browser",
       "type" : "boolean"
     },
     "browser.openTerminalLinksInCmuxBrowser" : {
@@ -1214,7 +1359,7 @@
       "default" : [
 
       ],
-      "description" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+      "description" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
       "items" : {
         "type" : "string"
       },
@@ -1367,6 +1512,12 @@
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
     },
+    "files.textEditor" : {
+      "default" : "",
+      "description" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
+      "title" : "Text Editor",
+      "type" : "string"
+    },
     "focus.inactiveTabStyle" : {
       "default" : "fade",
       "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
@@ -1465,6 +1616,12 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "home.channelsEnabled" : {
+      "default" : false,
+      "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
+      "title" : "Channels",
       "type" : "boolean"
     },
     "labs.classicHome" : {
@@ -2123,6 +2280,20 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.hoverCards.delay" : {
+      "default" : 1300,
+      "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Hover Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.enabled" : {
+      "default" : true,
+      "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
+      "title" : "Show Hover Cards",
+      "type" : "boolean"
+    },
     "sidebar.minimal" : {
       "default" : false,
       "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
@@ -2764,6 +2935,16 @@
       "title" : "New Tab Template",
       "type" : "string"
     },
+    "tabs.overflow" : {
+      "default" : "shrink",
+      "description" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
+      "enum" : [
+        "shrink",
+        "scroll"
+      ],
+      "title" : "Tab Overflow",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
@@ -2779,39 +2960,6 @@
       "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
-    },
-    "tabs.tabBar.agent" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Agent Chats",
-      "type" : "string"
-    },
-    "tabs.tabBar.browser" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Browser Panes",
-      "type" : "string"
-    },
-    "tabs.tabBar.terminal" : {
-      "default" : "auto",
-      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
-      "enum" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "title" : "Tab Bar in Terminal Panes",
-      "type" : "string"
     },
     "tabs.toolbarButtons" : {
       "default" : [
@@ -2872,7 +3020,7 @@
       "type" : "boolean"
     },
     "ui.animations.newWorkspace" : {
-      "default" : false,
+      "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
       "type" : "boolean"
@@ -2889,7 +3037,7 @@
       "type" : "string"
     },
     "ui.paneAnimations" : {
-      "default" : false,
+      "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
       "title" : "Animate Panes",
       "type" : "boolean"
@@ -2983,6 +3131,12 @@
       ],
       "title" : "Titlebar Buttons",
       "type" : "string"
+    },
+    "workspaces.autoName" : {
+      "default" : true,
+      "description" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
+      "title" : "Name Workspaces from Tabs",
+      "type" : "boolean"
     },
     "workspaces.newPlacement" : {
       "default" : "top",

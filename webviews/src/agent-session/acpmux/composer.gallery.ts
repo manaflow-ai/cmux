@@ -507,11 +507,11 @@ export default agentPaneEntry({
       ),
       checks: {
         anchorMovePx: {
-          value: 80,
+          value: 100,
           reason:
-            "The attached image's 72 px thumbnail row opens above the prompt, the same growth a pasted image makes.",
+            "The attached image's 96 px thumbnail row (an 80 px thumbnail under the 16 px inset; Leo, 2026-10-14) opens above the prompt, the same growth a pasted image makes.",
         },
-        layoutShiftMax: { value: 0.05, reason: "The thumbnail row the capture adds above the prompt." },
+        layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
       },
       native: {
         "composer.capture": {
@@ -675,6 +675,41 @@ export default agentPaneEntry({
           throw new Error("slash command pick did not update prompt");
       },
     },
+    "slash-menu-skills-and-input": {
+      note: "Play: the shared slash picker combines harness commands, skills and prompts; Shift-Enter keeps editing and Enter sends.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "review", description: "Review the current changes", source: "agent" },
+          { name: "$cmux-browser", description: "Use cmux browser controls", source: "skill" },
+          { name: "daily-plan", description: "Plan the next work block", source: "prompt" },
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("/");
+        // cmux's own commands (at least /import) share the menu, so find the fixture rows by name.
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        const label = (name: string) => row(name)?.querySelector(".acpmux-slash-source")?.textContent ?? "";
+        await ctx.waitFor(() => !!row("review") && !!row("$cmux-browser") && !!row("daily-plan"));
+        if (label("$cmux-browser") !== "Skill") throw new Error("the skill row has no Skill label");
+        if (label("daily-plan") !== "Prompt") throw new Error("the prompt row has no Prompt label");
+        if (label("review") !== "") throw new Error("a harness command is labeled");
+        await ctx.press("Escape");
+        await ctx.press("Backspace");
+        await ctx.waitFor(() => (ctx.find(prompt).textContent ?? "").trim() === "");
+        await ctx.type("first line");
+        await ctx.press("Shift+Enter");
+        await ctx.type("second line");
+        if (!ctx.find(prompt).textContent?.includes("first line"))
+          throw new Error("Shift-Enter did not keep the draft");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => (ctx.find(prompt).textContent ?? "").trim() === "");
+      },
+    },
     "search-files-key": {
       note: "Play: Search Files… (Cmd-P in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
       snapshot: chat(finished),
@@ -772,7 +807,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (with its line) and Fast Mode On/Off; the chip reads Medium Fast.",
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (its line beside it, on one row) and Fast Mode On/Off; the chip reads Medium Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {

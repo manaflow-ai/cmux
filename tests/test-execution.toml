@@ -165,6 +165,10 @@ path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_symbol_map.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_release_profile.py"
 lane = "linux-guard"
 
@@ -1081,6 +1085,10 @@ path = "tests/test_cmux_next_checks_workflow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_release_build_retention.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_route.py"
 lane = "linux-guard"
 
@@ -1346,4 +1354,36 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_notices_submodule.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_daily_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_swiftpm_build_metrics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_state.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_trusted_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_unsigned_resume.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_admit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_shadow_workflow.py"
 lane = "linux-guard"
