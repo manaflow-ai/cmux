@@ -766,6 +766,24 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func testEffectiveSelectedTabIdTreatsMovedTabAsSelectionGap() {
+        let firstTabId = UUID()
+        let movedTabId = UUID()
+
+        let effectiveSelectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
+            selectedTabId: movedTabId,
+            tabIds: [firstTabId]
+        )
+        #expect(effectiveSelectedTabId == nil)
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: effectiveSelectedTabId,
+                tabIds: [firstTabId]
+            ) == firstTabId
+        )
+    }
+
+    @Test
     func testPanelVisibleInUIReturnsFalseForStaleFocusedPanelWhenAnotherTabIsSelected() {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(

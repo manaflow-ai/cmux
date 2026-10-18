@@ -36,6 +36,16 @@ enum WorkspacePanelVisibilityPolicy {
         return tabIds.first
     }
 
+    /// Bonsplit can briefly retain a selected ID for a tab that is being moved
+    /// or closed. Treat that ID as a selection gap until the split state settles.
+    nonisolated static func effectiveSelectedTabId(
+        selectedTabId: UUID?,
+        tabIds: [UUID]
+    ) -> UUID? {
+        guard let selectedTabId, tabIds.contains(selectedTabId) else { return nil }
+        return selectedTabId
+    }
+
     nonisolated static func visiblePanelIdForRenderedPane(
         paneId: UUID,
         selectedPanelId: UUID?,
@@ -244,11 +254,15 @@ struct WorkspaceContentView: View {
                 // This content builder only needs selection identity. Building a
                 // full Tab snapshot also reads its title and icon metadata, which
                 // subscribes pane content to unrelated tab-bar changes.
-                let selectedTabId = workspace.bonsplitController.selectedTabId(inPane: paneId)?.id
-                let isSelectedInPane = selectedTabId == tab.id
+                let paneTabIds = workspace.bonsplitController.tabIds(inPane: paneId).map(\.uuid)
+                let selectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
+                    selectedTabId: workspace.bonsplitController.selectedTabId(inPane: paneId)?.uuid,
+                    tabIds: paneTabIds
+                )
+                let isSelectedInPane = selectedTabId == tab.id.uuid
                 let isFallbackInPane = WorkspacePanelVisibilityPolicy.fallbackTabId(
                     selectedTabId: selectedTabId,
-                    tabIds: workspace.bonsplitController.tabIds(inPane: paneId).map(\.uuid)
+                    tabIds: paneTabIds
                 ) == tab.id.uuid
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
