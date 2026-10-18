@@ -1757,16 +1757,20 @@ jobs:
           case "${RUNNER_NAME:-}" in
             *-glaeda | *-glaeda-[0-9]*)
               identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE"
-              if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then identity="$identity"$'\n'"track:nightly-next"; fi
               ;;
           esac
+          # Keep the next-track cache lineage separate from classic nightly: the
+          # next workflow carries different web/Rust inputs and notary compile flags.
+          if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
+            identity="$identity"$'\n'"track:nightly-next"
+          fi
           echo "toolchain=$(printf '%s\n' "$identity" | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Restore Xcode compilation cache
         id: compilation-cache-restore
         # A cold measurement run skips the restore; every gate below treats the
         # missing output like a cache miss, so the cold build still saves.
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && (needs.decide.outputs.cold_cache != 'true')
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.cold_cache != 'true')
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1913,7 +1917,7 @@ jobs:
           PY
 
       - name: Cache Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next'
+        if: inputs.nightly_next_unsigned_run == ''
         id: swift-packages-restore
         uses: ./.github/actions/cache-restore
         with:
@@ -2085,7 +2089,7 @@ jobs:
           echo "save=${save}" >> "$GITHUB_OUTPUT"
 
       - name: Save Xcode compilation cache
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        if: inputs.nightly_next_unsigned_run == '' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -2099,7 +2103,7 @@ jobs:
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Save Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: inputs.nightly_next_unsigned_run == '' && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -6403,4 +6407,5 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${process.env.CHANNEL_APP_NAME} publish succeeded again on ${process.env.HEAD_SHA}: ${runUrl}` });
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             }
+
 
