@@ -16,8 +16,10 @@ mkdir -p "$dest_dir"
 rm -rf "$dest"
 ln -s cmux "$dest"
 
-source_kind="alias"
-commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+source_kind="$(awk -F= '$1 == "source" { print $2; exit }' "$dest_dir/cmux-tui.version" 2>/dev/null || true)"
+commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$dest_dir/cmux-tui.version" 2>/dev/null || true)"
+[[ -n "$source_kind" ]] || source_kind="alias"
+[[ -n "$commit" ]] || commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
 src="${CMUX_NEXT_ACPMUX_BIN:-}"
 if [[ -n "$src" && -f "$src.ref" ]]; then
   commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$src.ref" 2>/dev/null || true)"
