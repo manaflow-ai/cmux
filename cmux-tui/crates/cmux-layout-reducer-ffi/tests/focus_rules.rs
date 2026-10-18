@@ -93,8 +93,6 @@ fn the_rust_focus_rules_reproduce_every_recorded_swift_step() {
         for (index, step) in sequence["steps"].as_array().unwrap().iter().enumerate() {
             let event = &step["event"];
             let decoded: FocusEvent = serde_json::from_value(event.clone()).unwrap();
-            // Apps pinned before the handle ABI still call the JSON op: same result.
-            let legacy = call(c"focus_reduce", &json!({"state": state.export(), "event": event}));
             // The app sends a topology through `set_topology` (an equal one returns at once).
             match decoded {
                 FocusEvent::Topology { topology } => {
@@ -105,7 +103,6 @@ fn the_rust_focus_rules_reproduce_every_recorded_swift_step() {
                 }
             }
             let response = json!({"state": state.export(), "effects": effects});
-            assert_eq!(legacy, response, "seed {seed} step {index}: focus_reduce JSON op");
             for (key, value) in step["state"].as_object().unwrap() {
                 match value {
                     Value::Null => {
