@@ -595,23 +595,25 @@ const SessionRow = memo(function SessionRow({
       separatorBefore: true,
       onSelect: () => actions.onShare?.(session),
     });
-  const copyItems = [
-    actions?.onCopyDeeplink && {
+  const copyItems: ContextMenuItem[] = [];
+  if (actions?.onCopyDeeplink)
+    copyItems.push({
       id: "copy-deeplink",
       label: "Copy deeplink",
       onSelect: () => actions.onCopyDeeplink?.(session),
-    },
-    actions?.onCopyMarkdown && {
+    });
+  if (actions?.onCopyMarkdown)
+    copyItems.push({
       id: "copy-markdown",
       label: t("chatMenu.copyMarkdown"),
       onSelect: () => actions.onCopyMarkdown?.(session),
-    },
-    actions?.onCopyWorkingDirectory && {
+    });
+  if (actions?.onCopyWorkingDirectory)
+    copyItems.push({
       id: "copy-working-directory",
       label: "Copy working directory",
       onSelect: () => actions.onCopyWorkingDirectory?.(session),
-    },
-  ].filter((item): item is ContextMenuItem => Boolean(item));
+    });
   if (copyItems.length > 0)
     menuItems.push({
       id: "copy",

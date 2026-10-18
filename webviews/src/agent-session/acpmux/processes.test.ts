@@ -36,7 +36,7 @@ const process = (sessionId: string, state: string = "running") => ({
 test("background processes are listed, surfaced in snapshots, and expose tail/kill", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  let socket: (MockAcpmuxSocket & { sendProcessUpdate: (value: unknown) => void }) | undefined;
+  let socket: (InstanceType<typeof MockAcpmuxSocket> & { sendProcessUpdate: (value: unknown) => void }) | undefined;
   let snapshot: any;
   class ProcessHost extends MockAcpmuxSocket {
     constructor() {
