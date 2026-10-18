@@ -133,17 +133,23 @@ const reveal = (node: HTMLElement | null) => node?.scrollIntoView({ block: "near
 function Sidebar({ address, states, status }: { address: Address; states: readonly EntryState[]; status: LiveStatus }) {
   const [filter, setFilter] = useState("");
   const [active, setActive] = useState(-1);
+  const [browseAll, setBrowseAll] = useState(false);
   const needle = filter.trim().toLowerCase();
   const entries = readyEntries(states);
   const groups = sidebarGroups(states);
   const experimental = experimentalLabel(address.search.locale);
+  const focusedEntry = entries.find((entry) => entry.id === address.entry);
+  const focused = !needle && !browseAll;
   const entryMatches = (entry: GalleryEntry) =>
     !needle ||
     `${entry.area} ${entry.title} ${entry.id} ${entry.experimental ? experimental : ""}`.toLowerCase().includes(needle);
   const variantsOf = (entry: GalleryEntry) =>
     Object.keys(entry.variants).filter((variant) => entryMatches(entry) || variant.includes(needle));
   // The filter's arrow keys walk every visible variant in order; Return opens the active one.
-  const flat = groups.flatMap((group) =>
+  const visibleGroups = groups.filter(
+    (group) => !focused || group.states.some((state) => known(state)?.id === address.entry),
+  );
+  const flat = visibleGroups.flatMap((group) =>
     group.states.flatMap((state) =>
       state.status === "ready" && state.entry
         ? variantsOf(state.entry).map((variant) => ({ entry: state.entry!.id, variant }))
@@ -163,7 +169,9 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
           value={filter}
           aria-label="Filter entries and variants"
           onChange={(event) => {
-            setFilter(event.target.value);
+            const value = event.target.value;
+            setFilter(value);
+            if (value.trim()) setBrowseAll(true);
             setActive(-1);
           }}
           // ui-allow: the gallery's own filter field moves through its result list (a dev tool).
@@ -177,6 +185,15 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
             }
           }}
         />
+        {focusedEntry && (
+          <div className="gallery-focus-card" aria-live="polite">
+            <span className="gallery-focus-label">Focused</span>
+            <strong>{focusedEntry.title}</strong>
+            <button type="button" className="gallery-focus-toggle" onClick={() => setBrowseAll((value) => !value)}>
+              {browseAll ? "Focus current" : "Browse all"}
+            </button>
+          </div>
+        )}
         <a
           className="gallery-browse-link"
           href={href({ ...address, search: browseSearch })}
@@ -186,14 +203,15 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
             go({ ...address, search: browseSearch });
           }}
         >
-          Browse all {entries.length} entries
+          Browse gallery
         </a>
       </div>
-      {groups.map(({ area, states: all }) => {
+      {visibleGroups.map(({ area, states: all }) => {
+        const scoped = focused ? all.filter((state) => known(state)?.id === address.entry) : all;
         // A broken or loading file always shows (its card names the file); a loaded one when it matches.
-        const items = all.filter((state) => state.status !== "ready" || variantsOf(state.entry!).length > 0);
+        const items = scoped.filter((state) => state.status !== "ready" || variantsOf(state.entry!).length > 0);
         if (needle && items.length === 0) return null;
-        const loaded = all.flatMap((state) => (state.entry ? [state.entry] : []));
+        const loaded = scoped.flatMap((state) => (state.entry ? [state.entry] : []));
         const variantCount = loaded.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
         return (
           <section key={area} className="gallery-group">
