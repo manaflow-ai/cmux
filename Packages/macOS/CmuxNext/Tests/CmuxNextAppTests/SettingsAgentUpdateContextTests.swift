@@ -27,7 +27,8 @@ import Testing
         let health = Data(#"{"harnesses":[{"id":"codex","outdated":true,"update":{"argv":["npm","install","-g","@openai/codex@latest"],"elevated":false}}]}"#.utf8)
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
-            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0) })
+            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0) },
+            runUpdate: { id, _ in recorder.lines.append("update:" + (id ?? "all")); return .array([]) })
         await harnesses.refresh()
         let page = SettingsPageProvider(settings: settings)
         page.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
@@ -66,7 +67,7 @@ import Testing
         let h = try await make()
         defer { try? FileManager.default.removeItem(at: h.directory) }
         _ = try await h.page.call("cmux.settings.harnesses.run", params: params(action), context: context(mode))
-        #expect(h.recorder.lines == ["'npm' 'install' '-g' '@openai/codex@latest'"])
+        #expect(h.recorder.lines == [action == "update" ? "update:codex" : "update:all"])
     }
 
     @Test(arguments: ["script", "gesture", "confirmed"])
