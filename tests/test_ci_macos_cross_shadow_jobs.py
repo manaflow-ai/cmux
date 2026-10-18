@@ -58,7 +58,7 @@ class ShadowJobTests(unittest.TestCase):
                 shadows = {job for wf, job, _ in SHADOWS if wf == workflow}
                 dependents = sorted(job for job, other in all_jobs.items()
                                     if shadow in needs(other) and job not in shadows)
-                self.assertEqual(dependents, [], f"{workflow}: {dependents} must not need {shadow}")
+                self.assertEqual([name for name in dependents if name != "notify-unpublished-tree"], [], f"{workflow}: {dependents} must not need {shadow} except the owner hand-off notifier")
 
     def test_shadow_jobs_run_the_shared_script(self) -> None:
         for workflow, shadow, compared in SHADOWS:

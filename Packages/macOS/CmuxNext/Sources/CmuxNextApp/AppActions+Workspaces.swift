@@ -128,22 +128,13 @@ extension AppActions {
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
            lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
-        guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
-              !ClosingWorkspaces.shared.ids.contains(workspace.id) else { return } // a second press during the close sends nothing
+        guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
         let daemon = services.activeDaemon
-        let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
-        // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
-        let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
+        let terminals = WorkspaceClose.closing(workspace, on: daemon)
         services.registry.track(lanes.run(in: window) {
-            let failure = await daemon.failure("close-workspace") { connection in
-                try await ClosingWorkspaces.shared.refusal()
+            await daemon.failure("close-workspace") { connection in
                 try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }
-            guard hidden else { return failure }
-            // A close that went through stays hidden until the store has applied its events (the row is gone there).
-            if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
-            ClosingWorkspaces.shared.end(id, refused: failure != nil, in: owner.flatMap { services.windows.controller(for: $0)?.window })
-            return failure
         })
     }
 

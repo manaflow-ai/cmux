@@ -31,14 +31,14 @@ FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
 class PlanFollowsTheWorkflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.workflow = run_ci_guards.load_yaml(run_ci_guards.WORKFLOW)
-        cls.units = run_ci_guards.plan(cls.workflow, "base", "head")
+        cls.workflow_doc = run_ci_guards.load_yaml(run_ci_guards.WORKFLOW)
+        cls.units = run_ci_guards.plan(cls.workflow_doc, "base", "head")
 
     def test_every_guard_job_is_planned(self) -> None:
         planned_jobs = {unit.job for unit in self.units}
         self.assertEqual(planned_jobs, set(run_ci_guards.GUARD_JOBS))
         guard_jobs = {
-            name for name in self.workflow["jobs"] if name.startswith("workflow-guard-")
+            name for name in self.workflow_doc["jobs"] if name.startswith("workflow-guard-")
         }
         self.assertEqual(guard_jobs, set(run_ci_guards.GUARD_JOBS), "a new guard job needs a GUARD_JOBS entry")
 
@@ -51,7 +51,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
             self.assertIn(group, planned)
 
     def test_every_run_step_is_planned_once_per_group(self) -> None:
-        job = self.workflow["jobs"]["workflow-guard-tests"]
+        job = self.workflow_doc["jobs"]["workflow-guard-tests"]
         for unit in (u for u in self.units if u.job == "workflow-guard-tests"):
             expected = [
                 s["name"]
@@ -71,7 +71,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         names = {
             str(step.get("name"))
             for job in run_ci_guards.GUARD_JOBS
-            for step in self.workflow["jobs"][job]["steps"]
+            for step in self.workflow_doc["jobs"][job]["steps"]
         }
         self.assertLessEqual(run_ci_guards.DEPENDENCY_STEPS, names)
         self.assertLessEqual(run_ci_guards.LINUX_ONLY_STEPS, names)
@@ -99,7 +99,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         self.assertEqual(registry.env["CMUX_TEST_REGISTRY_BASE_REF"], "base")
 
     def test_registry_comparison_is_empty_without_a_local_base(self) -> None:
-        units = run_ci_guards.plan(self.workflow, "", "head")
+        units = run_ci_guards.plan(self.workflow_doc, "", "head")
         preflight = next(u for u in units if u.group == "preflight")
         registry = next(
             s for s in preflight.steps if s.name == "Validate Python test execution registry"
@@ -122,7 +122,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
             "if": "${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}",
             "run": "true",
         }
-        units = run_ci_guards.plan(self.workflow(step), "base", "head")
+        units = run_ci_guards.plan(PlanRefusesWhatItCannotRun().workflow(step), "base", "head")
         ci = next(unit for unit in units if unit.group == "ci")
         self.assertIn("gated", {step.name for step in ci.steps})
 

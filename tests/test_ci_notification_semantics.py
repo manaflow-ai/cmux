@@ -30,7 +30,12 @@ class NotificationSemanticsTests(unittest.TestCase):
             shutil.copy(ROOT / "scripts/ci/require_swift_test_execution.py", helpers)
             shutil.copy(ROOT / "scripts/ci/hung_test_watchdog.py", helpers)
             shutil.copy(ROOT / "scripts/ci/ci_process_tree.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/swift-test-debug-info.sh", helpers)
             shutil.copy(ROOT / "scripts/ci/run_with_timeout.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/ensure-web-bundles.sh", helpers)
+            fake_bundle_build = root / "fake-build-web-bundles.sh"
+            fake_bundle_build.write_text("#!/bin/bash\nexit 0\n")
+            fake_bundle_build.chmod(0o755)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
             selected = runner_temp / "selected-packages.txt"
@@ -89,6 +94,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                 SELECTED_PACKAGES=str(selected),
                 SELECTED_COUNT=str(len(package_names)),
                 CMUX_SWIFT_PACKAGE_BUILD_JOBS="3",
+                CMUX_WEB_BUNDLES_BUILD=str(fake_bundle_build),
             )
             result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

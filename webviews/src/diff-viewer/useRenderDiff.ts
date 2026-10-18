@@ -269,33 +269,23 @@ export function usePendingReplacement(
  * result replaces the placeholder in place.
  */
 export function useDeferredHydration(items: DiffItem[], dispatch: React.Dispatch<AppAction>) {
-  type PendingHydration = { item: DiffItem; timer?: ReturnType<typeof setTimeout> };
-  const pending = useRef(new Map<string, PendingHydration>());
+  const scheduled = useRef(new Set<string>());
   useEffect(() => {
-    const scheduled = pending.current;
     for (const item of items) {
-      if (item.collapsed || item.fileDiff?.[DEFERRED_PATCH_KEY] == null || scheduled.has(item.id)) {
+      if (item.collapsed || item.fileDiff?.[DEFERRED_PATCH_KEY] == null || scheduled.current.has(item.id)) {
         continue;
       }
-      const entry: PendingHydration = { item };
-      scheduled.set(item.id, entry);
-      entry.timer = setTimeout(() => {
-        if (scheduled.get(item.id) !== entry) return;
-        scheduled.delete(item.id);
-        const fileDiff = hydrateDeferredFileDiff(item.fileDiff, processFile);
+      scheduled.current.add(item.id);
+      const placeholder = item.fileDiff;
+      setTimeout(() => {
+        scheduled.current.delete(item.id);
+        const fileDiff = hydrateDeferredFileDiff(placeholder, processFile);
         if (fileDiff != null) {
           resolveDiffItemLanguage({ ...item, fileDiff } as DiffItem);
-          // Carry the placeholder identity through the reducer as a second line of defense. React
-          // may defer passive effect cleanup until after a zero-delay task, and path-derived ids can
-          // be reused by the replacement session in that window.
-          dispatch({ type: "hydrate-item", itemId: item.id, fileDiff, expectedFileDiff: item.fileDiff });
+          dispatch({ type: "hydrate-item", itemId: item.id, fileDiff });
         }
       }, 0);
     }
-    return () => {
-      for (const entry of scheduled.values()) if (entry.timer !== undefined) clearTimeout(entry.timer);
-      scheduled.clear();
-    };
   }, [dispatch, items]);
 }
 
