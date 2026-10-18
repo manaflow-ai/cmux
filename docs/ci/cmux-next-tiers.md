@@ -46,9 +46,12 @@ inputs such as `plans/cmux-next/`, and every file a Swift test reads.
 Every tier runs on:
 
 - a pull request labeled `full-ci`. Use it on a batch integration PR, so the
-  heavy suites run once for the batch before it merges;
-- every `feat-cmux-next` push (a superseded push skips its Mac jobs, so a burst
-  of merges is checked once at its newest commit). When a push job fails,
+  heavy suites run once for the batch before it merges, and on any PR whose
+  Swift tests must run before it merges: nothing else runs them;
+- every `feat-cmux-next` push, except `swift test`: push CI is the app build
+  (Release compile and app scheme compile), so a merged PR's Swift suites run
+  only on a `full-ci` PR or a dispatch. A superseded push skips its Mac jobs, so
+  a burst of merges is checked once at its newest commit. When a push job fails,
   `cmux-next push attribution` comments on each PR merged since that job last
   passed on a push. The owning lane fixes forward;
 - a change to the manifest, the target graph, the router, the workflow or the

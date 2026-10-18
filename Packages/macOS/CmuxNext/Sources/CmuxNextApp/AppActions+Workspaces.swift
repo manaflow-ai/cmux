@@ -130,6 +130,9 @@ extension AppActions {
            lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               !ClosingWorkspaces.shared.ids.contains(workspace.id) else { return } // a second press during the close sends nothing
+        // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
+        if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+           case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
         let daemon = services.activeDaemon
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
