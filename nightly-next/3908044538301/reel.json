@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "3908044538301",
+  "notes": "notes/3908044538301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21329,
+      "title": "perf(next): fade loaded reply images without layout work",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21369,
+      "title": "perf(cmux-next): avoid duplicate older-history loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21340,
+      "title": "test(cmux-next): cover Apps page browser flows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21358,
+      "title": "cmux-next: show the default workspace-N name in new workspace rows",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}
