@@ -1509,6 +1509,11 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(any("pulls/123" in call for call in calls if call.startswith("api ")))
 
+    def test_remaining_zero_text_alone_does_not_trigger_rest_fallback(self):
+        result, calls = self.run_rest_fixture(metadata_error="query failed with remaining=0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any("pulls/123" in call for call in calls if call.startswith("api ")))
+
 
 if __name__ == "__main__":
     unittest.main()
