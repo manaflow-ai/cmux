@@ -159,8 +159,14 @@ class SidebarRowView: NSView {
     }
 
     /// A one-line label. Its color is set in the row's `updateLayer`, inside
-    /// `performWithTheme`, so it follows the row's theme scope.
+    /// `performWithTheme`, so it follows the row's theme scope; it is a layer
+    /// color, so a theme change blends it (`ChromeLabel`, I5).
     static func label(font: NSFont) -> NSTextField {
+        ChromeLabel(font: font)
+    }
+
+    /// A one-line AppKit label for attributed text with its own run colors.
+    static func attributedLabel(font: NSFont) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = font
         field.lineBreakMode = .byTruncatingTail
