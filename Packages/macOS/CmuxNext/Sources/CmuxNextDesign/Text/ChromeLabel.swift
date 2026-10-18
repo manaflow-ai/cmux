@@ -27,10 +27,10 @@ open class ChromeLabel: NSTextField {
         cell?.truncatesLastVisibleLine = true
     }
 
-    /// A selectable or editable field draws the stock way (its field editor shows the text while
-    /// it is in use), so it keeps all of `NSTextField`; only its color does not blend.
-    override open var wantsUpdateLayer: Bool { !isSelectable && !isEditable }
-    override open var isSelectable: Bool { didSet { inkModeDidChange() } }
+    /// An editable field draws the stock way, so it keeps all of `NSTextField`; only its color
+    /// does not blend. A selectable label keeps selection and copy: while it is selected its field
+    /// editor draws the text (and the selection), and the glyphs hide.
+    override open var wantsUpdateLayer: Bool { !isEditable }
     override open var isEditable: Bool { didSet { inkModeDidChange() } }
 
     // Each of these changes the glyphs or their color: `updateLayer` sorts out which.
@@ -61,10 +61,11 @@ open class ChromeLabel: NSTextField {
         // for `draw(_:)`: dynamic colors resolve the way the field's own drawing resolved them.
         layer.backgroundColor = drawsBackground ? backgroundColor?.cgColor : nil
         fill.backgroundColor = textColor?.cgColor
+        // Selected (a selectable label): the field editor draws the text; editable: AppKit does.
+        fill.isHidden = !wantsUpdateLayer || currentEditor() != nil
         let scale = window?.backingScaleFactor ?? layer.contentsScale
         if fill.frame != layer.bounds || glyphs.contentsScale != scale {
             fill.frame = layer.bounds
-            glyphs.frame = fill.bounds
             glyphs.contentsScale = scale
         }
         let ink = Ink(text: inkText(), size: bounds.size, scale: scale, lines: maximumNumberOfLines,
@@ -72,13 +73,30 @@ open class ChromeLabel: NSTextField {
                       truncates: cell?.truncatesLastVisibleLine ?? false, wraps: cell?.wraps ?? false)
         if ink != drawn {
             drawn = ink
-            glyphs.contents = glyphImage(ink)
+            let image = glyphImage(ink)
+            glyphs.contents = image
+            // The image at its own pixel size (whole pixels, rounded up), top edge on the field's
+            // top edge, as the field's backing store sits: no resampling.
+            let size = image.map { CGSize(width: CGFloat($0.width) / scale, height: CGFloat($0.height) / scale) } ?? .zero
+            let top = ScrollEdgeFade.rendersTopDown(fill) ? 0 : fill.bounds.height - size.height
+            glyphs.frame = CGRect(origin: CGPoint(x: 0, y: top), size: size)
         }
     }
 
     private func inkModeDidChange() {
-        fill.isHidden = !wantsUpdateLayer
-        if !wantsUpdateLayer { drawn = nil }
+        drawn = nil
+        // The stock drawing's backing store, from before; the glyphs replace it.
+        if wantsUpdateLayer { layer?.contents = nil }
+        needsDisplay = true
+    }
+
+    override open func becomeFirstResponder() -> Bool {
+        defer { needsDisplay = true }
+        return super.becomeFirstResponder()
+    }
+
+    override open func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
         needsDisplay = true
     }
 
