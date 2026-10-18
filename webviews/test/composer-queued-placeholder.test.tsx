@@ -71,9 +71,6 @@ afterAll(() => {
 function Chips() {
   return null;
 }
-function Chips() {
-  return null;
-}
 
 async function render(snapshot: AcpmuxSnapshot) {
   const { createRoot } = await import("react-dom/client");
