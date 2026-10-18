@@ -72,9 +72,40 @@ public nonisolated struct AppleWallpapers: Sendable {
             }
     }
 
-    /// Every moving wallpaper on disk: one per shipped wallpaper (its light cut, or its only one),
-    /// then the downloaded aerials.
+    /// Every moving wallpaper: one per shipped wallpaper (its light cut, or its only one), then
+    /// the downloaded aerials, then the aerials macOS lists but has not downloaded yet (backgrounds
+    /// plan phase 3b). A missing aerial is named by the file idleassetsd will write, so it becomes
+    /// a real choice as soon as System Settings downloads it; the picker shows it with a cloud.
     public func videos(fileManager: FileManager = .default) -> [BackdropSelection] {
+        let present = presentVideos(fileManager: fileManager)
+        let downloaded = Set(present.compactMap { choice -> String? in
+            guard case .system(let path) = choice else { return nil }
+            return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        })
+        let names = aerialNames()
+        let folder = aerialFolder(fileManager: fileManager)
+        let missing = names.keys.filter { !downloaded.contains($0) }
+            .sorted { (names[$0] ?? $0).localizedStandardCompare(names[$1] ?? $1) == .orderedAscending }
+            .map { BackdropSelection.system(path: folder.appendingPathComponent("\($0).mov").path) }
+        return present + missing
+    }
+
+    /// Where idleassetsd writes aerial movies: the folder holding the ones it has, else its 4K SDR one.
+    func aerialFolder(fileManager: FileManager = .default) -> URL {
+        let folders = Self.files(in: aerials, fileManager: fileManager).filter { url in
+            Self.files(in: url, fileManager: fileManager).contains { Self.isVideo($0.path) }
+        }
+        return folders.sorted { $0.lastPathComponent < $1.lastPathComponent }.first
+            ?? aerials.appendingPathComponent("4KSDR240FPS", isDirectory: true)
+    }
+
+    /// Whether `path` names a movie that is not on disk yet (an aerial macOS has not downloaded).
+    public static func isPending(_ path: String) -> Bool {
+        isVideo(path) && !FileManager.default.fileExists(atPath: path)
+    }
+
+    /// The moving wallpapers on disk.
+    private func presentVideos(fileManager: FileManager) -> [BackdropSelection] {
         let shipped = Self.files(in: desktopPictures.appendingPathComponent(".wallpapers"), fileManager: fileManager)
             .flatMap { Self.files(in: $0, fileManager: fileManager) }
             .filter { Self.isVideo($0.path) && !$0.lastPathComponent.contains("Portrait") }
