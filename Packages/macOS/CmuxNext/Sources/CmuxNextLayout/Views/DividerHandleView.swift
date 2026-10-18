@@ -223,14 +223,3 @@ final class DividerHandleView: NSView {
         }
     }
 }
-
-extension DividerHandleView.Kind {
-    /// Id of this divider's `LayoutMouseArea`.
-    var mouseAreaID: String {
-        switch self {
-        case .split(let id): "split:\(id.rawValue)"
-        case .columnEdge(let id): "column:\(id.rawValue)"
-        case .rowEdge(_, let row): "row:\(row.rawValue)"
-        }
-    }
-}
