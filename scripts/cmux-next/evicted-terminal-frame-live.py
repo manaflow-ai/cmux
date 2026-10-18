@@ -6,7 +6,7 @@
 Launches the tagged app (no activation, automation socket, own config), prints a long output in
 the first terminal tab, opens more terminal tabs than the warm set keeps (`warm_terminal_capacity`
 in `debug.surfaces`), so the first tab's surface is evicted and closed, then selects the first tab
-again (Control-Tab wraps to it) and samples its pane in `debug.surfaces` as fast as the socket
+again (Go to Tab) and samples its pane in `debug.surfaces` as fast as the socket
 answers. Pass: the first sample of the new session already shows the held last frame
 (`frame_held`, `last_frame_holds` 1), the hold ends, and the terminal then shows the output
 again (its text). Stops only the app it started (by its PID) and the tag's daemons.
@@ -106,12 +106,12 @@ try:
     report["first_tab"] = first.get("selected_tab")
     for index in range(capacity + 2):
         before = (focused_pane(surfaces()) or {}).get("selected_tab")
-        rpc("action.run", {"id": "newSurface"})
+        rpc("action.run", {"action": "newSurface", "focus": True})
         wait(lambda: (focused_pane(surfaces()) or {}).get("selected_tab") not in (None, before), 30, 0.1)
         time.sleep(0.3)  # test harness: the new terminal draws before the next one hides it
     report["live_before"] = surfaces().get("live_terminals")
-    # Control-Tab from the last tab wraps to the first one: the evicted terminal.
-    rpc("debug.key", {"key": "tab", "modifiers": ["control"]})
+    # Go to Tab on the first tab: the evicted terminal.
+    report["select"] = rpc("action.run", {"action": "tab.search", "target": f"tab:{report['first_tab']}", "focus": True})
     start = time.monotonic()
     while time.monotonic() - start < 5:  # test harness: sample the pane as fast as the socket answers
         pane = focused_pane(surfaces()) or {}
@@ -139,7 +139,8 @@ finally:
     teardown.end()
     with open(os.path.join(opts.out, "samples.json"), "w") as f:
         json.dump(report, f, indent=1)
-print(json.dumps({k: report.get(k) for k in ("write", "capacity", "first_tab", "live_before", "first_sample", "text_back")}))
+print(json.dumps({k: report.get(k) for k in ("write", "capacity", "first_tab", "live_before", "select", "first_sample",
+                                              "text_back")}))
 print("samples:", json.dumps(report["samples"][:12]), "...", json.dumps(report["samples"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
