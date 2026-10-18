@@ -236,6 +236,7 @@ export function ModelPicker(props: ModelPickerProps) {
     catalog,
     harness,
     label,
+    chip,
     switching,
     onLand,
     onHarness,
@@ -630,6 +631,13 @@ export function ModelPicker(props: ModelPickerProps) {
     : undefined;
   const chipHarness = switchingMark ?? current?.mark ?? current?.id ?? harness;
   const chipLabel = switchingTo?.name ?? label;
+  // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
+  const rowChip = switchingTo ? undefined : chip;
+  // The name the chip writes: without the vendor its mark draws ("Opus 5.5"), the title keeps it whole.
+  const chipName = switchingTo ? chipLabel : withoutVendor(chipLabel, chipHarness);
+  const chipShort = rowChip?.short && rowChip.short !== chipName ? rowChip.short : undefined;
+  const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
+  const chipTitle = rowChip?.title ?? chipLabel;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -660,7 +668,13 @@ export function ModelPicker(props: ModelPickerProps) {
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
   return (
-    <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-model"
+      style={{ position: "relative" }}
+      // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
+      {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
+    >
       <PickerButton
         ref={trigger}
         type="button"
@@ -687,7 +701,31 @@ export function ModelPicker(props: ModelPickerProps) {
         {...press}
       >
         <AgentMark agent={chipHarness} size={15} />
-        <span className="acpmux-model-name">{switchingTo ? chipLabel : withoutVendor(chipLabel, chipHarness)}</span>
+        <span
+          className="acpmux-model-name"
+          {...(chipShort
+            ? { "data-short": "" }
+            : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
+        >
+          {chipName}
+        </span>
+        {/* The row's forms are drawn, not written: the chip's text stays the model's name. */}
+        {chipShort && (
+          <span
+            className="acpmux-model-short acpmux-fit-label"
+            data-fit-part="model"
+            data-fit-forms={chipFamily ? "full" : "full family"}
+            data-label={chipShort}
+          />
+        )}
+        {chipFamily && (
+          <span
+            className="acpmux-model-short acpmux-fit-label"
+            data-fit-part="model"
+            data-fit-forms="family"
+            data-label={chipFamily}
+          />
+        )}
         <ChevronIcon />
       </PickerButton>
       {open && (

@@ -1,0 +1,64 @@
+{
+  "$comment": "HAND-EDITED source of the Sessions settings: what this Mac does while agents work. gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "sessions",
+      "section": "general",
+      "group": {
+        "key": "settings.group.sessions",
+        "text": "Agent Sessions"
+      },
+      "note": "Settings > Agents > Sessions: this Mac's behavior while agent sessions run (SessionSettings).",
+      "rows": [
+        {
+          "key": "sessions.keepAwake",
+          "note": "Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.",
+          "title": {
+            "key": "settings.sessions.keepAwake",
+            "text": "Keep Mac Awake While Agents Work"
+          },
+          "help": {
+            "key": "settings.sessions.keepAwake.help",
+            "text": "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.keepAwakeOff",
+                "text": "Off"
+              },
+              "note": "The Mac sleeps on its usual schedule."
+            },
+            {
+              "value": "pluggedIn",
+              "title": {
+                "key": "settings.choice.keepAwakePluggedIn",
+                "text": "While Plugged In"
+              },
+              "note": "Only while the Mac runs on power from an adapter."
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.keepAwakeAlways",
+                "text": "Always"
+              },
+              "note": "Also on battery."
+            }
+          ],
+          "default": "pluggedIn",
+          "keywords": [
+            "sleep",
+            "awake",
+            "caffeinate",
+            "battery",
+            "power",
+            "agents"
+          ]
+        }
+      ]
+    }
+  ]
+}
