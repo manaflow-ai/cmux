@@ -15,7 +15,7 @@ for (const method of ["GET", "HEAD"]) {
       expect(response.status()).toBe(307);
       expect(response.headers().location).toBe(`https://files.cmux.com/server/${path}`);
       expect(response.headers()["cache-control"]).toBe("no-store");
-      expect(response.headers()["referrer-policy"]).toBe("no-referrer");
+      expect(response.headers()["referrer-policy"]).toBe("strict-origin-when-cross-origin");
       expect(response.headers()["set-cookie"]).toBeUndefined();
       expect(await response.body()).toHaveLength(0);
     });
@@ -32,5 +32,9 @@ test("unsupported server paths return machine errors from the real Next server",
     expect(response.headers().location).toBeUndefined();
     expect(response.headers()["set-cookie"]).toBeUndefined();
     expect(await response.json()).toEqual({ error: "server_download_not_found" });
+    const head = await request.head(path, { maxRedirects: 0, headers: { "accept-language": "ja" } });
+    expect(head.status()).toBe(404);
+    expect(head.headers().location).toBeUndefined();
+    expect(await head.body()).toHaveLength(0);
   }
 });

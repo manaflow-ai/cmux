@@ -8,7 +8,6 @@ export async function GET(_request: Request, context: Context): Promise<Response
   const headers = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
   };
   return location
     ? new Response(null, { status: 307, headers: { ...headers, Location: location } })

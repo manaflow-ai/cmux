@@ -71,7 +71,6 @@ describe("public server downloads", () => {
     expect(response.headers.get("location")).toBe("https://files.cmux.com/server/install.sh");
     expect(response.headers.get("authorization")).toBeNull();
     expect(response.headers.get("set-cookie")).toBeNull();
-    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   });
 
   test("preserves the CLI version alphabet as literal path data", async () => {
@@ -86,27 +85,4 @@ describe("public server downloads", () => {
     expect(await response.json()).toEqual({ error: "server_download_not_found" });
   });
 
-  test("GET and HEAD preserve the contract over HTTP", async () => {
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      async fetch(request) {
-        const artifact = new URL(request.url).pathname.split("/").slice(2).map(decodeURIComponent);
-        const handler = request.method === "HEAD" ? HEAD : GET;
-        return handler(request, { params: Promise.resolve({ artifact }) });
-      },
-    });
-    try {
-      for (const method of ["GET", "HEAD"]) {
-        const response = await fetch(new URL("/server/channel/stable/aarch64-darwin/latest.json.sig?probe=fixture", server.url), {
-          method, redirect: "manual",
-        });
-        expect(response.status).toBe(307);
-        expect(response.headers.get("location")).toBe("https://files.cmux.com/server/channel/stable/aarch64-darwin/latest.json.sig");
-        expect(await response.text()).toBe("");
-      }
-    } finally {
-      await server.stop(true);
-    }
-  });
 });
