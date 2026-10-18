@@ -156,7 +156,7 @@ import Testing
     @Test func attachModesSpellOutTheirTmuxCommands() {
         #expect(
             RemoteTmuxControlAttachMode.attach.tmuxArguments(sessionName: "work")
-                == ["-CC", "attach-session", "-t", "work"]
+                == ["-CC", "attach-session", "-t", "=work"]
         )
         #expect(
             RemoteTmuxControlAttachMode.attachOrCreate.tmuxArguments(sessionName: "work")
