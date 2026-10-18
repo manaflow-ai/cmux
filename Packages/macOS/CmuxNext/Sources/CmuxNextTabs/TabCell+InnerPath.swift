@@ -27,6 +27,10 @@ extension TabCell {
     /// a running one, a hover or a selection change mid-move start from what is on screen.
     func retimeInner(_ path: MotionPath, now: CFTimeInterval, end: CFTimeInterval) {
         titleFade.stopMarquee(animated: false)
+        // What shows on screen now (before this layout): the start of the path as the user sees it.
+        // The first sample is laid out in the new state (a tab that lost its selection has no x
+        // there), so it is not the start form.
+        let shownNow = Set((layer.sublayers ?? []).filter { ($0.presentation() ?? $0).opacity > 0.001 }.map(ObjectIdentifier.init))
         let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
         let modelWidth = layer.bounds.width
         // Samples memoized by device pixel: a tab that shrinks a few points lays out a few times.
@@ -72,16 +76,24 @@ extension TabCell {
             let id = ObjectIdentifier(part)
             // A part made at a later sample shows nothing before it.
             let first = samples.lazy.compactMap { $0.parts[id] }.first ?? Part(position: part.position, size: part.bounds.size, opacity: 0)
-            let values = samples.map { $0.parts[id] ?? Part(position: first.position, size: first.size, opacity: 0) }
+            var values = samples.map { $0.parts[id] ?? Part(position: first.position, size: first.size, opacity: 0) }
+            // A part hidden on screen now and at the end stays hidden: a form that fits only between
+            // the ends (the x leaves before the width does) is a transient of the sampling.
+            if !shownNow.contains(id), values.last?.opacity == 0 { for index in values.indices { values[index].opacity = 0 } }
             addKeyframes(values, times: times, steps: steps, to: part)
         }
-        // The title shows where its samples have it; its geometry is the fade's (`TitleFade.follow`).
-        let titleShown = samples.map { $0.title != nil }
+        // The title shows where its samples have it, but never only between the ends: a crowded tab
+        // that loses its selection drops its x at once, and the room fits a few letters of the title
+        // for a few samples before the width takes them (a flash, a motion reversal). Its geometry is
+        // the fade's (`TitleFade.follow`), so a title shown at either end fades with the width.
+        let titleHidden = !shownNow.contains(ObjectIdentifier(titleLayer)) && samples.last?.title == nil
+        let titles: [TitleFade.Sample?] = titleHidden ? samples.map { _ in nil } : samples.map(\.title)
+        let titleShown = titles.map { $0 != nil }
         if titleShown.contains(true), titleShown.contains(false),
            let animation = MotionPath.keyframes("opacity", values: titleShown.map { NSNumber(value: $0 ? 1 : 0) }, times: times, on: titleLayer, discrete: true) {
             titleLayer.add(animation, forKey: Self.innerKeyPrefix + "opacity")
         }
-        titleFade.follow(samples.map(\.title), times: times, steps: steps)
+        titleFade.follow(titles, times: times, steps: steps)
         innerPath = InnerPath(end: end, layers: order)
     }
 
