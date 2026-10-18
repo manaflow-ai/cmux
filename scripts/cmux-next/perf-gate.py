@@ -21,9 +21,9 @@ warnings only.
                  frame: the grid each terminal renders follows the grid its frame fits within
                  --lag steps (I7). Frame p99 over 16.7 ms is a warning.
   tabs           16 panes x 3 tabs, Next Tab 40 times: 0 applies, 0 topology sends, 0 pane
-                 snapshots, 0 sidebar list reloads (I6); each switch shows on the next frame after
-                 its intent (debug.tab_switch; a frame check), its main-thread apply over 4 ms is a
-                 warning. The socket reply also waits for the daemon's confirm: reported, not gated.
+                 snapshots, 0 sidebar list reloads (I6); a switch that reaches the next display-link
+                 tick late (debug.tab_switch) and a main-thread apply over 4 ms are warnings. The
+                 socket reply also waits for the daemon's confirm: reported, not gated.
   split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
                  2 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
   relaunch       the app quits and starts again on the same tag, so it restores the grid with
@@ -705,12 +705,12 @@ class Gate:
             # The switch draws on the first frame after its intent: within one refresh plus its own apply.
             refresh = switch_frames.get("refresh_ms") or (report.get("frames_probe") or {}).get("refresh_ms") or FRAME_BUDGET_MS
             late = [frame for apply, frame in pairs if frame > apply + refresh * 1.25]
-            what = f"every tab switch shows on the next frame (refresh {refresh:.1f} ms; {len(late)} later, next frame p99 {p99(frames):.2f} ms)"
-            # The relaunch phases gate counters; their first show of a restored page is timed, not gated.
-            if scenario == "tabs":
-                check(not late, what, scenario)
-            elif late:
-                warn(what, scenario)
+            # A warning, not a check (cx-8w027.25): the probe's display-link callback is not the Core Animation
+            # commit (on macOS 26 the update cycle commits from its own run loop source), so a late callback on a
+            # busy main thread does not prove a missed frame. It blocks again once it measures the commit.
+            if late:
+                warn(f"{len(late)} of {ops} tab switches reached the probe's display-link tick a frame late (refresh "
+                     f"{refresh:.1f} ms, next frame p99 {p99(frames):.2f} ms)", scenario)
 
     def split(self, scenario="split"):
         app = self.app
