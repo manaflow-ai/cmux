@@ -7,20 +7,19 @@ import argparse
 import sys
 from collections.abc import Iterable
 
-HQ_REPO = "manaflow-ai/cmuxterm-hq"
-HQ_WEB_PREFIXES = ("admin/", "board-ui/", "dashboard/", "web/")
-HQ_WEB_FILES = frozenset({
+WEB_PREFIXES = ("admin/", "board-ui/", "dashboard/", "web/")
+WEB_FILES = frozenset({
     ".vercelignore", "package.json", "bun.lock", "package-lock.json",
     "pnpm-lock.yaml", "yarn.lock", "vercel.json",
 })
 
 
 def requires_vercel(repo: str, paths: Iterable[str]) -> bool:
-    """Keep Vercel advisory for non-web HQ changes, required for web changes."""
+    """Keep Vercel advisory for non-web changes, required for web changes."""
     paths = list(paths)
-    if repo != HQ_REPO or not paths:
+    if not paths:
         return True
-    return any(path in HQ_WEB_FILES or path.startswith(HQ_WEB_PREFIXES) for path in paths)
+    return any(path in WEB_FILES or path.startswith(WEB_PREFIXES) for path in paths)
 
 
 if __name__ == "__main__":
