@@ -39,7 +39,7 @@ for post_job in post_jobs:
     post = job(post_job)
     if "publish-nightly" not in needs(post):
         failures.append(f"{post_job} must depend on publish-nightly")
-    if "publish-nightly.result == 'success'" not in post:
+    if post_job == "nightly-next-macos15-launch" and "publish-nightly.result == 'success'" not in post:
         failures.append(f"{post_job} must require a successful NEXT publication")
 
 macos15 = job("nightly-next-macos15-launch")
@@ -49,6 +49,9 @@ if "continue-on-error: true" not in macos15:
 legacy = job("legacy-identity-target")
 if "publish-release-notes" not in needs(legacy):
     failures.append("legacy identity targeting must wait for signed NEXT release notes")
+notes_publish = job("publish-release-notes")
+if "publish-nightly.result == 'success'" not in notes_publish:
+    failures.append("publish-release-notes must require a successful NEXT publication")
 for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
     downstream_needs = needs(job(downstream))
     if "legacy-identity-target" not in downstream_needs:

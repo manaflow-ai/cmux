@@ -4845,7 +4845,7 @@ jobs:
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
     needs: [decide, publish-nightly, publish-release-notes]
-    if: "!cancelled() && needs.decide.result == 'success' && needs.publish-nightly.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    if: "!cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
