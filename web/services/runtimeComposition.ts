@@ -8,20 +8,10 @@ import {
   configurePersistentWorkspaceService,
   createPersistentWorkspacePromotionRuntimePort,
   createPersistentWorkspaceService,
-  persistentWorkspaceProviderFromCloudVm,
   type PersistentWorkspaceProvider,
   type PersistentWorkspaceRecord,
   type PersistentWorkspaceStore,
 } from "./vms/persistentWorkspace";
-import { CloudVmRunAdapter } from "./vms/cloudVmRunAdapter";
-import { getProvider } from "./vms/drivers";
-import { DrizzleVmHostLeaseStore } from "./vms/hostLeaseStore";
-import {
-  createConfiguredHostLeaseAdapters,
-  createHugeBlueHostLeaseHttpClient,
-  VmHostLeaseTransport,
-} from "./vms/hostLeaseTransport";
-import { createAgentBrokerLifecycleEffectBroker } from "./vms/lifecycleEffectBroker";
 import {
   installRunAttemptPromotionDependencies,
   runRepositoryPromotionSource,
@@ -31,7 +21,6 @@ import {
 } from "./runs/promotion";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DIGEST = /^sha256:[0-9a-f]{64}$/i;
 
 type PersistentWorkspaceRow = typeof persistentWorkspaces.$inferSelect;
 type PromotionRow = typeof runAttemptPromotions.$inferSelect;
@@ -248,85 +237,18 @@ export function installRuntimeComposition(input: {
   return { workspaceService, promotionDependencies };
 }
 
-function requiredEnv(name: string): string | null {
-  const value = process.env[name]?.trim();
-  return value || null;
-}
-
-function manifestEvidenceVerifier(): AttemptPromotionDependencies["evidence"] | undefined {
-  if (process.env.CMUX_RUNTIME_EVIDENCE_MODE !== "manifest") return undefined;
-  return {
-    verify: async ({ source }) => source.artifacts.length > 0
-      && source.artifacts.every((artifact) => DIGEST.test(artifact.digest) && typeof artifact.uri === "string" && artifact.uri.length > 0),
-  };
-}
-
 /**
  * Build and install production adapters only when every credential-bearing
  * seam is explicitly configured. Missing configuration leaves both route
  * seams unset, preserving their existing 503/409 fail-closed behavior.
  */
 export function configureRuntimeCompositionFromEnv(): { readonly configured: boolean; readonly reason?: string } {
-  const image = requiredEnv("CMUX_PERSISTENT_WORKSPACE_IMAGE");
-  const leaseUrl = requiredEnv("CMUX_RUNTIME_HOST_LEASE_URL");
-  const leaseToken = requiredEnv("CMUX_RUNTIME_HOST_LEASE_TOKEN");
-  const workerId = requiredEnv("CMUX_RUNTIME_WORKER_ID");
-  const evidenceMode = requiredEnv("CMUX_RUNTIME_EVIDENCE_MODE");
-  const freestyleConfigured = Boolean(requiredEnv("FREESTYLE_API_KEY")
-    || (requiredEnv("FREESTYLE_STACK_ACCESS_TOKEN") && requiredEnv("FREESTYLE_TEAM_ID")));
-  if (!image || !leaseUrl || !leaseToken || !workerId || !freestyleConfigured || evidenceMode !== "manifest") {
-    configurePersistentWorkspaceService(null);
-    installRunAttemptPromotionDependencies(null);
-    return { configured: false, reason: "runtime composition requires image, lease gateway, lease token, worker id, Freestyle credentials, and manifest evidence verification" };
-  }
-  try {
-    const provider = getProvider("freestyle");
-    const runAdapter = new CloudVmRunAdapter(provider);
-    const hostClass = requiredEnv("CMUX_RUNTIME_HOST_CLASS") ?? "freestyle";
-    const hostClient = createHugeBlueHostLeaseHttpClient({ baseUrl: leaseUrl, token: () => leaseToken });
-    const hostLeaseTransport = new VmHostLeaseTransport(
-      new DrizzleVmHostLeaseStore(),
-      createConfiguredHostLeaseAdapters({ additional: [{ provider: hostClass, client: hostClient }] }),
-    );
-    const effectBroker = createAgentBrokerLifecycleEffectBroker({
-      workerId,
-      sourceSha: requiredEnv("VERCEL_GIT_COMMIT_SHA") ?? "cmux-runtime-composition",
-      scopeRevision: requiredEnv("CMUX_RUNTIME_SCOPE_REVISION") ?? "runtime-composition-v1",
-    });
-    const workspaceProvider = persistentWorkspaceProviderFromCloudVm({
-      provisionVm: async (request) => {
-        const handle = await provider.create({
-          image: request.providerInput?.image?.trim() || image,
-          displayName: request.workspaceName,
-          ...(request.providerInput?.memoryMb !== undefined ? { memoryMb: request.providerInput.memoryMb } : {}),
-        });
-        return { providerVmId: handle.providerVmId };
-      },
-      vm: {
-        resume: (providerVmId) => provider.resume(providerVmId),
-        pause: (providerVmId) => provider.pause(providerVmId),
-      },
-      runAdapter,
-      hostLeaseTransport,
-      effectBroker,
-      hostLeaseProvider: hostClass,
-      attach: async (record) => ({
-        provider: record.provider,
-        vmId: record.providerVmId,
-        workspaceId: record.providerWorkspaceId,
-        terminalId: record.providerTerminalId,
-      }),
-    });
-    installRuntimeComposition({
-      workspaceStore: new DrizzlePersistentWorkspaceStore(),
-      workspaceProvider,
-      promotionStore: new DrizzleAttemptPromotionStore(),
-      evidence: manifestEvidenceVerifier(),
-    });
-    return { configured: true };
-  } catch (error) {
-    configurePersistentWorkspaceService(null);
-    installRunAttemptPromotionDependencies(null);
-    return { configured: false, reason: error instanceof Error ? error.message : "runtime composition could not be configured" };
-  }
+  // The authenticated createVm workflow is not available from Next startup:
+  // it needs the request's entitlement/admission context. Never synthesize a
+  // direct provider.create callback here, because that would bypass billing,
+  // admission, and model-plane ownership checks. Route/workflow composition
+  // must call installRuntimeComposition with that callback explicitly.
+  configurePersistentWorkspaceService(null);
+  installRunAttemptPromotionDependencies(null);
+  return { configured: false, reason: "authenticated createVm workflow composition is required" };
 }
