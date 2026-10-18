@@ -57,7 +57,6 @@ export type SessionSidebarActions = {
   onPin?(session: AcpmuxSessionEntry, pinned: boolean): void;
   onMarkUnread?(session: AcpmuxSessionEntry): void;
   onProject?(session: AcpmuxSessionEntry): void;
-  onGroup?(session: AcpmuxSessionEntry): void;
   onFork?(session: AcpmuxSessionEntry): void;
   onShare?(session: AcpmuxSessionEntry): void;
   onCopyDeeplink?(session: AcpmuxSessionEntry): void;
@@ -88,7 +87,6 @@ export function SessionSidebar({
   account,
   preview = false,
   groupProjects = false,
-  groupLabel = "Groups",
   actions,
   onContinue,
   onSettle,
@@ -107,8 +105,6 @@ export function SessionSidebar({
   preview?: boolean;
   /** Preserves project grouping as an option while keeping the default compact and ungrouped. */
   groupProjects?: boolean;
-  /** The visible heading for grouped chats. Regular chat workspaces call these Groups. */
-  groupLabel?: string;
   /** Host-owned desktop-parity row actions. */
   actions?: SessionSidebarActions;
   onContinue?: (sessionIds: string[]) => void;
@@ -178,7 +174,6 @@ export function SessionSidebar({
                 onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
                 settledSessions={settledSessions}
                 groupProjects={groupProjects}
-                groupLabel={groupLabel}
                 actions={actions}
                 onContinue={onContinue}
                 onSettle={onSettle}
@@ -250,7 +245,6 @@ function SessionsView({
   expanded,
   onExpand,
   groupProjects,
-  groupLabel,
   actions,
   onContinue,
   onSettle,
@@ -266,7 +260,6 @@ function SessionsView({
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
   groupProjects: boolean;
-  groupLabel: string;
   actions?: SessionSidebarActions;
   onContinue?: (sessionIds: string[]) => void;
   onSettle?: (sessionIds: string[]) => void;
@@ -371,9 +364,9 @@ function SessionsView({
         </section>
       )}
       {groups.length > 0 && groupProjects && (
-        <section className="acpmux-sidebar-projects" aria-label={groupLabel}>
+        <section className="acpmux-sidebar-projects" aria-label={t("sidebar.projects")}>
           <div className="acpmux-sidebar-section" aria-hidden="true">
-            {groupLabel}
+            {t("sidebar.projects")}
           </div>
           {groups.map((group) => {
             // A search shows every match, so it never hides rows behind "Show more".
@@ -585,13 +578,6 @@ const SessionRow = memo(function SessionRow({
       label: t("project.label"),
       icon: <Icon name="folder" size={ROW_ICON} row />,
       onSelect: () => actions.onProject?.(session),
-    });
-  if (actions?.onGroup)
-    menuItems.push({
-      id: "group",
-      label: "Group",
-      icon: <Icon name="group.new" size={ROW_ICON} row />,
-      onSelect: () => actions.onGroup?.(session),
     });
   if (actions?.onFork)
     menuItems.push({

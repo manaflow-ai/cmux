@@ -2,11 +2,11 @@
 
 This is the acceptance contract for cmux-next workspace parity with Codex Desktop.
 
-- Use **groups** for workspace organization. User-facing menus and labels may not
-  introduce a second “section” vocabulary for ordinary workspaces.
+- Preserve the existing **groups** model for workspace organization. Do not add a
+  competing “section” vocabulary or duplicate the existing grouping behavior.
 - Context menus must work from mouse, keyboard context-menu/Shift-F10, and an
   inactive window's first click. Menus must keep focus, dismiss on outside click,
-  and expose Rename, Pin, unread state, Group, Fork, Share, Copy, open in new
+  and expose Rename, Pin, unread state, Fork, Share, Copy, open in new
   window, Archive, and delete where the object supports them.
 - Copy actions must provide stable deeplink, Markdown, and working-directory
   targets. A deeplink carries the host/machine identity when the source is remote;
