@@ -1,7 +1,7 @@
 import AppKit
 // Right-click: resolve the target, let the App build the menu from the
 // action registry.
-extension SidebarListViewComponents {
+extension SidebarListView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         if case let .group(id)? = displayed.row(at: point.y)?.key {

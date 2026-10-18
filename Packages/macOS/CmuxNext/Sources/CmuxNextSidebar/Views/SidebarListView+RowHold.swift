@@ -47,7 +47,7 @@ struct SidebarRowHold {
     }
 }
 
-extension SidebarListViewComponents {
+extension SidebarListView {
     /// A drag, its settle or its card's landing runs: row patches wait (`SidebarRowHold`). OFF: hitch17 (1000
     /// workspaces, 50 ticking terminals) had 175 and 128 jumps where hitch16 without the hold had none: at a revision
     /// change the scroll offset moved 758 pt (and 1248 pt) and the rows sprang about 970 pt. Until a release that never

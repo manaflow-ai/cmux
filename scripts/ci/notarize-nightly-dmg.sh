@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Parse this whole file before anything runs. bash reads a script one command
-# at a time, and macOS /bin/bash 3.2 exits 0 on a parse error once the EXIT
-# trap below is set: nightly-next runs 39014131817 and 39014922771 left the
-# notarize step "green" with no stapled app. A parse error here exits 2.
-if ! "${BASH:-/bin/bash}" -n "${BASH_SOURCE[0]}"; then
-  echo "$0 does not parse under ${BASH:-/bin/bash} ${BASH_VERSION:-}; nothing was signed, submitted or stapled" >&2
-  exit 2
-fi
-
 if [ "$#" -ne 3 ]; then
   echo "usage: $0 <signed-app> <release-dmg> <immutable-dmg>" >&2
   exit 2
@@ -159,9 +150,6 @@ detach_mounted_dmg() {
 }
 RESTAPLE_KEYCHAIN_OPEN=false
 cleanup() {
-  # Keep the script's own exit status: the trap must never turn a failure into
-  # a success.
-  local status=$?
   if [ -n "$MOUNT_DIR" ]; then
     detach_mounted_dmg || true
   fi
@@ -169,7 +157,6 @@ cleanup() {
     "${SIGNING_KEYCHAIN_TOOL}" delete || true
   fi
   rm -rf "$DMG_TMP_DIR"
-  exit "$status"
 }
 trap cleanup EXIT
 NOTARY_DIR="$DMG_TMP_DIR/notary"

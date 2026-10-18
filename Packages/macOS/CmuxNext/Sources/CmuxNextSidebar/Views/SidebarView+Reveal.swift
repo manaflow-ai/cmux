@@ -4,7 +4,7 @@ import CmuxNextDesign
 // The pointer over the sidebar reveals its titlebar buttons, the spaces
 // strip (`sidebar.spacesVisibility` hover, cx-5k3r) and, in minimal mode
 // (`sidebar.minimalMode`, R54), the chosen pinned bands.
-extension SidebarViewComponents {
+extension SidebarView {
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
     /// Minimal mode's bands hide with the buttons; they stay in the view and

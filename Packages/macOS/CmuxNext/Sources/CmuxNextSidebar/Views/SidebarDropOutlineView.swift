@@ -31,7 +31,7 @@ final class SidebarDropOutlineView: NSView {
     }
 }
 
-extension SidebarViewComponents {
+extension SidebarView {
     /// Outlines `windowRect` (window coordinates) over the sidebar.
     func showDropOutline(_ windowRect: CGRect, refused: Bool) {
         let overlay = dropOutlineView ?? {

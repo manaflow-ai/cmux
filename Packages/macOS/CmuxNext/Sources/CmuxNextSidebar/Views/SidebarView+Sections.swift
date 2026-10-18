@@ -7,7 +7,7 @@ import CmuxNextDesign
 // space dots in its row) is outside the capped, scrolling band below the
 // list: it is pinned at the sidebar's bottom. The band below the list draws
 // nothing since cx-n0i9 (no bottom-left sections; All chats is on the New Tab page).
-extension SidebarViewComponents {
+extension SidebarView {
     /// Every region that draws layout items, the footer first.
     var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, aboveRegion] }
 

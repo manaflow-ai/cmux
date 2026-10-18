@@ -92,11 +92,11 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
       test("installed update, permission, log, enable, and hide controls reflect host results", async () => {
         const page = await open(engine, "installed");
         try {
-          const github = page.locator(".apps-installed-row").filter({ hasText: "GitHub PRs" });
+          const github = page.locator(".apps-installed > .apps-installed-row").filter({ hasText: "GitHub PRs" });
           await github.waitFor();
           expect(await github.innerText()).toContain("1.1.0");
           await github.getByRole("button", { name: "Update" }).click();
-          await page.waitForFunction(() => document.body.innerText.includes("1.2.0"));
+          await github.getByRole("button", { name: "Update" }).waitFor({ state: "detached" });
           expect(await github.innerText()).toContain("1.2.0");
           expect(await github.getByRole("button", { name: "Update" }).count()).toBe(0);
 

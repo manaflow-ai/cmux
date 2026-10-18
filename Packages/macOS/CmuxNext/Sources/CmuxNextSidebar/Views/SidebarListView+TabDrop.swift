@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 // External tab drags driven by the App TabDragSession.
-extension SidebarListViewComponents {
+extension SidebarListView {
     // MARK: - External tab drag
     final class ExternalDrag {
         var proposal: SidebarTabDrop?
