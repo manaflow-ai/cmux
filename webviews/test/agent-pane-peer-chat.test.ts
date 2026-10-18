@@ -188,5 +188,46 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       });
       await page.close();
     });
+
+    test("Worked for keeps pointer focus quiet and shows its ring on keyboard traversal", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+      const worked = page.locator(".cv-worked").first();
+      await worked.waitFor();
+
+      await worked.click();
+      const pointer = await worked.evaluate((node) => ({
+        focusVisible: node.matches(":focus-visible"),
+        outline: getComputedStyle(node).outlineStyle,
+      }));
+      expect({ pointerRing: pointer.focusVisible || pointer.outline !== "none" }).toEqual({ pointerRing: false });
+
+      // Focus the next tab stop, then reverse-Tab onto Worked for a real keyboard traversal.
+      await page.evaluate(() => {
+        const worked = document.querySelector<HTMLElement>(".cv-worked");
+        if (!worked) throw new Error("Worked for is missing");
+        const focusable = [...document.querySelectorAll<HTMLElement>("button, a, [tabindex]")].filter(
+          (node) => node !== worked && node.tabIndex >= 0 && node.getClientRects().length > 0,
+        );
+        const next = focusable.find((node) =>
+          Boolean(worked.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING),
+        );
+        if (!next) throw new Error("no focusable after Worked for");
+        next.dataset.focusAfterWorked = "true";
+      });
+      await page.locator("[data-focus-after-worked='true']").focus();
+      await page.keyboard.press("Shift+Tab");
+      const keyboard = await worked.evaluate((node) => ({
+        active: document.activeElement === node,
+        focusVisible: node.matches(":focus-visible"),
+        outline: getComputedStyle(node).outlineStyle,
+      }));
+      expect({ keyboardRing: keyboard.active && keyboard.focusVisible && keyboard.outline !== "none" }).toEqual({
+        keyboardRing: true,
+      });
+      await page.close();
+    });
   });
 });
