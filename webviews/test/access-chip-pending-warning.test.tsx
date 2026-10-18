@@ -226,6 +226,14 @@ test("the access chip keeps grant details in its menu without a count in the pil
   const chip = host.querySelector<HTMLElement>(".acpmux-mode")!;
   expect(chip.querySelector(".acpmux-access-grant-count")).toBeNull();
   expect(chip.querySelector(".acpmux-mode-text")?.textContent?.trim()).toBe("Ask before edits");
+  await act(async () => {
+    const trigger = chip.querySelector<HTMLButtonElement>(".acpmux-access-trigger")!;
+    const press = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 1, clientY: 1 });
+    Object.defineProperties(press, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
+    trigger.dispatchEvent(press);
+  });
+  expect(document.querySelector(".acpmux-access-grant-label")?.textContent).toBe("Always allow shell");
+  expect(document.querySelector<HTMLButtonElement>(".acpmux-access-grant-remove")).not.toBeNull();
 });
 
 test("a kept answer that is wrong gives way to acpmux's answer", async () => {
