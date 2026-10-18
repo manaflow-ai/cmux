@@ -8,10 +8,12 @@ name: cmux-next PR autofix
 # pull request.
 #
 # The action exports (plans/cmux-next/action-surfaces.json, actions.md,
-# links.json) need a Mac swift test: when the pull request changes their inputs
-# (autofix-areas.sh: actions), action-exports regenerates them on a Mac
-# (scripts/cmux-next/regenerate-action-exports.sh) and repair copies them in
-# before it rewrites the docs shortcuts from them. Rust and the docs read the
+# links.json) and the settings exports (schemas/settings/settings-schema.json,
+# its source stamp, docs/mdm) need a Mac swift test: when the pull request
+# changes their inputs (autofix-areas.sh: actions, settings), action-exports
+# regenerates them on a Mac (scripts/cmux-next/regenerate-action-exports.sh,
+# regenerate-settings-exports.sh) and repair copies them in before it rewrites
+# the docs shortcuts and the defaults snapshot from them. Rust and the docs read the
 # committed copy, so they stay checked in, but no person regenerates them.
 #
 # Two jobs hold the token boundary, so the pull request's own code never runs next to a write token:
@@ -48,7 +50,7 @@ concurrency:
 
 jobs:
   # Whether the Mac action-exports job runs: decided on Linux, so a pull
-  # request that does not change the catalog never takes a Mac.
+  # request that changes neither the catalog nor the settings never takes a Mac.
   action-areas:
     name: action export areas
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
@@ -58,6 +60,7 @@ jobs:
       pull-requests: read
     outputs:
       actions: ${{ steps.areas.outputs.actions }}
+      settings: ${{ steps.areas.outputs.settings }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -84,7 +87,7 @@ jobs:
           "$checker" --base-ref "$BASE_SHA" --merge-ref HEAD
 
       # The same paths as repair's Changed areas step (the files API, an
-      # autofix head repairs nothing); only the actions key is used.
+      # autofix head repairs nothing); only the actions and settings keys are used.
       - name: Changed areas
         id: areas
         env:
@@ -97,30 +100,31 @@ jobs:
           areas="$RUNNER_TEMP/autofix/scripts/cmux-next/autofix-areas.sh"
           grep -q '^area actions ' "$areas" || areas=scripts/cmux-next/autofix-areas.sh
           if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: ' || ! grep -q '^area actions ' "$areas"; then
-            echo "actions=false" | tee -a "$GITHUB_OUTPUT"
+            printf 'actions=false\nsettings=false\n' | tee -a "$GITHUB_OUTPUT"
           elif [ "$CHANGED_FILES" -ge 3000 ]; then
-            "$areas" --all | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
+            "$areas" --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
             gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
-              --jq '.[] | .filename, (.previous_filename // empty)' | "$areas" | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
+              --jq '.[] | .filename, (.previous_filename // empty)' | "$areas" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           fi
 
-  # Regenerates the action exports on a Mac with a read-only token and hands
-  # them to repair as the action-exports artifact (files at their repository
-  # paths). A pull request whose catalog does not build gets no exports; its
-  # other repairs still run.
+  # Regenerates the action and settings exports on a Mac with a read-only token
+  # and hands them to repair as the action-exports artifact (files at their
+  # repository paths). A pull request whose catalog or settings do not build
+  # gets none of those exports; its other repairs still run.
   action-exports:
     name: action exports (Mac)
     needs: action-areas
-    if: needs.action-areas.outputs.actions == 'true'
+    if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
       contents: read
     outputs:
-      exports: ${{ steps.regenerate.outputs.exports }}
+      exports: ${{ steps.regenerate.outputs.exports || steps.settings.outputs.exports }}
       # The exports on this tree are current: regenerated, or already fresh.
       verified: ${{ steps.regenerate.outcome == 'success' }}
+      settings-verified: ${{ steps.settings.outcome == 'success' }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -199,6 +203,7 @@ jobs:
       # this job then hands over nothing and the other repairs still run.
       - name: Regenerate the action exports
         id: regenerate
+        if: needs.action-areas.outputs.actions == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -210,8 +215,24 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # The settings exports and their source stamp, into the same artifact (as
+      # cmux-next-base-autofix.yml does after a merge).
+      - name: Regenerate the settings exports
+        id: settings
+        if: needs.action-areas.outputs.settings == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # The base's copy, or the pull request's before the base has one.
+          regenerate="$RUNNER_TEMP/autofix/scripts/cmux-next/regenerate-settings-exports.sh"
+          [[ -x "$regenerate" ]] || regenerate=scripts/cmux-next/regenerate-settings-exports.sh
+          "$regenerate" "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/settings-exports.txt"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: steps.regenerate.outputs.exports == 'true'
+        if: steps.regenerate.outputs.exports == 'true' || steps.settings.outputs.exports == 'true'
         with:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
@@ -354,6 +375,8 @@ jobs:
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions || needs.action-areas.outputs.actions }}
           EXPORTS_VERIFIED: ${{ needs.action-exports.outputs.verified }}
+          SETTINGS: ${{ steps.areas.outputs.settings || needs.action-areas.outputs.settings }}
+          SETTINGS_VERIFIED: ${{ needs.action-exports.outputs.settings-verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
@@ -375,6 +398,8 @@ jobs:
           # Dependency order: the shortcuts and app-host files follow the action
           # exports, so they wait while the exports' inputs changed unverified.
           [[ "$ACTIONS" == true && "$EXPORTS_VERIFIED" != true ]] && grep -q -- '--unverified-exports)' "$AUTOFIX/base-autofix.sh" && args+=(--unverified-exports)
+          # The defaults snapshot follows the settings exports the same way.
+          [[ "$SETTINGS" == true && "$SETTINGS_VERIFIED" != true ]] && grep -q -- '--unverified-settings-exports)' "$AUTOFIX/base-autofix.sh" && args+=(--unverified-settings-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")

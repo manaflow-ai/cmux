@@ -23,6 +23,7 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
     schemas/defaults/cmux-next.json) return 0 ;; # the defaults snapshot (a changed default still needs a call)
+    schemas/settings/settings-schema.json|schemas/settings-export/*|docs/mdm/*) return 0 ;; # settings exports and their source stamp
     clients/ts/cloud/src/generated.ts) return 0 ;;
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
     scripts/ghosttykit-checksums.txt) return 0 ;;
