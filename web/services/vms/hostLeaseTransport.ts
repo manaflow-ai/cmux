@@ -1,3 +1,4 @@
+import { createSshHostLeaseClient } from "./sshHostLeaseClient";
 import { randomUUID } from "node:crypto";
 
 /**
@@ -476,6 +477,16 @@ export function createHugeBlueHostLeaseHttpClient(config: VmHostLeaseHttpClientC
   return createHttpHostLeaseClient(config);
 }
 
+/**
+ * Freestyle's broker gateway uses the same provider-neutral lease envelope.
+ * The web runtime may still inject the native SDK facade below, while the
+ * independently deployed worker uses this HTTP form so the SDK and its
+ * credentials stay outside the worker image.
+ */
+export function createFreestyleHostLeaseHttpClient(config: VmHostLeaseHttpClientConfig): VmHostLeaseProviderClient {
+  return createHttpHostLeaseClient(config);
+}
+
 export type FreestyleHostLeaseSdk = {
   readonly hostLeases: VmHostLeaseProviderClient;
 };
@@ -488,6 +499,42 @@ export type ConfiguredHostLeaseAdapters = {
     readonly client: VmHostLeaseProviderClient;
   }>;
 };
+
+/**
+ * Build provider clients for the web composition root from deployment
+ * configuration. Provider credentials stay in the process environment and
+ * are only used by the HTTPS gateway client; they never enter broker payloads
+ * or persisted receipts.
+ */
+export function createConfiguredHostLeaseAdaptersFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): ReadonlyMap<VmHostLeaseProvider, VmHostLeaseProviderAdapter> {
+  const adapters = new Map<VmHostLeaseProvider, VmHostLeaseProviderAdapter>();
+  const hugeUrl = env.HUGE_BLUE_HOST_LEASE_URL?.trim();
+  const hugeToken = (env.HUGE_BLUE_HOST_LEASE_TOKEN?.trim() || env.HUGE_BLUE_API_TOKEN?.trim());
+  if (hugeUrl && hugeToken) {
+    adapters.set("huge-blue", createHugeBlueHostLeaseAdapter(createHugeBlueHostLeaseHttpClient({
+      baseUrl: hugeUrl,
+      token: () => hugeToken,
+    })));
+  }
+  const freestyleUrl = env.FREESTYLE_HOST_LEASE_URL?.trim();
+  const freestyleToken = (env.FREESTYLE_HOST_LEASE_TOKEN?.trim() || env.FREESTYLE_API_TOKEN?.trim());
+  if (freestyleUrl && freestyleToken) {
+    adapters.set("freestyle", createFreestyleHostLeaseAdapter(createFreestyleHostLeaseHttpClient({
+      baseUrl: freestyleUrl,
+      token: () => freestyleToken,
+    })));
+  }
+  if (!adapters.has("huge-blue") && env.HUGE_BLUE_SSH_HOST) {
+    adapters.set("huge-blue", createHugeBlueHostLeaseAdapter(createSshHostLeaseClient(env.HUGE_BLUE_SSH_HOST, {
+      user: env.HUGE_BLUE_SSH_USER,
+      identityFile: env.HUGE_BLUE_SSH_KEY,
+      proxyCommand: env.HUGE_BLUE_SSH_PROXY_COMMAND,
+    })));
+  }
+  return adapters;
+}
 
 /** Adapt the configured Freestyle SDK facade without importing credentials here. */
 export function createFreestyleHostLeaseClient(config: { readonly sdk: FreestyleHostLeaseSdk }): VmHostLeaseProviderClient {
@@ -551,7 +598,7 @@ async function requestHostLeaseGateway(
   } catch (cause) {
     throw new VmHostLeaseError("receipt_mismatch", "host lease gateway returned invalid JSON", cause);
   }
-  if (!response.ok) throw new VmHostLeaseError("provider_mismatch", `host lease gateway rejected ${input.operation}`, { status: response.status });
+  if (!response.ok) throw new VmHostLeaseError("provider_mismatch", `host lease gateway rejected ${input.operation}`, { status: response.status, payload });
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new VmHostLeaseError("receipt_mismatch", "host lease gateway returned a non-object receipt");
   const value = payload as Record<string, unknown>;
   return {
