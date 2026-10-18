@@ -150,7 +150,11 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  # NEXT uses a run-scoped suffix so advisory macOS 15 and legacy identity
+  # checks cannot hold the next build behind this workflow. The release/feed
+  # writers retain their own concurrency groups below, so publication remains
+  # serialized while independent runs can compile and publish in sequence.
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -4841,7 +4845,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # cx-x7hwx: the build publish-nightly-identity-legacy copies, if any: the
+  # Post-publication lane (cx-x7hwx): the build publish-nightly-identity-legacy
+  # copies, if any: the
   # newest build on the cmux NEXT feed when it is newer than the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
@@ -5003,7 +5008,8 @@ jobs:
   # in Apple's queue to recover-nightly-next-notarization) or a
   # nightly_next_continue_only run. A run that publishes nothing still catches
   # the old feed up to an earlier publication.
-  # After the cmux NEXT publication and its notes; no job needs this one, and
+  # This lane starts only after the cmux NEXT publication and its notes. No
+  # publication job needs it, and
   # continue-on-error keeps the run's result to cmux NEXT. A failure opens or
   # updates the "cmux NIGHTLY-identity publication failed" issue; the old feed
   # then keeps its previous build. Cost: the next nightly-next run waits for this
@@ -5913,12 +5919,14 @@ jobs:
           retention-days: 3
 
   republish-nightly-deltas:
-    # This job is intentionally outside publish-nightly's concurrency group:
-    # a newer run may publish its full feed immediately, and the tag guard below
-    # prevents an older delta from overwriting it.
+    # This job is separate from publish-nightly so the feed can advance first,
+    # but its mutable delta uploads remain serialized per release channel.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'
     environment: ${{ needs.decide.outputs.environment }}
+    concurrency:
+      group: release-publish-${{ needs.decide.outputs.release_tag }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: write
@@ -5961,6 +5969,16 @@ jobs:
             echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          if [ -n "${CHANNEL_FEED_BASE:-}" ]; then
+            live_feed="$(mktemp)"
+            curl -fsSL --retry 3 -A "cmux-delta-publisher/1" -o "$live_feed" "$CHANNEL_FEED_BASE/appcast-arm64.xml"
+            live_build="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); print(next(c.text or "" for i in r.iter() if i.tag.rsplit("}", 1)[-1] == "item" for c in i if c.tag.rsplit("}", 1)[-1] == "version"))' "$live_feed")"
+            if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build > NIGHTLY_BUILD )); then
+              echo "Skipping stale delta result: NEXT feed already serves build $live_build"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           deltas=()
           for delta in nightly-deltas/*.delta; do
@@ -6155,6 +6173,9 @@ jobs:
 
   publish-release-notes:
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
+    concurrency:
+      group: release-publish-${{ needs.decide.outputs.release_tag }}
+      cancel-in-progress: false
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -6170,7 +6191,48 @@ jobs:
         with:
           name: release-notes
           path: notes
+      - name: Recheck the NEXT publication head
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          EXPECTED_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          EXPECTED_BUILD: ${{ needs.publish-nightly.outputs.build }}
+          FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+        run: |
+          set -euo pipefail
+          object="$(gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+          actual="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["object"]["sha"])' <<<"$object")"
+          if [ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["type"])' <<<"$object")" = tag ]; then
+            actual="$(gh api "repos/$REPOSITORY/git/tags/$actual" --jq .object.sha)"
+          fi
+          feed="$(mktemp)"
+          curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$feed" "$FEED_BASE/appcast-arm64.xml"
+          live_build="$(python3 - "$feed" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          for item in root.iter():
+              if item.tag.rsplit("}", 1)[-1] == "item":
+                  for child in item:
+                      if child.tag.rsplit("}", 1)[-1] == "version":
+                          print(child.text or "")
+                          raise SystemExit
+          raise SystemExit("missing appcast version")
+          PY
+          )"
+          if [ "$actual" != "$EXPECTED_SHA" ]; then
+            echo "::notice::Skipping stale release notes for $EXPECTED_SHA; $RELEASE_TAG already points to $actual"
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+          elif [[ "$live_build" =~ ^[0-9]+$ && "$EXPECTED_BUILD" =~ ^[0-9]+$ ]] && (( live_build > EXPECTED_BUILD )); then
+            echo "::notice::Skipping stale release notes for build $EXPECTED_BUILD; NEXT feed already serves $live_build"
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Upload the signed release notes to R2
+        if: steps.current.outputs.current == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
@@ -6247,7 +6309,8 @@ jobs:
               print(f"| #{pr['pr']} | {title} | {cell} |")
           PY
 
-  # The published NEXT DMG on macOS 15 (Sequoia), the oldest major a hosted
+  # Post-publication compatibility check: the published NEXT DMG on macOS 15
+  # (Sequoia), the oldest major a hosted
   # runner offers (GitHub retired macos-14; macOS 14 runs in the fleet's Tart
   # VMs, scripts/cmux-next/os-smoke/run.sh). The pre-notarization smoke runs
   # on macOS 26 only. This job downloads exactly what users get, checks every
