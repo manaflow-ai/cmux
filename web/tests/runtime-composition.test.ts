@@ -77,7 +77,7 @@ describe("runtime composition", () => {
   });
 
   test("builds a request-scoped service without mutating the global seam", () => {
-    const scopedProvider = { create: async () => ({ providerVmId: "vm", providerWorkspaceId: "workspace" }) } as PersistentWorkspaceProvider;
+    const scopedProvider = { create: async () => ({ providerVmId: "vm", providerWorkspaceId: "workspace" }) } as unknown as PersistentWorkspaceProvider;
     let receivedContext: unknown;
     const service = createRequestScopedWorkspaceService({
       context: requestContext,
