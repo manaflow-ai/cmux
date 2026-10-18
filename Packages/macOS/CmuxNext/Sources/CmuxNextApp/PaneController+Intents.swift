@@ -76,7 +76,7 @@ extension PaneController {
         presentSelection()
         remapViewedTab()
         services.windows.recordSaver.stateDidChange(state)
-        DebugTabSwitch.shown(self)
+        DebugTabSwitch.shown(self, in: view.window)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.
