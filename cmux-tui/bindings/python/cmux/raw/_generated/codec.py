@@ -612,6 +612,7 @@ ENUM_BY_PATH = {
     'types/FrontendFocusTarget': models.FrontendFocusTarget,
     'types/HomeChiefState': models.HomeChiefState,
     'types/HomeInboxKind': models.HomeInboxKind,
+    'types/NameSource': models.NameSource,
     'types/NotificationLevel': models.NotificationLevel,
     'types/NotificationSource': models.NotificationSource,
     'types/PaneDirection': models.PaneDirection,

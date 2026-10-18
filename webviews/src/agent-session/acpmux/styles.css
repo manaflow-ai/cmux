@@ -415,6 +415,15 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-turn-preview-address:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
 .acpmux-turn-preview-frame{position:relative;height:180px;overflow:hidden;cursor:pointer;background:var(--agent-page-bg)}
 .acpmux-turn-preview-frame iframe{position:absolute;top:0;left:0;width:400%;height:400%;border:0;transform:scale(.25);transform-origin:0 0;pointer-events:none;background:var(--agent-page-bg)}
+.cv-link-preview{min-width:280px;max-width:min(520px,calc(100vw - 24px));padding:0;overflow:hidden;border-radius:9px;background:var(--surface-popup,var(--agent-page-bg));color:var(--agent-text);box-shadow:var(--elevation-2);pointer-events:auto}
+.cv-link-preview__head{display:flex;align-items:center;gap:9px;min-height:42px;padding:7px 9px;border-bottom:1px solid var(--agent-border);background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:var(--agent-page-bg);color:var(--agent-muted)}
+.cv-link-preview__icon .cv-chip__icon{width:15px;height:15px;margin:0}
+.cv-link-preview__site{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-detail);font-weight:600}
+.cv-link-preview__open{display:inline-flex;align-items:center;gap:5px;flex:none;height:24px;padding:0 8px;border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer}
+.cv-link-preview__open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+.cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.cv-link-preview__target{padding:9px 12px 10px;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}

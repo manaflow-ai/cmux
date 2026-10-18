@@ -208,7 +208,7 @@ final class KeyRouter: BrowserKeyRouting {
         // 1. The input method's keys reach it undecided (menus keep their rule).
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         decided.add(event)
-        let focus = controller.focus.state
+        let focus = controller.focus.currentState()
         let context = keyContext(for: focus, facts: facts)
         // 2. A chord.
         if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
