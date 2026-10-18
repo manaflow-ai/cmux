@@ -14,9 +14,9 @@ import Observation
 /// person can see and answer it.
 ///
 /// Health (cx-ny85, `_acpmux/harness/health`) adds each row's installed and newest version, a
-/// sign-out the daemon has evidence for, and its update command. Update and Update all type that
-/// command into a terminal tab the same way; an update that needs sudo is never typed (the page
-/// shows the command). Refresh asks the daemon to check again, so a finished update shows.
+/// sign-out the daemon has evidence for, and its update command for display. Update and Update
+/// all use the shared owner-bound job action; no health argv is typed into a focused pane.
+/// Refresh observes retained job terminals and reads health again.
 /// Update Automatically asks acpmux to run a harness's update itself after a check finds it
 /// outdated (`_acpmux/harness/health {autoUpdate}`; never one that needs sudo).
 @MainActor
