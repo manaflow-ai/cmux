@@ -16321,15 +16321,18 @@ class TerminalController {
                     )
                 }
             }
-            let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalTarget: terminalTarget,
-                bindingAction: "write_active_file:copy,vt",
-                lineLimit: nil,
-                normalizeLineEndings: false
-            )?.data(using: .utf8) ?? Data()
+            let snapshotSurface = terminalTarget.surface.liveSurfaceForGhosttyAccess(
+                reason: "mobileTerminalReplay.snapshot"
+            )
+            let snapshotSize = snapshotSurface.map(ghostty_surface_size)
+            let snapshotData = snapshotSize.flatMap { size in
+                terminalTarget.surface.readBoundedScreenTailVT(
+                    maxRows: max(Int(size.rows), 1),
+                    maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4
+                )
+            }?.data(using: .utf8) ?? Data()
             let data = state?.data ?? Data()
-            if let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
-                let size = ghostty_surface_size(surface)
+            if let size = snapshotSize {
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
             }
