@@ -40,9 +40,8 @@ enum DebugLayoutCounters {
         let fields = zip(Mirror(reflecting: old).children, Mirror(reflecting: new).children).flatMap { x, y -> [String] in
             guard String(describing: x.value) != String(describing: y.value), let label = x.label else { return [] }
             guard let a = x.value as? [Any], let b = y.value as? [Any], a.count == b.count else { return [label] }
-            // Elements without fields (an array of ids): the array itself changed.
             let inner = Set(zip(a, b).flatMap { diff($0, $1) }).sorted().map { "\(label).\($0)" }
-            return inner.isEmpty ? [label] : inner
+            return inner.isEmpty ? [label] : inner // elements without fields (ids): the array changed
         }
         return fields.isEmpty ? "unchanged" : fields.joined(separator: ",")
     }

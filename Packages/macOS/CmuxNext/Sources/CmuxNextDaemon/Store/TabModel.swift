@@ -93,6 +93,8 @@ public final class TabModel: Identifiable {
     /// id only (``FocusTopology/Tab/surface`` is nil) and the confirm changes no topology. A
     /// provisional chat or page tab (`pending_tab_…`) gives way to a new daemon record instead.
     public let isClientMinted: Bool
+    /// The surface the focus topology names this tab by: nil for a tab this window minted.
+    public var focusSurface: String? { isClientMinted ? nil : String(surface.rawValue) }
 
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
