@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 09b4cab1e7cd5b3d3160a600e23688364766ae02f751c0c5ca719c426c520238.
+// cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1130,6 +1130,15 @@ pub struct MoveTerminalResult {
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
     pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NameSource {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "auto")]
+    Auto,
 }
 
 #[rustfmt::skip]
@@ -2702,6 +2711,10 @@ pub struct Workspace {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     pub name: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name_revision: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name_source: Option<NameSource>,
     pub screens: Vec<Screen>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,

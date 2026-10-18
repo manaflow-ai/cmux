@@ -6,7 +6,6 @@ use crate::config::PermissionPolicy;
 use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
-use crate::store::EventRecord;
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
 use futures_util::{SinkExt, StreamExt};
@@ -63,12 +62,19 @@ pub struct Conn {
     person: AtomicBool,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
+    /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
+    caller: std::sync::OnceLock<String>,
 }
 
 impl Conn {
     /// Whether this connection is the person (`hub/person.rs`).
     pub(super) fn is_person(&self) -> bool {
         self.person.load(Ordering::SeqCst)
+    }
+
+    /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
+    pub(super) fn caller(&self) -> Option<&str> {
+        self.caller.get().map(String::as_str)
     }
 
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
@@ -83,9 +89,15 @@ impl Conn {
     /// the proof matches its own nonce and id. Nothing else ever does.
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
+        // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
+        let caller = params.as_mut().and_then(crate::hub::person::take_caller);
         let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
         if n == 1 && m == method::INITIALIZE && self.challengeable() {
             self.challenged.store(true, Ordering::SeqCst);
+        }
+        let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
+        if let Some(id) = caller.filter(|_| first_local).and_then(|c| hub.proven_caller(c)) {
+            let _ = self.caller.set(id);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
@@ -705,6 +717,7 @@ async fn serve_connection_from(
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
+        caller: std::sync::OnceLock::new(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -831,6 +844,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     if watching {
         if let Some(remote) = &ev.remote {
+            // A peer's prompt the person must answer, for a unix socket or app
+            // watcher that did not attach the session (`hub/person.rs` (c)):
+            // never relayed on to a Web client or another peer daemon.
+            if rec.kind == crate::hub::PEER_PERMISSION_PENDING {
+                if !attached && !conn.origin.web_class() {
+                    conn.send(&Message::notification(
+                        method::MUX_PERMISSION_PENDING,
+                        peer_permission_pending(&ev.session_id, rec, &remote.peer),
+                    ));
+                }
+                return;
+            }
             // Peers already filter to the interesting kinds and send a summary.
             if rec.dir == "peer" {
                 let sid = remote
@@ -870,35 +895,6 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
     }
-}
-
-/// A record that asks a client to answer a prompt: a new one, or one the
-/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
-fn is_permission_ask(kind: &str) -> bool {
-    matches!(kind, "permission_request" | "permission_reissued")
-}
-
-/// The `_acpmux/permission_pending` notification. The record's
-/// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
-/// peer's session) are what a relayed allow's decision proof covers
-/// (`hub/person.rs`, cx-0q7o).
-fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
-    let mut p = rec.msg.clone();
-    p["sessionId"] = Value::String(session_id.to_owned());
-    p["seq"] = json!(rec.seq);
-    p["via"] = Value::String(via.to_owned());
-    p
-}
-
-pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
-    json!({
-        "sessionId": session_id,
-        "seq": rec.seq,
-        "at": rec.at,
-        "dir": rec.dir,
-        "kind": rec.kind,
-        "msg": rec.msg,
-    })
 }
 
 fn str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
@@ -956,7 +952,10 @@ mod inventory_watch;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+mod pending;
 mod processes;
+pub use pending::event_value;
+use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;

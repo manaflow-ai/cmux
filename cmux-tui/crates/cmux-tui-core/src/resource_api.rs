@@ -604,6 +604,10 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     "name": workspace.name,
                     "index": checked_index(index)?,
                     "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
+                    "extra": crate::resource_name::workspace_name_extra(
+                        workspace.name_source,
+                        workspace.name_revision,
+                    ),
                 }))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;

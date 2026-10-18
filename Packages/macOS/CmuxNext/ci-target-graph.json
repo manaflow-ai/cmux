@@ -176,6 +176,7 @@
         "CmuxNextControl",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextFeed",
@@ -247,6 +248,7 @@
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -266,7 +268,8 @@
         "CmuxAgentQuestion",
         "CmuxGhosttyKit",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMessagesLab"
       ],
       "reads": [
         "Resources/ghostty/themes/",
@@ -477,6 +480,19 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDaemonRecovery": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonRecovery",
+      "targets": [
+        "CmuxNextApps",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextWakeups"
       ],
       "packages": []

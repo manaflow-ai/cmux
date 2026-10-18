@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
+import CmuxNextDaemonRecovery
+import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -35,8 +37,9 @@ final class AppsService {
     /// The App Store tabs (internal page), one store model per tab over the
     /// one client. Captures the client, not the service, so a page set that
     /// outlives the service still makes models.
-    private(set) lazy var storePages = AppStorePages { [weak self, client = self.client] in
+    private(set) lazy var storePages = AppStorePages { [weak self, client = self.client, recovery = self.services.daemon.recovery] in
         let model = AppStoreModel(client: client)
+        model.recovery = { recovery.appsRecovery }
         model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
         return model
     }

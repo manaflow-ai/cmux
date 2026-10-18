@@ -260,6 +260,7 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key) else { return nil }
             return services.machines.daemon(forTab: tab)
         }
+        tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
         tabs.moveSelection = { [weak services] provisional, surface in
             for controller in services?.windows.controllers ?? [] {
                 guard let panes = controller.content?.panes.values else { continue }

@@ -74,6 +74,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "to-right",
     "to-left",
     "include-pinned",
+    // `workspace rename`: hand the name back to the automatic namer.
+    "release-to-auto",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

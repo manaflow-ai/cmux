@@ -118,6 +118,7 @@
     "workspace-groups-v1",
     "workspace-kind-v1",
     "workspace-metadata-v1",
+    "workspace-name-source-v1",
     "workspace-pin-v1",
     "ws-listen-origins-v1",
     "ws-listen-v1"
@@ -132,6 +133,6 @@
     "workspace-registry-v1"
   ],
   "unservedByBundledDaemon" : [
-    "workspace-name-source-v1"
+
   ]
 }

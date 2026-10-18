@@ -5388,6 +5388,20 @@ Result<MoveTerminalResult> Codec<MoveTerminalResult>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<NameSource>::encode(const NameSource& value) {
+    switch (value) {
+        case NameSource::user: return Json(std::string("user"));
+        case NameSource::auto_: return Json(std::string("auto"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<NameSource> Codec<NameSource>::decode(const Json& value) {
+    if (value == Json(std::string("user"))) return NameSource::user;
+    if (value == Json(std::string("auto"))) return NameSource::auto_;
+    return make_error(ErrorCode::decode, "unknown NameSource value");
+}
+
 Result<Json> Codec<NewRowResult>::encode(const NewRowResult& value) {
     (void)value;
     Json::Object object;
@@ -13404,6 +13418,16 @@ Result<Json> Codec<Workspace>::encode(const Workspace& value) {
     auto encoded_name = encode_value(value.name);
     if (!encoded_name) return std::move(encoded_name).error();
     object.emplace("name", std::move(encoded_name).value());
+    if (value.name_revision) {
+        auto encoded = encode_value(*value.name_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("name_revision", std::move(encoded).value());
+    }
+    if (value.name_source) {
+        auto encoded = encode_value(*value.name_source);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("name_source", std::move(encoded).value());
+    }
     auto encoded_screens = encode_value(value.screens);
     if (!encoded_screens) return std::move(encoded_screens).error();
     object.emplace("screens", std::move(encoded_screens).value());
@@ -13451,6 +13475,18 @@ Result<Workspace> Codec<Workspace>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_name);
         if (!decoded) return std::move(decoded).error();
         result.name = std::move(decoded).value();
+    }
+    const Json* field_name_revision = value.find("name_revision");
+    if (field_name_revision) {
+        auto decoded = decode_value<std::string>(*field_name_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.name_revision = std::move(decoded).value();
+    }
+    const Json* field_name_source = value.find("name_source");
+    if (field_name_source) {
+        auto decoded = decode_value<NameSource>(*field_name_source);
+        if (!decoded) return std::move(decoded).error();
+        result.name_source = std::move(decoded).value();
     }
     const Json* field_screens = value.find("screens");
     if (!field_screens) {
@@ -27226,6 +27262,11 @@ Result<Json> Codec<RenameWorkspaceRequest>::encode(const RenameWorkspaceRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("expected_generation", std::move(encoded).value());
     }
+    if (!value.expected_name_revision.is_absent()) {
+        auto encoded = encode_value(value.expected_name_revision);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("expected_name_revision", std::move(encoded).value());
+    }
     if (!value.expected_revision.is_absent()) {
         auto encoded = encode_value(value.expected_revision);
         if (!encoded) return std::move(encoded).error();
@@ -27249,6 +27290,16 @@ Result<Json> Codec<RenameWorkspaceRequest>::encode(const RenameWorkspaceRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (value.release) {
+        auto encoded = encode_value(*value.release);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("release", std::move(encoded).value());
+    }
+    if (!value.source.is_absent()) {
+        auto encoded = encode_value(value.source);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("source", std::move(encoded).value());
+    }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
         if (!encoded) return std::move(encoded).error();
@@ -27269,6 +27320,16 @@ Result<RenameWorkspaceRequest> Codec<RenameWorkspaceRequest>::decode(const Json&
             auto decoded = decode_value<std::string>(*field_expected_generation);
             if (!decoded) return std::move(decoded).error();
             result.expected_generation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_expected_name_revision = value.find("expected_name_revision");
+    if (field_expected_name_revision) {
+        if (field_expected_name_revision->is_null()) {
+            result.expected_name_revision = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_expected_name_revision);
+            if (!decoded) return std::move(decoded).error();
+            result.expected_name_revision = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_expected_revision = value.find("expected_revision");
@@ -27321,6 +27382,22 @@ Result<RenameWorkspaceRequest> Codec<RenameWorkspaceRequest>::decode(const Json&
             auto decoded = decode_value<std::string>(*field_origin);
             if (!decoded) return std::move(decoded).error();
             result.origin = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_release = value.find("release");
+    if (field_release) {
+        auto decoded = decode_value<bool>(*field_release);
+        if (!decoded) return std::move(decoded).error();
+        result.release = std::move(decoded).value();
+    }
+    const Json* field_source = value.find("source");
+    if (field_source) {
+        if (field_source->is_null()) {
+            result.source = Field<NameSource>::null();
+        } else {
+            auto decoded = decode_value<NameSource>(*field_source);
+            if (!decoded) return std::move(decoded).error();
+            result.source = Field<NameSource>(std::move(decoded).value());
         }
     }
     const Json* field_workspace = value.find("workspace");
@@ -40528,12 +40605,15 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand182FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand183FieldRequirements{{
     {"view", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand193FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 8> kCommand193FieldRequirements{{
     {"expected_generation", 7U, ""},
+    {"expected_name_revision", 12U, "workspace-name-source-v1"},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
+    {"release", 12U, "workspace-name-source-v1"},
+    {"source", 12U, "workspace-name-source-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand198FieldRequirements{{
     {"identity", 12U, "shared-sizing-v1"},
