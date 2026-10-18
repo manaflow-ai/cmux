@@ -1,7 +1,6 @@
 import { expect, it } from "vitest"
 import { personalTeamIdFor } from "../src/domains/user.ts"
-import { teamSubscriberView } from "../src/domains/team-visibility.ts"
-import { call, mirroredTeam, teamState, teamStub } from "./team-stack-support.ts"
+import { call, mirroredTeam, teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
 
 interface Marker { readonly version: number; readonly project: string; readonly team: string; readonly user: string; readonly stack_user: string; readonly nonce: string }
@@ -23,7 +22,7 @@ const fixture = async () => {
     members: async (_id: string) => [t.stackUser]
   }
   await inDO(teamStub(personal), async (instance) => { instance.personalStack = stack })
-  return { ...t, personal, stack, creates: () => creates, loseResponse: () => { uncertain = true }, visible: (value: boolean) => { visible = value } }
+  return { ...t, personal, stack, creates: () => creates, marker: () => found[0]?.marker, loseResponse: () => { uncertain = true }, visible: (value: boolean) => { visible = value } }
 }
 const ensure = (team: string) => inDO(teamStub(team), async (instance) => instance.ensureVmApiTenant(team))
 const read = (team: string) => inDO(teamStub(team), async (instance) => instance.vmApiTenant(team, "operate"))
@@ -85,9 +84,8 @@ it("refuses a team that has another member instead of treating it as a solo tena
 
 it("keeps the provisioning intent and Stack mapping private in every subscriber projection", async () => {
   const t = await fixture()
-  const state = { ...(await teamState(t.personal)), personal_vm_tenant: { nonce: "private-intent", tenant: STACK_TEAM } }
-  for (const user of [t.user, "other-user"]) {
-    const view = teamSubscriberView(state, { identity: `user:${user}`, kind: "session", user, team: t.personal })
-    expect(view).not.toHaveProperty("personal_vm_tenant")
-  }
+  expect(await ensure(t.personal)).toHaveProperty("status", "ready")
+  const views = await inDO(teamStub(t.personal), async (instance) => [t.user, "other-user"].map((user) => instance.subscriberView(instance.boundEngine.currentState, { identity: `user:${user}`, kind: "session", user, team: t.personal })))
+  expect(JSON.stringify(views)).not.toContain(STACK_TEAM)
+  expect(JSON.stringify(views)).not.toContain(t.marker()?.nonce)
 })
