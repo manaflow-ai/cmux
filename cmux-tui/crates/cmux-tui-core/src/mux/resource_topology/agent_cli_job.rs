@@ -18,6 +18,56 @@ impl fmt::Display for AgentCLIJobBusy {
 impl std::error::Error for AgentCLIJobBusy {}
 
 impl Mux {
+    /// Looks up the original intent without preparing, reconciling or launching it.
+    /// A client that lost a reply must not use an execution RPC as a status read.
+    pub(crate) fn resolve_agent_cli_update_job(
+        &self,
+        cli: &str,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<Value> {
+        let correlation = format!("agent-cli-job:{:x}", Sha256::digest(mutation.id.as_bytes()));
+        let fingerprint = self.agent_cli_job_fingerprint(cli, mutation);
+        let registry = self.workspace_registry.lock().unwrap();
+        let previous = registry
+            .lookup_resource_creation(
+                &correlation,
+                &mutation.id,
+                "workspace.create",
+                &fingerprint,
+                true,
+            )
+            .map_err(|error| job_lookup_error(error, mutation))?;
+        Ok(match previous {
+            None => json!({"state":"not_found"}),
+            Some(ResourceCreationPreparation::Created { created_path, revision, .. }) => {
+                let mut path = serde_json::Map::new();
+                for key in ["kind", "workspace_id", "screen_id", "pane_id", "tab_id", "terminal_id"]
+                {
+                    path.insert(key.into(), created_path.get(key).cloned().unwrap_or(Value::Null));
+                }
+                json!({"state":"created","receipt":{
+                    "machine":self.machine_public_id,"session":self.session_public_id,"cli":cli,
+                    "path":path,"revision":revision.to_string(),"replayed":true,
+                }})
+            }
+            Some(ResourceCreationPreparation::Execute { .. }) => json!({"state":"prepared"}),
+            Some(ResourceCreationPreparation::Failed { error, .. }) => {
+                json!({"state":"failed","code":error.code})
+            }
+            Some(ResourceCreationPreparation::Blocked { .. }) => {
+                let resolved = registry.resolve_resource_creation(&correlation)?;
+                let state =
+                    if resolved["state"] == "pending" { "pending" } else { "indeterminate" };
+                json!({"state":state})
+            }
+        })
+    }
+
+    fn agent_cli_job_fingerprint(&self, cli: &str, mutation: &WorkspaceMutation) -> Value {
+        json!({"operation":"agent_cli.update","machine":self.machine_public_id,
+            "session":self.session_public_id,"cli":cli,"actor":mutation.actor.wire()})
+    }
+
     /// The caller has already admitted the principal, owner and user action.
     /// `prepare` is the owner's fixed-plan producer, never caller argv. It
     /// runs without registry/state locks, and is unnecessary for a receipt.
@@ -29,13 +79,7 @@ impl Mux {
     ) -> anyhow::Result<Value> {
         let _one = self.agent_cli_job_execution.try_lock().map_err(|_| AgentCLIJobBusy)?;
         let correlation = format!("agent-cli-job:{:x}", Sha256::digest(mutation.id.as_bytes()));
-        let fingerprint = json!({
-            "operation":"agent_cli.update",
-            "machine":self.machine_public_id,
-            "session":self.session_public_id,
-            "cli":cli,
-            "actor":mutation.actor.wire(),
-        });
+        let fingerprint = self.agent_cli_job_fingerprint(cli, mutation);
         self.reconcile_interrupted_resource_creation(&correlation)?;
         let previous = self
             .workspace_registry
@@ -48,19 +92,7 @@ impl Mux {
                 &fingerprint,
                 true,
             )
-            .map_err(|error| {
-                if error
-                    .downcast_ref::<ResourceError>()
-                    .is_some_and(|e| e.code == "creation.conflict")
-                {
-                    anyhow::Error::new(ResourceError::idempotency_conflict(
-                        &mutation.id,
-                        "agent_cli.update",
-                    ))
-                } else {
-                    error
-                }
-            })?;
+            .map_err(|error| job_lookup_error(error, mutation))?;
         let mut fields = json!({"correlation_key":correlation}).as_object().unwrap().clone();
         match previous {
             // The same intent replays with acpmux offline or a different
@@ -105,5 +137,13 @@ impl Mux {
         // provides terminal.wait_exit, including after detachment or exit.
         Ok(json!({"machine":self.machine_public_id,"session":self.session_public_id,"cli":cli,
             "path":commit.result,"revision":commit.revision.to_string(),"replayed":commit.replayed}))
+    }
+}
+
+fn job_lookup_error(error: anyhow::Error, mutation: &WorkspaceMutation) -> anyhow::Error {
+    if error.downcast_ref::<ResourceError>().is_some_and(|e| e.code == "creation.conflict") {
+        ResourceError::idempotency_conflict(&mutation.id, "agent_cli.update").into()
+    } else {
+        error
     }
 }
