@@ -129,7 +129,10 @@ async function pauseStatusSeries(vmId, pauseReturnedAt, targets = [1_000, 5_000,
   return series;
 }
 
-async function waitForRun(runId, timeoutMs = 15 * 60_000) {
+// Freestyle creation has a 15-minute provider deadline. Leave room for the
+// worker to finalize the Run and publish its source/setup receipt before the
+// dogfood client declares the journey stalled.
+async function waitForRun(runId, timeoutMs = 20 * 60_000) {
   const deadline = performance.now() + timeoutMs;
   let last;
   while (performance.now() < deadline) {
