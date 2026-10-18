@@ -176,6 +176,9 @@ public final class ThemeScope {
     public private(set) var emphasis: ChromeEmphasis = .full
     /// Bumps on every change of `tokens` (tests, diagnostics).
     public private(set) var generation = 0
+    /// Bumps on every repaint of this scope's views (tokens or background): a hidden subtree the
+    /// repaint left out repaints when shown (`ThemeRepaint`).
+    private(set) var paintRevision = 0
     /// The scope whose colors this scope's own views draw in: a window's
     /// room scope shows its current workspace's, so the sidebar and
     /// titlebar always match the content beside them.
@@ -386,7 +389,7 @@ public final class ThemeScope {
             ThemeScopeRegistry.setScope(self, of: view)
             roots.add(view)
             applyAppearance(to: view)
-            ThemeRepaint.request(view, roots: { () -> [NSView] in [view] }, scope: self, animated: false)
+            ThemeRepaint.request(view, roots: { () -> [NSView] in [view] }, scope: self, animated: false, lazy: false)
         }
     }
 
@@ -398,7 +401,7 @@ public final class ThemeScope {
             ThemeScopeRegistry.setScope(self, of: window)
             windows.add(window)
             window.appearance = appearance
-            if let content = window.contentView { ThemeRepaint.request(content, roots: { () -> [NSView] in [content] }, scope: self, animated: false) }
+            if let content = window.contentView { ThemeRepaint.request(content, roots: { () -> [NSView] in [content] }, scope: self, animated: false, lazy: false) }
         }
     }
 
@@ -433,6 +436,7 @@ public final class ThemeScope {
     /// color the hooks change blends from the color on screen (`ThemeRepaint`).
     /// - Parameter previous: The tokens painted before (nil: unknown).
     private func repaint(animated: Bool, from previous: ThemeTokens?) {
+        paintRevision += 1
         let now = tokens
         // A non-opaque window's shadow follows its content's alpha.
         let shadowMoved = previous.map { $0.backgroundOpacity != now.backgroundOpacity || $0.isDark != now.isDark } ?? true
