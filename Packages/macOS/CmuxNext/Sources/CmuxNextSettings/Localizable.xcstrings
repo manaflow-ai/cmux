@@ -100338,6 +100338,268 @@
           }
         }
       }
+    },
+    "settings.workspaces.autoName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name Workspaces from Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسمية مساحات العمل من علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imenuj radne prostore po karticama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navngiv arbejdsområder efter faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche nach Tabs benennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombrar espacios de trabajo según sus pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nommer les espaces de travail d’après les onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dai nome agli spazi di lavoro dalle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブからワークスペースに名前を付ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ឈ្មោះកន្លែងធ្វើការតាមផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭에서 워크스페이스 이름 가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi arbeidsområder navn etter faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazywaj przestrzenie robocze od kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nomear espaços de trabalho pelas abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Называть рабочие пространства по вкладкам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งชื่อเวิร์กสเปซตามแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanlarını sekmelerden adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Називати робочі простори за вкладками"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt tên không gian làm việc theo thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按标签页命名工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依分頁命名工作區"
+          }
+        }
+      }
+    },
+    "settings.workspaces.autoName.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض مساحة العمل التي لم تسمّها اسم علامة التبويب الأمامية فيها: عنوان الصفحة، أو عنوان محادثة الوكيل، أو عنوان الطرفية أو مجلدها. الاسم الذي تختاره يفوز دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostor koji niste imenovali prikazuje ime svoje prednje kartice: naslov stranice, naslov razgovora s agentom ili naslov ili folder terminala. Vaše ime uvijek ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et arbejdsområde, du ikke har navngivet, viser navnet på sin forreste fane: en sides titel, en agentchats titel eller en terminals titel eller mappe. Dit eget navn vinder altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Arbeitsbereich, den du nicht benannt hast, zeigt den Namen seines vorderen Tabs: den Titel einer Seite, eines Agent-Chats oder den Titel oder Ordner eines Terminals. Dein eigener Name hat immer Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un espacio de trabajo al que no has puesto nombre muestra el de su pestaña principal: el título de una página, de un chat con un agente, o el título o la carpeta de un terminal. Tu propio nombre siempre prevalece."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un espace de travail que vous n’avez pas nommé affiche le nom de son onglet au premier plan : le titre d’une page, d’une discussion avec un agent, ou le titre ou le dossier d’un terminal. Votre propre nom l’emporte toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno spazio di lavoro a cui non hai dato un nome mostra il nome della sua scheda in primo piano: il titolo di una pagina, di una chat con un agente, o il titolo o la cartella di un terminale. Il tuo nome ha sempre la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を付けていないワークスペースには、前面のタブの名前が表示されます。ページのタイトル、エージェントチャットのタイトル、またはターミナルのタイトルやフォルダです。自分で付けた名前が常に優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការដែលអ្នកមិនទាន់ដាក់ឈ្មោះ បង្ហាញឈ្មោះផ្ទាំងខាងមុខរបស់វា៖ ចំណងជើងទំព័រ ចំណងជើងការជជែកជាមួយភ្នាក់ងារ ឬចំណងជើង ឬថតរបស់ terminal។ ឈ្មោះដែលអ្នកដាក់ខ្លួនឯងតែងតែឈ្នះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름을 지정하지 않은 워크스페이스는 앞쪽 탭의 이름을 표시합니다. 페이지 제목, 에이전트 채팅 제목, 또는 터미널의 제목이나 폴더입니다. 직접 지정한 이름이 항상 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et arbeidsområde du ikke har gitt navn, viser navnet på fanen foran: en sides tittel, en agentchats tittel eller en terminals tittel eller mappe. Ditt eget navn vinner alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przestrzeń robocza, której nie nazwano, pokazuje nazwę swojej karty na wierzchu: tytuł strony, tytuł czatu z agentem albo tytuł lub folder terminala. Twoja własna nazwa zawsze wygrywa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um espaço de trabalho que você não nomeou mostra o nome da aba da frente: o título de uma página, de um chat com agente, ou o título ou a pasta de um terminal. O nome que você der sempre prevalece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочее пространство, которому вы не дали имя, показывает имя своей передней вкладки: заголовок страницы, чата с агентом или заголовок либо папку терминала. Ваше собственное имя всегда важнее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซที่คุณยังไม่ได้ตั้งชื่อจะแสดงชื่อของแท็บด้านหน้า: ชื่อหน้าเว็บ ชื่อแชตกับเอเจนต์ หรือชื่อหรือโฟลเดอร์ของเทอร์มินัล ชื่อที่คุณตั้งเองมีผลเหนือกว่าเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adlandırmadığınız bir çalışma alanı öndeki sekmesinin adını gösterir: bir sayfanın başlığı, bir ajan sohbetinin başlığı ya da bir terminalin başlığı veya klasörü. Kendi verdiğiniz ad her zaman önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочий простір, якому ви не дали назву, показує назву своєї передньої вкладки: заголовок сторінки, чату з агентом або заголовок чи папку термінала. Ваша власна назва завжди має перевагу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc bạn chưa đặt tên sẽ hiện tên của thẻ phía trước: tiêu đề trang, tiêu đề cuộc trò chuyện với tác tử, hoặc tiêu đề hay thư mục của terminal. Tên bạn tự đặt luôn được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未命名的工作区会显示其前台标签页的名称：页面标题、代理聊天标题，或终端的标题或文件夹。你自己起的名称始终优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未命名的工作區會顯示其前景分頁的名稱：頁面標題、代理聊天標題，或終端機的標題或資料夾。你自己取的名稱永遠優先。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

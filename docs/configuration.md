@@ -321,6 +321,21 @@ Whether the sidebar groups workspaces by computer.
 
 Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.groupByComputer true`.
 
+## `workspaces.autoName`
+
+Whether a workspace you have not named takes its name from its front tab (the selected tab of its most recently focused pane).
+
+```json
+{
+  "workspaces": { "autoName": true }
+}
+```
+
+- `true` (default): while a workspace keeps the name cmux gave it (`workspace-N`) and has no title, its sidebar row shows a name from its front tab. A browser tab gives its page's title, an agent chat gives its chat's title (a chat with no title yet gives nothing), and a terminal gives its title, or its folder's name while the title is only the shell's name (`zsh`, `bash`, `fish` and the like). A tab you renamed gives the name you gave it. The row follows the front tab as it changes.
+- `false`: the row shows the workspace's own name.
+
+A name you give the workspace always wins: once you rename it (from the sidebar, the palette, the menu or `cmux workspace rename`), it keeps your name. This is not the classic app's `automation.workspaceAutoNaming`, which asks an agent to summarize the conversation. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.autoName false`.
+
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 
 How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.
