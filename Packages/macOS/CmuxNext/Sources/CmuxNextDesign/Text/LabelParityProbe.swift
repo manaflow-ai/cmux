@@ -83,7 +83,7 @@ public struct LabelParityProbe {
                 }
             }
         }
-        report.lines = Self.fonts.map { LabelText.lineReport($0.1) }
+        report.lines = Self.fonts.map { LabelText.lineReport($0.1) } + Self.wrapEdges(in: root)
         return report
     }
 
@@ -221,6 +221,37 @@ public struct LabelParityProbe {
         differ("ax.frame.dy", frames.0.minY - screens[0].minY, frames.1.minY - screens[1].minY)
         differ("ax.frame.w", frames.0.width, frames.1.width)
         differ("ax.frame.h", frames.0.height, frames.1.height)
+    }
+
+    /// The narrowest frame each of a few texts draws on one line in, for a stock wrapping field
+    /// (drawn and measured) and a ChromeLabel, against the text's one-line width.
+    private static func wrapEdges(in root: NSView) -> [String] {
+        var lines: [String] = []
+        for text in ["line two is", "Run any cmux action by typing its", "Workspace"] {
+            let font = NSFont.systemFont(ofSize: 13)
+            let stock = NSTextField(wrappingLabelWithString: text)
+            stock.font = font
+            let label = ChromeLabel(wrappingLabelWithString: text)
+            label.font = font
+            root.addSubview(stock)
+            root.addSubview(label)
+            func oneLine(_ view: NSView, _ width: CGFloat) -> Bool {
+                view.frame = NSRect(x: 10, y: 10, width: width, height: 40)
+                let ink = Self.ink(cached: view)
+                return ink.amount > 0 && ink.box.height < 26
+            }
+            var drawn: CGFloat = 0, measured: CGFloat = 0, drawnLabel: CGFloat = 0
+            for step in stride(from: 400, through: 20, by: -1) {
+                let width = CGFloat(step) / 4
+                if oneLine(stock, width) { drawn = width }
+                if (stock.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 1000)).height ?? 0) < 20 { measured = width }
+                if oneLine(label, width) { drawnLabel = width }
+            }
+            stock.removeFromSuperview()
+            label.removeFromSuperview()
+            lines.append("wrap edge \"\(text)\": one-line width \(label.naturalSize.width) stock draw \(drawn) stock measure \(measured) label draw \(drawnLabel)")
+        }
+        return lines
     }
 
     private func note(_ line: String, into report: inout Report) {
