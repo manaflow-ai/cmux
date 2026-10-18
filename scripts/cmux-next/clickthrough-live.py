@@ -70,6 +70,8 @@ ACP_HOME = os.path.join(WORK, "acpmux")
 ACP_SOCKET = os.path.join(WORK, "acp.sock")
 XDG = os.path.join(WORK, "xdg")
 PROJECTS = os.path.join(WORK, "projects")
+# What the fake agent received, in order (kept with the results: which set lost a pick).
+CALLS = os.path.join(OUT, "agent-calls.jsonl")
 RESULTS = []  # (pass, scenario, ok, detail)
 
 
@@ -161,7 +163,9 @@ def acp(method, params=None):
 
 
 def sessions():
-    found = acp("_acpmux/sessions").get("sessions") or []
+    # The daemon may still be starting (a relaunch): ask again for a few seconds.
+    reply = wait(lambda: (lambda r: r if "error" not in r else None)(acp("_acpmux/sessions")), 10, 0.3) or {}
+    found = reply.get("sessions") or []
     return {s.get("sessionId"): s for s in found if isinstance(s, dict)}
 
 
@@ -182,7 +186,7 @@ def setup():
         os.makedirs(os.path.join(PROJECTS, path, ".git"), exist_ok=True)
     os.makedirs(ACP_HOME, exist_ok=True)
     os.makedirs(os.path.join(XDG, "cmux"), exist_ok=True)
-    fake = {"argv": ["python3", FAKE], "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude", "CLAUDE_CONFIG_DIR": os.path.join(WORK, "claude-home"),
+    fake = {"argv": ["python3", FAKE], "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude", "FAKE_CALLS": CALLS, "CLAUDE_CONFIG_DIR": os.path.join(WORK, "claude-home"),
                                                "CODEX_HOME": os.path.join(WORK, "codex-home")}}
     config = {"harnesses": {"claude": fake, "codex": fake}, "defaultHarness": "claude"}
     with open(os.path.join(ACP_HOME, "config.json"), "w") as f:
@@ -353,6 +357,11 @@ def sidebar_order():
     return rows
 
 
+def focused_kind():
+    panes = [p for w in (rpc("debug.surfaces") or {}).get("windows") or [] for p in w.get("panes") or []]
+    return next((p.get("kind") for p in panes if p.get("focused")), None)
+
+
 def blank_frames(ms=500):
     """Polls the focused pane's native state right after a switch: the ms it showed no content."""
     start = time.time()
@@ -387,6 +396,10 @@ def pass2():
         for k, mods in switches * workspaces:
             key(k, mods)
             sent = time.time()
+            if focused_kind() != "agent":
+                # A workspace's terminal: no chat page to watch.
+                time.sleep(0.3)
+                continue
             watch = page("layout_watch", ms=1200)
             latency = (time.time() - sent) * 1000 - 1200
             blank = blank_frames(200)
@@ -408,7 +421,9 @@ def pass2():
     jumped = [r for r in results if r["watch"].get("scroll_jumps")]
     check(P, "the transcript never jumps after first paint", not jumped,
           json.dumps([(r["key"], r["watch"]["scroll_jumps"][:3]) for r in jumped])[:600])
-    blanks = [r for r in results if r["blank_ms"]]
+    # The native state may read not-installed for one poll as the views swap; a blank a person can
+    # see lasts longer than a frame.
+    blanks = [r for r in results if (r["blank_ms"] or 0) > 17]
     check(P, "no switch shows a blank pane", not blanks, json.dumps([(r["key"], r["blank_ms"]) for r in blanks])[:600])
     check(P, "the sidebar's workspace order never changes from a switch", sidebar_order() == order,
           f"{order} -> {sidebar_order()}")
@@ -431,6 +446,10 @@ def report():
 
 
 teardown = TagTeardown(APP, acpmux_home=ACP_HOME, acpmux_socket=ACP_SOCKET, log=say)
+# Another copy of this tag (a person's, or an earlier run's) would share its socket and daemons, and
+# the teardown ends every process of the bundle: refuse rather than mix two runs.
+if teardown.processes():
+    sys.exit(f"processes of {APP} are running (pids {[pid for pid, _ in teardown.processes()]}); quit that copy first")
 teardown.install()
 try:
     setup()
