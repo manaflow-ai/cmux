@@ -115,6 +115,21 @@ export function mockTurn(prompt: string, turn: number): Step[] {
   const greeting = "/mock/project/src/greeting.ts";
   const notes = "/mock/project/NOTES.md";
   return [
+    // One mock turn exercises the running strip only in its lab (Lucas 2026-10-18).
+    ...(turn === 1 && labOn("planProgress")
+      ? [
+          {
+            update: {
+              sessionUpdate: "plan",
+              entries: [
+                { content: "Read src/greeting.ts", status: "in_progress", priority: "medium" },
+                { content: "Edit src/greeting.ts", status: "pending", priority: "medium" },
+                { content: "Write NOTES.md", status: "pending", priority: "medium" },
+              ],
+            },
+          },
+        ]
+      : []),
     { update: text("I'll look at the greeting helper") },
     { update: text(" first.") },
     {

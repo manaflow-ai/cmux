@@ -96,6 +96,23 @@ const button = (label: string) =>
   [...host.querySelectorAll<HTMLButtonElement>("button")].find(
     (node) => node.getAttribute("aria-label") === label || node.textContent === label,
   );
+
+test("the first mock turn supplies a running plan only with planProgress on", async () => {
+  const { mockTurn } = await import("../src/agent-session/acpmux/mock");
+  const plans = (turn: number) =>
+    mockTurn("Check the greeting", turn).flatMap((step) =>
+      "update" in step && step.update.sessionUpdate === "plan" ? [step.update] : [],
+    );
+  expect(plans(1)).toEqual([]);
+  act(() => configureLabs({ labs: { planProgress: true } }));
+  expect(plans(1)).toHaveLength(1);
+  expect(plans(1)[0]!.entries).toEqual([
+    { content: "Read src/greeting.ts", status: "in_progress", priority: "medium" },
+    { content: "Edit src/greeting.ts", status: "pending", priority: "medium" },
+    { content: "Write NOTES.md", status: "pending", priority: "medium" },
+  ]);
+  expect(plans(2)).toEqual([]);
+});
 const dialog = () => host.querySelector<HTMLElement>('[role="dialog"]');
 async function key(value: string, init: KeyboardEventInit = {}) {
   const event = new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true, ...init });

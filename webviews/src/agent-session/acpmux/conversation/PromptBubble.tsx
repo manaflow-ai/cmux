@@ -38,32 +38,37 @@ export function PromptBubble({
     return () => observer.disconnect();
   }, [collapse, text]);
   return (
-    // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- ui-allow: focus reveals the prompt's send time
-    <div className="cv-user__bubble selectable cv-user__bubble--labs" tabIndex={times ? 0 : undefined}>
-      {collapse ? (
-        <>
-          <div ref={content} className={`cv-user__prompt${!open ? " is-clamped" : ""}${long ? " is-long" : ""}`}>
-            {text}
-          </div>
-          {long && (
-            <button
-              type="button"
-              className="cv-user__expand"
-              aria-expanded={open}
-              data-find-skip
-              onClick={(event) => {
-                anchorToggle?.(event.currentTarget);
-                expandPrompt(row.id, !open, sessionId);
-              }}
-            >
-              {open ? t("shell.showLess") : t("sidebar.showMore")}
-            </button>
-          )}
-        </>
-      ) : (
-        text
-      )}
+    <>
+      <div
+        className="cv-user__bubble selectable cv-user__bubble--labs"
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- ui-allow: focus reveals the prompt's send time
+        tabIndex={times ? 0 : undefined}
+      >
+        {collapse ? (
+          <>
+            <div ref={content} className={`cv-user__prompt${!open ? " is-clamped" : ""}${long ? " is-long" : ""}`}>
+              {text}
+            </div>
+            {long && (
+              <button
+                type="button"
+                className="cv-user__expand"
+                aria-expanded={open}
+                data-find-skip
+                onClick={(event) => {
+                  anchorToggle?.(event.currentTarget);
+                  expandPrompt(row.id, !open, sessionId);
+                }}
+              >
+                {open ? t("shell.showLess") : t("sidebar.showMore")}
+              </button>
+            )}
+          </>
+        ) : (
+          text
+        )}
+      </div>
       {times && <MessageTime at={row.at} />}
-    </div>
+    </>
   );
 }

@@ -107,7 +107,7 @@
   overflow: hidden;
 }
 :root[data-lab-prompt-collapse="on"] .cv-user__prompt.is-clamped.is-long {
-  mask-image: linear-gradient(to bottom, black calc(100% - 1lh), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 2lh), transparent);
 }
 :root[data-lab-prompt-collapse="on"] .cv-user__expand {
   display: block;
@@ -120,22 +120,45 @@
   line-height: 20px;
   cursor: pointer;
 }
-:root[data-lab-message-times="on"] .cv-user {
-  position: relative;
+:root[data-lab-prompt-collapse="on"] .cv-user__expand:hover {
+  color: var(--cv-text);
+}
+:root[data-lab-prompt-collapse="on"] .cv-user__expand:focus-visible {
+  outline: 1.5px solid var(--cv-text-muted);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Time and actions share one baseline, even for older dates (Lucas 2026-10-18). */
+:root[data-lab-message-times="on"] .cv-user:has(> .cv-user__time) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  justify-items: end;
+}
+:root[data-lab-message-times="on"] .cv-user > :not(.cv-user__time, .cv-user__actions) {
+  grid-column: 1 / -1;
+}
+:root[data-lab-message-times="on"] .cv-user > .cv-user__actions {
+  grid-column: 2;
 }
 :root[data-lab-message-times="on"] .cv-user__time {
-  position: absolute;
-  inset-block-start: 100%;
-  inset-inline-end: 2px;
+  grid-column: 1;
+  min-width: 0;
   max-width: 100%;
+  margin-top: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
-  line-height: 16px;
+  line-height: 20px;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
+}
+:root[data-lab-message-times="on"] .cv-user__time:last-child {
+  grid-column: 1 / -1;
+  padding-inline-end: 2px;
 }
 :root[data-lab-message-times="on"] .cv-user:hover .cv-user__time,
 :root[data-lab-message-times="on"] .cv-user:focus-within .cv-user__time {
@@ -1626,6 +1649,14 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+:root[data-lab-code-wrap="on"] .cv-codeblock__action[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-strong-rule);
+}
+:root[data-lab-copy-turn="on"] .cv-copy-turn svg {
+  width: 14px;
+  height: 14px;
+}
 /* The highlighted card waits underneath the plain one until Pierre has painted, then fades in
  * over it; the plain card leaves when that fade ends. */
 .cv-code-handoff {
@@ -2488,8 +2519,8 @@ pre.cv-math-source {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
 }
 :root[data-lab-live-render="on"] .acpmux-render-card-head {
-  min-height: 28px;
-  padding: 6px 8px 6px 12px;
+  min-height: 32px;
+  padding: 4px 8px 4px 12px;
   box-shadow: none;
 }
 :root[data-lab-live-render="on"] .acpmux-render-card-title {
@@ -2503,6 +2534,10 @@ pre.cv-math-source {
   pointer-events: none;
   min-width: 24px;
   height: 24px;
+}
+:root[data-lab-live-render="on"] .acpmux-render-stop {
+  box-shadow: none;
+  color: var(--agent-muted);
 }
 :root[data-lab-live-render="on"] .acpmux-render-card:hover :is(.acpmux-render-stop, .acpmux-render-open),
 :root[data-lab-live-render="on"] .acpmux-render-card:focus-within :is(.acpmux-render-stop, .acpmux-render-open) {
@@ -2521,7 +2556,7 @@ pre.cv-math-source {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-inline-start: auto;
 }
 :root[data-lab-live-render="on"] .acpmux-render-confirm-actions > button {

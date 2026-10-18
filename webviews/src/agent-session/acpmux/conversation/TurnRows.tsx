@@ -14,7 +14,7 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { ChevronDown, ChevronRight, Copy, CopyTurn, Retry, TurnFork } from "./icons";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
@@ -134,7 +134,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             <CopyButton
               text={`**${t("transcript.you")}:** ${row.turnPrompt}\n\n${text}`}
               label={t("turn.copyTurn")}
-              className="cv-iconbtn cv-iconbtn--compact"
+              className="cv-iconbtn cv-iconbtn--compact cv-copy-turn"
+              icon={<CopyTurn size={14} />}
             />
           )}
           {text && (

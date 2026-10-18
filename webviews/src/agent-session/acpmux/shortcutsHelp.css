@@ -3,6 +3,7 @@
   width: min(460px, calc(100vw - 32px));
   max-height: 76vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
   border-radius: var(--ui-popup-radius);
   background: var(--surface-popup, var(--agent-accent-text, Canvas));
@@ -35,12 +36,15 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   color: var(--agent-text);
 }
+:root[data-lab-shortcuts-help="on"] .acpmux-shortcuts-help__heading button {
+  box-shadow: none;
+}
 .acpmux-shortcuts-help__heading button:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: 1px;
 }
-.acpmux-shortcuts-help h3 {
-  margin: 20px 0 6px;
+:root[data-lab-shortcuts-help="on"] .acpmux-shortcuts-help h3 {
+  margin: 16px 0 8px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-weight: 500;
@@ -48,12 +52,12 @@
 .acpmux-shortcuts-help dl {
   margin: 0;
 }
-.acpmux-shortcuts-help dl > div {
+:root[data-lab-shortcuts-help="on"] .acpmux-shortcuts-help dl > div {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  padding-block: 5px;
+  padding-block: 4px;
 }
 .acpmux-shortcuts-help dt {
   min-width: 0;

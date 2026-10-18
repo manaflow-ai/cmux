@@ -1,6 +1,6 @@
 // The copy button in a code card's or tool output's corner. It says "Copied", with a check, only
 // when the clipboard took the text, and goes back to Copy after a moment.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { copyTextResult } from "./clipboard";
 import { Check, Copy } from "./icons";
@@ -12,10 +12,12 @@ export function CopyButton({
   text,
   label,
   className = "cv-codeblock__action",
+  icon,
 }: {
   text: string;
   label: string;
   className?: string;
+  icon?: ReactNode;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -35,7 +37,7 @@ export function CopyButton({
         if (done) timer.current = window.setTimeout(() => setCopied(false), COPIED_MS);
       }}
     >
-      {copied ? <Check /> : <Copy />}
+      {copied ? <Check /> : (icon ?? <Copy />)}
     </button>
   );
 }

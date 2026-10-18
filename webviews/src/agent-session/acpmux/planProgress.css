@@ -3,10 +3,10 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  margin: 0 var(--cv-inset, max(18px, calc((100% - 760px) / 2))) 6px;
-  padding: 5px 8px;
+  margin: 0 var(--cv-inset, max(18px, calc((100% - 760px) / 2))) 8px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
