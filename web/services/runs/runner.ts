@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import { and, eq, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runAttempts } from "../../db/schema";
-import { runCloudClient, type RunCloudClient } from "./cloudClient";
+import { runCloudClient, RunCloudOperationPending, type RunCloudClient } from "./cloudClient";
 import { claimNextRunAttempt, renewRunAttemptLease, checkpointRunAttempt, finishRunAttempt, cancelClaimedRunAttempt, reconcileCancelledRunAttempts, type ClaimedRunAttempt } from "./worker";
 import { normalizeRunSpec } from "./spec";
 import { parseSourceVerificationReceipt, sourceVerificationCommand } from "./sourceVerification";
@@ -97,6 +97,11 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
     const applied = await finishRunAttempt({ ...attempt, status: "succeeded", ...executed, cleanupState, retainedUntil });
     return applied ? "succeeded" : "fenced";
   } catch (error) {
+    // VM create answers 409 while the same idempotent provider operation is
+    // still running in the Cloud control plane. Leave the attempt running so
+    // its lease expires and the next cron turn retries the same key; a generic
+    // failure here would strand the Run even though the create may succeed.
+    if (error instanceof RunCloudOperationPending) return "pending";
     if (error instanceof RunPending) return "pending";
     // Raw provider/database errors must never enter durable receipts.
     const applied = await finishRunAttempt({ ...attempt, status: "failed", error: "Run source/setup, recipe, or Cloud operation failed" });
