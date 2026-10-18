@@ -41,6 +41,47 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(policy.selectedEnvironment(from: environment, kind: nil).isEmpty)
     }
 
+    @Test("Preserves an explicit Cursor config root for restores")
+    func preservesExplicitCursorConfigRootForRestores() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: [
+                "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+                "XDG_CONFIG_HOME": "/tmp/other-config",
+            ],
+            kind: "cursor"
+        )
+
+        #expect(selected == ["CURSOR_CONFIG_DIR": "/tmp/cursor-account"])
+    }
+
+    @Test("Does not derive a Cursor config root from XDG_CONFIG_HOME")
+    func doesNotDeriveCursorConfigRootFromXDG() {
+        // cursor-agent reads XDG_CONFIG_HOME only on Linux/BSD; on macOS it uses ~/.cursor,
+        // so only an explicit CURSOR_CONFIG_DIR is replayed.
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: ["XDG_CONFIG_HOME": "/tmp/custom-config"],
+            kind: "cursor"
+        )
+
+        #expect(selected.isEmpty)
+        #expect(!AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
+    }
+
+    @Test("Cursor config override stays scoped to Cursor restores")
+    func cursorConfigOverrideStaysScopedToCursorRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = [
+            "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+            "XDG_CONFIG_HOME": "/tmp/custom-config",
+        ]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "cursor") == [
+            "CURSOR_CONFIG_DIR": "/tmp/cursor-account",
+        ])
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+    }
+
     @Test("Custom Antigravity executable remains scoped to Antigravity restores")
     func customAntigravityExecutableRemainsScopedToAntigravityRestores() {
         let policy = AgentLaunchEnvironmentPolicy()

@@ -68,6 +68,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
+        // Selects the directory holding Cursor's cli-config.json and approval policy.
+        "CURSOR_CONFIG_DIR",
         // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
@@ -158,6 +160,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             for key in Self.hermesAgentEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
+        }
+        if normalizedKind != "cursor" {
+            result.removeValue(forKey: "CURSOR_CONFIG_DIR")
         }
         if normalizedKind != "codex" {
             result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
