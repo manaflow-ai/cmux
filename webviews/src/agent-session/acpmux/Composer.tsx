@@ -963,9 +963,7 @@ export function Composer({
   // Do not let that transient visible strip reserve space for a different, already-started chat.
   // A slot is meaningful only after the visible strip was observed for a known session identity.
   const locationWasVisible =
-    locationSlotWasShown.current &&
-    locationKey !== undefined &&
-    locationSlotSession.current === locationKey;
+    locationSlotWasShown.current && locationKey !== undefined && locationSlotSession.current === locationKey;
   if (locationVisible && locationKey !== undefined) {
     locationSlotSession.current = locationKey;
     locationSlotWasShown.current = true;
