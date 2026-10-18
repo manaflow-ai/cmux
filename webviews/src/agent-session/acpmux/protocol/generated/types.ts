@@ -93,6 +93,14 @@ export type LastTurn = {
   turnId?: (string | null);
 } & Record<string, unknown>;
 
+/** A durable lifecycle fact supplied by an explicit producer. */
+export type LifecycleReceipt = {
+  id: string;
+  sequence: number;
+  source: string;
+  state: string;
+} & Record<string, unknown>;
+
 export interface MailAckParams {
   messageId: string;
   recipient: string;
@@ -348,6 +356,8 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
+  /** An optional explicit lifecycle receipt; absent until a producer supplies validated evidence. */
+  lifecycleReceipt?: (LifecycleReceipt | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).

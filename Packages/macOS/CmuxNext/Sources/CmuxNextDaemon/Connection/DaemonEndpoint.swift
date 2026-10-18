@@ -38,6 +38,7 @@ public struct DaemonCapabilities: Sendable {
     /// a daemon lacks them (`DaemonIdentity.supports`).
     public let workspaceGroups = "workspace-groups-v1"
     public let workspaceMetadata = "workspace-metadata-v1"
+    public let workspaceNameSource = "workspace-name-source-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
     /// A frontend browser tab's back/forward entries and scroll positions,
@@ -47,6 +48,10 @@ public struct DaemonCapabilities: Sendable {
     /// another browser profile in place (same tab id and position).
     public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
+    /// `set-size-counts` (protocol 12): a hidden view keeps its lease and stops counting toward
+    /// the grid (`TerminalAttachment.sendHidden`). The GUI reads it from `identify`; it does not
+    /// advertise it back (that would subscribe its streams to `size-state` events).
+    public let sharedSizing = "shared-sizing-v1"
     /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
     /// moved tab's name in the same commit (else the app renames after).
     public let tabWorkspaceName = "tab-workspace-name-v1"
@@ -88,6 +93,11 @@ public struct DaemonCapabilities: Sendable {
     /// Client-minted `pane_id` / `tab_id` on `split`, `new-pane` and `new-pane-right`, keyed
     /// retries (plans/cmux-next/remote-state-ownership.md S1).
     public let splitClientKeys = "split-client-keys-v1"
+    /// `split` takes a client-minted `split_id` and layout split nodes carry `split_id`.
+    public let splitClientSplitID = "split-client-split-id-v1"
+    /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
+    /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
+    public let conversationTabSplit = "conversation-tab-split-v1"
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     public let terminalInputWhileCreating = "terminal-input-while-creating-v1"
@@ -400,17 +410,17 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, terminalInputWhileCreating,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
     /// bundled daemon lacks the capability. The list only shrinks
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
-    /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [] }
+    /// daemon serves an entry, so it moves to `optional`. `workspaceNameSource`: daemon half #20710.
+    public var unservedByBundledDaemon: [String] { [workspaceNameSource] }
 
     /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
     /// a daemon without it is an older build, and restarting cmux updates it.
@@ -421,9 +431,10 @@ public struct DaemonCapabilities: Sendable {
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
+    /// `sharedSizing` is not either: the GUI only reads it from `identify`.
     public var advertised: [String] {
         // `placementShift` only with the sidebar document (`handshakeCapabilities`).
-        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift }
+        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing }
     }
 
     /// What a connection echoes in `set-client-info`.

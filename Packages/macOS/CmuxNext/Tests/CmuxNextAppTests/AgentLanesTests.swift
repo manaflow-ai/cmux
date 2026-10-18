@@ -21,11 +21,12 @@ import Testing
 struct AgentLanesTests {
     /// One session summary as acpmux sends it, with its lane.
     static func summary(_ id: String, _ state: String, since: Double = 1_760_000_000_000, error: String? = nil,
-                        parent: String? = nil, peer: String? = nil) -> [String: Any] {
+                        parent: String? = nil, peer: String? = nil, workspaceID: String? = nil) -> [String: Any] {
         var summary: [String: Any] = ["sessionId": id, "name": id, "status": "idle",
                                       "lane": ["state": state, "since": since, "error": error as Any]]
         if let parent { summary["tags"] = [AgentActivityLane.parentTag: parent] }
         if let peer { summary["peer"] = peer; summary["name"] = "\(peer)/\(id)" }
+        if let workspaceID { summary["workspaceId"] = workspaceID }
         return summary
     }
 
@@ -77,6 +78,12 @@ struct AgentLanesTests {
         withExtendedLifetime((acpmux, feed)) {}
     }
 
+    @Test func aLanePreservesTheExistingSessionWorkspaceBinding() {
+        let summary = Self.summary("codex-1", "working", workspaceID: "workspace-7")
+        let lane = AgentActivityLane.of(summary: summary, title: nil)
+        #expect(lane?.workspaceID == "workspace-7")
+    }
+
     @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-lanes-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -87,7 +94,7 @@ struct AgentLanesTests {
         await settings.reload()
         let lanes = AgentLaneStore()
         lanes.lanes = ["op-broke": AgentActivityLane(id: "op-broke", name: "op-broke", title: "op-broke", peer: nil, parent: nil,
-                                                     state: .failed, since: nil, error: "Credit balance too low")]
+                                                     state: .failed, since: nil, error: "Credit balance too low", workspaceID: nil)]
         let center = WhatsNewCenter(currentVersion: "0", defaults: UserDefaults(suiteName: "cnc-lanes-\(UUID().uuidString)")!, sources: [])
         let model = SidebarModel()
         let feed = SidebarWhatsNewItemFeed.start(model: model, center: center, settings: settings, lanes: lanes)

@@ -204,7 +204,7 @@
 
 .apps-badge {
   display: inline-block;
-  font-size: 10.5px;
+  font-size: var(--text-caption);
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--page-hover);

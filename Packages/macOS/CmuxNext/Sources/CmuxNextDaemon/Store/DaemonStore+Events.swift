@@ -182,7 +182,7 @@ extension DaemonStore {
                 indexed(existing, in: screen)
             } else {
                 let index = min(max(delta.index ?? screen.panes.count, 0), screen.panes.count)
-                let pane = PaneModel(delta.entity)
+                let pane = confirmedPane(delta.entity)
                 screen.panes.insert(pane, at: index)
                 indexed(pane, in: screen)
             }

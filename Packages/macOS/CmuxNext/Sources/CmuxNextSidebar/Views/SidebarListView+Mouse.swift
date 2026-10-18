@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
-extension SidebarListView {
+extension SidebarListViewComponents {
     // MARK: - Mouse
     typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

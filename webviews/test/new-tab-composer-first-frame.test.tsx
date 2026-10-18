@@ -113,7 +113,7 @@ function reported(sessionId: string): Summary {
 }
 
 /// Renders the composer's chips for `summary` (undefined: a new chat whose session has not reported).
-async function render(summary: Summary) {
+async function render(summary: Summary, emptyCatalog = false) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -135,7 +135,7 @@ async function render(summary: Summary) {
     isWorking: false,
     queue: [],
     canLoadOlder: false,
-    catalog,
+    catalog: emptyCatalog ? [] : catalog,
     summary: summary ?? { sessionId: "", harness: "claude", turnCount: 0 },
   } as unknown as Snapshot;
   function Host() {
@@ -200,4 +200,9 @@ test("with no remembered chips a new chat draws no placeholder pills", async () 
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
   expect(chips()).toEqual([]);
+});
+
+test("a new chat shows the bundled model picker before the host catalog arrives", async () => {
+  await render(undefined, true);
+  expect(host.querySelector(".acpmux-model-name")?.textContent?.trim()).toBeTruthy();
 });

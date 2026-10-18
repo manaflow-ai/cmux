@@ -107,6 +107,11 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
+    # The portable guard runner and its regression suite execute only in the
+    # Linux guard jobs. They are CI control-plane inputs, not native product
+    # inputs, so changing either must not admit macOS compile work.
+    "scripts/ci/run_ci_guards.py",
+    "tests/test_ci_run_guards.py",
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",

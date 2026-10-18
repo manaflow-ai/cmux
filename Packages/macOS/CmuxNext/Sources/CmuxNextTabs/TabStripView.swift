@@ -72,9 +72,14 @@ public final class TabStripView: NSView {
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
+    /// In a window and not hidden (`syncShown`).
+    private(set) var isShownInWindow = false
+    /// An appearance or scale change came while hidden; applied when shown.
+    private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
-    var motion: [TabID: TabMotion] = [:]
+    /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
+    var placed: [TabID: TabPlace] = [:]
     var dying: Set<TabID> = []
     /// A closing tab's left neighbour when it closed (nil entry: it was the first tab); `pinClosingTabs`
     /// pins the closing tab to that tab's slot, so a tab opened meanwhile cannot move it a slot.
@@ -82,7 +87,22 @@ public final class TabStripView: NSView {
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
-    var scroll = Spring(value: 0, token: .scroll, kind: .position)
+    /// The strip's scroll offset (its target; a reveal's spring is a Core Animation move).
+    var scrollOffset: CGFloat = 0
+    /// The last strip move's generation (`TabStripMove`).
+    var moveGeneration = 0
+    /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
+    var goesAt: [TabID: CFTimeInterval] = [:]
+    /// Takes the scroll part of every move (a reveal's spring, a relayout that keeps the selected tab
+    /// in view) and nothing else: what they add now is its presentation x minus its model x (`settleScroll`).
+    let scrollProbe: CALayer = {
+        let probe = CALayer()
+        probe.actions = ["position": NSNull(), "bounds": NSNull()]
+        probe.opacity = 0
+        return probe
+    }()
+    /// Tabs whose occlusion mask follows the moves in flight, and when that path ends (`updateOcclusion`).
+    var occlusionEnds: [TabID: CFTimeInterval] = [:]
     var closingModeWidth: CGFloat?
     var closingHit = TabClosingModeHit()
     /// Closing mode's exit: the pointer leaving the strip's extended area (`TabClosingModeWatch`).
@@ -94,10 +114,8 @@ public final class TabStripView: NSView {
     var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    /// Springs and drag autoscroll step on the window's one `MotionClock`,
-    /// with the window's other chrome springs.
+    /// Drag autoscroll steps on the window's one `MotionClock`; nothing else in the strip does.
     weak var motionClock: MotionClock?
-    var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 
@@ -247,14 +265,16 @@ public final class TabStripView: NSView {
 
     // MARK: - Lifecycle
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        // A move to another window (or none) ends this strip's card only.
+        if newWindow !== window { syncShown(false) }
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // A move to another window (or none) ends this strip's card only.
-        hoverCards.unregister(hoverCard)
-        windowMain.observe(window) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
-        windowVisibility.observe(window) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
+        syncShown()
         if window != nil {
-            hoverCards.register(hoverCard)
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
@@ -266,25 +286,72 @@ public final class TabStripView: NSView {
             tokenObservationTask = nil
             motionClock?.stop(self)
             motionClock = nil
-            groupEditor.hide()
-            overflowHints.hide()
-            groups.holdTask?.cancel()
-            escapeMonitor.remove()
-            closingWatch.end()
-            // Closing mode belongs to this window's pointer; the strip in another window lays out fully.
-            closingModeWidth = nil
-            menuTracking.end()
-            buttonReveal.pointerInStrip = false
+            endPointerState()
+        }
+    }
+
+    /// The strip leaves sight (its window, or hidden in it): its editor panel, hint and pointer
+    /// state end, since it gets no exit while hidden. Closing mode belongs to this window's
+    /// pointer; the strip shown again lays out fully.
+    private func endPointerState() {
+        groupEditor.hide()
+        overflowHints.hide()
+        groups.holdTask?.cancel()
+        escapeMonitor.remove()
+        closingWatch.end()
+        closingModeWidth = nil
+        menuTracking.end()
+        buttonReveal.pointerInStrip = false
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        syncShown(false)
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        syncShown()
+    }
+
+    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
+    /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
+    /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
+    /// the window's state; its model observation never stopped, so its cells are current.
+    func syncShown(_ shown: Bool? = nil) {
+        let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
+        guard shown != isShownInWindow else { return }
+        isShownInWindow = shown
+        hoverCards.unregister(hoverCard)
+        windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
+        windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
+        guard shown else {
+            if window != nil { endPointerState() }
+            return
+        }
+        hoverCards.register(hoverCard)
+        if appearanceIsStale {
+            appearanceIsStale = false
+            applyAppearance()
+            applyFrames()
         }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        guard isShownInWindow || window == nil else {
+            appearanceIsStale = true
+            return
+        }
         applyAppearance()
     }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard isShownInWindow || window == nil else {
+            appearanceIsStale = true
+            return
+        }
         applyAppearance()
         applyFrames()
     }

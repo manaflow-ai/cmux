@@ -182,7 +182,7 @@ struct QuitSessionsTests {
         guard let screen = tree.workspaces.first?.screens.first else { return "none" }
         let panes = screen.panes.map { $0.resourceID?.rawValue ?? "?" }.joined(separator: ",")
         let layout: String = switch screen.layout {
-        case .split(_, let direction, let ratio, _, _): "split \(direction) \(ratio)"
+        case .split(_, _, let direction, let ratio, _, _): "split \(direction) \(ratio)"
         default: "leaf"
         }
         return "\(layout) [\(panes)]"

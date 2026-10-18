@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c450054bda0e02b45b916309c70461c7800d01ddfcf0276e9ef621873518cd17";
+pub const ir_sha256 = "09b4cab1e7cd5b3d3160a600e23688364766ae02f751c0c5ca719c426c520238";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -575,6 +575,15 @@ pub const ConversationTabRecord = struct {
     };
 };
 
+pub const ConversationTabSplit = struct {
+    /// The side of pane the new pane takes: right, down, left or up.
+    direction: []const u8,
+    /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
+    pane_id: wire.Field([]const u8) = .absent,
+    /// Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed.
+    split_id: wire.Field([]const u8) = .absent,
+};
+
 pub const ConversationTextRun = struct {
     length: u32,
     link: ?[]const u8 = null,
@@ -1104,9 +1113,12 @@ pub const LayoutSplit = struct {
     ratio: f32,
     /// Stable for the lifetime of this split node.
     split: ?Id = null,
+    /// The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it.
+    split_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "split",
+        "split_id",
     };
 };
 
@@ -6845,6 +6857,8 @@ pub const NewConversationTabRequest = struct {
     pane: wire.Field(Id) = .absent,
     route: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction.
+    split: wire.Field(ConversationTabSplit) = .absent,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
     transaction: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
@@ -6876,6 +6890,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
                 .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
+                .{ .name = "split", .since = null, .capability = "conversation-tab-split-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
             },
         },
@@ -8768,6 +8783,7 @@ pub const SplitRequest = struct {
     pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    split_id: wire.Field([]const u8) = .absent,
     tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -8794,6 +8810,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
                 .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "split_id", .since = 12, .capability = "split-client-split-id-v1" },
                 .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },

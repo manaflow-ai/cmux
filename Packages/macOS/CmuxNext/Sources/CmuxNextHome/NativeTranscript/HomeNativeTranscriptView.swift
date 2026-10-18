@@ -26,7 +26,7 @@ public final class HomeNativeTranscriptView: NSView {
     public let binding: HomeStoreBinding
     /// The notice above the field (an attachment refused, a send refused in
     /// the background, an op that may not have gone through).
-    let noticeLabel = NSTextField(wrappingLabelWithString: "")
+    let noticeLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var notice: String?
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.

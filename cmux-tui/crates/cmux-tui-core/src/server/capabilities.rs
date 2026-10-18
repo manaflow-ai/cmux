@@ -53,6 +53,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_inventory::watch::CAPABILITY);
         capabilities.push(agent_inventory::watch::FENCED_CAPABILITY);
         capabilities.push(agent_inventory::watch::ADMISSION_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_observe::AGENT_SESSION_OBSERVE_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
@@ -137,6 +139,7 @@ pub(super) fn advertised_capabilities(
         "attach-identity-v1",
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
+        split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
@@ -281,6 +284,7 @@ pub(super) fn advertised_capabilities(
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
+        conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,

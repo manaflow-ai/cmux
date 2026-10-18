@@ -39,7 +39,7 @@ public final class HomeSidebarView: NSView {
     /// Messages' compose button, in the strip above the search field.
     let compose = HomeComposeButton()
     /// A quiet line under the list (`HomeSidebarModel.note`).
-    let noteLabel = NSTextField(labelWithString: "")
+    let noteLabel = ChromeLabel(labelWithString: "")
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
 
     public override init(frame: NSRect) {

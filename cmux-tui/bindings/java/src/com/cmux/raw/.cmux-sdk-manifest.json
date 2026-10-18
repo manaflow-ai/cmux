@@ -662,8 +662,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "d39f4a7649c5684dcd76052777e313522a5cd76781e88ddde61e6a64d63f059a",
-      "size": 74401
+      "sha256": "11a656f0718e946aa8660e31283c0f44d59a144c8d4069d153b3e718e0055329",
+      "size": 74529
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -959,6 +959,11 @@
       "path": "ConversationTabRecord.java",
       "sha256": "5ff8de391771008f81a157110cd8aa541090ab4ec62c321a3a6e9be3713c89f4",
       "size": 4927
+    },
+    {
+      "path": "ConversationTabSplit.java",
+      "sha256": "45b3742739422f49b279cf97c4016b6f6f188067250e4f44a31aef134939c4d2",
+      "size": 3683
     },
     {
       "path": "ConversationTextRun.java",
@@ -1527,8 +1532,8 @@
     },
     {
       "path": "LayoutSplit.java",
-      "sha256": "424703677780650fbc0e9671ba2c49cb63ab2926b60f6e68a78d5a3a0249ce67",
-      "size": 4381
+      "sha256": "207d7ad42c9285b064757f87057171f88f00636ee2b119f5787848e500b5a5f4",
+      "size": 5149
     },
     {
       "path": "LayoutStack.java",
@@ -1802,8 +1807,8 @@
     },
     {
       "path": "NewConversationTabRequest.java",
-      "sha256": "92c3fb9b67cb673637f242333fb6d6b53cb6ffa24b2e5077c6a7b65ae96ae46f",
-      "size": 9487
+      "sha256": "48220f72500dfb32fadd17aec4ead52fe883652476a418ba8eb783b7da6fb093",
+      "size": 10319
     },
     {
       "path": "NewConversationTabResult.java",
@@ -2022,7 +2027,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "271993a7131c52c901756996aa517c8914d6bfebac56e5e155c5476049935c86",
+      "sha256": "de87cb1a190032543089ef54234351a47ba3e8f8bfcb3854be1d3863e2d7785b",
       "size": 7299
     },
     {
@@ -2707,8 +2712,8 @@
     },
     {
       "path": "SplitRequest.java",
-      "sha256": "3b8bd71e38940d3fca52747d4821573168d8d0f9ef452152c850baaa947f060c",
-      "size": 9442
+      "sha256": "bcb475263db6a825d89e6ab087cf382d0a2c815e418687057d55db9604bc6e0d",
+      "size": 10089
     },
     {
       "path": "SplitRespawn.java",
@@ -3282,7 +3287,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "c450054bda0e02b45b916309c70461c7800d01ddfcf0276e9ef621873518cd17",
+  "ir_sha256": "09b4cab1e7cd5b3d3160a600e23688364766ae02f751c0c5ca719c426c520238",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

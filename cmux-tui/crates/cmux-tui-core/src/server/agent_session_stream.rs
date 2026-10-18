@@ -10,6 +10,7 @@ pub(super) fn connect_and_attach(
     surface: SurfaceId,
     record_session: String,
     params: Value,
+    read_only: bool,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
@@ -77,6 +78,7 @@ pub(super) fn connect_and_attach(
         surface,
         session: resolved,
         record_session,
+        read_only: AtomicBool::new(read_only),
         mux: Arc::downgrade(&mux),
         link: link.clone(),
         writer: writer.clone(),

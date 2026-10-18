@@ -671,6 +671,14 @@ class ConversationTabRecord:
 
 
 @dataclass(frozen=True)
+class ConversationTabSplit:
+    __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabSplit'
+    direction: str
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    split_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationTextRun:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTextRun'
     length: int
@@ -985,6 +993,7 @@ class LayoutSplit:
     ratio: float
     type: Literal['split']
     split: Union[Id, MissingType] = field(default=MISSING)
+    split_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3720,6 +3729,7 @@ class NewConversationTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-conversation-tab/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    split: Union[ConversationTabSplit, None, MissingType] = field(default=MISSING)
     agent_session: Union[AgentSessionSource, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     conversation: Union[str, None, MissingType] = field(default=MISSING)
@@ -4508,6 +4518,7 @@ class SplitRequest:
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    split_id: Union[str, None, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -5810,6 +5821,7 @@ __all__ = [
     'ConversationSearchHit',
     'ConversationSummary',
     'ConversationTabRecord',
+    'ConversationTabSplit',
     'ConversationTextRun',
     'ConversationThreadResolution',
     'ConversationThreadState',

@@ -1210,6 +1210,32 @@
       ],
       "type": "object"
     },
+    "LifecycleReceipt": {
+      "description": "A durable lifecycle fact supplied by an explicit producer.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sequence",
+        "source",
+        "state"
+      ],
+      "type": "object"
+    },
     "MailAckParams": {
       "additionalProperties": false,
       "properties": {
@@ -2075,6 +2101,17 @@
               "type": "null"
             }
           ]
+        },
+        "lifecycleReceipt": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LifecycleReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An optional explicit lifecycle receipt; absent until a producer supplies validated evidence."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",

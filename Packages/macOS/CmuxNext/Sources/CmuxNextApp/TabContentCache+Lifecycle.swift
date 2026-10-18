@@ -81,14 +81,14 @@ extension TabContentCache {
             if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
-        presenters = presenters.filter { $0.value.value != nil }
+        for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
     /// A hidden terminal leaves the warm set: its last picture (off the main thread) stays, then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
         entry.session.view.removeFromSuperview()
-        guard !evictsAtOnce, TerminalOutput.shows(entry.session) else { return entry.close() }
+        guard !evictsAtOnce, entry.session.showsOutput else { return entry.close() }
         Task { [weak self] in
             let generation = self?.lifecycle.record(key)?.generation
             let image = await entry.session.snapshotInBackground(maxPixelSize: 480)
@@ -162,9 +162,12 @@ extension TabContentCache {
             entry.io.setVisible(false)
         }
         if let entry = browsers[key] {
-            // Only a page that was on screen: a page created or restored
-            // hidden has nothing worth a thumbnail yet.
-            if shownPages.remove(key) != nil { capturePagePreview(entry, key: key, token: token) }
+            // Only a page that was on screen (one created or restored hidden has nothing worth a
+            // thumbnail), and only when it navigated or loaded since its last picture: the engine
+            // cannot picture a hidden page, so this is its last chance; a plain switch takes none.
+            if shownPages.remove(key) != nil, !pagePictureIsCurrent(entry, key: key) {
+                capturePagePreview(entry, key: key, token: token)
+            }
             entry.tab.setContentVisible(false)
         }
         hibernation?.tabDidHide(key)

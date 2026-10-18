@@ -1,3 +1,5 @@
+import CmuxNextFocus
+
 // World invariants (W): the focus model against what AppKit, Ghostty,
 // WebKit and Chromium actually show (plans/cmux-next/input-spec.md
 // section 2.5). Valid only once effects and presentation settled; a pane

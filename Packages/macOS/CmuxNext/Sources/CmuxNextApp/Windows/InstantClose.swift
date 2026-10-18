@@ -9,7 +9,10 @@ enum InstantClose {
         guard let window, let controller = windows.controller(for: window) else { return false }
         let room = WindowProfiles.visible(windows.registry.members(of: window), profile: controller.state.profileID, machines: windows.services.machines)
         guard ClosingWorkspaces.shared.begin(id, among: room) else { return false }
-        windows.repairSelections(previous: [:])
+        // Preserve the pre-close order. ClosingWorkspaces hides `id` before
+        // repairSelections runs; reconstructing the old order afterward can
+        // make a last-row close fall back to the first surviving workspace.
+        windows.repairSelections(previous: [window: room])
         controller.sidebar.sameTurn.syncNow(rows: true)
         controller.showWorkspace(requested: controller.state.workspaceID)
         return true

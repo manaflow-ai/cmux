@@ -31,6 +31,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "SplitRespawnRequest": "SplitRespawn",
     "crate::mux::CloseReason": "CloseReason",
     "AgentSessionParams": "AgentSessionSource",
+    "ConversationTabSplitParams": "ConversationTabSplit",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",

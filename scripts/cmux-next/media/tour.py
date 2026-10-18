@@ -20,7 +20,11 @@ optionally:
     wait      seconds to let the UI settle before the screenshot (default 1.5)
     shot      false to skip the screenshot
     optional  why the step may fail (a feature not ported yet); its failure is
-              reported as unavailable and does not fail the tour
+              reported as unavailable and makes the tour degraded, rather than
+              letting an incomplete tour look fully verified
+    expect    app debug RPC postcondition: {"method": "debug.layers",
+              "fields": {"field": expected_value}}; mismatches fail required
+              steps and make optional steps unavailable
 
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
@@ -30,8 +34,10 @@ rectangle on screen, captured in the console user's session as the E2E
 recorder on main does (scripts/ci/preflight-e2e-screen-capture.py), so it
 works when the runner user is not the console user.
 
-Exit status: 0 when every required step passed, 1 otherwise. The media is
-written either way.
+The manifest records `result` as `pass`, `degraded`, or `failed`. Optional
+failures keep the process exit status green for compatibility, but result in a
+degraded manifest that publishers and reviewers can distinguish from a full
+pass. The media is written either way.
 """
 
 from __future__ import annotations
@@ -53,10 +59,11 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "optional"}
+STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "optional", "expect"}
 TOUR_KEYS = {"title", "steps"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
+POSTCONDITION_TIMEOUT = 2.0
 SOCKET_TIMEOUT = 60.0
 FRAME_INTERVAL = 0.5
 # Five minutes of frames; a tour that runs longer keeps its screenshots but its
@@ -74,6 +81,10 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
 # A long tour would make a GIF past the inline limit; split it instead.
 MAX_STEPS = 30
+READ_ONLY_POSTCONDITION_METHODS = {
+    "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
+    "debug.pane_chrome", "debug.notifications", "debug.themes",
+}
 # Inherited caller context a cmux terminal exports. Left in place, a local run
 # inside cmux would route the tour's commands at the caller's own workspace.
 SCRUBBED_ENV = ("CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
@@ -127,6 +138,15 @@ def load_tour(path: Path) -> dict[str, Any]:
                 raise TourError(f"{where}: `{key}` must be true or false")
         if "optional" in step and (not isinstance(step["optional"], str) or not step["optional"].strip()):
             raise TourError(f"{where}: `optional` is the reason the step may fail")
+        expect = step.get("expect")
+        if expect is not None:
+            if not isinstance(expect, dict) or set(expect) - {"method", "fields"}:
+                raise TourError(f"{where}: `expect` must contain only `method` and `fields`")
+            if not isinstance(expect.get("method"), str) or not expect["method"].strip():
+                raise TourError(f"{where}: `expect.method` must be a non-empty string")
+            if (not isinstance(expect.get("fields"), dict) or not expect["fields"]
+                    or not all(isinstance(field, str) and field for field in expect["fields"])):
+                raise TourError(f"{where}: `expect.fields` must be a non-empty object of field names")
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps}
 
 
@@ -573,6 +593,71 @@ class App:
         self.clear_state()
 
 
+def _postcondition_field(state: Any, field: str) -> tuple[bool, Any]:
+    """Read a dotted field from a JSON object, allowing numeric list indexes."""
+    current = state
+    for part in field.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and part.isdigit() and int(part) < len(current):
+            current = current[int(part)]
+        else:
+            return False, None
+    return True, current
+
+
+def check_postcondition(app: App, step: dict[str, Any]) -> tuple[str, str]:
+    """Run a declared app-owned debug RPC and compare its expected fields."""
+    expect = step.get("expect")
+    if expect is None:
+        return "skipped", "not configured"
+    method = expect["method"]
+    if method not in READ_ONLY_POSTCONDITION_METHODS:
+        status = "unavailable" if step.get("optional") else "failed"
+        return status, f"{method}: not an allowed read-only debug method"
+    deadline = time.monotonic() + POSTCONDITION_TIMEOUT
+    last_detail = "no state observed"
+    while time.monotonic() < deadline:
+        if not app.alive():
+            status = "unavailable" if step.get("optional") else "failed"
+            return status, f"{method}: app exited before postcondition"
+        try:
+            remaining = max(0.1, min(2.0, deadline - time.monotonic()))
+            state = app.request(method, {"after": "sync"}, timeout=remaining)
+        except (OSError, ValueError, TourError, socket.timeout) as error:
+            status = "unavailable" if step.get("optional") else "failed"
+            return status, f"{method}: {error}"
+        mismatches = []
+        observed = {}
+        for field, expected in expect["fields"].items():
+            found, actual = _postcondition_field(state, field)
+            if found:
+                observed[field] = actual
+            if not found:
+                mismatches.append(f"{field} missing (expected {json.dumps(expected, sort_keys=True)})")
+            elif not _json_equal(actual, expected):
+                mismatches.append(
+                    f"{field}={json.dumps(actual, sort_keys=True)} (expected {json.dumps(expected, sort_keys=True)})"
+                )
+        if not mismatches:
+            fields = ", ".join(expect["fields"])
+            return "passed", f"{method}: matched {fields}; observed={json.dumps(observed, sort_keys=True)}"
+        last_detail = f"{method}: " + "; ".join(mismatches)
+        time.sleep(0.05)
+    return ("unavailable" if step.get("optional") else "failed"), last_detail
+
+
+def _json_equal(actual: Any, expected: Any) -> bool:
+    """Compare JSON values without Python's bool-is-an-int coercion."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(actual, dict):
+        return actual.keys() == expected.keys() and all(_json_equal(actual[key], expected[key]) for key in actual)
+    if isinstance(actual, list):
+        return len(actual) == len(expected) and all(_json_equal(a, e) for a, e in zip(actual, expected))
+    return actual == expected
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -588,6 +673,18 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     time.sleep(step.get("wait", DEFAULT_WAIT))
+    postcondition_status, postcondition_detail = check_postcondition(app, step)
+    result["postcondition"] = {
+        "method": (step.get("expect") or {}).get("method"),
+        "expected": (step.get("expect") or {}).get("fields"),
+        "status": postcondition_status,
+        "detail": postcondition_detail,
+    }
+    if postcondition_status in ("failed", "unavailable"):
+        result["status"] = postcondition_status
+        result["detail"] = (result.get("detail", "") + " " + postcondition_detail).strip()
+        if postcondition_status == "unavailable" and step.get("optional") and step["optional"] not in result["detail"]:
+            result["detail"] += f" ({step['optional']})"
     if not app.alive():
         result["status"] = "failed"
         result["detail"] = (result.get("detail", "") + " the app is no longer running").strip()
@@ -674,6 +771,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         if app.log_path.exists():
             shutil.copy(app.log_path, directory / "app.log")
         shutil.rmtree(workdir, ignore_errors=True)
+        manifest["result"] = classify_result(manifest)
         (directory / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 
@@ -684,6 +782,18 @@ def terminated(signum: int, frame: Any) -> None:
 
 def passed(manifest: dict[str, Any]) -> bool:
     return "error" not in manifest and all(step["status"] != "failed" for step in manifest["steps"])
+
+
+def classify_result(manifest: dict[str, Any]) -> str:
+    """Classify the evidence without treating optional gaps as full coverage."""
+    if manifest.get("error") or any(step.get("status") == "failed" for step in manifest.get("steps", [])):
+        return "failed"
+    if manifest.get("frames_error") or any(
+        step.get("status") == "unavailable" or step.get("shot_error")
+        for step in manifest.get("steps", [])
+    ):
+        return "degraded"
+    return "pass"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -721,7 +831,13 @@ def main(argv: list[str] | None = None) -> int:
     for tour in tours:
         signal.signal(signal.SIGINT, signal.default_int_handler)
         signal.signal(signal.SIGTERM, terminated)
-        ok = passed(run_tour(args.app, tour, args.out, session, fresh_state=args.fresh_state)) and ok
+        manifest = run_tour(args.app, tour, args.out, session, fresh_state=args.fresh_state)
+        manifest["result"] = classify_result(manifest)
+        (args.out / tour["name"] / "manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"[{tour['name']}] result={manifest['result']}", flush=True)
+        ok = passed(manifest) and ok
     return 0 if ok else 1
 
 
