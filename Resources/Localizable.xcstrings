@@ -485410,6 +485410,65 @@
         }
       }
     },
+    "settings.search.alias.setting.workspaceColors.unselected-fill-opacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength العتامة الشفافية تعبئة غير محدد مساحة العمل اللون"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength Deckkraft Transparenz Füllung nicht ausgewählt Arbeitsbereich Farbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength opacidad transparencia relleno no seleccionado espacio de trabajo color"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength opacité transparence remplissage non sélectionné espace de travail couleur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength 不透明度 透明度 塗りつぶし 未選択 ワークスペース 色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength 불투명도 투명도 단색 채우기 선택 안 됨 작업 공간 색상"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength 不透明度 透明度 实心填充 未选中 工作区 颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength 不透明度 透明度 實心填滿 未選取 工作區 顏色"
+          }
+        }
+      }
+    },
     "settings.search.fileEditor.currentLineHighlight": {
       "extractionState": "manual",
       "localizations": {
@@ -602143,6 +602202,124 @@
         }
       }
     },
+    "settings.workspaceColors.unselectedFillOpacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unselected Fill Opacity"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عتامة الصفوف غير المحددة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deckkraft nicht ausgewählter Zeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad de las filas no seleccionadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacité des lignes non sélectionnées"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未選択行の塗りつぶしの不透明度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택되지 않은 행의 채우기 불투명도"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未选中行的填充不透明度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未選取列的填色不透明度"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.unselectedFillOpacity.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How strongly a workspace color fills rows that are not selected. The maximum shows the full color. Applies to Solid Fill."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدى قوة لون مساحة العمل في تعبئة الصفوف غير المحددة. تعرض القيمة القصوى اللون كاملًا. ينطبق على التعبئة بلون خالص."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie kräftig eine Workspace-Farbe nicht ausgewählte Zeilen füllt. Der Höchstwert zeigt die volle Farbe. Gilt für „Vollfarbige Füllung“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intensidad con la que un color de espacio de trabajo rellena las filas no seleccionadas. El valor máximo muestra el color completo. Se aplica a Relleno sólido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intensité avec laquelle une couleur d’espace de travail remplit les lignes non sélectionnées. La valeur maximale affiche la couleur complète. S’applique au remplissage plein."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択されていない行をワークスペースの色で塗りつぶす強さです。最大値で色をそのまま表示します。塗りつぶしに適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택되지 않은 행을 워크스페이스 색상으로 채우는 강도입니다. 최댓값은 전체 색상을 표시합니다. 단색 채우기에 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色填充未选中行的强度。设为最大值会显示完整颜色。适用于实心填充。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色填滿未選取列的強度。設為最大值會顯示完整顏色。適用於實心填滿。"
+          }
+        }
+      }
+    },
     "shortcut.agentInbox.label": {
       "extractionState": "manual",
       "localizations": {
@@ -655728,6 +655905,48 @@
             "value": "Дозволяє цій машині SSH лише записувати дані в буфер обміну через OSC 52. Чинна політика читання буфера обміну залишається без змін."
           }
         }
+      }
+    },
+    "surfaceResumeApproval.environment.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Environment:" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Umgebung:" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Environnement :" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "البيئة:" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Entorno:" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "環境：" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "环境：" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "환경:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "環境:" } }
+      }
+    },
+    "surfaceResumeApproval.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review Approval…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Genehmigung prüfen…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Examiner l’autorisation…" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "مراجعة الموافقة…" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Revisar autorización…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢視核准…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "查看批准…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "승인 검토…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認内容を確認…" } }
+      }
+    },
+    "surfaceResumeApproval.review.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The resume proposal changed or could not be approved. No replacement command was registered. Review the current proposal and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der vorgeschlagene Wiederaufnahmebefehl wurde geändert oder konnte nicht genehmigt werden. Es wurde kein Ersatzbefehl registriert. Prüfen Sie den aktuellen Vorschlag und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La proposition de reprise a changé ou n’a pas pu être autorisée. Aucune commande de remplacement n’a été enregistrée. Examinez la proposition actuelle et réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تغيّر اقتراح الاستئناف أو تعذّرت الموافقة عليه. لم يُسجَّل أي أمر بديل. راجع الاقتراح الحالي وحاول مرة أخرى." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La propuesta de reanudación cambió o no se pudo autorizar. No se registró ningún comando de reemplazo. Revisa la propuesta actual e inténtalo de nuevo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "繼續執行的提案已變更或無法核准。未登記任何替代命令。請檢視目前的提案後再試一次。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复执行的提案已更改或无法批准。未登记任何替代命令。请查看当前提案后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "재개 제안이 변경되었거나 승인할 수 없습니다. 대체 명령은 등록되지 않았습니다. 현재 제안을 검토한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再開の提案が変更されたか、承認できませんでした。代わりのコマンドは登録されていません。現在の提案を確認して、もう一度お試しください。" } }
       }
     }
   },
