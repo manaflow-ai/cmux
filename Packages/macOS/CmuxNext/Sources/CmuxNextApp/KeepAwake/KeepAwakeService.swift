@@ -6,7 +6,8 @@ import CmuxNextSettings
 import Foundation
 
 /// Holds off idle system sleep while an agent on this Mac works
-/// (`sessions.keepAwake`) or the Keep Mac Awake action is on. One activity
+/// (`sessions.keepAwake`), while phones can reach it (`phone.keepAwake`), or
+/// while the Keep Mac Awake action is on. One activity
 /// serves every reason, so the action and the setting never end each other's
 /// hold. The display can still sleep, and closing the lid still sleeps the Mac.
 final class KeepAwakeService {
@@ -28,13 +29,19 @@ final class KeepAwakeService {
         policy.onBattery = power.start()
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
-            for await (choice, working) in ObservationStream({
-                (settings.snapshot.sessions.keepAwake, KeepAwakeService.agentsWorking(daemon))
+            for await (sessions, working) in ObservationStream({
+                (settings.snapshot.sessions, KeepAwakeService.agentsWorking(daemon))
             }) {
-                self?.policy.agents = choice
+                self?.policy.agents = sessions.keepAwake
+                self?.policy.phone = sessions.phoneKeepAwake
                 self?.policy.agentsWorking = working
             }
         }
+    }
+
+    /// Phones can reach this Mac now (`MobileHostService.isServing`).
+    func setPhoneServing(_ serving: Bool) {
+        policy.phoneServing = serving
     }
 
     /// The Keep Mac Awake action: a second run turns it off.

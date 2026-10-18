@@ -18,9 +18,18 @@ public struct DaemonLanePolicy: Sendable {
     /// phone may read and write only this `personal` projection.
     public let projectionSubject: String
 
-    public init(deviceID: String) {
+    /// `PhoneAccessGate.allowsStartingSessions`, read per request.
+    let allowsStartingSessions: @Sendable () -> Bool
+
+    public init(deviceID: String, allowsStartingSessions: @escaping @Sendable () -> Bool = { true }) {
         projectionSubject = "ios-device:\(deviceID)"
+        self.allowsStartingSessions = allowsStartingSessions
     }
+
+    /// Commands that create a workspace, terminal or tab, refused while the
+    /// person turned off starting new workspaces from a phone.
+    public static let startsSessions: Set<String> = Set(creationFields.keys)
+        .union(["new-browser-tab", "reopen-saved-tab-group"])
 
     /// Commands a phone may send. Grouped by purpose; every entry is a
     /// protocol-12 command the iOS `CmuxTUIControl` client or a reasonable
@@ -107,6 +116,9 @@ public struct DaemonLanePolicy: Sendable {
         guard Self.allowedCommands.contains(command) else {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
                                           message: "\(command) is not available to a phone"))
+        }
+        if Self.startsSessions.contains(command), !allowsStartingSessions() {
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: PhoneAccessGate.startRefusal))
         }
         if let allowed = Self.creationFields[command] {
             let extra = Set(object.keys).subtracting(allowed).subtracting(["id", "cmd"])
