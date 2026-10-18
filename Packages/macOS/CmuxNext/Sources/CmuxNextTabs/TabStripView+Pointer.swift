@@ -250,6 +250,7 @@ extension TabStripView {
         // Vertical wheels scroll the strip too.
         if abs(event.scrollingDeltaY) > abs(delta) { delta = event.scrollingDeltaY }
         if !event.hasPreciseScrollingDeltas { delta *= 12 }
+        settleScroll()
         scrollOffset = TabScrollMath.clamp(scrollOffset - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         hoverCards.dismiss(.action)
         applyFrames()

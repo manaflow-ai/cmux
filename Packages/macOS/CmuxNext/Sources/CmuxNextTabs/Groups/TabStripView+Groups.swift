@@ -29,6 +29,7 @@ extension TabStripView {
             let id = TabID.groupChip(group)
             if let chip = groups.chips[group] {
                 dying.remove(id)
+                goesAt[id] = nil
                 chip.update(group: item, memberCount: count)
                 groups.bands[group]?.color = item.tint
                 continue
@@ -87,25 +88,28 @@ extension TabStripView {
             let frame = CGRect(x: minX, y: tabY, width: pixel(place.x - offset + width) - minX, height: tabHeight)
             let alpha = Float(min(max(place.alpha, 0), 1))
             let direct = groups.isDragged(id)
-            if direct { TabStripMove.cancel(chip.layer) }
-            if let move, !direct, frame != chip.frame || alpha != chip.layer.opacity {
+            var moved = false
+            if let move, frame != chip.frame || alpha != chip.layer.opacity {
                 let before = TabStripMove.snapshot(chip.layer)
                 chip.frame = frame
                 chip.layer.opacity = alpha
-                if move.animate(from: before), dying.contains(id) { lastMove[id] = move.generation }
+                moved = move.animate(from: before)
             } else {
                 chip.frame = frame
                 chip.layer.opacity = alpha
             }
-            if let move, dying.contains(id), lastMove[id] == nil { lastMove[id] = move.generation }
+            if direct { TabStripMove.cancelPosition(chip.layer) }
+            if let move { noteClosing(id, moved: moved, move: move) }
             chip.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(chip.frame, to: self))
             guard let band = groups.bands[group] else { continue }
             let pillMinX = place.x + metrics.groupChipOuterInset
             let chipMaxX = place.x + width
             let end = memberMaxX[group] ?? chipMaxX
             let members = max(0, end - chipMaxX)
-            let wash = move.map { _ in TabStripMove.snapshot(band.washLayer) }
-            let line = move.map { _ in TabStripMove.snapshot(band.lineLayer) }
+            // A band a dragged tab or block stretches follows it exactly; a new band is where it starts.
+            let bandMoves = !direct && drag?.targetGroup != group && (band.washLayer.position != .zero || band.washLayer.bounds.width > 0)
+            let wash = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.washLayer) : nil }
+            let line = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.lineLayer) : nil }
             band.apply(
                 span: CGRect(x: pixel(chipMaxX - offset), y: tabY, width: pixel(members), height: tabHeight),
                 lineWidth: members > 0.5 ? pixel(end - pillMinX) : 0,
@@ -114,7 +118,7 @@ extension TabStripView {
                 opacity: alpha
             )
             band.lineLayer.frame.origin.x = pixel(pillMinX - offset)
-            if let move, let wash, let line, !direct {
+            if let move, let wash, let line {
                 move.animate(from: wash)
                 move.animate(from: line)
             }

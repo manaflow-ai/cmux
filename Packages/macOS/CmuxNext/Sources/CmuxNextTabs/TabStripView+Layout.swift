@@ -45,6 +45,8 @@ extension TabStripView {
         // slot and full width, and the tabs make room for it in the same frame. A drag or a torn-out
         // tab's drop keeps every move in flight as it was.
         let insertsAtOnce = !added.isEmpty && drag == nil && pendingDrop == nil && !grows
+        // An opening tab's start is placed with the scroll as it was, so the scroll's change moves it as it moves its neighbours.
+        let mappingBefore = scrollMapping
         let move = animated && !insertsAtOnce ? stripMove(grows ? .tabOpen : token ?? .tabMove) : nil
         // The previous tab's right edge as it is on screen now (Chrome StartInsertTabAnimation reads the
         // previous tab's current bounds): a new tab opens there and slides with it to its slot, so the
@@ -92,7 +94,7 @@ extension TabStripView {
         if move == nil { for id in dying { removeTab(id) } }
         TabSeparatorVisibility.apply(to: self)
         // An opening tab first shows where it opens from; the move takes it to its slot.
-        if !starts.isEmpty { place(starts) }
+        if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move)
         overflowHints.update()
     }
@@ -129,7 +131,10 @@ extension TabStripView {
     /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
     /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
-        for id in dying where lastMove[id] == generation { removeTab(id) }
+        scrollMoves.remove(generation)
+        let now = CACurrentMediaTime()
+        // The move that ends last carries it; a little slack for the completion's own frame.
+        for id in dying where (goesAt[id] ?? .infinity) <= now + 0.05 { removeTab(id) }
         for (id, move) in occlusionMoves where move == generation {
             occlusionMoves[id] = nil
             cells[id]?.occlude(by: nil)
@@ -157,8 +162,33 @@ extension TabStripView {
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll) {
             moveGeneration += 1
             move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil)
+            scrollMoves.insert(moveGeneration)
         }
         applyFrames(move: move)
+    }
+
+    /// A wheel or a drag's autoscroll takes the scroll over: a reveal's spring still in flight ends
+    /// where it shows now (the scroll offset becomes that), so nothing drifts against the gesture.
+    func settleScroll() {
+        guard !scrollMoves.isEmpty else { return }
+        // What the spring adds now, read off one unpinned cell (it moves every unpinned cell alike).
+        if let cell = cells.values.first(where: { !$0.item.isPinned }), let shown = cell.layer.presentation() {
+            scrollOffset = TabScrollMath.clamp(scrollOffset - (shown.frame.minX - cell.frame.minX), contentWidth: result.contentWidth,
+                                               viewportWidth: viewportWidth)
+        }
+        var layers = cells.values.map(\.layer) + groups.chips.values.map(\.layer)
+        layers += groups.bands.values.flatMap { [$0.washLayer, $0.lineLayer] }
+        if let button = newTabButton.layer { layers.append(button) }
+        TabStripMove.cancel(scrollMoves, on: layers)
+        scrollMoves.removeAll()
+    }
+
+    /// A closing tab or chip in `move` (`moved`: it animated in it) goes when its last move ends; one
+    /// the change did not move goes when this change ends.
+    func noteClosing(_ id: TabID, moved: Bool, move: TabStripMove) {
+        guard dying.contains(id) else { return }
+        let end = CACurrentMediaTime() + (moved ? move.duration(closing: id.chipGroupID == nil) : 0)
+        goesAt[id] = max(goesAt[id] ?? 0, end)
     }
 
     /// Where `id`'s cell shows now, its right edge in content coordinates (the presentation layer
@@ -189,8 +219,10 @@ extension TabStripView {
     }
 
     /// The cell's frame in its layer for `place` at the current scroll.
-    func cellFrame(_ place: TabPlace, isPinned: Bool) -> CGRect {
-        let mapping = scrollMapping
+    func cellFrame(_ place: TabPlace, isPinned: Bool) -> CGRect { cellFrame(place, isPinned: isPinned, mapping: scrollMapping) }
+
+    /// The cell's frame in its layer for `place` at `mapping`'s scroll.
+    func cellFrame(_ place: TabPlace, isPinned: Bool, mapping: TabScrollMapping) -> CGRect {
         let scale = window?.backingScaleFactor ?? 2
         func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
         let minX = pixel(mapping.viewX(place.x, isPinned: isPinned))
@@ -198,14 +230,17 @@ extension TabStripView {
         return CGRect(x: minX, y: tabTop, width: maxX - minX, height: min(metrics.tabHeight, bounds.height))
     }
 
-    /// Shows the cells of `places` there at once (where an opening tab opens from); `placed` is unchanged.
-    func place(_ places: [TabID: TabPlace]) {
+    /// Shows the cells and chips of `places` there at once, at `mapping`'s scroll (where a new tab
+    /// opens from, or a new chip first shows); `placed` is unchanged.
+    func place(_ places: [TabID: TabPlace], mapping: TabScrollMapping) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (id, place) in places {
-            guard let cell = cells[id] else { continue }
-            TabStripMove.cancel(cell.layer)
-            cell.frame = cellFrame(place, isPinned: cell.item.isPinned)
+            if let cell = cells[id] {
+                cell.frame = cellFrame(place, isPinned: cell.item.isPinned, mapping: mapping)
+            } else if let group = id.chipGroupID, let chip = groups.chips[group] {
+                chip.frame = cellFrame(place, isPinned: false, mapping: mapping)
+            }
         }
         CATransaction.commit()
     }
@@ -243,9 +278,8 @@ extension TabStripView {
             if let parent = tabsLayer(isPinned: isPinned), cell.layer.superlayer !== parent { parent.addSublayer(cell.layer) }
             let frame = cellFrame(place, isPinned: isPinned)
             let opacity = Float(min(max(place.alpha, 0), 1))
-            let direct = drag?.id == id || groups.isDragged(id)
-            if direct { TabStripMove.cancel(cell.layer) }
-            if let move, !direct, frame != cell.frame || opacity != cell.layer.opacity {
+            var moved = false
+            if let move, frame != cell.frame || opacity != cell.layer.opacity {
                 let before = TabStripMove.snapshot(cell.layer)
                 // A widening tab clips its content (laid out at the new width) to its bounds on the way.
                 if frame.width > cell.frame.width + 0.5 {
@@ -254,13 +288,14 @@ extension TabStripView {
                 }
                 cell.frame = frame
                 cell.layer.opacity = opacity
-                if move.animate(from: before, closing: dying.contains(id)), dying.contains(id) { lastMove[id] = move.generation }
+                moved = move.animate(from: before, closing: dying.contains(id))
             } else {
                 cell.frame = frame
                 cell.layer.opacity = opacity
             }
-            // A closing tab nothing moved goes when this change ends.
-            if let move, dying.contains(id), lastMove[id] == nil { lastMove[id] = move.generation }
+            // The dragged tab and a dragged group's members sit exactly under the pointer (their width still moves).
+            if drag?.id == id || groups.isDragged(id) { TabStripMove.cancelPosition(cell.layer) }
+            if let move { noteClosing(id, moved: moved, move: move) }
             cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
             trailing = max(trailing, place.maxX)
         }

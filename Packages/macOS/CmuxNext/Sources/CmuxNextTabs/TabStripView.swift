@@ -87,8 +87,10 @@ public final class TabStripView: NSView {
     var scrollOffset: CGFloat = 0
     /// The last strip move's generation (`TabStripMove`).
     var moveGeneration = 0
-    /// A closing tab's or chip's last move: it goes when that move ends (`moveEnded`).
-    var lastMove: [TabID: Int] = [:]
+    /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
+    var goesAt: [TabID: CFTimeInterval] = [:]
+    /// Moves of a reveal's scroll spring still in flight (`settleScroll`).
+    var scrollMoves: Set<Int> = []
     /// Tabs whose occlusion mask a move animates, by generation: the mask comes off when it ends.
     var occlusionMoves: [TabID: Int] = [:]
     /// Widening tabs clipped for a move, by generation.

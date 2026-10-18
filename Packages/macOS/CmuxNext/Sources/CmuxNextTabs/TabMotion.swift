@@ -33,6 +33,9 @@ struct TabStripMove {
 
     private var key: String { "\(Self.keyPrefix)\(generation)." }
 
+    /// Seconds a layer of this move takes to rest (`closing`: a closing tab's).
+    func duration(closing: Bool) -> CFTimeInterval { (closing ? self.closing ?? motion : motion).duration }
+
     /// The model geometry of `root`, its sublayers (two levels: a chip's pill content) and their
     /// masks, read before a change.
     struct Snapshot {
@@ -87,11 +90,17 @@ struct TabStripMove {
         layer.add(animation, forKey: key + name)
     }
 
-    /// Ends every strip move on `root`'s tree at once: direct manipulation (a dragged tab sits
-    /// exactly under the pointer).
-    static func cancel(_ root: CALayer) {
-        for old in snapshot(root).layers {
-            for key in old.layer.animationKeys() ?? [] where key.hasPrefix(keyPrefix) { old.layer.removeAnimation(forKey: key) }
+    /// Ends every strip move of `root`'s position at once: direct manipulation (a dragged tab sits
+    /// exactly under the pointer; its width keeps moving).
+    static func cancelPosition(_ root: CALayer) {
+        for key in root.animationKeys() ?? [] where key.hasPrefix(keyPrefix) && key.hasSuffix(".position") { root.removeAnimation(forKey: key) }
+    }
+
+    /// Ends the moves of `generations` on `layers` at once (a wheel takes over a reveal's scroll).
+    static func cancel(_ generations: Set<Int>, on layers: [CALayer]) {
+        let prefixes = generations.map { "\(keyPrefix)\($0)." }
+        for layer in layers {
+            for key in layer.animationKeys() ?? [] where prefixes.contains(where: key.hasPrefix) { layer.removeAnimation(forKey: key) }
         }
     }
 }

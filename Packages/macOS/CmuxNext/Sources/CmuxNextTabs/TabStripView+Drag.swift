@@ -108,6 +108,7 @@ extension TabStripView {
         if local < band + edge { speed = -(band + edge - local) * gain }
         if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
+        settleScroll()
         let target = TabScrollMath.clamp(scrollOffset + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         guard target != scrollOffset else { return false }
         scrollOffset = target

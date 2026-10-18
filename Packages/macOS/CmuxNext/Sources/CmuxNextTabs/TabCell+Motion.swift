@@ -112,7 +112,9 @@ enum TabOcclusion {
     /// A move: each tab the selected pill crosses on the way (from `start`, where everything showed,
     /// to the frames now) hides the part under it, as keyframes along the move's progress; the mask
     /// comes off when the move ends (`TabStripView.moveEnded`). The two run on one curve from one
-    /// frame, so their frames are straight lines in that progress. Returns the tabs it masks.
+    /// frame, so their frames are straight lines in that progress. Approximate where an earlier move
+    /// still runs under this one (the path is then the sum of two curves) or the selection changes
+    /// before the move ends (the crossed tabs keep the old pill's mask until then). Returns the tabs it masks.
     @MainActor
     static func animate(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, from start: [TabID: Shown], move: TabStripMove) -> Set<TabID> {
         guard let selected, let cover = cells[selected], let coverStart = start[selected] else { return [] }
@@ -124,8 +126,8 @@ enum TabOcclusion {
         func pill(_ shown: Shown) -> CGRect { shown.pill.offsetBy(dx: shown.frame.minX, dy: shown.frame.minY) }
         var masked: Set<TabID> = []
         for (id, cell) in cells {
-            guard crosses(cell, id, selected: selected, cover: cover, band: band), cell.layer.superlayer === cover.layer.superlayer,
-                  let from = start[id] else { continue }
+            // Both layers (tabsClip's, the scrolling layer) have the clip's coordinates.
+            guard crosses(cell, id, selected: selected, cover: cover, band: band), let from = start[id] else { continue }
             var rects: [CGRect] = []
             var crossed = false
             for step in 0...samples {

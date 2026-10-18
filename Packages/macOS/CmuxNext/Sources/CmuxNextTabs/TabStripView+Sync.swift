@@ -119,7 +119,7 @@ extension TabStripView {
         for item in ordered {
             if let cell = cells[item.id] {
                 dying.remove(item.id)
-                lastMove[item.id] = nil
+                goesAt[item.id] = nil
                 closingAnchors[item.id] = nil
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
@@ -127,8 +127,8 @@ extension TabStripView {
             } else if let from = handed[item.id], let place = placed[from], let shown = cells[from] {
                 _ = makeCell(item, animated: false)
                 placed[item.id] = place
-                // It shows where that cell showed, with the moves in flight.
-                cells[item.id]?.frame = shown.frame
+                // It shows where that cell shows now; `relayout` moves it on from there.
+                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
@@ -231,7 +231,7 @@ extension TabStripView {
     func forgetPlace(_ id: TabID) {
         placed[id] = nil
         dying.remove(id)
-        lastMove[id] = nil
+        goesAt[id] = nil
         occlusionMoves[id] = nil
         clipMoves[id] = nil
     }
