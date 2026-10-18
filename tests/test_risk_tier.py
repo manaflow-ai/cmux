@@ -1,6 +1,10 @@
 """risk_tier.py grades a pull request by its riskiest path and asks for that tier's evidence."""
 import importlib.util
+import os
+import subprocess
 import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -18,37 +22,59 @@ class ClassifyTests(unittest.TestCase):
     def tier(self, *files, lines=None):
         return risk.classify(list(files), lines).tier
 
+    def big(self, *files):
+        """The files, each changed by more than RUNTIME_LINES lines."""
+        return self.tier(*files, lines={path: risk.RUNTIME_LINES + 1 for path in files})
+
     def test_docs_tests_and_tooling_are_low(self):
         self.assertEqual(self.tier("docs/ci/merge-main.md", "skills/cmux-testing/SKILL.md"), "low")
         self.assertEqual(self.tier(NEXT.replace("Sources", "Tests") + "CmuxNextSidebarTests/RowTests.swift"), "low")
-        self.assertEqual(self.tier("cmux-tui/crates/acpmux/tests/hub_integration/offers.rs"), "low")
-        self.assertEqual(self.tier("scripts/ci/cmux_next_route.py", ".github/labels.json"), "low")
+        self.assertEqual(self.big("cmux-tui/crates/acpmux/tests/hub_integration/offers.rs"), "low")
+        self.assertEqual(self.tier("scripts/ci/health_report.py", ".github/labels.json"), "low")
 
     def test_app_ui_is_medium(self):
         self.assertEqual(self.tier(NEXT + "CmuxNextSidebar/SidebarRow.swift"), "medium")
         self.assertEqual(self.tier("webviews/src/agent-pane/Composer.tsx"), "medium")
         self.assertEqual(self.tier(NEXT + "CmuxNextSettings/SettingsPane.swift"), "medium")
-        self.assertEqual(self.tier("cmux-tui/bindings/go/client.go", "cmux-tui/crates/cmux-motion/src/lib.rs"), "medium")
+        self.assertEqual(self.big("cmux-tui/bindings/go/client.go", "cmux-tui/crates/cmux-motion/src/lib.rs"), "medium")
 
     def test_unknown_paths_are_medium_not_low(self):
         self.assertEqual(self.tier("brand-new-dir/thing.swift"), "medium")
 
-    def test_daemon_protocol_persistence_and_typing_are_high(self):
+    def test_a_runtime_change_is_high_when_large_and_medium_when_small(self):
         for path in (
             "cmux-tui/crates/acpmux/src/deliver.rs",
             NEXT + "CmuxNextDaemon/DaemonClient.swift",
             NEXT + "CmuxNextRemote/Relay.swift",
             NEXT + "CmuxNextTerminal/TerminalInput.swift",
             NEXT + "CmuxNextHistory/HistoryStore.swift",
+            NEXT + "CmuxNextBrowserImport/CookieImport.swift",
             "backend/apps/api/src/cloud-acpmux.ts",
+            "schemas/control-plane/v1.json",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.big(path), "high")
+                self.assertEqual(self.tier(path, lines={path: risk.RUNTIME_LINES}), "medium")
+
+    def test_runtime_lines_add_up_across_files_but_tests_do_not_count(self):
+        a, b = "cmux-tui/crates/acpmux/src/a.rs", NEXT + "CmuxNextDaemon/B.swift"
+        half = risk.RUNTIME_LINES // 2 + 1
+        self.assertEqual(self.tier(a, b, lines={a: half, b: half}), "high")
+        test = "cmux-tui/crates/acpmux/tests/big.rs"
+        self.assertEqual(self.tier(a, test, lines={a: 5, test: 900}), "medium")
+
+    def test_migrations_defaults_contracts_and_pins_are_high_at_any_size(self):
+        for path in (
             "schemas/defaults/cmux-next.json",
             "web/convex/schema.ts",
+            "backend/migrations/0042_add.sql",
+            "cmux-tui/spec/resource-operations-v2.json",
             "plans/cmux-next/daemon-capabilities.json",
             "ghostty",
             "Packages/macOS/CmuxNext/Package.resolved",
         ):
             with self.subTest(path=path):
-                self.assertEqual(self.tier(path), "high")
+                self.assertEqual(self.tier(path, lines={path: 1}), "high")
 
     def test_release_and_signing_scripts_are_high_but_design_is_not(self):
         self.assertEqual(self.tier("scripts/sign-cmux-bundle-helpers.sh"), "high")
@@ -60,22 +86,28 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.tier("scripts/ci/notarize-nightly-dmg.sh"), "high")
         self.assertEqual(self.tier(".github/workflows/sdk-publish-crates.yml"), "high")
 
-    def test_merge_gates_ownership_and_workflows_are_high(self):
+    def test_merge_gates_and_check_routing_are_high_at_any_size(self):
         for path in (".github/CODEOWNERS", ".github/workflows/risk-tier.yml", "scripts/ci/risk_tier.py",
-                     "scripts/gh-merge-green", ".github/workflows/cmux-next.yml",
-                     ".github/workflows/cmux-next-pr-merge-tree.yml", ".github/actions/setup-cmux-tui-rust/action.yml"):
+                     "scripts/gh-merge-green", ".github/workflows/cmux-next.yml", ".github/workflows/ci.yml",
+                     "scripts/ci/cmux_next_route.py"):
             with self.subTest(path=path):
-                self.assertEqual(self.tier(path), "high")
+                self.assertEqual(self.tier(path, lines={path: 1}), "high")
 
-    def test_data_files_inside_risky_trees_are_not_low(self):
-        self.assertEqual(self.tier("cmux-tui/crates/cmux-pty/CMakeLists.txt"), "high")
-        self.assertEqual(self.tier("cmux-tui/crates/cmux-tui-core/src/fs_ops/fixtures/answers.jsonl"), "high")
-        self.assertEqual(self.tier(NEXT + "CmuxNextServer/Resources/pairing-words.txt"), "high")
-        self.assertEqual(self.tier("schemas/control-plane/v1.json"), "high")
-        self.assertEqual(self.tier(NEXT + "CmuxNextBrowserImport/CookieImport.swift"), "high")
+    def test_other_workflows_and_actions_are_medium(self):
+        self.assertEqual(self.tier(".github/workflows/cmux-next-pr-merge-tree.yml"), "medium")
+        self.assertEqual(self.tier(".github/actions/setup-cmux-tui-rust/action.yml"), "medium")
+
+    def test_data_files_inside_runtime_trees_are_not_low(self):
+        for path in ("cmux-tui/crates/cmux-pty/CMakeLists.txt",
+                     "cmux-tui/crates/cmux-tui-core/src/fs_ops/fixtures/answers.jsonl",
+                     NEXT + "CmuxNextServer/Resources/pairing-words.txt"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "medium")
+                self.assertEqual(self.big(path), "high")
 
     def test_highest_path_wins(self):
-        self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift", "cmux-tui/crates/cmux-pty/src/lib.rs"), "high")
+        rust = "cmux-tui/crates/cmux-pty/src/lib.rs"
+        self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift", rust, lines={rust: 200}), "high")
 
     def test_large_medium_change_becomes_high_but_tests_and_generated_do_not_count(self):
         ui = NEXT + "CmuxNextSidebar/A.swift"
@@ -84,6 +116,51 @@ class ClassifyTests(unittest.TestCase):
         files = [ui, "Packages/macOS/CmuxNext/Tests/X/BigTests.swift", NEXT + "CmuxNextApp/Localizable.xcstrings"]
         lines = {ui: 200, files[1]: 5000, files[2]: 5000}
         self.assertEqual(risk.classify(files, lines).tier, "medium")
+
+
+class RecentRevertTests(unittest.TestCase):
+    """A pull request that takes back another pull request's change from the last week is high."""
+
+    def git(self, repo, *args, when=None):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t")
+        if when is not None:
+            env["GIT_COMMITTER_DATE"] = env["GIT_AUTHOR_DATE"] = f"{int(when)} +0000"
+        return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True, env=env).stdout
+
+    def test_deleted_ranges_follow_the_base_side_line_numbers(self):
+        patch = "@@ -3,4 +3,3 @@\n ctx\n-gone a\n-gone b\n ctx\n@@ -20,2 +19,2 @@\n-old\n+new\n ctx"
+        self.assertEqual(risk.deleted_ranges(patch), [(4, 5), (20, 20)])
+
+    def test_undoes_needs_the_added_lines_gone_and_the_replaced_lines_back(self):
+        commit = "@@ -1,2 +1,2 @@\n-old effect\n+keyed effect\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-keyed effect\n+old effect\n ctx", commit))
+        # Rewriting the new line into something else is ordinary editing.
+        self.assertFalse(risk.undoes("@@ -1,2 +1,2 @@\n-keyed effect\n+keyed effect v2\n ctx", commit))
+        # Moving the new lines elsewhere in the file is not taking them back.
+        self.assertFalse(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx\n@@ -40 +38,3 @@\n+.a{}\n+.b{}\n ctx",
+                                     "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
+        # A pure addition taken out again is a revert.
+        self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
+
+    def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
+        now = time.time()
+        with tempfile.TemporaryDirectory() as repo:
+            self.git(repo, "init", "-q")
+            path = os.path.join(repo, "App.tsx")
+            open(path, "w").write("one\ntwo\nthree\n")
+            self.git(repo, "add", ".")
+            self.git(repo, "commit", "-qm", "feat: old work (#100)", when=now - 30 * 86400)
+            open(path, "w").write("one\ntwo\nfix from yesterday\nthree\n")
+            self.git(repo, "commit", "-qam", "perf: avoid duplicate loads (#21369)", when=now - 86400)
+            base = self.git(repo, "rev-parse", "HEAD").strip()
+            stale = {"filename": "App.tsx", "status": "modified",
+                     "patch": "@@ -1,4 +1,3 @@\n one\n two\n-fix from yesterday\n three"}
+            self.assertEqual(risk.recent_reverts([stale], repo, base, own=21194, now=now), {21369: ["App.tsx"]})
+            # Deleting only month-old lines, or the pull request's own lines, is not flagged.
+            old = {"filename": "App.tsx", "status": "modified", "patch": "@@ -1,4 +1,3 @@\n-one\n two"}
+            self.assertEqual(risk.recent_reverts([old], repo, base, own=21194, now=now), {})
+            self.assertEqual(risk.recent_reverts([stale], repo, base, own=21369, now=now), {})
 
 
 class RenderTests(unittest.TestCase):

@@ -40,6 +40,14 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci/risk_tier.py
           sparse-checkout-cone-mode: false
+      # The base's last week of history, without file contents until blame asks for them, for the
+      # check that flags deleting lines another pull request added recently (a stale base).
+      - name: Fetch the base's recent history
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags --filter=blob:none --shallow-since="9 days ago" origin \
+            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" || echo "::warning::recent-deletion check skipped: base history unavailable"
       - name: Grade the pull request
         id: grade
         env:
@@ -47,7 +55,7 @@ jobs:
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" \
+          python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" --repo-dir . \
             --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Set the risk label
         env:

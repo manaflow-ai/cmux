@@ -30,6 +30,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,6 +38,9 @@ TIERS = ("low", "medium", "high")
 LABELS = {tier: f"risk:{tier}" for tier in TIERS}
 WAIVED_LABEL = "risk:waived"
 LARGE_LINES = 1000
+# A runtime change (daemon, persistence, remote, typing path) over this many changed lines outside
+# tests and generated files is high; at or under it, medium.
+RUNTIME_LINES = 40
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
 # Ordered: the first matching rule wins, so specific high paths sit above broad low ones.
@@ -51,21 +55,24 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("low", "CI and tooling", (
         r"re:^scripts/.*(release[-_]notes|[-_]perf[-_]|[-_]e2e\.|release-compile|derived-data)",
     )),
-    # The merge gates themselves: a change here changes what every other pull request must show.
-    # Every workflow runs with repository secrets or a write token, and a CI change can skip the
-    # checks other pull requests rely on (feat-cmux-next PRs already skip swift test).
-    ("high", "merge gate, ownership or CI workflow", (
-        ".github/CODEOWNERS", ".github/workflows/*", ".github/actions/*", ".github/workflows/risk-tier.yml", ".github/workflows/cla*.yml",
+    # The merge gates and the workflows that decide which checks a pull request runs: one line
+    # here can skip the tests every other pull request relies on (feat-cmux-next PRs stopped
+    # running swift test through such a line), so any size is high.
+    ("high", "merge gate or check routing", (
+        ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/cla*.yml",
+        ".github/workflows/merge-*.yml", ".github/workflows/cmux-next.yml", ".github/workflows/ci.yml",
+        ".github/workflows/ci-guards.yml", ".github/workflows/ci-macos.yml", ".github/workflows/cmux-tui.yml",
         "scripts/ci/risk_tier.py", "scripts/gh-merge-green", "scripts/ci/base_red_excuse.py",
-        "scripts/ci/revert_pr.py",
+        "scripts/ci/revert_pr.py", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py",
     )),
     ("high", "signing, release or update path", (
         "*.entitlements", ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*",
     )),
-    ("high", "persistence, migration or protocol contract", (
+    # Stored data and contracts other builds read, and defaults every user gets: any size is high.
+    ("high", "migration, default or protocol contract", (
         "*/migrations/*", "*migration*.swift", "*Migration*.swift", "*/migrate/*",
-        "backend/*", "web/convex/schema*", "schemas/*",
-        "cmux-tui/spec/*", "plans/cmux-next/daemon-capabilities.json", NEXT + "CmuxNextHistory/*",
+        "web/convex/schema*", "schemas/defaults/*", "schemas/*/migrations/*",
+        "cmux-tui/spec/*", "plans/cmux-next/daemon-capabilities.json",
     )),
     ("high", "vendored pin or package graph", (
         "ghostty", "ghostty-next", "vendor/*", ".gitmodules",
@@ -81,7 +88,10 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "cmux-tui/bindings/*", "cmux-tui/crates/cmux-motion/*", "cmux-tui/crates/cmux-theme-tokens/*",
         "cmux-tui/crates/cmux-palette-ranker/*",
     )),
-    ("high", "daemon, protocol or remote access", (
+    # Runtime: high once the change is big enough to hide a behavior change (RUNTIME_LINES), medium
+    # for a small one, which a reviewer can read whole.
+    ("runtime", "daemon, persistence or remote access", (
+        "backend/*", "schemas/*", NEXT + "CmuxNextHistory/*",
         "cmux-tui/*", "daemon/*", "mux/*", "server/*", "services/*", "workers/*",
         NEXT + "CmuxNextDaemon*", NEXT + "CmuxNextControl/*", NEXT + "CmuxNextServer*",
         NEXT + "CmuxNextRemote*", NEXT + "CmuxNextMobile/*", NEXT + "CmuxNextBridge/*",
@@ -91,9 +101,10 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         NEXT + "CmuxNextComputerUse/*", NEXT + "CmuxNextBrowserHost/*",
         NEXT + "CmuxNextBrowserImport/*", NEXT + "CmuxNextBrowserAutomation/*", NEXT + "CmuxNextCloud/*",
     )),
-    ("high", "terminal input and rendering", (
+    ("runtime", "terminal input and rendering", (
         NEXT + "CmuxNextTerminal/*", NEXT + "CmuxNextTerminalGeometry/*", NEXT + "CmuxNextFocus/*",
     )),
+    ("medium", "CI workflow", (".github/workflows/*", ".github/actions/*")),
     ("low", "CI and tooling", (
         ".github/*", "scripts/*", ".claude/*", ".codex/*", ".agents/*", "tools/*",
         "biome.json", ".coderabbit.yaml", ".greptile/*", "dogfood/*", "experiments/*",
@@ -155,13 +166,25 @@ def classify(files: list[str], lines: dict[str, int] | None = None) -> Grade:
     lines = lines or {}
     rank = 0
     reasons: dict[str, list[str]] = {}
-    counted = 0
+    counted = runtime = 0
+    runtime_files: list[tuple[str, str]] = []
     for path in files:
         tier, reason = classify_path(path)
+        generated = any(matches(path, g) for g in GENERATED)
+        if tier == "runtime":
+            runtime_files.append((path, reason))
+            runtime += 0 if generated else lines.get(path, 0)
+            tier = "medium"
+        else:
+            reasons.setdefault(f"{tier}: {reason}", []).append(path)
         rank = max(rank, TIERS.index(tier))
-        reasons.setdefault(f"{tier}: {reason}", []).append(path)
-        if tier != "low" and not any(matches(path, g) for g in GENERATED):
+        if tier != "low" and not generated:
             counted += lines.get(path, 0)
+    runtime_tier = "high" if runtime > RUNTIME_LINES else "medium"
+    for path, reason in runtime_files:
+        size = f"{runtime} changed lines" + (f" > {RUNTIME_LINES}" if runtime_tier == "high" else f" <= {RUNTIME_LINES}")
+        reasons.setdefault(f"{runtime_tier}: {reason} ({size})", []).append(path)
+    rank = max(rank, TIERS.index(runtime_tier) if runtime_files else 0)
     grade = Grade(TIERS[rank], reasons, counted)
     if grade.tier == "medium" and counted > LARGE_LINES:
         grade.tier, grade.bumped = "high", True
@@ -224,6 +247,109 @@ def gh_items(endpoint: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
+# A pull request that takes back another pull request's change from this recently is high: that is
+# how a stale-base squash silently undoes other people's work (50a0c607aee undid #21369, #21384
+# and #21199, all merged in the two days before it).
+RECENT_DAYS = 7
+MAX_BLAME_FILES = 60
+PR_SUFFIX = re.compile(r"\(#(\d+)\)\s*$")
+
+
+def deleted_ranges(patch: str) -> list[tuple[int, int]]:
+    """The base-side line ranges a unified diff patch deletes, merged into runs."""
+    runs: list[tuple[int, int]] = []
+    old = 0
+    for line in patch.splitlines():
+        hunk = re.match(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@", line)
+        if hunk:
+            old = int(hunk.group(1))
+            continue
+        if line.startswith("-"):
+            if runs and runs[-1][1] == old - 1:
+                runs[-1] = (runs[-1][0], old)
+            else:
+                runs.append((old, old))
+            old += 1
+        elif line.startswith(" "):
+            old += 1
+    return runs
+
+
+def diff_lines(patch: str) -> tuple[list[str], list[str]]:
+    """The non-blank lines a patch removes and adds, stripped."""
+    removed = [l[1:].strip() for l in patch.splitlines() if l.startswith("-") and not l.startswith("---")]
+    added = [l[1:].strip() for l in patch.splitlines() if l.startswith("+") and not l.startswith("+++")]
+    return [l for l in removed if l], [l for l in added if l]
+
+
+def undoes(pr_patch: str, commit_patch: str) -> bool:
+    """Whether a pull request's change to a file takes back a commit's change to it: it deletes
+    most of what the commit added, and, when the commit replaced lines, puts most of them back."""
+    pr_removed, pr_added = map(set, diff_lines(pr_patch))
+    # A line the pull request removes and adds back elsewhere moved; it wasn't taken back.
+    gone, back = pr_removed - pr_added, pr_added - pr_removed
+    commit_removed, commit_added = map(set, diff_lines(commit_patch))
+    if not commit_added:
+        return False
+    if len(commit_added & gone) / len(commit_added) < 0.8:
+        return False
+    if not commit_removed:
+        return True
+    return len(commit_removed & back) / len(commit_removed) >= 0.5
+
+
+def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
+                   now: float | None = None) -> dict[int, list[str]]:
+    """Pull requests (other than `own`) merged in the last RECENT_DAYS whose change to a file this
+    pull request takes back, from `git blame` of the base: {pr number: [paths]}. The base's history
+    only needs to reach RECENT_DAYS back; older lines blame to the shallow boundary and are skipped.
+    Editing recent lines is ordinary; deleting what a recent commit added and restoring what it
+    replaced is how a stale base undoes someone's work."""
+    cutoff = (now or time.time()) - RECENT_DAYS * 86400
+    found: dict[int, list[str]] = {}
+    for entry in entries[:MAX_BLAME_FILES]:
+        path = entry.get("previous_filename") or entry["filename"]
+        patch = entry.get("patch") or ""
+        ranges = deleted_ranges(patch)
+        # Generated files follow their sources; a revert shows on the source.
+        if not ranges or entry.get("status") == "added" or any(matches(path, g) for g in GENERATED):
+            continue
+        args = ["git", "-C", repo_dir, "blame", "--porcelain"]
+        for start, end in ranges[:50]:
+            args += ["-L", f"{start},{end}"]
+        try:
+            out = subprocess.run([*args, base_sha, "--", path], capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            continue
+        if out.returncode != 0:
+            continue
+        commits: dict[str, dict[str, str]] = {}
+        current = None
+        for line in out.stdout.splitlines():
+            head = re.match(r"^([0-9a-f]{40}) \d+ \d+", line)
+            if head:
+                current = commits.setdefault(head.group(1), {})
+            elif current is not None and line == "boundary":
+                current["boundary"] = "1"
+            elif current is not None and " " in line and not line.startswith("\t"):
+                key, value = line.split(" ", 1)
+                current.setdefault(key, value)
+        for sha, info in commits.items():
+            if "boundary" in info or int(info.get("committer-time", "0")) < cutoff:
+                continue
+            number = PR_SUFFIX.search(info.get("summary", ""))
+            if not number or int(number.group(1)) == own:
+                continue
+            try:
+                shown = subprocess.run(["git", "-C", repo_dir, "show", "--format=", sha, "--", path],
+                                       capture_output=True, text=True, timeout=30).stdout
+            except subprocess.TimeoutExpired:
+                continue
+            if undoes(patch, shown):
+                found.setdefault(int(number.group(1)), []).append(path)
+    return {number: sorted(set(paths)) for number, paths in found.items()}
+
+
 def pr_mode(args: argparse.Namespace) -> int:
     base = f"repos/{args.repo}/pulls/{args.number}"
     entries = gh_items(f"{base}/files?per_page=100")
@@ -235,6 +361,13 @@ def pr_mode(args: argparse.Namespace) -> int:
     commits = [c["sha"] for c in gh_items(f"{base}/commits?per_page=100")]
     labels = {label["name"] for label in pr.get("labels", [])}
     grade = classify(files, lines)
+    if args.repo_dir:
+        undone = recent_reverts(entries, args.repo_dir, pr["base"]["sha"], int(args.number))
+        for number, paths in sorted(undone.items()):
+            grade.reasons.setdefault(f"high: takes back #{number}'s change from the last {RECENT_DAYS} days "
+                                     "(a stale base? say so if it's on purpose)", []).extend(paths)
+        if undone:
+            grade.tier = "high"
     missing = missing_evidence(grade.tier, pr.get("body") or "", commits)
     # Only consulted when evidence is missing; a lookup that fails reads as no waiver.
     waiver = None
@@ -325,6 +458,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("pr")
     p.add_argument("--repo", required=True)
     p.add_argument("--number", required=True)
+    p.add_argument("--repo-dir", help="a clone holding the base commit and RECENT_DAYS of its history, "
+                   "for the recent-deletion check (skipped without it)")
     p.add_argument("--github-output")
     p.add_argument("--summary")
     args = parser.parse_args(argv)

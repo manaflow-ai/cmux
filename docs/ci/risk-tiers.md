@@ -16,13 +16,22 @@ here says little about runtime behavior. The tiers ask for proof where a regress
 The classifier is `scripts/ci/risk_tier.py`. A pull request takes the highest tier of any file it
 changes. A file it can't place is medium, so a new directory is never graded low by accident.
 
-| Tier | Paths (examples) | Evidence before merge |
+| Tier | When | Evidence before merge |
 | --- | --- | --- |
-| low | docs, `*.md`, tests, skills, plans, `scripts/` tooling and `.github/` files other than workflows and actions | green CI on the exact head |
-| medium | app UI: `Packages/`, `webviews/`, `App/`, `ios/`, `web/`, SDK bindings; anything unclassified | plus a screenshot or clip under `## Proof`, next to the matching reference from [cmux-design-references](https://github.com/manaflow-ai/cmux-design-references) when one exists |
-| high | `cmux-tui/` (daemon, acpmux, protocol, spec), `daemon/`, `server/`, `services/`, `workers/`, `backend/`, `schemas/`, migrations; the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall`, `Updater` and the terminal input path; vendored pins and `Package.resolved`; signing, release, publish and entitlements; the merge gates themselves (`CODEOWNERS`, `gh-merge-green`, this classifier) and every workflow and action under `.github/`, since they run with secrets or write tokens and decide what other pull requests skip | plus an independent review and a runtime test that executed the change |
+| low | only docs, `*.md`, tests, skills, plans, `scripts/` tooling, and `.github/` files other than workflows and actions | green CI on the exact head |
+| medium | app UI (`Packages/`, `webviews/`, `App/`, `ios/`, `web/`), SDK bindings, workflows that don't route checks, anything unclassified, and a runtime change of 40 lines or fewer | plus a screenshot or clip under `## Proof` (next to the matching [cmux-design-references](https://github.com/manaflow-ai/cmux-design-references) entry when one exists), or `Not UI: <why>` |
+| high | any of the four below | plus an independent review and a runtime test that executed the change |
 
-A medium pull request that changes more than 1,000 lines outside tests and generated files is high.
+High comes from four places:
+
+- **Always, at any size.** One line here can break shipping or every other merge:
+  - signing, release, publish, update and entitlements
+  - migrations, `schemas/defaults/` (the defaults every user gets), `cmux-tui/spec/`, `plans/cmux-next/daemon-capabilities.json`
+  - vendored pins and `Package.resolved`
+  - the merge gates and check routing: `CODEOWNERS`, `gh-merge-green`, this classifier, `cmux-next.yml`, `ci.yml`, `ci-guards.yml`, `ci-macos.yml`, `cmux-tui.yml`, `merge-*.yml`, `cmux_next_route.py`. One line in `cmux-next.yml` stopped feat-cmux-next PRs from running `swift test`.
+- **A runtime change over 40 lines.** That's 40 changed lines outside tests and generated files, summed across `cmux-tui/` (daemon, acpmux), `backend/`, `schemas/`, `daemon/`, `server/`, `services/`, `workers/`, and the NEXT targets `Daemon*`, `Control`, `Server*`, `Remote*`, `Mobile`, `Bridge`, `Accounts`, `AppPermissions`, `History`, `Cloud`, `BrowserImport`, `BrowserAutomation`, `BrowserHost`, `ComputerUse`, `CrashReporting`, `CLIInstall` and the terminal input path. A smaller change there is medium, because a reviewer can read it whole.
+- **Taking back a change another pull request merged in the last 7 days.** That means deleting most of what it added, and putting back most of what it replaced. The check names the pull request. One stale-base squash (50a0c607aee, #21194) undid #21199, #21234, #21369, #21384 and #21446 this way, and graded only medium by path. If it's on purpose, say so in the description; the review covers it.
+- **A medium change over 1,000 lines** outside tests and generated files.
 
 ## What the description needs
 
