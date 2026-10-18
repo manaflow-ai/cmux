@@ -224,6 +224,12 @@ def strip():
     record("strip", "left-2", lambda: action("focusLeft"), layout=True)
     record("strip", "right-1", lambda: action("focusRight"), layout=True)
     record("strip", "right-2", lambda: action("focusRight"), layout=True)
+    # The sidebar hidden: the strip runs under the traffic lights, whose inset a column's tab bar keeps.
+    action("toggleSidebar", focus=True)
+    time.sleep(1.0)  # test harness: the sidebar hides
+    record("strip", "hidden-left-1", lambda: action("focusLeft"), layout=True)
+    record("strip", "hidden-right-1", lambda: action("focusRight"), layout=True)
+    action("toggleSidebar", focus=True)
 
 
 def groups():

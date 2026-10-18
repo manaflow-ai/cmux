@@ -36,7 +36,7 @@ parser.add_argument("--strip-left", type=float, default=None, help="the strip's 
 parser.add_argument("--json", default=None)
 opts = parser.parse_args()
 S = opts.scale
-SCENARIOS = ["left-1", "left-2", "right-1", "right-2"]
+SCENARIOS = ["left-1", "left-2", "right-1", "right-2", "hidden-left-1", "hidden-right-1"]
 
 
 def frames_of(directory):
@@ -239,7 +239,7 @@ for name in SCENARIOS:
     if not os.path.isdir(directory):
         continue
     layout = load_json(os.path.join(directory, "layout.json")) or fallback
-    result, total = check(directory, layout, lead=0.15, sign=1 if name.startswith("left") else -1)
+    result, total = check(directory, layout, lead=0.15, sign=1 if "left" in name else -1)
     result["layout"] = "scenario" if os.path.exists(os.path.join(directory, "layout.json")) else "chained"
     report[name] = result
     fallback = shifted(layout, total)
