@@ -8,6 +8,31 @@ repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/acpmux"
 
+# bundle-cmux-tui.sh runs before this legacy phase and deliberately exposes one
+# relocatable Mach-O as bin/cmux, cmux-tui, and acpmux.  Do not replace the
+# acpmux alias with a second copy: doing so breaks the three-name bundle
+# contract and makes the artifact non-relocatable.  Keep the metadata useful
+# for cache probes while preserving the canonical binary and link.
+if [[ -L "$dest" && "$(readlink "$dest" 2>/dev/null || true)" == cmux ]]; then
+  canonical="$dest_dir/cmux"
+  [[ -x "$canonical" ]] || {
+    echo "error: acpmux alias points at a missing or non-executable bin/cmux" >&2
+    exit 1
+  }
+  sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+  commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$dest_dir/cmux-tui.version" 2>/dev/null || true)"
+  source_kind="$(awk -F= '$1 == "source" { print $2; exit }' "$dest_dir/cmux-tui.version" 2>/dev/null || true)"
+  actual_archs="$(command -v lipo >/dev/null 2>&1 && lipo -archs "$canonical" || /usr/bin/file -b "$canonical")"
+  cat > "$dest_dir/acpmux.version" <<EOF_VERSION
+commit=$commit
+source=${source_kind:-cmux-tui-alias}
+sha256=$(sha256_of "$canonical")
+archs=$actual_archs
+EOF_VERSION
+  echo "preserved acpmux -> cmux bundle alias"
+  exit 0
+fi
+
 src="${CMUX_NEXT_ACPMUX_BIN:-}"
 if [[ -z "$src" ]]; then
   src="$({ "$repo_root/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path; } 2>/dev/null || true)"
