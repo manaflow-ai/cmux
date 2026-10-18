@@ -127,6 +127,23 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
       await page.close();
     });
 
+    test(`${engine}: one press on another chip opens its picker and keeps it, focus and all`, async () => {
+      const page = await open(engine);
+      await press(page, chip("Effort"));
+      await page.locator(".acpmux-effort-menu").waitFor();
+      await press(page, chip("Model"));
+      // The first menu's close lands after its fade; it must not pull focus back out of the picker.
+      await page.waitForTimeout(500);
+      const state = await page.evaluate(() => ({
+        expanded: [...document.querySelectorAll("button[aria-haspopup][aria-expanded=true]")].map((button) =>
+          button.getAttribute("aria-label"),
+        ),
+        inPopup: !!document.activeElement?.closest(".acpmux-mp"),
+      }));
+      expect(state).toEqual({ expanded: ["Model"], inPopup: true });
+      await page.close();
+    });
+
     test(`${engine}: Escape still puts the keyboard back on the chip, with its ring`, async () => {
       const page = await open(engine);
       await press(page, chip("Effort"));

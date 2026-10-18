@@ -3,6 +3,8 @@
 import {
   createContext,
   use,
+  useCallback,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentProps,
@@ -52,11 +54,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   const trigger = useRef<HTMLButtonElement | null>(null);
   const opener = useRef<Element | null>(null);
   const keyed = useRef(false);
+  const captured = useRef(false);
   const isOpen = open ?? internalOpen;
   const setMenuOpen = (next: boolean) => {
     if (next && !isOpen) {
       opener.current = trigger.current?.ownerDocument.activeElement ?? null;
       keyed.current = false;
+      captured.current = true;
     }
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
@@ -118,6 +122,19 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
       // remains selectable while the original trigger still owns pointer capture.
     },
   };
+  // A menu opened through `open` (automation, a parent's state) skips setMenuOpen: record what has
+  // focus now, unless the popup already took it, so a close never returns to a past session's opener.
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      captured.current = false;
+      return;
+    }
+    if (captured.current) return;
+    captured.current = true;
+    keyed.current = false;
+    const active = trigger.current?.ownerDocument.activeElement ?? null;
+    opener.current = active?.closest(".ui-popup") ? null : active;
+  }, [isOpen]);
   return (
     <MenuContext value={context}>
       <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
@@ -237,6 +254,15 @@ export function MenuPopup({
   const menu = use(MenuContext);
   const nested = use(InPopup);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
+  const popupNode = useRef<HTMLElement | null>(null);
+  const attachPopup = useCallback(
+    (node: HTMLElement | null) => {
+      if (node) popupNode.current = node;
+      if (host) setPopup(node);
+    },
+    [host],
+  );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
     side: side === "top" ? "top" : "bottom",
@@ -256,11 +282,13 @@ export function MenuPopup({
       >
         <BaseMenu.Popup
           // Only a page with a host measures its menus; the others render as they did.
-          ref={host ? setPopup : undefined}
+          ref={attachPopup}
           id={id}
           aria-label={label}
           className={cx("ui-popup ui-menu", className)}
-          finalFocus={finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu))}
+          finalFocus={
+            finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
+          }
           onPointerDown={() => {
             if (menu) menu.keyed.current = false;
           }}
@@ -290,9 +318,16 @@ export function MenuPopup({
 /// Where focus goes when a top-level menu closes. A keyboard close puts it on the trigger, with its
 /// ring. A pointer close (a pick or a press outside) puts focus back where it was when the menu
 /// opened (the prompt), else on the trigger, never with a focus ring: a ring left on a chip after a
-/// click away read as a stuck focus state (Leo 2026-10-18).
-function focusAfterClose(closeType: string, menu: MenuContextValue | null): boolean | HTMLElement | null {
+/// click away read as a stuck focus state (Leo 2026-10-18). Focus the close left elsewhere on purpose
+/// (another chip's menu opened by the same press, a field clicked into) stays there.
+function focusAfterClose(
+  closeType: string,
+  menu: MenuContextValue | null,
+  popup: HTMLElement | null,
+): boolean | HTMLElement | null {
   if (!menu) return true;
+  const active = menu.trigger.current?.ownerDocument.activeElement;
+  if (active && active !== active.ownerDocument.body && !popup?.contains(active)) return false;
   if (closeType === "keyboard" || menu.keyed.current) return menu.trigger.current ?? true;
   const opener = menu.opener.current;
   const target =
