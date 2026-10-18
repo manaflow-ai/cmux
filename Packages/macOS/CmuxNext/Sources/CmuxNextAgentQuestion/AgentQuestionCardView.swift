@@ -40,7 +40,7 @@ public final class AgentQuestionCardView: NSView {
     private let check = NSImageView()
     private var summaryLabels: [NSTextField] = []
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { cardState?.question.isPending == true }
 
     public override init(frame: NSRect) {

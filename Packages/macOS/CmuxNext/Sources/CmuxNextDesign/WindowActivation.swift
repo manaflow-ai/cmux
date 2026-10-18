@@ -57,6 +57,12 @@ public struct WindowActivation {
         }
     }
 
+    /// Told after ``show(_:_:)`` ordered `window` in: true in front of the app's windows, false
+    /// behind them. The app's one record of its window order (the window registry's recency,
+    /// saved as each window's restore order) follows it, together with key-window changes, so no
+    /// path asks the window server for the order (cx-8w027.25).
+    public static var didOrder: ((NSWindow, _ inFront: Bool) -> Void)?
+
     /// Orders `window` in for `intent` by the rule.
     public static func show(_ window: NSWindow, _ intent: Intent) {
         let plan = plan(intent, noActivate: WindowPlacement.noActivate, testScreen: WindowPlacement.testScreen != nil)
@@ -67,7 +73,25 @@ public struct WindowActivation {
         case .orderFront: window.orderFront(nil)
         case .orderBack: window.orderBack(nil)
         }
+        didOrder?(window, plan.order != .orderBack)
         if plan.activatesApp { NSApp.activate() }
+    }
+
+    /// Orders `window` in at its place in `order` (front first; nil for a window not made yet),
+    /// a restored window stack: below the nearest shown window in front of it, else above the
+    /// nearest shown one behind it. Never key, never activates; the caller's order record
+    /// already places it there. False (nothing ordered) when no other window of `order` shows.
+    public static func restack(_ window: NSWindow, in order: [NSWindow?]) -> Bool {
+        guard let index = order.firstIndex(where: { $0 === window }) else { return false }
+        let shown = { (other: NSWindow?) in other.flatMap { $0.isVisible ? $0 : nil } }
+        if let front = order[..<index].reversed().lazy.compactMap(shown).first {
+            window.order(.below, relativeTo: front.windowNumber)
+        } else if let back = order[(index + 1)...].lazy.compactMap(shown).first {
+            window.order(.above, relativeTo: back.windowNumber)
+        } else {
+            return false
+        }
+        return true
     }
 
     /// Activates the app, unless launched with no-activate.

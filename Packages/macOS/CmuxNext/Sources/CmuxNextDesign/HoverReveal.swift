@@ -92,6 +92,8 @@ public final class HoverReveal {
 
     private static var viewOwners: [ObjectIdentifier: WeakReveal] = [:]
     private static var regionOwners: [ObjectIdentifier: WeakReveal] = [:]
+    /// The reveals that watch focus in a view (`watchFocus(in:)`), by view.
+    private static var focusWatchers: [ObjectIdentifier: [WeakReveal]] = [:]
 
     /// - Parameter tracking: `.activeAlways` for window chrome (hover shows
     ///   in a background window too), `.activeInKeyWindow` for sheets.
@@ -119,6 +121,10 @@ public final class HoverReveal {
         MainActor.assumeIsolated {
             probe.removeFromSuperview()
             for key in views.keys where Self.viewOwners[key]?.value === self { Self.viewOwners[key] = nil }
+            for key in focusViews.keys {
+                Self.focusWatchers[key]?.removeAll { $0.value == nil || $0.value === self }
+                if Self.focusWatchers[key]?.isEmpty == true { Self.focusWatchers[key] = nil }
+            }
             if let region, Self.regionOwners[ObjectIdentifier(region)]?.value === self {
                 Self.regionOwners[ObjectIdentifier(region)] = nil
             }
@@ -150,7 +156,22 @@ public final class HoverReveal {
     /// the window controls and comes back for focus on any title bar button,
     /// while the title bar row's reveal fades those buttons.
     public func watchFocus(in view: NSView) {
-        focusViews[ObjectIdentifier(view)] = Weak(view)
+        let key = ObjectIdentifier(view)
+        focusViews[key] = Weak(view)
+        Self.focusWatchers[key, default: []].removeAll { $0.value == nil || $0.value === self }
+        Self.focusWatchers[key, default: []].append(WeakReveal(self))
+    }
+
+    /// The reveals whose keyboard focus covers `view` itself (it is an added or watched view):
+    /// a focus change walks the responder's superviews through this (`HoverRevealFocusRouter`).
+    fileprivate static func reveals(focusingOn view: NSView) -> [HoverReveal] {
+        let key = ObjectIdentifier(view)
+        var found: [HoverReveal] = []
+        if let owner = viewOwners[key]?.value, owner.views[key]?.value === view { found.append(owner) }
+        for watcher in focusWatchers[key] ?? [] {
+            if let reveal = watcher.value, reveal.focusViews[key]?.value === view { found.append(reveal) }
+        }
+        return found
     }
 
     public func remove(_ view: NSView) {
@@ -188,13 +209,14 @@ public final class HoverReveal {
         }
     }
 
-    /// Re-reads keyboard focus: a first responder inside an added view.
-    fileprivate func focusDidChange(_ responder: NSResponder?) {
-        let view = responder as? NSView
-        let inside = view.map { focused in
-            views.values.contains { $0.value.map { focused.isDescendant(of: $0) } ?? false }
-                || focusViews.values.contains { $0.value.map { focused.isDescendant(of: $0) } ?? false }
-        } ?? false
+    /// Whether `responder` is inside an added or watched view (read once when the region joins a window).
+    fileprivate func containsFocus(_ responder: NSResponder?) -> Bool {
+        guard let focused = responder as? NSView else { return false }
+        return views.values.contains { $0.value.map { focused.isDescendant(of: $0) } ?? false }
+            || focusViews.values.contains { $0.value.map { focused.isDescendant(of: $0) } ?? false }
+    }
+
+    fileprivate func setFocusInside(_ inside: Bool) {
         update { $0.focusInside = inside }
     }
 
@@ -220,9 +242,75 @@ public final class HoverReveal {
         init(_ value: NSView) { self.value = value }
     }
 
-    private struct WeakReveal {
+    fileprivate struct WeakReveal {
         weak var value: HoverReveal?
         init(_ value: HoverReveal) { self.value = value }
+    }
+}
+
+/// One first-responder observation per window for every reveal in it (cx-8w027.25). A change
+/// walks the new responder's superviews once and tells only the reveals it enters or leaves:
+/// O(view depth) per focus change, where one observation per reveal re-read every reveal of the
+/// window (two per pane, ~5 ms per tab switch at 16 panes).
+@MainActor
+private final class HoverRevealFocusRouter {
+    private static var routers: [ObjectIdentifier: HoverRevealFocusRouter] = [:]
+
+    private weak var window: NSWindow?
+    private var observation: NSKeyValueObservation?
+    /// Reveals whose region is in the window, by reveal.
+    private var members: [ObjectIdentifier: HoverReveal.WeakReveal] = [:]
+    /// Members that have the focus now.
+    private var focused: [ObjectIdentifier: HoverReveal.WeakReveal] = [:]
+
+    /// `reveal`'s region joined `window`: it reads the focus now and follows every change.
+    static func join(_ reveal: HoverReveal, window: NSWindow) {
+        // A window that went away without its reveals leaving drops its router (its address may be reused).
+        routers = routers.filter { $0.value.window != nil }
+        let router = routers[ObjectIdentifier(window)].flatMap { $0.window === window ? $0 : nil } ?? {
+            let router = HoverRevealFocusRouter()
+            router.window = window
+            routers[ObjectIdentifier(window)] = router
+            router.observation = window.observe(\.firstResponder, options: [.new]) { @Sendable [weak router] window, _ in
+                // KVO calls back synchronously on the changing thread: inline on main (a hop would reveal a focused button a turn late), a hop from anywhere else.
+                MainDelivery().run { router?.responderDidChange(window.firstResponder) }
+            }
+            return router
+        }()
+        let key = ObjectIdentifier(reveal)
+        router.members[key] = HoverReveal.WeakReveal(reveal)
+        let inside = reveal.containsFocus(window.firstResponder)
+        router.focused[key] = inside ? HoverReveal.WeakReveal(reveal) : nil
+        reveal.setFocusInside(inside)
+    }
+
+    /// The reveal `key` left `window` (or went away); the window's observation ends with its last reveal.
+    static func leave(_ key: ObjectIdentifier, window: NSWindow) {
+        let windowKey = ObjectIdentifier(window)
+        guard let router = routers[windowKey], router.window === window else { return }
+        router.members[key] = nil
+        router.focused[key] = nil
+        router.members = router.members.filter { $0.value.value != nil }
+        if router.members.isEmpty {
+            router.observation = nil
+            routers[windowKey] = nil
+        }
+    }
+
+    private func responderDidChange(_ responder: NSResponder?) {
+        var now: [ObjectIdentifier: HoverReveal] = [:]
+        var view = responder as? NSView
+        while let current = view {
+            for reveal in HoverReveal.reveals(focusingOn: current) where members[ObjectIdentifier(reveal)]?.value === reveal {
+                now[ObjectIdentifier(reveal)] = reveal
+            }
+            view = current.superview
+        }
+        let left = focused.filter { now[$0.key] == nil }.compactMap(\.value.value)
+        let entered = now.filter { focused[$0.key] == nil }.map(\.value)
+        focused = now.mapValues { HoverReveal.WeakReveal($0) }
+        for reveal in left { reveal.setFocusInside(false) }
+        for reveal in entered { reveal.setFocusInside(true) }
     }
 }
 
@@ -230,10 +318,15 @@ public final class HoverReveal {
 /// and follows the region's window (focus changes, close). It takes no
 /// clicks and draws nothing.
 private final class HoverRevealProbe: NSView {
-    weak var owner: HoverReveal?
+    weak var owner: HoverReveal? {
+        didSet { ownerKey = owner.map(ObjectIdentifier.init) }
+    }
+    /// The owner's identity, for leaving the focus router after the owner went away.
+    private var ownerKey: ObjectIdentifier?
+    /// The window whose focus router this probe's owner joined.
+    private weak var routedWindow: NSWindow?
     private let trackingOptions: NSTrackingArea.Options
     private let tracksPointer: Bool
-    private var focusObservation: NSKeyValueObservation?
     private var closeObserver: Task<Void, Never>?
 
     init(tracking: NSTrackingArea.Options, tracksPointer: Bool) {
@@ -297,7 +390,8 @@ private final class HoverRevealProbe: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         guard newWindow !== window else { return }
-        focusObservation = nil
+        if let routedWindow, let ownerKey { HoverRevealFocusRouter.leave(ownerKey, window: routedWindow) }
+        routedWindow = nil
         closeObserver?.cancel()
         closeObserver = nil
         owner?.windowWillChange()
@@ -306,9 +400,9 @@ private final class HoverRevealProbe: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-        focusObservation = window.observe(\.firstResponder, options: [.initial, .new]) { @Sendable [weak self] window, _ in
-            // KVO calls back synchronously on the changing thread: inline on main (a hop would reveal a focused button a turn late), a hop from anywhere else.
-            MainDelivery().run { self?.owner?.focusDidChange(window.firstResponder) }
+        if let owner {
+            HoverRevealFocusRouter.join(owner, window: window)
+            routedWindow = window
         }
         // task-owner: the probe (cancelled when it leaves the window or deinits); event-driven.
         closeObserver = Task { @MainActor [weak self, weak window] in

@@ -354,6 +354,13 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
     }
 
+    /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
+    private var standardButtons = StandardWindowButtons()
+
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
+        standardButtons.button(b, in: self) { super.standardWindowButton(b) }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
         if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }

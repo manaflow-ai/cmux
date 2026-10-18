@@ -81,7 +81,8 @@ struct WindowRegistry: Equatable, Sendable {
     /// was O(n²) at 1,000 workspaces (a watchdog trip). Derived from
     /// `windows`; not part of `==`.
     private var owners: [String: String] = [:]
-    /// Window ids, most recently active first.
+    /// Window ids, most recently active first: the app's window order (front first), kept from
+    /// key-window changes and every `WindowActivation` ordering (`WindowManager.windowDidOrder`).
     private(set) var recency: [String] = []
     /// Incognito windows, registered or about to be (New Incognito Window
     /// marks the id before its workspace is reported).
@@ -258,6 +259,13 @@ struct WindowRegistry: Equatable, Sendable {
         guard window(id) != nil else { return }
         recency.removeAll { $0 == id }
         recency.insert(id, at: 0)
+    }
+
+    /// Window `id` went behind the app's other windows (ordered in behind them).
+    mutating func moveToBack(_ id: String) {
+        guard window(id) != nil else { return }
+        recency.removeAll { $0 == id }
+        recency.append(id)
     }
 
     mutating func setGeometry(_ id: String, frame: CGRect?, display: String?) {

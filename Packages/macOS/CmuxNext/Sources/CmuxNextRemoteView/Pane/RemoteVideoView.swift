@@ -13,7 +13,7 @@ package final class RemoteVideoView: NSView {
         didSet { if showsRemoteCursor != oldValue { needsLayout = true } }
     }
 
-    package override var isFlipped: Bool { true }
+    nonisolated package override var isFlipped: Bool { true }
 
     package override init(frame: NSRect) {
         super.init(frame: frame)

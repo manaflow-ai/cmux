@@ -44,6 +44,8 @@ final class WindowManager {
     var pendingClaims: [String: String] = [:]
     /// Pending claims not to show on arrival; windows to open behind (automation, Option).
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
+    /// Restored windows, all but the front one, not presented yet: each goes to its saved place in the stack.
+    private var restacking: Set<String> = []
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -98,6 +100,17 @@ final class WindowManager {
 
     init(services: AppServices) {
         self.services = services
+        WindowActivation.didOrder = { [weak self] window, inFront in self?.windowDidOrder(window, inFront: inFront) }
+    }
+
+    /// `WindowActivation` ordered `window` in front or behind: the registry's recency (the app's
+    /// window order, saved as `WindowRecord.order`) follows it, as it follows key changes (`didActivate`).
+    private func windowDidOrder(_ window: NSWindow, inFront: Bool) {
+        guard let id = controllers.first(where: { $0.window === window })?.state.id else { return }
+        registry.apply { registry in
+            if inFront { registry.activate(id) } else { registry.moveToBack(id) }
+            return WindowRegistry.Changes()
+        }
     }
 
     var active: WindowController? {
@@ -209,6 +222,9 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
+        // Every restored window but the front one comes back at its saved place in the stack, whatever
+        // order the content arrives in (`present`): never key, the recency unchanged.
+        restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
         // it has none (the daemon failed to create one), it keeps showing
@@ -316,7 +332,11 @@ final class WindowManager {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
-        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
+        let restacks = restacking.remove(controller.state.id) != nil
+        if ordersWindowsIn, let window = controller.window,
+           !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.controller(for: $0)?.window })) {
+            WindowActivation.show(window, behind ? .presentBehind : .present)
+        }
         onPresent?(controller)
         enterRestoredFullScreens()
     }
@@ -340,6 +360,7 @@ final class WindowManager {
         if lastActive === controller { lastActive = nil } // S22: a closed window is never active, even if retained.
         awaitingContent[id] = nil
         contentWaiters[id] = nil
+        restacking.remove(id)
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {

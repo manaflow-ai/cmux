@@ -72,9 +72,16 @@ enum ControlSessions {
     /// A host name's first DNS label (`cmux-dev-backend-1` for
     /// `cmux-dev-backend-1.us-central1-b.c.example.internal`); an IP address
     /// or an SSH label (`host/session`) stays whole.
+    /// UTF-8 scans: it runs in every control snapshot publish (per tab switch).
     static func shortHost(_ name: String) -> String {
-        if name.contains("/") || name.allSatisfy({ $0.isNumber || $0 == "." || $0 == ":" }) { return name }
-        return name.split(separator: ".").first.map(String.init) ?? name
+        let bytes = name.utf8
+        if bytes.contains(UInt8(ascii: "/")) || bytes.allSatisfy({ (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0) || $0 == UInt8(ascii: ".") || $0 == UInt8(ascii: ":") }) {
+            return name
+        }
+        // The first non-empty label, as `split(separator: ".").first`.
+        guard let start = bytes.firstIndex(where: { $0 != UInt8(ascii: ".") }) else { return name }
+        let end = bytes[start...].firstIndex(of: UInt8(ascii: ".")) ?? bytes.endIndex
+        return start == bytes.startIndex && end == bytes.endIndex ? name : String(name[start..<end])
     }
 
     /// Session names that add nothing to a machine's name.
