@@ -542,7 +542,10 @@ export function ComposerPickers({
 
   const chips = (
     <div className="acpmux-chips">
-      {models.length > 0 || snapshot.catalog.length > 0 || harness ? (
+      {models.length > 0 ||
+      snapshot.catalog.length > 0 ||
+      harness ||
+      Boolean(harness && pickerCatalog?.harnesses.length) ? (
         <ModelPicker
           catalog={pickerEntries}
           harness={harness}
