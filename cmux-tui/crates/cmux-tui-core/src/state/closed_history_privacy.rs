@@ -266,6 +266,31 @@ mod tests {
     }
 
     #[test]
+    fn strip_url_drops_secret_keys_of_a_hash_route_query() {
+        // A single-page app's route keeps its query in the fragment.
+        assert_eq!(strip_url("https://h/#/cb?code=abc"), "https://h/#/cb");
+        assert_eq!(strip_url("https://h/#/cb?code=abc&x=1"), "https://h/#/cb?x=1");
+        assert_eq!(strip_url("https://h/#/cb?x=1&state=s"), "https://h/#/cb?x=1&state=s");
+        assert_eq!(strip_url("https://h/#!/cb?access_token=t"), "https://h/#!/cb");
+    }
+
+    #[test]
+    fn strip_url_treats_a_semicolon_as_a_query_separator() {
+        assert_eq!(strip_url("https://h/p?a=1;token=x"), "https://h/p?a=1");
+        assert_eq!(strip_url("https://h/p?token=x;a=1&b=2"), "https://h/p?a=1&b=2");
+        assert_eq!(strip_url("https://h/p?a=1;b=2&c=3"), "https://h/p?a=1;b=2&c=3");
+    }
+
+    #[test]
+    fn strip_url_drops_user_info_without_slashes() {
+        // Browsers read `https:user:pass@h/p` as `https://user:pass@h/p`.
+        assert_eq!(strip_url("https:user:pass@h/p"), "https:h/p");
+        assert_eq!(strip_url("https:/user@h/p"), "https:/h/p");
+        assert_eq!(strip_url("https:\\\\user:pass@h/p"), "https:\\\\h/p");
+        assert_eq!(strip_url("https:h/@me"), "https:h/@me");
+    }
+
+    #[test]
     fn strip_url_leaves_non_web_urls_alone() {
         assert_eq!(strip_url("file:///tmp/a?token=s"), "file:///tmp/a?token=s");
         assert_eq!(strip_url("cmux://history#access_token=t"), "cmux://history#access_token=t");
