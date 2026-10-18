@@ -301,8 +301,31 @@ struct BrowserProfileSocketTests {
         let workspace = try #require(manager.selectedWorkspace)
         TerminalController.shared.setActiveTabManager(manager)
 
-        // An explicit selector wins over the last-used profile, which is what a
-        // surface would otherwise inherit.
+        // Without a selector the surface inherits exactly as it did before, so
+        // the flag is the only thing that changed. This runs first on purpose:
+        // `resolvedNewBrowserProfileID` prefers the pane's selected browser
+        // panel and then the workspace preference, and creating a browser
+        // surface records both, so only an empty pane reaches the last-used
+        // profile that this covers.
+        store.noteUsed(fallback.id)
+        let inheritedResponse = try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "browser",
+                "url": "about:blank",
+                "focus": false,
+            ]
+        )
+        let inheritedResult = try successfulResult(inheritedResponse)
+        let inheritedSurfaceID = try #require(
+            (inheritedResult["surface_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+        let inheritedPanel = try #require(workspace.panels[inheritedSurfaceID] as? BrowserPanel)
+        #expect(inheritedPanel.profileID == fallback.id)
+
+        // An explicit selector wins over everything a surface would otherwise
+        // inherit, including the profile the surface above just recorded.
         store.noteUsed(fallback.id)
         let createdResponse = try call(
             method: "surface.create",
@@ -320,25 +343,6 @@ struct BrowserProfileSocketTests {
         )
         let createdPanel = try #require(workspace.panels[createdSurfaceID] as? BrowserPanel)
         #expect(createdPanel.profileID == target.id)
-
-        // Without a selector the surface still inherits, so the flag is the only
-        // thing that changed.
-        store.noteUsed(fallback.id)
-        let inheritedResponse = try call(
-            method: "surface.create",
-            params: [
-                "workspace_id": workspace.id.uuidString,
-                "type": "browser",
-                "url": "about:blank",
-                "focus": false,
-            ]
-        )
-        let inheritedResult = try successfulResult(inheritedResponse)
-        let inheritedSurfaceID = try #require(
-            (inheritedResult["surface_id"] as? String).flatMap(UUID.init(uuidString:))
-        )
-        let inheritedPanel = try #require(workspace.panels[inheritedSurfaceID] as? BrowserPanel)
-        #expect(inheritedPanel.profileID == fallback.id)
 
         let unknownSelector = "Issue 21210 Missing \(suffix)"
         let unknownError = try errorPayload(try call(
