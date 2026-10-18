@@ -9,10 +9,12 @@ terminal right, prints one long line (`seq -s. 900`) in a terminal, then
 while `debug.window_record` records every display frame and `debug.frames`
 records display-link intervals, drags the split divider left and right, one
 `debug.mouse` event per 60 Hz frame. After each step it reads both terminals
-from `debug.surfaces`: the columns each frame fits (`fit_grid`) and the grid the
-surface renders (`grid`, the owner's grid the text is laid out in). Pass: every
-step's rendered columns follow the fitted columns within --lag steps, the grid
-changes during the drag, and no frame interval is over --hitch-ms. Writes frames/, samples.json and app.log to
+from `debug.surfaces`: the columns each frame fits (`fit_grid`), the grid Ghostty's
+last frame drew (`drawn_grid`: the reflow preview while the owner has not
+announced the new grid, cx-8w027.13) and the owner's grid (`grid`). Pass: at
+every step the drawn columns equal the fitted columns (0 steps of lag), the
+owner's grid follows within --lag steps and changes during the drag, after the
+drag all three agree, and no frame interval is over --hitch-ms. Writes frames/, samples.json and app.log to
 DIR. Stops only the app it started (by its PID) and the tag's daemons
 (tag_teardown).
 """
@@ -27,7 +29,7 @@ parser.add_argument("--app", default=os.environ.get("NX_APP"))
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/divider-drag-reflow")
 parser.add_argument("--steps", type=int, default=40)
 parser.add_argument("--step-pt", type=float, default=6.0)
-parser.add_argument("--lag", type=int, default=3, help="steps the text may trail the edge")
+parser.add_argument("--lag", type=int, default=3, help="steps the owner's grid may trail the edge")
 parser.add_argument("--hitch-ms", type=float, default=50.0)
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -89,9 +91,9 @@ def cols(value):
 
 
 def terminals():
-    """Terminal panes left to right: (frame x, columns the view fits, columns the surface renders).
-    `surface.grid` is the owner's grid the mirror is locked to (the text's layout); `fit_grid` what the
-    view fits (PaneController+Diagnostics)."""
+    """Terminal panes left to right: (frame x, columns the view fits, owner's columns, drawn columns).
+    `surface.grid` is the owner's grid the mirror is locked to; `fit_grid` what the view fits;
+    `drawn_grid` what Ghostty's last frame drew (PaneController+Diagnostics)."""
     result = rpc("debug.surfaces") or {}
     rows = []
     for window in result.get("windows") or []:
@@ -99,7 +101,8 @@ def terminals():
             surface, grid = pane.get("surface") or {}, pane.get("grid") or {}
             if not surface.get("fit_grid"):
                 continue
-            rows.append((grid.get("frame_x", 0), cols(surface.get("fit_grid")), cols(surface.get("grid"))))
+            rows.append((grid.get("frame_x", 0), cols(surface.get("fit_grid")), cols(surface.get("grid")),
+                         cols(surface.get("drawn_grid"))))
     return sorted(rows)
 
 
@@ -148,7 +151,8 @@ try:
             time.sleep(1 / 60)
             if sample:
                 panes = terminals()
-                report["steps"].append({"pointer_x": round(x, 1), "fit": [p[1] for p in panes], "grid": [p[2] for p in panes]})
+                report["steps"].append({"pointer_x": round(x, 1), "fit": [p[1] for p in panes], "grid": [p[2] for p in panes],
+                                        "drawn": [p[3] for p in panes]})
         rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
         time.sleep(0.8)
 
@@ -165,25 +169,35 @@ try:
     report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 10})
     drag(sample=True)
     report["after"] = terminals()
-    # Pass rule, per terminal: the columns it renders equal what its frame fits at that step or one of
-    # the --lag steps before it (one grid in flight and its echo), and they change during the drag.
-    misses, distinct = [], []
+    # Pass rule, per terminal: the drawn columns equal what its frame fits at the same step (the text
+    # fits the pane on the same frame); the owner's grid equals a fit of that step or one of the --lag
+    # steps before it (one grid in flight and its echo) and changes during the drag; after the drag
+    # drawn, fit and owner grids agree.
+    misses, lagged, distinct = [], [], []
     for pane in range(min(len(s["fit"]) for s in report["steps"])):
         fits = [s["fit"][pane] for s in report["steps"]]
         grids = [s["grid"][pane] for s in report["steps"]]
+        drawn = [s["drawn"][pane] for s in report["steps"]]
+        for i, (fit, shown) in enumerate(zip(fits, drawn)):
+            if shown != fit:
+                misses.append({"pane": pane, "step": i, "drawn": shown, "fit": fit, "grid": grids[i]})
         for i, grid in enumerate(grids):
             # The grid sent can be a fit between two samples: within the range of the recent fits.
             recent = fits[max(0, i - opts.lag):i + 1]
             if not min(recent) <= grid <= max(recent):
-                misses.append({"pane": pane, "step": i, "grid": grid, "recent_fits": recent})
+                lagged.append({"pane": pane, "step": i, "grid": grid, "recent_fits": recent})
         distinct.append(len(set(grids)))
+    settled = [p for p in report["after"] if not p[1] == p[2] == p[3]]
     report["misses"] = misses
+    report["owner_lagged"] = lagged
+    report["unsettled_after"] = settled
     report["distinct_grids"] = distinct
     stats = report["frames"] or {}
     report["worst_frame_ms"] = stats.get("max_ms") or 0
     frames_ok = isinstance(stats, dict) and "error" not in stats and (stats.get("frames") or 0) > 0 \
         and report["worst_frame_ms"] <= opts.hitch_ms
-    ok = bool(distinct) and not misses and min(distinct) > 5 and frames_ok
+    ok = bool(distinct) and not misses and not lagged and not settled and len(report["after"]) >= 2 \
+        and min(distinct) > 5 and frames_ok
 finally:
     if app.poll() is None:
         app.send_signal(signal.SIGTERM)
@@ -195,7 +209,8 @@ finally:
     teardown.end()
     with open(os.path.join(opts.out, "samples.json"), "w") as f:
         json.dump(report, f, indent=1)
-print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
+print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "owner_lagged", "unsettled_after",
+                                              "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
 print("frames idle:", json.dumps(report.get("frames_idle"))[:600])
 print("frames drag:", json.dumps(report.get("frames"))[:600])
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))

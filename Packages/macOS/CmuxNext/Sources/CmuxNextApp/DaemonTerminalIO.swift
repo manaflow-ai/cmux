@@ -154,6 +154,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
 
+    /// A visible live view takes geometry on each resize
+    /// (`TerminalAttachMachine`), so the daemon applies and announces it.
+    @MainActor var appliesViewGrid: Bool { driver.machine.liveLink != nil && driver.machine.visible }
+
     /// Hidden views release canonical geometry so another client (or the
     /// next visible view) owns it; shown views claim it again.
     @MainActor func setVisible(_ visible: Bool) {

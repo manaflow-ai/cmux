@@ -235,9 +235,10 @@ public final class TerminalSurfaceView: NSView {
     }
 
     /// Every frame of a drag resizes the surface at once: the drawable takes
-    /// the new size and draws one frame, and the grid report goes to the
-    /// owner through `ResizeCoordinator` (next frame, one in flight), so the
-    /// text reflows with the edge.
+    /// the new size and draws one frame with the text reflowed to it (the
+    /// reflow preview, ``updateReflowPreview()``), and the grid report goes to
+    /// the owner through `ResizeCoordinator` (next frame, one in flight). The
+    /// owner's announcement then shows the same rows.
     public override func setFrameSize(_ newSize: NSSize) {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
@@ -288,6 +289,22 @@ public final class TerminalSurfaceView: NSView {
         gridLock.lock(grid, on: lane)
     }
 
+    /// Whether the surface draws its reflow preview: only a view whose
+    /// reported grid the owner applies (``TerminalIO/appliesViewGrid``).
+    private var reflowPreview = false
+
+    /// Turns the reflow preview on while the owner applies this view's grid.
+    /// Until the owner announces the view's grid, Ghostty draws the locked
+    /// grid reflowed to the view's grid (render only); a view whose grid the
+    /// owner does not apply draws the locked grid, cropped or padded.
+    func updateReflowPreview() {
+        guard let surface else { return }
+        let enabled = geometry.ownsGeometry && (session?.io.appliesViewGrid ?? false)
+        guard enabled != reflowPreview else { return }
+        reflowPreview = enabled
+        ghostty_surface_set_reflow_preview(surface, enabled)
+    }
+
     /// Sizes the surface to the view and reports the view's grid when it
     /// changed.
     ///
@@ -303,6 +320,8 @@ public final class TerminalSurfaceView: NSView {
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
+        // Before set_size, so the frame of the new size already reflows.
+        updateReflowPreview()
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
         let size = ghostty_surface_size(surface)
         publish(size: size)

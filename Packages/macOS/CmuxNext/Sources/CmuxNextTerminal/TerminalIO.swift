@@ -33,6 +33,13 @@ public nonisolated protocol TerminalIO: Sendable {
     /// `GHOSTTY_SURFACE_IO_MANUAL` and Ghostty replies (ghostty.h:552-559).
     var answersTerminalQueries: Bool { get }
 
+    /// True while a grid this view reports becomes the PTY grid: the owner
+    /// will announce it. The surface then draws its own reflow at the view's
+    /// grid until the announcement (`ghostty_surface_set_reflow_preview`), so
+    /// a resize shows on the same frame. False while another client holds
+    /// geometry, before the first replay, or when no owner announces grids.
+    @MainActor var appliesViewGrid: Bool { get }
+
     /// The surface gained keyboard focus. Ordered with `write` and `resize`.
     /// A daemon IO takes canonical geometry back if another client took it
     /// (the latest active client holds geometry).
@@ -50,6 +57,7 @@ public nonisolated protocol TerminalIO: Sendable {
 
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
+    @MainActor var appliesViewGrid: Bool { false }
     func focusGained() async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
