@@ -36,10 +36,13 @@
   color: var(--agent-text);
   font: inherit;
   text-overflow: ellipsis;
+  cursor: default;
+}
+/* Only a sender that is a chat reads as a link to it. */
+button.cv-received__sender {
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 35%, transparent);
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-received__chevron {
   display: inline-flex;
