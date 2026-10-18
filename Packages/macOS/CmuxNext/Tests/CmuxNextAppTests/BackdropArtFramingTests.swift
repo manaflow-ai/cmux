@@ -5,7 +5,7 @@ import Testing
 
 /// The window's art follows the columns over it: with a docked agent chat on the left, the
 /// painting's subject moves into the part of the window still showing art, and back when the
-/// column goes (``WindowMaterialView/coveredColumns``).
+/// column goes (``WindowMaterialView/setCover(_:for:)``).
 @MainActor @Suite(.serialized) struct BackdropArtFramingTests {
     @Test func theArtMovesItsSubjectClearOfTheColumnsOverIt() async throws {
         _ = NSApplication.shared
@@ -24,7 +24,11 @@ import Testing
         backdrop.layoutSubtreeIfNeeded()
         let open = try #require(backdrop.artPlacement, "the art is not placed")
 
-        backdrop.coveredColumns = [0...240, 240...660]
+        // The sidebar and a workspace's agent chat report themselves to the window's backdrop.
+        #expect(WindowMaterialView.backdrop(of: window) === backdrop)
+        backdrop.setCover(CGRect(x: 0, y: 0, width: 240, height: 945), for: "sidebar")
+        backdrop.setCover(CGRect(x: 240, y: 0, width: 420, height: 945), for: "agentChat.1")
+        #expect(backdrop.coveredColumns.sorted { $0.lowerBound < $1.lowerBound } == [0...240, 240...660])
         let covered = try #require(backdrop.artPlacement)
         let visible = BackdropVisibleSpan.uncovered(width: frame.width, by: backdrop.coveredColumns)
         #expect(covered == art.metadata.placement(forViewSize: frame.size, imageSize: try #require(images.cached(.art(art))).size,
@@ -32,7 +36,9 @@ import Testing
         #expect(backdrop.artView.layer?.contentsRect == covered.contentsRect, "the art layer does not show the new placement")
         #expect(backdrop.artFillView.isHidden == !covered.fills, "the blurred fill does not follow the placement")
 
-        backdrop.coveredColumns = []
+        backdrop.setCover(nil, for: "agentChat.1")
+        backdrop.setCover(nil, for: "sidebar")
+        #expect(backdrop.coveredColumns.isEmpty)
         #expect(backdrop.artPlacement == open, "the art does not go back when the column closes")
         #expect(backdrop.artFillView.isHidden)
     }

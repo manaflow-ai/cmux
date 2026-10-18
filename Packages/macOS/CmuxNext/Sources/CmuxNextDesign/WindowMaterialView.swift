@@ -43,6 +43,8 @@ public final class WindowMaterialView: NSView {
     public var coveredColumns: [ClosedRange<CGFloat>] = [] {
         didSet { if coveredColumns != oldValue { updateArtCrop(animated: true) } }
     }
+    /// The columns over the art by who reported them, in window coordinates (``setCover(_:for:)``).
+    private var covers: [String: CGRect] = [:]
     /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
     private var artOpacity: Float = 1
     private var loadedSelection: BackdropSelection?
@@ -329,6 +331,23 @@ public final class WindowMaterialView: NSView {
             layer.contentsRect = placement.contentsRect
             artView.frame = placement.frame
             CATransaction.commit()
+        }
+    }
+
+    /// The backdrop behind `window`'s content: its content view, or a direct subview of it.
+    public static func backdrop(of window: NSWindow?) -> WindowMaterialView? {
+        guard let content = window?.contentView else { return nil }
+        return content as? WindowMaterialView ?? content.subviews.lazy.compactMap { $0 as? WindowMaterialView }.first
+    }
+
+    /// Records the column `source` lays over the art (`frameInWindow` in window coordinates; nil
+    /// when it is gone): the sidebar and each workspace's docked agent chat report themselves.
+    public func setCover(_ frameInWindow: CGRect?, for source: String) {
+        guard covers[source] != frameInWindow else { return }
+        covers[source] = frameInWindow
+        coveredColumns = covers.keys.sorted().compactMap { key in
+            guard let frame = covers[key].map({ convert($0, from: nil) }), frame.width > 0.5 else { return nil }
+            return frame.minX...frame.maxX
         }
     }
 
