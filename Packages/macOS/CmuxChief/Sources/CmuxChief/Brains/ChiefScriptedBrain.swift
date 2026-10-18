@@ -53,7 +53,7 @@ public final class ChiefScriptedBrain: ChiefBrain {
     private let state = ScriptedBrainState()
 
     /// - Parameter clock: Paces the script; tests pass a clock that returns at once.
-    public init(clock: any Clock<Duration> = ContinuousClock()) {
+    public init(clock: any Clock<Duration> = HomeSleepClock()) {
         self.clock = clock
     }
 

@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import Darwin
 import Foundation
 
@@ -138,7 +139,7 @@ public actor ChiefLoginShellPath {
             }
             // task-owner: the lookup's deadline; cancelled when the read finishes first
             read.start(deadline: Task {
-                guard (try? await ContinuousClock().sleep(for: timeout)) != nil else { return }
+                guard (try? await HomeSleepClock().sleep(for: timeout)) != nil else { return }
                 read.finish(nil)
             })
         }
