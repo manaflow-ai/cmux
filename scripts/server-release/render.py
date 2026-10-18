@@ -27,7 +27,10 @@ def token(value, pattern, name):
 
 
 def validate(plan):
-    if not isinstance(plan, dict) or plan.get("schema") != 1:
+    fields = {"schema", "version", "macos_team_id", "release_keys",
+              "windows_publisher_thumbprints", "archives"}
+    if (not isinstance(plan, dict) or set(plan) != fields
+            or type(plan.get("schema")) is not int or plan["schema"] != 1):
         raise ValueError("invalid release schema")
     token(plan.get("version"), r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", "version")
     token(plan.get("macos_team_id"), r"[A-Z0-9]{10}", "macOS team id")
@@ -48,7 +51,7 @@ def validate(plan):
     if not isinstance(archives, dict) or set(archives) != set(TARGETS):
         raise ValueError("all six release targets required")
     for target, archive in archives.items():
-        if not isinstance(archive, dict):
+        if not isinstance(archive, dict) or set(archive) != {"url", "sha256", "size"}:
             raise ValueError(f"invalid archive for {target}")
         url = archive.get("url")
         if not isinstance(url, str) or any(ord(c) <= 32 or ord(c) >= 127 for c in url):

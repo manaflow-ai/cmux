@@ -14,6 +14,7 @@ import os
 import shutil
 import ssl
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -113,7 +114,7 @@ class BootstrapJourney(unittest.TestCase):
         self.tool("curl", f'exec "{curl}" --cacert "{self.cert}" --noproxy "*" "$@"')
         self.tool("uname", 'case "$1" in -s) echo "${FIXTURE_OS:-Linux}" ;; -m) echo "${FIXTURE_ARCH:-x86_64}" ;; esac')
         self.tool("id", 'echo "${FIXTURE_UID:-1000}"')
-        self.tool("codesign", 'printf "%s\\n" "$@" >> "$SIGN_TRACE"; exit "${FIXTURE_SIGN_EXIT:-0}"')
+        self.tool("codesign", 'printf "%s\\n" "$@" >> "$SIGN_TRACE"; case "$*" in *-R=*) exit "${FIXTURE_PUBLISHER_EXIT:-0}" ;; esac; exit "${FIXTURE_SIGN_EXIT:-0}"')
         self.env["SIGN_TRACE"] = str(self.root / "sign")
         self.tool("sudo", 'printf "%s\\n" "$@" > "$SUDO_TRACE"; shift; exec "$@"')
         self.env["SUDO_TRACE"] = str(self.root / "sudo")
@@ -179,11 +180,40 @@ class BootstrapJourney(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         args = (self.root / "sign").read_text().splitlines()
         self.assertEqual(args[:2], ["--verify", "--strict"])
-        self.assertIn('-R=anchor apple generic and certificate leaf[subject.OU] = "TESTTEAM01"', args)
+        self.assertIn('-R=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "TESTTEAM01"', args)
 
     def test_macos_signature_failure_prevents_execution(self):
-        self.env.update(FIXTURE_OS="Darwin", FIXTURE_ARCH="arm64", FIXTURE_SIGN_EXIT="1")
+        self.env.update(FIXTURE_OS="Darwin", FIXTURE_ARCH="arm64")
+        for flag in ("FIXTURE_SIGN_EXIT", "FIXTURE_PUBLISHER_EXIT"):
+            with self.subTest(flag=flag):
+                self.env[flag] = "1"
+                self.assert_not_executed(self.run_script())
+                del self.env[flag]
+
+    @unittest.skipUnless(Path("/usr/bin/csreq").exists(), "Apple requirement parser needs macOS")
+    def test_native_macos_requirement_parses_and_rejects_an_unrelated_signer(self):
+        self.env.update(FIXTURE_OS="Darwin", FIXTURE_ARCH="arm64")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = (self.root / "sign").read_text().splitlines()
+        requirement = next(arg for arg in args if arg.startswith("-R="))[3:]
+        parsed = subprocess.run(["/usr/bin/csreq", "-r", "=" + requirement], capture_output=True)
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+        basic = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", "/usr/bin/true"], capture_output=True)
+        self.assertEqual(basic.returncode, 0, basic.stderr)
+        rejected = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", "-R=" + requirement, "/usr/bin/true"], capture_output=True)
+        self.assertNotEqual(rejected.returncode, 0)
+
+    def test_untrusted_tls_certificate_prevents_download_and_execution(self):
+        self.tool("curl", f'exec "{shutil.which("curl")}" --noproxy "*" "$@"')
         self.assert_not_executed(self.run_script())
+        self.assertEqual(self.requests, [])
+
+    def test_release_url_is_literal_shell_data(self):
+        self.plan["archives"]["x86_64-linux"]["url"] = f"https://127.0.0.1:{self.server.server_port}/bootstrap'$(false).tar.gz"
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.requests, ["/bootstrap'$(false).tar.gz"])
 
     def test_argument_rejection_happens_before_network(self):
         for args in (("--channel-url", "https://attacker.test"), ("--version",), ("--help",)):
@@ -220,6 +250,30 @@ class BootstrapJourney(unittest.TestCase):
         for line in first["SHA256SUMS"].decode().splitlines():
             digest, name = line.split("  ")
             self.assertEqual(hashlib.sha256(first[name]).hexdigest(), digest)
+
+    def test_cli_writes_a_complete_candidate_and_refuses_to_mix_old_signatures(self):
+        plan = self.root / "plan.json"
+        plan.write_text(json.dumps(self.plan))
+        output = self.root / "candidate"
+        command = [sys.executable, str(HERE / "render.py"), str(plan), str(output)]
+        result = subprocess.run(command, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = release.render(self.plan)
+        self.assertEqual({path.name: path.read_bytes() for path in output.iterdir()}, expected)
+        (output / "install.sh.sig").write_bytes(b"fixture-old-signature")
+        result = subprocess.run(command, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((output / "install.sh.sig").read_bytes(), b"fixture-old-signature")
+        for name, data in expected.items():
+            self.assertEqual((output / name).read_bytes(), data)
+
+    def test_invalid_plan_creates_no_candidate(self):
+        plan = self.root / "plan.json"
+        plan.write_text(json.dumps({**self.plan, "operator_only": "fixture"}))
+        output = self.root / "candidate"
+        result = subprocess.run([sys.executable, str(HERE / "render.py"), str(plan), str(output)], capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
 
     def test_rejects_incomplete_or_untrusted_metadata(self):
         bad_plans = []

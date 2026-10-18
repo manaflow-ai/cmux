@@ -71,7 +71,7 @@ main() {
         *-darwin)
             codesign --verify --strict "$binary" || fail codesign_invalid
             # A designated requirement checks the signing team, not printed text.
-            codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "@@TEAM_ID@@"' \
+            codesign --verify --strict -R='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "@@TEAM_ID@@"' \
                 "$binary" || fail codesign_publisher_mismatch ;;
     esac
     chmod 700 "$binary"
