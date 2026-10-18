@@ -298,6 +298,7 @@ pub mod method {
     pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
     /// Local socket only: refresh registries for cached installs, never run CLIs or updates.
     pub const MUX_HARNESS_INVENTORY_REFRESH: &str = "_acpmux/harness/inventory/refresh";
+    pub const MUX_HARNESS_UPDATE_PLAN: &str = "_acpmux/harness/update/plan";
     /// A complete partial-cache replacement on an explicitly subscribed local connection.
     pub const MUX_HARNESS_INVENTORY: &str = "_acpmux/harness_inventory";
     /// One cheap completion through the user's own harness login, for

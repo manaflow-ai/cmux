@@ -48,7 +48,7 @@ pub(super) fn snapshot(rows: &[HarnessHealth]) -> Value {
     json!({"view": "inventory", "cached": true, "harnesses": harnesses})
 }
 
-fn safe_id(id: &str) -> bool {
+pub(super) fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
@@ -56,7 +56,7 @@ fn safe_id(id: &str) -> bool {
 
 /// Uses only evidence saved together by the health check, never a profile
 /// name or today's configuration. An adapter's version is not its agent's.
-fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
+pub(super) fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
     use super::channel::Channel;
     if matches!(row.channel, Channel::Launcher | Channel::Missing)
         || row.path.as_deref().is_none_or(str::is_empty)
