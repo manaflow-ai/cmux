@@ -44,7 +44,26 @@
    floor already keeps at 4.5:1 over the art. Reduce Transparency keeps it solid. */
 :root[data-cmux-see-through] .acpmux-shell {
   --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
-  --acpmux-composer-rim: inset 0 1px 0 light-dark(rgb(255 255 255 / 0.6), rgb(255 255 255 / 0.12));
+  --acpmux-composer-rim: inset 0 1px 0 light-dark(
+    color-mix(in srgb, var(--cmux-tone-light) 60%, transparent),
+    color-mix(in srgb, var(--cmux-tone-light) 12%, transparent)
+  );
+}
+/* Under a see-through card nothing may hide beneath it: the tray's tuck would show as a band
+   through the card's top, and the strip's foot (raised over the card's edge) as a doubled seam. */
+:root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-strip::after {
+  content: none;
+}
+:root[data-cmux-see-through]:not([data-reduce-transparency])[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
+  > :is(.acpmux-composer-strip, .acpmux-composer-queue) {
+  mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through] .acpmux-composer > .acpmux-composer-strip::after { content: ""; }
+  :root[data-cmux-see-through][data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
+    > :is(.acpmux-composer-strip, .acpmux-composer-queue) {
+    mask: none;
+  }
 }
 @media (prefers-reduced-transparency: reduce) {
   :root[data-cmux-see-through] .acpmux-shell {
