@@ -98,6 +98,29 @@ fn strip_url_scrub_runs_once_per_store() {
     assert_eq!(stored_tab(&connection, "closed-late")["url"], "https://u:p@a.example/");
 }
 
+/// A scrub that keeps failing is tried a few times, not on every start
+/// forever: its attempts are counted per rule version, and the store opens
+/// each time.
+#[test]
+fn strip_url_scrub_gives_up_after_three_failed_attempts() {
+    let mut connection = old_store();
+    insert(&connection, "closed-1", "https://u:p@a.example/", r#"{"entries":[]}"#);
+    connection
+        .execute_batch(
+            "CREATE TRIGGER block_scrub BEFORE UPDATE ON closed_groups
+             BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+        )
+        .unwrap();
+    for _ in 0..5 {
+        open(&mut connection);
+    }
+    let attempts: i64 = connection
+        .query_row("SELECT attempts FROM closed_history_scrub", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(attempts, 3);
+    assert_eq!(stored_tab(&connection, "closed-1")["url"], "https://u:p@a.example/");
+}
+
 /// A scrub that cannot run never keeps the store from opening: the daemon
 /// starts, the rows stay as they were, and the next open tries again.
 #[test]

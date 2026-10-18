@@ -419,6 +419,56 @@ mod tests {
     }
 
     #[test]
+    fn strip_url_reads_the_pairs_after_a_question_mark_in_a_fragment() {
+        assert_eq!(strip_url("https://h/p#login?code=xyz"), "https://h/p#login");
+        assert_eq!(strip_url("https://h/p#section?token=abc"), "https://h/p#section");
+        assert_eq!(strip_url("https://h/p#cb?code="), "https://h/p#cb");
+        assert_eq!(strip_url("https://h/p#?code=xyz"), "https://h/p");
+    }
+
+    #[test]
+    fn strip_url_drops_session_ids_from_the_query_path_and_route() {
+        assert_eq!(strip_url("https://h/p?jsessionid=X&a=1"), "https://h/p?a=1");
+        assert_eq!(strip_url("https://h/p;jsessionid=X"), "https://h/p");
+        assert_eq!(strip_url("https://h/p;jsessionid=X;v=1/q"), "https://h/p;v=1/q");
+        assert_eq!(strip_url("https://h/p;JSESSIONID=X?a=1"), "https://h/p?a=1");
+        assert_eq!(strip_url("https://h/#/path;jsessionid=X"), "https://h/#/path");
+        assert_eq!(strip_url("https://h/#/path;jsessionid=X?x=1"), "https://h/#/path?x=1");
+        // A matrix parameter that is not a secret stays.
+        assert_eq!(strip_url("https://h/p;v=1/q"), "https://h/p;v=1/q");
+    }
+
+    #[test]
+    fn strip_url_catches_run_together_and_upper_case_secret_keys() {
+        for key in ["accesstoken", "ACCESSTOKEN", "idtoken", "authtoken", "refreshtoken"] {
+            assert_eq!(strip_url(&format!("https://h/p?{key}=s&a=1")), "https://h/p?a=1", "{key}");
+        }
+        for key in ["code_verifier", "oauth_verifier", "SAMLResponse", "session"] {
+            assert_eq!(strip_url(&format!("https://h/p?{key}=s&a=1")), "https://h/p?a=1", "{key}");
+        }
+        // Page cursors and OAuth `state` are not credentials.
+        for key in ["pagetoken", "next_page_token", "state"] {
+            let url = format!("https://h/p?{key}=s&a=1");
+            assert_eq!(strip_url(&url), url, "{key}");
+        }
+    }
+
+    #[test]
+    fn strip_url_strips_one_level_into_an_encoded_redirect() {
+        assert_eq!(
+            strip_url("https://h/login?redirect=https%3A%2F%2Fx%2Fcb%3Ftoken%3Ds%26a%3D1&b=2"),
+            "https://h/login?redirect=https%3A%2F%2Fx%2Fcb%3Fa%3D1&b=2"
+        );
+        assert_eq!(
+            strip_url("https://h/login?return_to=https%3A%2F%2Fu%3Ap%40x%2F"),
+            "https://h/login?return_to=https%3A%2F%2Fx%2F"
+        );
+        // A redirect with nothing to strip stays byte for byte.
+        let url = "https://h/login?next=https%3a%2f%2fx%2f%3fa%3d1";
+        assert_eq!(strip_url(url), url);
+    }
+
+    #[test]
     fn strip_url_treats_a_semicolon_as_a_query_separator() {
         assert_eq!(strip_url("https://h/p?a=1;token=x"), "https://h/p?a=1");
         assert_eq!(strip_url("https://h/p?token=x;a=1&b=2"), "https://h/p?a=1&b=2");
