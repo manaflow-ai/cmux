@@ -32,7 +32,8 @@ it("creates and binds a personal Team VM through the tenant API, then keeps its 
       expect(service.vms.get(vm)?.install).toMatch(/^inst_/)
       expect(identityCreates).toBe(1)
       service.vms.get(vm)!.state = "paused"
-      owner = new TeamVmDO(state, { ...e, TEAM_VM_TRANSPORT: "direct" })
+      const direct = { ...e, TEAM_VM_TRANSPORT: "direct" }
+      owner = new TeamVmDO(state, direct)
       await owner.readOp(team, p, "team_vm.status", {})
       const resumed = await wake()
       expect(resumed.frames.find((f) => f.t === "result")).toMatchObject({ value: { vm, status: "running" } })
