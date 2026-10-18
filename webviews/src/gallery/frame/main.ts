@@ -24,11 +24,12 @@ const params = new URLSearchParams(location.search);
 const env = readEnv(params);
 const root = document.documentElement;
 const stageRoot = document.getElementById("root");
+const sourceHint = params.get("source") || undefined;
 
 // A frame can be opened directly while the shell is still loading unrelated gallery modules.
 // Keep that wait explicit so a slow sibling never looks like a broken white page.
 const requestedId = params.get("entry");
-const entryStore = createFrameEntryStore(params.get("source") ?? undefined);
+const entryStore = createFrameEntryStore(sourceHint);
 if (requestedId && stageRoot) {
   stageRoot.textContent = `Loading ${requestedId}…`;
   stageRoot.className = "gallery-frame-loading";
@@ -45,6 +46,9 @@ function fail(message: string): never {
 const byName = new Map(themes.map((theme) => [theme.name, theme]));
 const themeNamed = (name: string, fallback: string): GhosttyTheme =>
   byName.get(name) ?? byName.get(fallback) ?? fail(`No Ghostty theme named ${JSON.stringify(name)}`);
+
+if (sourceHint && entryStore.getSnapshot().length === 0)
+  fail(`No gallery entry source ${JSON.stringify(sourceHint)}. The link is stale; reopen it from the shell.`);
 
 // A frame renders one requested entry. Resolve it as soon as that entry loads; a broken or slow
 // sibling must never leave a valid stage blank while the shell is still auditing the full registry.

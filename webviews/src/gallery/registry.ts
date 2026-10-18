@@ -28,12 +28,9 @@ export function getEntryStore(): EntryStore {
   return (shellStore ??= createEntryStore(entrySources));
 }
 
-/** A frame store can load one source when the shell supplies its path; direct links fall back to all. */
+/** A frame store loads only the source named by the shell; stale source links fail explicitly. */
 export function createFrameEntryStore(sourcePath?: string): EntryStore {
-  const sources =
-    sourcePath && entrySources.some((source) => source.path === sourcePath)
-      ? entrySources.filter((source) => source.path === sourcePath)
-      : entrySources;
+  const sources = sourcePath ? entrySources.filter((source) => source.path === sourcePath) : entrySources;
   return createEntryStore(sources);
 }
 
