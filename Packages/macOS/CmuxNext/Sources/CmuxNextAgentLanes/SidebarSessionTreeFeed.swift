@@ -1,10 +1,10 @@
-import CmuxNextAgentActivity
+public import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextSidebar
+public import CmuxNextSidebar
 import Foundation
 import Observation
 
@@ -13,8 +13,8 @@ import Observation
 /// on those sessions' lanes, and the pull request of each session folder's branch (`gh pr view`,
 /// as the chat header's chip reads it). Off, it leaves `SidebarSessionTree.state` nil.
 @MainActor
-final class SidebarSessionTreeFeed {
-    static let shared = SidebarSessionTreeFeed()
+public final class SidebarSessionTreeFeed {
+    public static let shared = SidebarSessionTreeFeed()
 
     private var task: Task<Void, Never>?
     private let pullRequests = SidebarPullRequestStore()
@@ -25,16 +25,17 @@ final class SidebarSessionTreeFeed {
         var folders: Set<String>
     }
 
-    /// Follows the setting, the lanes and this Mac's workspaces from now on. `localHost` is this
-    /// Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
-    func start(_ services: AppServices, localHost: String?, lanes: AgentLaneStore = .shared, tree: SidebarSessionTree = .shared) {
+    /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
+    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
+    public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
+                      lanes: AgentLaneStore = .shared, tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
-        let pullRequests = pullRequests, machines = services.machines
+        let pullRequests = pullRequests
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                return Self.pass(machines.allWorkspaces.map { $0.0 }, lanes: lanes.lanes, localHost: localHost,
+                return Self.pass(workspaces(), lanes: lanes.lanes, localHost: localHost,
                                  pullRequests: pullRequests.answers)
             }) {
                 if tree.state != pass?.state { tree.state = pass?.state }
