@@ -250,6 +250,12 @@ final class WorkspaceContentViewVisibilityTests {
             }
             try #require(workspace.extensionSidebarProjectRootPath == projectRoot.path)
         }
+        var sustainedTabBarRenderWindows = 0
+        for workspace in tabManager.tabs {
+            workspace.bonsplitController.onTabBarRenderDiagnostic = { _ in
+                sustainedTabBarRenderWindows += 1
+            }
+        }
         // The right-side file explorer is outside this test's minimal-mode
         // scope. Keep it hidden so delayed workspace-root discovery cannot
         // invalidate the chrome bodies during the toggle measurement.
@@ -301,6 +307,10 @@ final class WorkspaceContentViewVisibilityTests {
         // window has gone quiet.
         let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
         try #require(settled, "The window must stop re-evaluating chrome bodies before the toggle is measured")
+        #expect(
+            sustainedTabBarRenderWindows == 0,
+            "Initial pane rendering must not sustain a tab-bar render storm."
+        )
         counts.reset()
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
@@ -665,6 +675,25 @@ final class WorkspaceContentViewVisibilityTests {
                 isFocused: true
             )
         )
+    }
+
+    @Test
+    @MainActor
+    func bonsplitInteractivitySyncChangesOnlyWhenInputActivityChanges() {
+        let controller = BonsplitController()
+        #expect(controller.isInteractive)
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+
+        // SwiftUI can deliver duplicate lifecycle and change callbacks while a
+        // hosted pane is being mounted. Repeating the same value must not write
+        // Bonsplit's observable controller state again.
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: true)
+        #expect(controller.isInteractive)
     }
 
     @Test
