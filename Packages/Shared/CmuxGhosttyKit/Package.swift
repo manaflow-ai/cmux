@@ -30,6 +30,9 @@ import PackageDescription
 // dark on a light theme (PR 35).
 // Since 4792f0307 it does the same at background-opacity 0, which cmux-next
 // gives its surfaces in a translucent window (PR 36).
+// Since 48d353b8c a macOS surface can be host-sized
+// (ghostty_surface_set_host_sized): its target follows set_size, not the
+// view's bounds, so a pane drag keeps the last frame (PR 38).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -54,8 +57,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-4792f03070e6134ea764e3e9bec630631eb1bd47-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "fe416827c16b0abb2e31de16294dfc22265d503f4dedc84036b0fc5145fecfb6"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-48d353b8c3a6518c11cfd1e0ad1bbd3e75d725a2-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "a01bc971185d86e72f6fe882090607c49323d10c7699fc492bea0835f7cec56d"
         ),
     ]
 )
