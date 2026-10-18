@@ -13,10 +13,10 @@ public import QuartzCore
 /// The color is a layer property, not drawn ink (I5, cx-8w027.3): the glyphs
 /// draw once as the mask of a fill layer whose `backgroundColor` is
 /// ``foregroundColor``, so a theme change blends the text on the render server
-/// from the color on screen (`ThemeRepaint`). A color change draws the glyphs
-/// again only when it moves the ink to another stem weight
-/// (``GlyphMask/weight(of:)``), at once, so the blend ends at the weight
-/// AppKit draws the new color with.
+/// from the color on screen (`ThemeRepaint`). A color change that moves the
+/// ink to another stem weight (``GlyphMask/weight(of:)``) shows that weight's
+/// glyphs at once (drawn once per weight for the same line), so the blend ends
+/// at the weight AppKit draws the new color with.
 ///
 /// The text is top-aligned like `CATextLayer`: the first baseline sits
 /// `font.ascender` below the top edge. Overflow is clipped, not truncated;
@@ -38,19 +38,19 @@ nonisolated public final class ChromeTextLayer: CALayer {
     /// Where a string wider than the layer gets its ellipsis (an AppKit label's
     /// `.byTruncatingTail`, `.byTruncatingMiddle`, `.byTruncatingHead`); nil clips it.
     public var truncation: CTLineTruncationType? {
-        didSet { if oldValue != truncation { glyphs.setNeedsDisplay() } }
+        didSet { if oldValue != truncation { redraw() } }
     }
 
     /// `.left`, `.center` or `.right`; anything else draws left-aligned.
     public var alignmentMode: NSTextAlignment = .left {
-        didSet { if oldValue != alignmentMode { glyphs.setNeedsDisplay() } }
+        didSet { if oldValue != alignmentMode { redraw() } }
     }
 
     override public var contentsScale: CGFloat {
         didSet {
             guard oldValue != contentsScale else { return }
             layoutFill()
-            glyphs.setNeedsDisplay()
+            redraw()
         }
     }
 
@@ -59,7 +59,7 @@ nonisolated public final class ChromeTextLayer: CALayer {
             guard oldValue.size != bounds.size else { return }
             layoutFill()
             // Truncation and alignment follow the width, which the whole-pixel mask may not show.
-            glyphs.setNeedsDisplay()
+            redraw()
         }
     }
 
@@ -67,8 +67,11 @@ nonisolated public final class ChromeTextLayer: CALayer {
     private let fill = CALayer()
     private let glyphs = GlyphLayer()
     private var cachedLine: CTLine?
-    /// The stem weight of the ink ``glyphs`` was drawn in.
+    /// The stem weight of the ink ``glyphs`` shows.
     private var drawnWeight: Int?
+    /// The line's glyph image per stem weight: a color change between two weights (a tab's selected
+    /// and plain colors) swaps images and draws each weight once.
+    private var images: [Int: CGImage] = [:]
 
     override public init() {
         super.init()
@@ -106,6 +109,11 @@ nonisolated public final class ChromeTextLayer: CALayer {
 
     /// Redraws the glyphs (the color needs no redraw).
     override public func setNeedsDisplay() {
+        redraw()
+    }
+
+    private func redraw() {
+        images = [:]
         glyphs.setNeedsDisplay()
     }
 
@@ -127,12 +135,19 @@ nonisolated public final class ChromeTextLayer: CALayer {
         CATransaction.setDisableActions(true)
         fill.backgroundColor = foregroundColor
         CATransaction.commit()
-        if let drawnWeight, drawnWeight != GlyphMask.weight(of: foregroundColor) { glyphs.setNeedsDisplay() }
+        let weight = GlyphMask.weight(of: foregroundColor)
+        guard let drawnWeight, drawnWeight != weight else { return }
+        if let image = images[weight] {
+            self.drawnWeight = weight
+            glyphs.contents = image
+        } else {
+            glyphs.setNeedsDisplay()
+        }
     }
 
     private func invalidate() {
         cachedLine = nil
-        glyphs.setNeedsDisplay()
+        redraw()
     }
 
     private func line() -> CTLine {
@@ -150,7 +165,15 @@ nonisolated public final class ChromeTextLayer: CALayer {
 
     /// The glyph coverage, opaque where the text is: the mask of ``fill``.
     fileprivate func glyphImage() -> CGImage? {
-        drawnWeight = GlyphMask.weight(of: foregroundColor)
+        let weight = GlyphMask.weight(of: foregroundColor)
+        drawnWeight = weight
+        if let image = images[weight] { return image }
+        let image = drawLine()
+        images[weight] = image
+        return image
+    }
+
+    private func drawLine() -> CGImage? {
         guard !string.isEmpty else { return nil }
         let size = bounds.size
         var line = line()

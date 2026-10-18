@@ -9,8 +9,8 @@ public import AppKit
 /// mask of a fill layer whose `backgroundColor` is ``textColor``: the color is a layer color the
 /// render server blends from the color on screen (`ThemeRepaint`). The glyphs draw again only
 /// when what they show changes (text, font, size, scale, line settings) or a color change moves
-/// the ink to another stem weight (``GlyphMask/weight(of:)``), so they keep an `NSTextField`'s
-/// weight in every theme.
+/// the ink to a stem weight (``GlyphMask/weight(of:)``) they were not drawn in yet, so they keep an
+/// `NSTextField`'s weight in every theme; each weight's image is kept for the same text.
 ///
 /// One text color per label: per-run colors of an attributed string draw in ``textColor``
 /// (keep an `NSTextField` for text with its own run colors).
@@ -18,8 +18,11 @@ open class ChromeLabel: NSTextField {
     /// The text color, masked by ``glyphs``.
     private let fill = CALayer()
     private let glyphs = CALayer()
-    /// What ``glyphs`` shows now; a different one draws them again.
-    private var drawn: Ink?
+    /// What ``glyphs`` shows now and in which stem weight; a different one draws them again.
+    private var drawn: (ink: Ink, weight: Int)?
+    /// The glyph image of `drawn.ink` per stem weight: a color change between two weights (a
+    /// selected row's color and its plain one) swaps images and draws each weight once.
+    private var images: [Int: CGImage] = [:]
 
     public convenience init(font: NSFont) {
         self.init(labelWithString: "")
@@ -68,20 +71,22 @@ open class ChromeLabel: NSTextField {
         hideStockText()
         let scale = window?.backingScaleFactor ?? layer.contentsScale
         if fill.frame != layer.bounds { fill.frame = layer.bounds }
-        let color = textColor?.cgColor
-        let ink = Ink(text: inkText(), size: bounds.size, scale: scale, weight: GlyphMask.weight(of: color),
-                      lines: maximumNumberOfLines, lineBreak: lineBreakMode, alignment: alignment,
-                      truncates: cell?.truncatesLastVisibleLine ?? false, wraps: cell?.wraps ?? false)
-        if ink != drawn {
-            drawn = ink
-            glyphs.contents = glyphImage(ink, color: color)
-            // As the field's backing store sits: the image at its own pixel size, top edge on top.
-            GlyphMask.place(glyphs, in: fill, scale: scale)
-        }
+        let color = textColor?.cgColor, weight = GlyphMask.weight(of: color)
+        let ink = Ink(text: inkText(), size: bounds.size, scale: scale, lines: maximumNumberOfLines, lineBreak: lineBreakMode,
+                      alignment: alignment, truncates: cell?.truncatesLastVisibleLine ?? false, wraps: cell?.wraps ?? false)
+        guard drawn?.ink != ink || drawn?.weight != weight else { return }
+        if drawn?.ink != ink { images = [:] }
+        drawn = (ink, weight)
+        let image = images[weight] ?? glyphImage(ink, color: color)
+        images[weight] = image
+        glyphs.contents = image
+        // As the field's backing store sits: the image at its own pixel size, top edge on top.
+        GlyphMask.place(glyphs, in: fill, scale: scale)
     }
 
     private func inkModeDidChange() {
         drawn = nil
+        images = [:]
         fill.isHidden = !wantsUpdateLayer
         // The stock drawing's backing store, from before; the glyphs replace it.
         if wantsUpdateLayer { layer?.contents = nil } else { for view in stockTextViews { view.alphaValue = 1 } }
@@ -141,12 +146,11 @@ open class ChromeLabel: NSTextField {
         }
     }
 
-    /// What the glyphs show (not their color; only the color's stem weight).
+    /// What the glyphs show (not their color).
     private struct Ink: Equatable {
         var text: NSAttributedString
         var size: CGSize
         var scale: CGFloat
-        var weight: Int
         var lines: Int
         var lineBreak: NSLineBreakMode
         var alignment: NSTextAlignment
