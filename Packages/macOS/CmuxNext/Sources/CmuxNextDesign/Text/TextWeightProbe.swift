@@ -83,12 +83,13 @@ public struct TextWeightProbe {
             }
         }
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        // close, not only orderOut: willClose invalidates the window's FrameScheduler (its link and observer).
+        defer { window.close() }
         // The window server shows the rows some frames after the commit (later on a loaded host):
         // read them once two captures a few frames apart agree.
         var shown: CGImage?
         for _ in 0..<20 {
-            await FrameWaiter(frames: 3).elapse(in: window)
+            await Self.frames(3, of: window)
             let next = window.compositedSnapshot() // perf-gate-ok: debug.text_weight probe window
             if let next, let previous = shown, Self.same(previous, next) { break }
             shown = next
@@ -156,24 +157,18 @@ public struct TextWeightProbe {
     }
 }
 
-/// Resumes after `frames` frames of the window's ``FrameScheduler``.
-@MainActor
-private final class FrameWaiter {
-    private var remaining: Int
-    private var client: FrameClient?
-
-    init(frames: Int) { remaining = frames }
-
-    func elapse(in window: NSWindow) async {
+extension TextWeightProbe {
+    /// Resumes after `count` frames of `window`'s FrameScheduler (a stalled link still ticks).
+    fileprivate static func frames(_ count: Int, of window: NSWindow) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let client = FrameClient(owner: "debug.text_weight", isAnimation: false, on: .forWindow(window)) { [weak self] _ in
-                guard let self else { return false }
+            var remaining = count
+            // The scheduler holds the active client; it drops it after the last frame.
+            let client = FrameClient(owner: "debug.text_weight", isAnimation: false, on: FrameScheduler.forWindow(window)) { _ in
                 remaining -= 1
                 guard remaining <= 0 else { return true }
                 continuation.resume()
                 return false
             }
-            self.client = client
             client.activate()
         }
     }
