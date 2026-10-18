@@ -134,19 +134,35 @@ public final class CloudFeedSource: FeedSource {
 
     private func run(_ generation: Int) async {
         var backoff = reconnect
+        /// The token a 401 refused: no socket opens with it again. The loop asks the provider on
+        /// the Backoff schedule (no request reaches the server) until it returns another token;
+        /// a sign-in or account change also restarts the loop through `start` or `reset`.
+        var refused: String?
         // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
         while !Task.isCancelled {
-            sink?(.connection(.connecting))
             var reason = "closed"
+            var bearer: String?
             do {
-                let bearer = try await token()
+                let next = try await token()
+                guard generation == self.generation else { return }
+                if next == refused {
+                    // concurrency-allow: Backoff.wait is an async sleep while the token is refused, not a blocking wait.
+                    do { try await backoff.wait(owner: "feed.cloud.unauthorized") } catch { return }
+                    continue
+                }
+                refused = nil
+                bearer = next
+                sink?(.connection(.connecting))
                 if let connect {
-                    try await connect(bearer) { backoff.reset() }
+                    try await connect(next) { backoff.reset() }
                 } else {
-                    try await session(bearer: bearer) { backoff.reset() }
+                    try await session(bearer: next) { backoff.reset() }
                 }
             } catch is CancellationError {
                 return
+            } catch is Unauthorized {
+                refused = bearer
+                reason = Self.unauthorizedReason
             } catch {
                 reason = String(describing: error)
             }
@@ -163,7 +179,8 @@ public final class CloudFeedSource: FeedSource {
     static let clientVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
 
     /// The token goes only in the Authorization header, which Workers invocation logs never record
-    /// (cx-dgsp). The legacy `bearer.` subprotocol is retired: a 401 is final.
+    /// (cx-dgsp). The legacy `bearer.` subprotocol is retired: a 401 is final for this token, and
+    /// the run loop opens no socket with it again (`Unauthorized`).
     private func session(bearer: String, onSnapshot: () -> Void) async throws {
         var request = URLRequest(url: wireURL)
         request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
