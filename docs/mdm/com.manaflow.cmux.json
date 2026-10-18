@@ -2260,6 +2260,12 @@
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
     },
+    "sessions.promptSuggestions" : {
+      "default" : false,
+      "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
+      "title" : "Suggest Follow-Up Tasks",
+      "type" : "boolean"
+    },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
       "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
