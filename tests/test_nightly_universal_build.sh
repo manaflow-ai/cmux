@@ -391,9 +391,11 @@ if ! awk '
   in_prepare && /clear-dirs\.sh build-universal/ { saw_clear_dd=1 }
   in_prepare && /ln -s/ { saw_link=1 }
   job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ && !saw_clear_dd { restore_first=1 }
   job == "app" && /^      - name: Build nightly app \(Release\)/ { saw_build=1 }
+  job == "app" && !saw_build && /ln -s .*build-universal/ { saw_link=1 }
   job == "app" && !saw_build && /persistent Release DerivedData/ { saw_persistent=1 }
-  END { exit !(saw_clear && saw_prepare && saw_clear_dd && !saw_link && !saw_key && !saw_persistent) }
+  END { exit !(saw_clear && saw_prepare && saw_clear_dd && !restore_first && !saw_link && !saw_key && !saw_persistent) }
 ' "$WORKFLOW_FILE"; then
   # An incremental build can keep stale autolink and force-load data in
   # objects it did not recompile after an import set changed. The shipped app

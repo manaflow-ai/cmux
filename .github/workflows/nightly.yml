@@ -1276,10 +1276,12 @@ jobs:
               # Earlier jobs linked build-universal to a tree kept per channel
               # and toolchain. Delete this channel's trees, so no later change
               # can link one back and they stop using disk. Another channel's
-              # trees are not touched: its own job may be using them.
+              # trees (for example cmux-nightly-rc-*) are not touched.
               # The name ends in the 64-digit toolchain hash (plus the suffix
               # clear-dirs.sh adds when a delete did not finish), so the match
-              # never reaches a longer channel name such as nightly-next.
+              # never reaches another name with the same prefix. The
+              # nightly-next track keeps its state under
+              # ~/Library/Caches/cmux-nightly-next, which this never touches.
               shopt -s nullglob
               stale=()
               for tree in "$HOME"/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-*; do
