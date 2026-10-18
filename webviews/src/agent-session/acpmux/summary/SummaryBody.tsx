@@ -43,6 +43,7 @@ export function SummaryBody({
   onOpenOutput,
   onOpenGallery,
   onFollow,
+  onAttach,
   subagents,
 }: {
   summary: SessionSummary;
@@ -53,6 +54,8 @@ export function SummaryBody({
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
+  /// Sources' +: files or folders on this computer for the next prompt (a local chat's).
+  onAttach?: () => void;
   /// The Subagents section, when acpmux reports the chat's subagents.
   subagents?: ReactNode;
 }) {
@@ -115,6 +118,19 @@ export function SummaryBody({
         title={t("summary.sources")}
         fixed
         items={summary.sources}
+        action={
+          onAttach && (
+            <button
+              type="button"
+              className="acpmux-summary-add"
+              aria-label={t("summary.sources.attach")}
+              title={t("summary.sources.attach")}
+              onClick={onAttach}
+            >
+              <Icon name="action.add" size={ROW_ICON} />
+            </button>
+          )
+        }
         row={(source) => (
           <li key={source.url ?? source.label}>
             {source.url ? (

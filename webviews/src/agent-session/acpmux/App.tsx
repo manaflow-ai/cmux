@@ -77,7 +77,7 @@ import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import type { ComposerAttachment } from "./attachments";
+import { linkAttachment, type ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -4456,6 +4456,15 @@ function AcpmuxPane() {
     t,
   );
   opensSideChat.current = sideChat !== undefined;
+  // Sources' +: the host's panel picks files and folders on this computer, which the composer holds
+  // as links for the next prompt (resource_link blocks: the agent reads them where they are).
+  const attachLinks = async () => {
+    const picked = await callNative<{ items?: { path?: unknown; folder?: unknown }[] } | null>("chat.attach.choose");
+    for (const item of picked?.items ?? [])
+      if (typeof item.path === "string" && item.path.startsWith("/"))
+        composerHandle.current?.attach(linkAttachment(item.path, item.folder === true));
+    composerHandle.current?.focus();
+  };
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
@@ -5293,6 +5302,7 @@ function AcpmuxPane() {
       onOpenOutput={quick ? undefined : openOutput}
       onOpenImage={quick ? undefined : openImage}
       subagents={cardSubagents}
+      onAttach={remoteChat ? undefined : () => void attachLinks().catch(() => undefined)}
     />
   );
   const pane = (

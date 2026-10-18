@@ -37,6 +37,11 @@
 .acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-danger)}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:4px;padding-top:4px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-title{margin:0;padding:8px 8px 4px;color:var(--agent-muted);font-size:var(--text-detail);font-weight:500;line-height:16px}
+/* A section title with a control at its end (Sources' +): the title keeps its padding, the button its close button's look. */
+.acpmux-summary-heading{display:flex;align-items:center;justify-content:space-between;padding-right:2px}
+.acpmux-summary-add{flex:none;display:grid;place-items:center;width:22px;height:22px;margin-top:4px;padding:0;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-add:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+.acpmux-summary-add:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-list{margin:0;padding:0;list-style:none}
 .acpmux-summary-row{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;text-decoration:none;cursor:default}
 .acpmux-summary-row>svg{flex:none;color:var(--agent-muted)}

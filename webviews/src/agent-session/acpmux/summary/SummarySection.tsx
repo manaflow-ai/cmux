@@ -15,6 +15,7 @@ export function SummarySection<T>({
   fixed = false,
   lead,
   footer,
+  action,
 }: {
   title: string;
   items: readonly T[];
@@ -22,14 +23,24 @@ export function SummarySection<T>({
   fixed?: boolean;
   lead?: React.ReactNode;
   footer?: React.ReactNode;
+  /// A control at the title's end (Sources' Attach files or folders).
+  action?: React.ReactNode;
 }) {
   const t = useT();
   const [all, setAll] = useState(false);
+  const heading = action ? (
+    <div className="acpmux-summary-heading">
+      <h3 className="acpmux-summary-title">{title}</h3>
+      {action}
+    </div>
+  ) : (
+    <h3 className="acpmux-summary-title">{title}</h3>
+  );
   if (items.length === 0 && !lead) {
     if (!fixed) return null;
     return (
       <section className="acpmux-summary-section" aria-label={title}>
-        <h3 className="acpmux-summary-title">{title}</h3>
+        {heading}
         <ul className="acpmux-summary-list">
           <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
         </ul>
@@ -40,7 +51,7 @@ export function SummarySection<T>({
   const shown = all ? items : items.slice(0, FOLDED);
   return (
     <section className="acpmux-summary-section" aria-label={title}>
-      <h3 className="acpmux-summary-title">{title}</h3>
+      {heading}
       <ul className="acpmux-summary-list">
         {lead}
         {shown.map((item) => row(item))}
