@@ -183,14 +183,16 @@ final class ThemeCoordinator {
         for id in content.panes.values.flatMap(\.orderedIDs) { services.cache.existingTerminal(id.rawValue).map { catchUp($0, fresh: false) } }
     }
 
-    /// `entry` takes its theme as of the last `apply`. `fresh`: its surface was just made or
-    /// presented for a tab (`TerminalTabContent`), so it takes the theme even when current, and
-    /// its surface syncs (later scope changes reach it through its binding).
+    /// `entry` takes its theme as of the last `apply`, and its surface config again when it missed
+    /// a forcing one (a Ghostty config reload reset the surfaces). `fresh`: its surface was just
+    /// made or presented for a tab (`TerminalTabContent`), so it takes the theme even when current.
     func catchUp(_ entry: TerminalEntry, fresh: Bool) {
-        guard applies.take(entry, fresh: fresh) else { return }
+        guard let force = applies.take(entry, fresh: fresh) else { return }
         entry.themeBinding.coordinator = self
         setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
-        if fresh { entry.themeBinding.syncSurface(force: false) }
+        // As before the ledger: an apply syncs a surface only to re-apply its config; a scope
+        // change reaches it through its binding.
+        if fresh || force { entry.themeBinding.syncSurface(force: force) }
     }
 
     // MARK: Sources
@@ -231,16 +233,14 @@ final class ThemeCoordinator {
 
     /// Re-reads every theme of what the windows show (I5): each room and each shown workspace with
     /// the terminals in its panes. A parked workspace and its terminals catch up when they show
-    /// (`contentDidShow`). `forceSurfaces` (a Ghostty config reload reset the surfaces) re-applies
-    /// every live surface's config at once: a config event, not a switch, pays for it (the parked
-    /// would otherwise apply theirs inside their next workspace switch).
+    /// (`contentDidShow`). `forceSurfaces` re-applies surface configs even when unchanged (after a
+    /// Ghostty config reload reset them).
     func apply(forceSurfaces: Bool = false) {
-        applies.advance()
+        applies.advance(forcing: forceSurfaces)
         for controller in services.windows.controllers {
             windowDidChange(controller)
             if let content = controller.content { contentDidShow(content) }
         }
-        if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
     }
 
     private func setTheme(of scope: ThemeScope, to text: String?) {
