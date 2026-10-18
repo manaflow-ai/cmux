@@ -6619,6 +6619,18 @@
       }
     }
   },
+  "status.label.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "status.label.question": {
+    "source": "Question",
+    "identityLocales": {
+      "fr": "Question is the usual French noun for this status label; a translated entry is still required."
+    }
+  },
   "globalSearch.agent.claude": {
     "class": "brand",
     "source": "Claude"
