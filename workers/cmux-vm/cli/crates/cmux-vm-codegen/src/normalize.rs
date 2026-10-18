@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 ///   become `nullable: true`.
 /// - `const: v` becomes `enum: [v]`; numeric `exclusiveMinimum`/`exclusiveMaximum`
 ///   become `minimum`/`maximum` plus the 3.0 boolean flag.
-/// - Nullable uses of unrefined numeric aliases inline the primitive type,
+/// - Bounded nullable uses of unrefined numeric aliases inline the primitive type,
 ///   retaining their bounds; progenitor cannot decode their allOf/ref form.
 /// - An `anyOf`/`oneOf` whose branches are all plain strings (a `vm_` or a
 ///   `snap_` id, say) becomes one string whose pattern is the alternation of
@@ -112,7 +112,10 @@ fn inline_nullable_numeric_aliases(value: &mut Value, aliases: &Map<String, Valu
             for value in obj.values_mut() {
                 inline_nullable_numeric_aliases(value, aliases);
             }
-            if obj.get("nullable") != Some(&Value::Bool(true)) || obj.contains_key("type") {
+            if obj.get("nullable") != Some(&Value::Bool(true))
+                || obj.contains_key("type")
+                || (!obj.contains_key("minimum") && !obj.contains_key("maximum"))
+            {
                 return;
             }
             let Some(branches) = obj.get("allOf").and_then(Value::as_array) else {
