@@ -25,7 +25,7 @@ warnings only.
                  its intent (debug.tab_switch; a frame check), its main-thread apply over 4 ms is a
                  warning. The socket reply also waits for the daemon's confirm: reported, not gated.
   split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
-                 3 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
+                 2 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
   relaunch       the app quits and starts again on the same tag, so it restores the grid with
                  its hidden New Tab pages (state an earlier launch left, as a person's app has);
                  then tabs and split again in that grid, with the tabs and split budgets (I2,
@@ -65,19 +65,26 @@ BUDGET = {
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair (cx-8w027.14, measured 2 / 3 / 2.6-3.4): the new pane's mount snapshot,
-    # one re-run that changes nothing, the shell's titles (0.6-1.4, the shell's timing); the new
-    # pane's first apply after the split sends one more topology. Causes 2 and 4 are open.
-    # Target 2 / 2 / 1.
-    "split": {"workspace_applies": 2, "topology_sends": 3, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 2.4-3.4): one apply and one topology each
+    # for the split and the close (the new tab is named by its client-minted id, so the daemon's
+    # confirm sends none); snapshots: the new pane's mount, the daemon's confirm (surface, handle,
+    # terminal state and size change, after the first frame), the shell's titles (0.4-1.4, the
+    # shell's timing).
+    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 4},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
+    # Per restored pane, from the relaunched app's first answer until the restore settled: one
+    # snapshot when the pane mounts on its restored tabs, no re-run as the restore goes on (cx-8w027.23).
+    "restore": {"pane_snapshots": 1},
 }
 # Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {}
+KNOWN = {
+    # Per restored pane (the relaunch budget scales with the grid's panes).
+    ("relaunch", "pane_snapshots"): (12, "cx-8w027.23: the restore maps each pane several more times as the live tree replaces the launch snapshot"),
+}
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4
@@ -173,7 +180,7 @@ class App:
         print(f"perf-gate: launched {self.tag} pid {self.process.pid}", flush=True)
         if not wait(lambda: os.path.exists(self.socket) and "error" not in (self.rpc("debug.layout_counters") or {"error": 1}), 180):
             raise SystemExit("perf-gate: the app's debug socket never answered (a Debug build is required)")
-        if not wait(lambda: self.panes(), 60):
+        if not wait(lambda: self.panes()[0] >= 1, 60):
             raise SystemExit("perf-gate: the first terminal pane never showed")
 
     def relaunch(self):
@@ -698,8 +705,12 @@ class Gate:
             # The switch draws on the first frame after its intent: within one refresh plus its own apply.
             refresh = switch_frames.get("refresh_ms") or (report.get("frames_probe") or {}).get("refresh_ms") or FRAME_BUDGET_MS
             late = [frame for apply, frame in pairs if frame > apply + refresh * 1.25]
-            check(not late, f"every tab switch shows on the next frame (refresh {refresh:.1f} ms; {len(late)} later, "
-                            f"next frame p99 {p99(frames):.2f} ms)", scenario)
+            what = f"every tab switch shows on the next frame (refresh {refresh:.1f} ms; {len(late)} later, next frame p99 {p99(frames):.2f} ms)"
+            # The relaunch phases gate counters; their first show of a restored page is timed, not gated.
+            if scenario == "tabs":
+                check(not late, what, scenario)
+            elif late:
+                warn(what, scenario)
 
     def split(self, scenario="split"):
         app = self.app
@@ -730,8 +741,9 @@ class Gate:
         if not getattr(self, "grid", None):
             self.build_grid()
         grid, workspace = self.grid, self.grid_workspace
+        app.quiet_counters()  # the grid's last tab creations end before the quit
         pages = self.page_tabs()
-        app.relaunch()
+        app.relaunch()  # a new process: its counters start at 0, so the window below is the whole restore
         app.action("goToWorkspace", {"workspace": workspace})
         shown = wait(lambda: app.shown_workspace() == workspace and (lambda p: p[0] >= grid[0] and p[1] >= grid[1])(app.panes()), 60)
         if not check(bool(shown), f"the relaunched app restores the grid ({app.panes()} panes and tabs, before {grid})", "relaunch"):
@@ -754,9 +766,20 @@ class Gate:
             last = now
             time.sleep(1.0)  # test script: the gap between two reads while the restore settles
         settled = round(time.monotonic() - start, 1)
-        report["phases"]["relaunch"] = {"settle_s": settled, "settled": still >= 3}
+        measured = app.counters()
+        report["phases"]["relaunch"] = {"settle_s": settled, "settled": still >= 3,
+                                        "counters": {k: v for k, v in measured.items() if k != "sources"},
+                                        "sources": measured["sources"]}
         if still < 3:
             warn(f"the restored grid did not settle in 60 s (terminals live, tabs and counters still)", "relaunch")
+        # Per pane: the budget and its KNOWN line are per restored pane.
+        per_pane = {k: round(measured.get(k, 0) / grid[0], 2) for k in BUDGET["restore"]}
+        breaches = self.unknown(over(per_pane, BUDGET["restore"]), "relaunch")
+        if self.full and still >= 3 and not any(f.startswith("[relaunch]") for f in failures):
+            self.ratchet("relaunch", per_pane, BUDGET["restore"])
+        check(not breaches, f"the restore of {grid[0]} panes settled in {settled} s: {measured.get('pane_snapshots', 0)} pane snapshots, per pane {per_pane}"
+                            f" (budget {BUDGET['restore']} per pane)" + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""),
+              "relaunch")
         self.tabs("relaunch tabs")
         self.split("relaunch split")
 
