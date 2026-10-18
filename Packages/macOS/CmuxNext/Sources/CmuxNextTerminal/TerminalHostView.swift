@@ -230,9 +230,14 @@ public final class TerminalHostView: NSView {
         paintBackground()
     }
 
-    /// Opaque windows only, like `GhosttyRuntime.backgroundColor`: in a
-    /// translucent window the window root paints the one sheet. The user's
-    /// terminal background (`appearance.surfaces.terminal`) replaces both;
+    /// An opaque window paints the terminal's theme background, like
+    /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
+    /// (translucent, glass, or over art) the window root paints the one
+    /// sheet and the host stays clear, as the panes around it do, unless the
+    /// terminal's theme differs from theirs: its background then lies over
+    /// the glass at the window's tint, which over art keeps its own text
+    /// legible (`WindowBackdrop.legibleTintOpacity`). The user's terminal
+    /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     private func paintBackground() {
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
@@ -240,11 +245,18 @@ public final class TerminalHostView: NSView {
             layer?.backgroundColor = fill.cgColor
             return
         }
-        let runtime = GhosttyRuntime.shared
-        guard let rgb = theme?.colors?.background, runtime.backgroundOpacity >= 1 else {
-            layer?.backgroundColor = runtime.backgroundColor.cgColor
+        let tokens = themeTokens
+        let backdrop = performWithTheme { WindowBackdrop.current(tokens) }
+        guard !backdrop.panesPaintBackground else {
+            guard let rgb = theme?.colors?.background else {
+                layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
+                return
+            }
+            layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
             return
         }
-        layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+        let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
+        let own = tokens.surfaceBackground.withAlpha(1)
+        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
     }
 }

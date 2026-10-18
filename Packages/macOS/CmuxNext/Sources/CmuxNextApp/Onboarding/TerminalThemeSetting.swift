@@ -26,6 +26,9 @@ final class TerminalThemeSetting {
         /// `appearance.surfaces.terminal` is set: surfaces draw a
         /// transparent default background (`GhosttyRuntimeSurfacePolicy`).
         var terminalOverridden = false
+        /// `appearance.background` shows art: the window is see-through at
+        /// any opacity, so surfaces draw a transparent default background too.
+        var artShown = false
 
         init(theme: String?, font: GhosttyRuntime.FontOverride, background: WindowBackgroundOverride, terminalOverridden: Bool = false) {
             (self.theme, self.font, self.background, self.terminalOverridden) = (theme, font, background, terminalOverridden)
@@ -38,6 +41,7 @@ final class TerminalThemeSetting {
                       font: GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize),
                       background: snapshot.windowBackground, terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
             edits = snapshot.themeEdits
+            artShown = snapshot.backdropSelection != nil
         }
     }
 
@@ -121,6 +125,7 @@ final class TerminalThemeSetting {
         state.theme = theme
         state.edits = edits
         state.background = background
+        state.artShown = art != nil || daily
         apply(state)
     }
 
@@ -189,5 +194,6 @@ final class TerminalThemeSetting {
         DesignSettings.shared.terminalFontFamily = family.isEmpty ? nil : family
         GhosttyRuntime.backgroundOverride = state.background
         GhosttyRuntime.terminalBackgroundOverridden = state.terminalOverridden
+        GhosttyRuntime.appBackdropArtShown = state.artShown
     }
 }

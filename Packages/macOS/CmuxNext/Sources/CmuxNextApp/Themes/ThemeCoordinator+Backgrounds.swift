@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextTerminal
 import Foundation
 
 /// Each workspace's own background (cx-t2x.5). The window's backdrop reads its room scope, so the
@@ -68,6 +69,20 @@ extension ThemeCoordinator {
         guard let key = workspaceBackgroundKey(workspaceID) else { return }
         workspaceBackgrounds.set(background, for: key)
         apply()
+    }
+
+    /// Tells the terminals whether some workspace shows its own art, so their surfaces draw a
+    /// transparent default background over it (`GhosttyRuntime.workspaceBackdropArtShown`).
+    /// Reloads Ghostty only when that changes.
+    func syncWorkspaceBackdropArt() {
+        var values = Array(workspaceBackgrounds.backgrounds.values)
+        if let preview = backgroundPreview?.value { values.append(preview) }
+        let shown = values.contains { background in
+            if case .selection = WorkspaceBackgroundStore.pin(background, now: Date()) { true } else { false }
+        }
+        guard GhosttyRuntime.workspaceBackdropArtShown != shown else { return }
+        GhosttyRuntime.workspaceBackdropArtShown = shown
+        GhosttyRuntime.shared.reloadConfig()
     }
 
     /// Shows `background` for the workspace without saving it (the picker resting on a tile);

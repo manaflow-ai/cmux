@@ -17,6 +17,20 @@ extension GhosttyRuntime {
     /// call `reloadConfig()`.
     public static var terminalBackgroundOverridden = false
 
+    /// Whether `appearance.background` shows art. Over art a window is
+    /// see-through at any opacity (`WindowBackdrop`), so the surfaces draw a
+    /// transparent default background and the terminal host paints what the
+    /// panes paint there (`GhosttyRuntimeSurfacePolicy`). Set, then call
+    /// `reloadConfig()`.
+    public static var appBackdropArtShown = false
+
+    /// Whether some workspace shows its own art (cx-t2x.5), like
+    /// `appBackdropArtShown`. Set, then call `reloadConfig()`.
+    public static var workspaceBackdropArtShown = false
+
+    /// Whether any window may show art behind its terminals.
+    static var backdropArtShown: Bool { appBackdropArtShown || workspaceBackdropArtShown }
+
     /// Config lines that turn the config's `background-opacity` and
     /// `background-blur` into what `background` resolves them to; empty
     /// when nothing changes.
