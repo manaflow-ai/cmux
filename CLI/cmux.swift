@@ -16188,196 +16188,6 @@ struct CMUXCLI {
         )
     }
 
-    private func runVMPtyWebSocketWorkspace(
-        id: String,
-        endpoint: VMPtyWebSocketEndpoint,
-        workspaceName: String?,
-        windowRaw: String?,
-        targetWorkspaceId: String? = nil,
-        shouldPinWorkspaceToTop: Bool,
-        focus: Bool = true,
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws -> String {
-        let startedAt = Date()
-        let configURL = try writeVMPtyWebSocketConfig(endpoint)
-        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let initialStartupCommand = "\(shellQuote(executablePath)) vm-pty-connect --config \(shellQuote(configURL.path)) --id \(shellQuote(id))"
-        let splitStartupCommand = "\(shellQuote(executablePath)) vm-pty-attach --id \(shellQuote(id))"
-        var params: [String: Any] = [
-            "initial_command": initialStartupCommand,
-        ]
-        if let workspaceName = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workspaceName.isEmpty {
-            params["title"] = workspaceName
-        }
-        let normalizedTargetWorkspaceId = targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workspaceCreate: [String: Any]
-        let workspaceId: String
-        let didCreateWorkspace: Bool
-        if let normalizedTargetWorkspaceId, !normalizedTargetWorkspaceId.isEmpty {
-            workspaceId = normalizedTargetWorkspaceId
-            didCreateWorkspace = false
-            var precreatedWorkspacePayload: [String: Any] = [
-                "workspace_id": workspaceId,
-                "workspace_ref": workspaceId,
-            ]
-            if let windowRaw, !windowRaw.isEmpty {
-                precreatedWorkspacePayload["window_id"] = windowRaw
-                precreatedWorkspacePayload["window_ref"] = windowRaw
-            }
-            workspaceCreate = precreatedWorkspacePayload
-            logVMTiming(
-                "workspace.precreated",
-                vmID: id,
-                transport: "websocket",
-                startedAt: startedAt,
-                extra: "workspace=\(String(workspaceId.prefix(8)))"
-            )
-        } else {
-            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
-            let workspaceCreateStartedAt = Date()
-            workspaceCreate = try client.sendV2(method: "workspace.create", params: params)
-            guard let createdWorkspaceId = workspaceCreate["workspace_id"] as? String, !createdWorkspaceId.isEmpty else {
-                throw CLIError(message: "workspace.create did not return workspace_id")
-            }
-            workspaceId = createdWorkspaceId
-            didCreateWorkspace = true
-            logVMTiming(
-                "workspace.create",
-                vmID: id,
-                transport: "websocket",
-                startedAt: workspaceCreateStartedAt,
-                extra: "workspace=\(String(workspaceId.prefix(8)))"
-            )
-        }
-
-        let target = URL(string: endpoint.url)?.host ?? "websocket"
-        let configureStartedAt = Date()
-        var configureParams: [String: Any] = [
-            "workspace_id": workspaceId,
-            "destination": target,
-            "transport": "websocket",
-            "auto_connect": endpoint.daemon != nil,
-            "terminal_startup_command": splitStartupCommand,
-            "skip_daemon_bootstrap": true,
-            "local_socket_path": client.socketPath,
-            "managed_cloud_vm_id": id,
-        ]
-        if let daemon = endpoint.daemon {
-            configureParams["daemon_websocket_url"] = daemon.url
-            configureParams["daemon_websocket_headers"] = daemon.headers
-            configureParams["daemon_websocket_token"] = daemon.token
-            configureParams["daemon_websocket_session_id"] = daemon.sessionId
-            configureParams["daemon_websocket_expires_at_unix"] = daemon.expiresAtUnix
-        }
-        let configuredPayload: [String: Any]
-        do {
-            if shouldPinWorkspaceToTop {
-                let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                try pinWorkspaceToTop(workspaceId: workspaceId, windowId: workspaceWindowId, client: client)
-            }
-            configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
-            logVMTiming(
-                "workspace.remote.configure",
-                vmID: id,
-                transport: "websocket",
-                startedAt: configureStartedAt,
-                extra: "workspace=\(String(workspaceId.prefix(8)))"
-            )
-
-            if normalizedTargetWorkspaceId?.isEmpty == false {
-                let readyStartedAt = Date()
-                _ = try client.sendV2(
-                    method: "workspace.cloud_vm_terminal_ready",
-                    params: [
-                        "workspace_id": workspaceId,
-                        "initial_command": initialStartupCommand,
-                        "focus": focus || isWorkspaceCurrentlySelected(workspaceId, windowRaw: windowRaw, client: client),
-                    ]
-                )
-                logVMTiming(
-                    "workspace.cloud_vm_terminal_ready",
-                    vmID: id,
-                    transport: "websocket",
-                    startedAt: readyStartedAt,
-                    extra: "workspace=\(String(workspaceId.prefix(8)))"
-                )
-            }
-
-            if focus {
-                var selectParams: [String: Any] = ["workspace_id": workspaceId]
-                if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                   !workspaceWindowId.isEmpty {
-                    selectParams["window_id"] = workspaceWindowId
-                }
-                let selectStartedAt = Date()
-                _ = try client.sendV2(method: "workspace.select", params: selectParams)
-                logVMTiming(
-                    "workspace.select",
-                    vmID: id,
-                    transport: "websocket",
-                    startedAt: selectStartedAt,
-                    extra: "workspace=\(String(workspaceId.prefix(8)))"
-                )
-            }
-        } catch {
-            if didCreateWorkspace {
-                do {
-                    _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-                } catch {
-                    let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                    cliWriteStderr(Data(warning.utf8))
-                }
-            }
-            throw error
-        }
-
-        var payload = configuredPayload
-        payload["workspace_id"] = workspaceId
-        payload["workspace_ref"] = workspaceCreate["workspace_ref"] ?? payload["workspace_ref"] ?? NSNull()
-        payload["window_id"] = workspaceCreate["window_id"] ?? payload["window_id"] ?? NSNull()
-        payload["window_ref"] = workspaceCreate["window_ref"] ?? payload["window_ref"] ?? NSNull()
-        payload["vm_id"] = id
-        payload["transport"] = "websocket"
-        payload["target"] = target
-        payload["expires_at_unix"] = endpoint.expiresAtUnix
-        logVMTiming(
-            "complete",
-            vmID: id,
-            transport: "websocket",
-            startedAt: startedAt,
-            extra: "workspace=\(String(workspaceId.prefix(8)))"
-        )
-
-        if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
-        } else {
-            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
-            print("OK workspace=\(workspaceHandle) target=\(target) transport=websocket")
-        }
-        return workspaceId
-    }
-
-    private func writeVMPtyWebSocketConfig(_ endpoint: VMPtyWebSocketEndpoint) throws -> URL {
-        let config = VMPtyWebSocketConfig(
-            url: endpoint.url,
-            headers: endpoint.headers,
-            token: endpoint.token,
-            sessionId: endpoint.sessionId,
-            attachmentId: endpoint.attachmentId
-        )
-        let data = try JSONEncoder().encode(config)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vm-pty-\(UUID().uuidString.lowercased()).json")
-        try data.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        return url
-    }
-
     /// Runs the WebSocket PTY bridge with automatic reconnection. A clean server close
     /// (the remote shell exited) ends the loop; any drop — network change, sandbox
     /// standby/wake, a rotated preview URL, a consumed lease — re-mints a fresh attach
@@ -33852,120 +33662,6 @@ struct CMUXCLI {
         return candidate
     }
 
-    private func readCodexTranscriptSubagentSignals(
-        path: String,
-        turnId: String?
-    ) -> CodexTranscriptSubagentSignals {
-        guard let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
-            return CodexTranscriptSubagentSignals()
-        }
-
-        let normalizedTurnId = normalizedHookValue(turnId)
-        var signals = CodexTranscriptSubagentSignals()
-        var currentTurnId: String?
-        var currentTurnRelevant = normalizedTurnId == nil
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  let data = trimmed.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let objectType = object["type"] as? String else {
-                continue
-            }
-
-            if objectType == "session_meta",
-               let payload = object["payload"] as? [String: Any],
-               codexTranscriptSessionMetaIsSubagent(payload) {
-                signals.isSubagentSession = true
-            }
-
-            if objectType == "turn_context",
-               let payload = object["payload"] as? [String: Any] {
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                currentTurnId = payloadTurnId
-                currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
-                continue
-            }
-
-            if objectType == "event_msg",
-               let payload = object["payload"] as? [String: Any],
-               let eventType = payload["type"] as? String {
-                switch eventType {
-                case "task_started":
-                    let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                    currentTurnId = payloadTurnId
-                    currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
-                case "task_complete", "turn_complete":
-                    let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                    if let payloadTurnId {
-                        currentTurnId = payloadTurnId
-                    }
-                    if let normalizedTurnId {
-                        if payloadTurnId == normalizedTurnId || (payloadTurnId == nil && currentTurnRelevant) {
-                            currentTurnRelevant = false
-                        }
-                    } else {
-                        currentTurnRelevant = false
-                    }
-                default:
-                    break
-                }
-                continue
-            }
-
-            guard currentTurnRelevant || currentTurnId == nil else {
-                continue
-            }
-            guard codexTranscriptLineHasSubagentNotification(object) else {
-                continue
-            }
-            signals.hasSubagentNotificationRelay = true
-        }
-
-        return signals
-    }
-
-    private func codexTranscriptSessionMetaIsSubagent(_ payload: [String: Any]) -> Bool {
-        if firstString(in: payload, keys: ["thread_source", "threadSource"])?.lowercased() == "subagent" {
-            return true
-        }
-        if let source = payload["source"] as? [String: Any],
-           source["subagent"] != nil {
-            return true
-        }
-        return false
-    }
-
-    private func codexTranscriptLineHasSubagentNotification(_ object: [String: Any]) -> Bool {
-        guard (object["type"] as? String) == "response_item",
-              let payload = object["payload"] as? [String: Any],
-              (payload["type"] as? String) == "message",
-              (payload["role"] as? String) == "user" else {
-            return false
-        }
-        return codexTranscriptMessageText(payload)
-            .map { $0.contains("<subagent_notification>") }
-            ?? false
-    }
-
-    private func codexTranscriptMessageText(_ payload: [String: Any]) -> String? {
-        if let content = payload["content"] as? String {
-            let normalized = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return normalized.isEmpty ? nil : normalized
-        }
-        guard let content = payload["content"] as? [[String: Any]] else {
-            return nil
-        }
-        let parts = content.compactMap { block -> String? in
-            let text = (block["text"] as? String) ?? (block["input_text"] as? String)
-            let normalized = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return normalized?.isEmpty == false ? normalized : nil
-        }
-        let joined = parts.joined(separator: "\n")
-        return joined.isEmpty ? nil : joined
-    }
-
     private func codexUserInputEventCandidate(
         from payload: [String: Any],
         turnId: String?,
@@ -36416,6 +36112,10 @@ struct CMUXCLI {
                     eventName: event.agentEvent
                 ))
                 result[event.agentEvent] = entries
+            case .copilotHooksJSON(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.copilotHookEntry(command: cmd, timeoutSeconds: timeoutSeconds))
+                result[event.agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
@@ -36452,6 +36152,13 @@ struct CMUXCLI {
                     command: feedCmd,
                     timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs),
                     eventName: agentEvent
+                ))
+                result[agentEvent] = entries
+            case .copilotHooksJSON:
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.copilotHookEntry(
+                    command: feedCmd,
+                    timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs)
                 ))
                 result[agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
@@ -37390,6 +37097,201 @@ export default {
         ))
     }
 
+    /// Copilot CLI runs a `bash` entry with bash and stops it after
+    /// `timeoutSec` seconds (30 when absent). `type` is optional there; it is
+    /// written so the file reads like Copilot's own examples.
+    private static func copilotHookEntry(command: String, timeoutSeconds: Int) -> [String: Any] {
+        ["type": "command", "bash": command, "timeoutSec": max(timeoutSeconds, 1)]
+    }
+
+    /// Where cmux versions before this one wrote Copilot hooks. Copilot CLI
+    /// does not read hooks from it any more, so setup and uninstall both prune
+    /// the cmux groups left there and keep everything else.
+    private static let copilotLegacyConfigFile = "config.json"
+
+    /// Copilot CLI loads every `*.json` under its `hooks/` directory as a
+    /// `version: 1` file, so cmux owns one whole file there (`def.configFile`)
+    /// instead of merging into a shared document.
+    private func installCopilotHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        let hooksDir = (filePath as NSString).deletingLastPathComponent
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        var isDirectory = ObjCBool(false)
+        if fm.fileExists(atPath: hooksDir, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.configDirectoryIsFile",
+                        defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
+                    ),
+                    hooksDir
+                ))
+            }
+        } else {
+            do {
+                try fm.createDirectory(atPath: hooksDir, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.configDirectoryCreateFailed",
+                        defaultValue: "cmux could not create the hooks directory at %@. Check the parent directory permissions and try again."
+                    ),
+                    hooksDir
+                ))
+            }
+        }
+
+        let document: [String: Any] = ["version": 1, "hooks": buildHooksDict(for: def)]
+        let newData = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys])
+        let newString = String(data: newData, encoding: .utf8) ?? "{}"
+        let oldString: String = {
+            guard let data = fm.contents(atPath: filePath),
+                  let json = try? JSONSerialization.jsonObject(with: data),
+                  let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
+                  let string = String(data: pretty, encoding: .utf8) else {
+                return ""
+            }
+            return string
+        }()
+
+        if oldString == newString {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.antigravity.alreadyUpToDate",
+                    defaultValue: "%@ hooks already up to date at %@"
+                ),
+                def.displayName,
+                filePath
+            ))
+            try removeLegacyCopilotConfigHooks(def, configDir: configDir)
+            return
+        }
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: filePath,
+                oldContent: oldString,
+                newContent: newString,
+                fallbackContent: newString
+            )
+            print(String(
+                localized: "cli.hooks.antigravity.confirmProceed",
+                defaultValue: "\nProceed? [y/N] "
+            ), terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print(String(
+                    localized: "cli.hooks.antigravity.aborted",
+                    defaultValue: "Aborted."
+                ))
+                return
+            }
+        }
+        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.antigravity.installed",
+                defaultValue: "%@ hooks installed at %@"
+            ),
+            def.displayName,
+            filePath
+        ))
+        try removeLegacyCopilotConfigHooks(def, configDir: configDir)
+    }
+
+    /// Removes the file when it carries cmux's commands. A `cmux.json` the
+    /// user wrote themselves stays put; other files in `hooks/` are never read.
+    private func uninstallCopilotHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        if let data = fm.contents(atPath: filePath) {
+            if let json = try? JSONSerialization.jsonObject(with: data),
+               Self.jsonHookValueContainsCmuxOwnedCommand(json, for: def) {
+                try fm.removeItem(atPath: filePath)
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.copilot.removed",
+                        defaultValue: "Removed Copilot cmux hooks from %@"
+                    ),
+                    filePath
+                ))
+            } else {
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.antigravity.removedZero",
+                        defaultValue: "Removed 0 cmux hook(s) from %@"
+                    ),
+                    filePath
+                ))
+            }
+        } else {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.antigravity.noneFound",
+                    defaultValue: "No %@ found at %@"
+                ),
+                def.configFile,
+                filePath
+            ))
+        }
+        try removeLegacyCopilotConfigHooks(def, configDir: configDir)
+    }
+
+    /// Prunes the nested `hooks` groups an older cmux wrote into Copilot's
+    /// `config.json`. Entries the user added stay, even inside a group that
+    /// also held a cmux hook; events left empty are dropped. A missing or
+    /// unreadable file is left alone.
+    private func removeLegacyCopilotConfigHooks(_ def: AgentHookDef, configDir: String) throws {
+        let configPath = "\(configDir)/\(Self.copilotLegacyConfigFile)"
+        let fm = FileManager.default
+        guard let data = fm.contents(atPath: configPath),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var hooks = json["hooks"] as? [String: Any] else {
+            return
+        }
+        var removed = 0
+        for (event, value) in hooks {
+            guard let groups = value as? [[String: Any]] else { continue }
+            var keptGroups: [[String: Any]] = []
+            for var group in groups {
+                guard var hookList = group["hooks"] as? [[String: Any]] else {
+                    keptGroups.append(group)
+                    continue
+                }
+                let before = hookList.count
+                hookList.removeAll { Self.isCmuxOwnedHookCommand($0["command"] as? String ?? "", for: def) }
+                removed += before - hookList.count
+                if hookList.isEmpty { continue }
+                group["hooks"] = hookList
+                keptGroups.append(group)
+            }
+            if keptGroups.isEmpty {
+                hooks.removeValue(forKey: event)
+            } else {
+                hooks[event] = keptGroups
+            }
+        }
+        guard removed > 0 else { return }
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try newData.write(to: URL(fileURLWithPath: configPath), options: .atomic)
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.copilot.legacyRemoved",
+                defaultValue: "Removed %1$lld cmux hook(s) from %2$@"
+            ),
+            Int64(removed),
+            configPath
+        ))
+    }
+
     private func uninstallAntigravityHooks(_ def: AgentHookDef) throws {
         let filePath = "\(def.resolvedConfigDir())/\(def.configFile)"
         let fm = FileManager.default
@@ -37512,6 +37414,10 @@ export default {
             try installAntigravityHooks(def)
             return
         }
+        if case .copilotHooksJSON = def.format {
+            try installCopilotHooks(def)
+            return
+        }
         if case .tomlArrayTable = def.format {
             try installKimiHooks(def)
             return
@@ -37623,7 +37529,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .copilotHooksJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -37651,7 +37557,7 @@ export default {
                     }
                 }
                 hooks[event] = groups
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .copilotHooksJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -37894,6 +37800,10 @@ export default {
             try uninstallAntigravityHooks(def)
             return
         }
+        if case .copilotHooksJSON = def.format {
+            try uninstallCopilotHooks(def)
+            return
+        }
         if case .tomlArrayTable = def.format {
             try uninstallKimiHooks(def)
             return
@@ -37962,7 +37872,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .copilotHooksJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -44582,7 +44492,19 @@ export default {
         if let surfaceId = validatedCodexFeedTarget?.surfaceId ?? claimedSurfaceId {
             eventDict["surface_id"] = surfaceId
         }
-        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        // Copilot CLI sends the tool arguments as `toolArgs`, documented as a
+        // JSON-encoded string. Decode it so the cwd fallback and the Feed's
+        // command extraction see an object; a string that is not a JSON object
+        // is kept as it came.
+        let copilotToolArgs: Any? = stdinObj["toolArgs"].map { (value: Any) -> Any in
+            guard let text = value as? String,
+                  let data = text.data(using: .utf8),
+                  let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return value
+            }
+            return decoded
+        }
+        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? copilotToolArgs ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
             ?? stdinObj["toolResponse"]
             ?? stdinObj["tool_result"]
