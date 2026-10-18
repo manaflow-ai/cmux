@@ -74,6 +74,43 @@ struct SessionContentWidthSettingsFileStoreTests {
         #expect(defaults.double(forKey: terminal.runawayMemoryGuardrailThresholdGB.userDefaultsKey) == 12)
     }
 
+    @Test
+    func settingsFileStoreAppliesSurfaceTabBarLayout() throws {
+        typealias Layout = SurfaceTabBarLayoutSettings
+        let suiteName = "cmux-surface-tab-bar-layout-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try #"{"surfaceTabBar":{"widthMode":"fill","maxTabWidth":360,"height":36}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+        #expect(Layout.widthMode(defaults: defaults) == .fill)
+        #expect(Layout.maxTabWidth(defaults: defaults) == 360)
+        #expect(Layout.height(defaults: defaults) == 36)
+
+        try #"{"surfaceTabBar":{}}"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        store.reload()
+        #expect(Layout.widthMode(defaults: defaults) == .fixed)
+        #expect(Layout.maxTabWidth(defaults: defaults) == Layout.defaultMaxTabWidth)
+        #expect(Layout.height(defaults: defaults) == Layout.defaultHeight)
+
+        try #"{"surfaceTabBar":{"widthMode":"wide","maxTabWidth":10,"height":200}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        store.reload()
+        #expect(Layout.widthMode(defaults: defaults) == .fixed)
+        #expect(Layout.maxTabWidth(defaults: defaults) == Layout.defaultMaxTabWidth)
+        #expect(Layout.height(defaults: defaults) == Layout.defaultHeight)
+    }
+
     /// Runs off the main actor on purpose: Swift Testing's cooperative threads
     /// have 512 KB stacks, which the integrations parser overflowed in -Onone
     /// builds while it built a `SettingCatalog()` per key (#17446).

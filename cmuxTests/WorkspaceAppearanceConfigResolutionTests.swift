@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxFoundation
 import XCTest
 
@@ -72,5 +73,35 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
         )
 
         XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
+    }
+
+    @MainActor
+    func testSurfaceTabBarLayoutReachesBonsplitAndReappliesOnChange() {
+        typealias Layout = SurfaceTabBarLayoutSettings
+        let defaults = UserDefaults.standard
+        let saved = Layout.allKeys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        Layout.allKeys.forEach { defaults.removeObject(forKey: $0) }
+
+        let workspace = Workspace(title: "Tests")
+        defer { workspace.teardownAllPanels() }
+        var appearance = workspace.bonsplitController.configuration.appearance
+        XCTAssertEqual(appearance.tabWidthMode, .fixed)
+        XCTAssertEqual(appearance.tabMaxWidth, Layout.defaultMaxTabWidth)
+        XCTAssertEqual(appearance.tabBarHeight, WindowChromeMetrics.bonsplitTabBarHeight)
+
+        defaults.set(Layout.WidthMode.fill.rawValue, forKey: Layout.widthModeKey)
+        defaults.set(320.0, forKey: Layout.maxTabWidthKey)
+        defaults.set(36.0, forKey: Layout.heightKey)
+        workspace.applyGhosttyChrome(from: GhosttyConfig(), reason: "test-surface-tab-bar-layout")
+
+        appearance = workspace.bonsplitController.configuration.appearance
+        XCTAssertEqual(appearance.tabWidthMode, .fill)
+        XCTAssertEqual(appearance.tabMaxWidth, 320)
+        XCTAssertEqual(appearance.tabBarHeight, 36)
     }
 }

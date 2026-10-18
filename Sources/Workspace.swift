@@ -4080,6 +4080,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             "divider=\(colors.dividerHex ?? "nil")"
     }
 
+    nonisolated static func bonsplitTabWidthMode(
+        _ mode: SurfaceTabBarLayoutSettings.WidthMode
+    ) -> BonsplitConfiguration.Appearance.TabWidthMode {
+        switch mode {
+        case .fixed: .fixed
+        case .fill: .fill
+        }
+    }
+
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
@@ -4104,8 +4113,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             increaseContrast: DisplayAccessibilityOptions.current.increaseContrast
         )
         return BonsplitConfiguration.Appearance(
-            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
+            tabBarHeight: SurfaceTabBarLayoutSettings.height(),
+            tabMaxWidth: SurfaceTabBarLayoutSettings.maxTabWidth(),
             tabTitleFontSize: tabTitleFontSize,
+            tabWidthMode: bonsplitTabWidthMode(SurfaceTabBarLayoutSettings.widthMode()),
             dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
@@ -4142,7 +4153,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
+        let nextTabBarHeight = SurfaceTabBarLayoutSettings.height()
+        let nextTabMaxWidth = SurfaceTabBarLayoutSettings.maxTabWidth()
+        let nextTabWidthMode = Self.bonsplitTabWidthMode(SurfaceTabBarLayoutSettings.widthMode())
+        let tabBarHeightChanged = abs(currentAppearance.tabBarHeight - nextTabBarHeight) > 0.0001
+        let tabMaxWidthChanged = abs(currentAppearance.tabMaxWidth - nextTabMaxWidth) > 0.0001
+        let tabWidthModeChanged = currentAppearance.tabWidthMode != nextTabWidthMode
         let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
+            && !tabBarHeightChanged && !tabMaxWidthChanged && !tabWidthModeChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -4168,6 +4186,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if fontSizeChanged {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+        }
+        if tabBarHeightChanged {
+            bonsplitController.configuration.appearance.tabBarHeight = nextTabBarHeight
+        }
+        if tabMaxWidthChanged {
+            bonsplitController.configuration.appearance.tabMaxWidth = nextTabMaxWidth
+        }
+        if tabWidthModeChanged {
+            bonsplitController.configuration.appearance.tabWidthMode = nextTabWidthMode
         }
 
         if GhosttyApp.shared.backgroundLogEnabled {

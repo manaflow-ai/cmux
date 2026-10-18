@@ -1679,7 +1679,8 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
-                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey ||
+                    SurfaceTabBarLayoutSettings.allKeys.contains(change.defaultsKey) {
                     paneChromeDidChange = true
                 }
 
