@@ -192,6 +192,12 @@ test("capture receipts fail quality when results contain an unknown case", () =>
   expect(captureReceipt(cases, results, "unknown-case").quality).toBe("fail");
 });
 
+test("capture receipts fail quality when results contain an unknown engine", () => {
+  const cases = parseManifest([{ id: "a", path_or_url: "frame.html" }]);
+  const results = [{ id: "a", engine: "unknown-engine", ready: "1", revision: { sha: "head-a", source: "src/a.gallery.tsx" } }];
+  expect(captureReceipt(cases, results, "unknown-engine").quality).toBe("fail");
+});
+
 test("shards cases deterministically", () => {
   const cases = [0, 1, 2, 3, 4, 5].map((id) => ({ id: String(id), path_or_url: "x" }));
   expect(shardCases(cases, 2, 0).map((item) => item.id)).toEqual(["0", "2", "4"]);

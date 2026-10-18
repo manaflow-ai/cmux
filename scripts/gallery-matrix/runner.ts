@@ -45,7 +45,7 @@ export function captureReceipt(
   const declaredSources = new Map(cases.map((item) => [item.id, item.params?.source]));
   const identities = new Set(results.map((result) => `${String(result.id ?? "")}:${String(result.engine ?? "")}`));
   const complete = results.length === expected && identities.size === expected && expected > 0;
-  const declaredCases = results.every((result) => declaredCaseIds.has(String(result.id)) && typeof result.engine === "string" && result.engine.length > 0);
+  const declaredCases = results.every((result) => declaredCaseIds.has(String(result.id)) && (result.engine === "chromium" || result.engine === "webkit"));
   const provenanceComplete = results.every((result) => {
     const revision = result.revision as { sha?: unknown; source?: unknown } | undefined;
     const declaredSource = declaredSources.get(String(result.id)) ?? (result.params as Record<string, unknown> | undefined)?.source;
