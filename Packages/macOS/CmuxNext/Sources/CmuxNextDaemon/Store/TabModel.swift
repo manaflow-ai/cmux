@@ -88,9 +88,10 @@ public final class TabModel: Identifiable {
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
     /// Whether this window minted the tab: it showed under a provisional surface before the daemon
-    /// had it (an optimistic split's terminal, a new chat). Its id is the window's own from the
-    /// start; its surface changes when the daemon confirms it, so the focus topology names it by
-    /// its id only (``FocusTopology/Tab/surface`` is nil) and the confirm changes no topology.
+    /// had it. An optimistic split's terminal keeps its client-minted id through the daemon's
+    /// confirm (the same record), but its surface changes, so the focus topology names it by its
+    /// id only (``FocusTopology/Tab/surface`` is nil) and the confirm changes no topology. A
+    /// provisional chat or page tab (`pending_tab_…`) gives way to a new daemon record instead.
     public let isClientMinted: Bool
 
     public var displayTitle: String {

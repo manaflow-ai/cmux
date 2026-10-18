@@ -82,8 +82,8 @@ extension WorkspaceContentController {
     }
 
     /// Same, for tab `tab` (`TabModel.id`) that this window minted (``TabModel/isClientMinted``:
-    /// an optimistic split's terminal, a new chat's provisional tab), which the topology names by
-    /// its id only.
+    /// an optimistic split's terminal, a provisional chat tab), which the topology names by its
+    /// id only.
     func expectFocus(onTab tab: String, generation: UInt64? = nil) {
         focus.expect(.tab(tab), generation: generation)
     }

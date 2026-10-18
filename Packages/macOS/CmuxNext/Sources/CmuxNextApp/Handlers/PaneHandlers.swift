@@ -110,8 +110,9 @@ enum PaneHandlers {
         // there: the focus lands by the id, in the first topology that shows the pane.
         if let provisional { content?.expectFocus(onTab: provisional.tabID, generation: intent) }
         // The window's keys wait until the new pane has the keyboard (cx-wb5.76): on the old path
-        // focus moves only after the reply, and on the optimistic path the swap to the daemon's
-        // pane remounts the view. The provisional view takes keys by terminal id at once (cx-wb5.78).
+        // focus moves only after the reply; on the optimistic path the provisional view stays and
+        // attaches to the daemon's terminal when it confirms (`TabContentCache.confirmedProvisional`)
+        // and takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
         let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil)
         ctx.registry.track(Task {
