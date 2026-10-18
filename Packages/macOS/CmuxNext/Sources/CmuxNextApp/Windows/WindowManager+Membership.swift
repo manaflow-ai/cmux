@@ -94,7 +94,7 @@ extension WindowManager {
     private func handOffKey(to receivers: [String]) {
         guard ordersWindowsIn, !services.environment.noActivate else { return }
         let next = receivers.lazy.compactMap { self.controller(for: $0) }.first
-            ?? NSApp.orderedWindows.lazy.compactMap { window in self.controllers.first { $0.window === window } }.first
+            ?? registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window?.isVisible == true }
         if let next { bringToFront(next) }
     }
 

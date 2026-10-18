@@ -50,9 +50,22 @@ pub fn socket_path() -> PathBuf {
     // socket there. The long path fails to bind with a clear error instead.
     let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
     if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
-        return configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock"));
+        return absolute(
+            configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock")),
+        );
     }
-    resolved
+    absolute(resolved)
+}
+
+/// A relative `ACPMUX_SOCKET` against this process's folder: the daemon
+/// hands the path to harnesses that run in a project folder
+/// (`hub/person.rs` `caller_env`), where a relative one names another file.
+fn absolute(path: PathBuf) -> PathBuf {
+    if path.is_relative() {
+        std::env::current_dir().map(|d| d.join(&path)).unwrap_or(path)
+    } else {
+        path
+    }
 }
 
 /// Windows: `ACPMUX_SOCKET`, else `<home>\\acpmux.sock`; a long home (AF_UNIX
@@ -62,7 +75,7 @@ pub fn socket_path() -> PathBuf {
 #[cfg(windows)]
 pub fn socket_path() -> PathBuf {
     if let Some(v) = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty()) {
-        return PathBuf::from(v);
+        return absolute(PathBuf::from(v));
     }
     let preferred = home().join("acpmux.sock");
     if preferred.as_os_str().len() < 96 {

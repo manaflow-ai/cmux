@@ -405,6 +405,8 @@ impl Mux {
                         public_id: WorkspacePublicId::random()?,
                         key: Mux::new_workspace_key()?,
                         name,
+                        name_source: crate::resource_name::NameSource::Auto,
+                        name_revision: 0,
                         screens: Vec::new(),
                         active_screen: 0,
                     });
@@ -751,6 +753,8 @@ impl Mux {
                         public_id: WorkspacePublicId::random()?,
                         key: Mux::new_workspace_key()?,
                         name,
+                        name_source: crate::resource_name::NameSource::Auto,
+                        name_revision: 0,
                         screens: Vec::new(),
                         active_screen: 0,
                     });
