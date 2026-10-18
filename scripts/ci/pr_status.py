@@ -45,7 +45,7 @@ from typing import Callable, Mapping
 
 MARKER = "<!-- cmux-pr-status -->"
 BOT = "github-actions[bot]"
-SECTIONS = ("bead", "review", "preview", "checks", "tour", "receipt")
+SECTIONS = ("bead", "review", "preview", "attribution", "checks", "guards", "tour", "receipt")
 TITLE = "**cmux status** <sub>(one comment, edited in place; each line is updated by the job that owns it)</sub>"
 SECTION = re.compile(r"<!-- cmux-pr-status:(?P<key>[a-z-]+) -->\n(?P<text>.*?)\n<!-- /cmux-pr-status:(?P=key) -->",
                      re.S)
