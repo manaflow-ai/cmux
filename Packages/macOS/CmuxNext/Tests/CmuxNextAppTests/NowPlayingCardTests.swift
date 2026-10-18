@@ -225,6 +225,7 @@ import Testing
             return views(card).compactMap(\.layer).flatMap(animated)
         }
         card.scrubber.reduceMotionOverride = true
+        card.levels.reduceMotionOverride = true
         card.configure(Self.track())
         card.isHidden = false
         card.layoutSubtreeIfNeeded()
