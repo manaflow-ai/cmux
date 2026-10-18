@@ -94,16 +94,29 @@ def http_api(method: str, path: str, payload: dict | None = None):
 
 
 def bot_comments(api: Api, repo: str, pr: int, marker: str) -> list[dict]:
-    """This bot's comments that start with marker, oldest first."""
+    """This bot's comments marked with marker, oldest first: status comments start with MARKER;
+    any other marker matches anywhere in a comment that is not a status comment (the merge
+    receipt put its marker last)."""
     found, page = [], 1
     while page <= 30:
         items = api("GET", f"/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}", None) or []
         found += [{"id": c["id"], "body": c.get("body") or ""} for c in items
-                  if (c.get("user") or {}).get("login") == BOT and (c.get("body") or "").startswith(marker)]
+                  if (c.get("user") or {}).get("login") == BOT and marks(c.get("body") or "", marker)]
         if len(items) < 100:
             break
         page += 1
     return sorted(found, key=lambda c: int(c["id"]))
+
+
+def marks(body: str, marker: str) -> bool:
+    if marker == MARKER:
+        return body.startswith(MARKER)
+    return marker in body and not body.startswith(MARKER)
+
+
+def own_text(body: str, key: str) -> str:
+    """A section's text when body is a status comment, else body (a comment from before it)."""
+    return parse(body).get(key, "") if body.startswith(MARKER) else body
 
 
 def write(api: Api, repo: str, pr: int, comment_id: int | None, body: str) -> None:

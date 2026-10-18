@@ -115,6 +115,13 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(sorted(gh.comments)[0], person)
         self.assertEqual(len(gh.comments), 2)
 
+    def test_a_marker_at_the_end_of_a_legacy_comment_counts(self):
+        gh = FakeGitHub()
+        gh.add("**Merge receipt** for `abc`\n<!-- cmux:merge-receipt -->")
+        upsert(gh, "receipt", "Merge receipt <!-- cmux:merge-receipt -->", legacy="<!-- cmux:merge-receipt -->")
+        self.assertEqual(len(gh.comments), 1)
+        self.assertEqual(gh.status(), {"receipt": "Merge receipt <!-- cmux:merge-receipt -->"})
+
     def test_an_oversized_section_is_cut_to_fit(self):
         body = pr_status.render({"bead": "Bead: `cx-abc1`", "tour": "x" * 90000})
         self.assertLessEqual(len(body), pr_status.LIMIT)
