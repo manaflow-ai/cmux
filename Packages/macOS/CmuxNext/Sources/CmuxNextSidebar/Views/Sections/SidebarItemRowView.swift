@@ -43,7 +43,7 @@ class SidebarItemRowView: NSView {
     private let pill = CALayer()
     private let chip = CALayer()
     let icon = NSImageView()
-    let title = NSTextField(labelWithString: "")
+    let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
     /// The workspace item's status: the shared indicator (`info.activity`).
@@ -85,7 +85,7 @@ class SidebarItemRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
