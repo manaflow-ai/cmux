@@ -227,6 +227,13 @@ public final class TerminalSession {
     }
 
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
+    /// A new session for an evicted terminal: its last frame shows at once, until the first
+    /// content the owner sends is parsed and drawn (no empty pane while it attaches).
+    public func showLastFrame(_ frame: TerminalLastFrame) {
+        guard !surfaceHasContent, let surface = frame.take() else { return }
+        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+    }
+
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
     }
@@ -253,6 +260,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
             // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
@@ -263,6 +271,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
@@ -270,6 +279,7 @@ public final class TerminalSession {
             guard restored, phase.isReady else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
             TypingLatencyProbe.shared.mark(.outputMain)
@@ -279,6 +289,7 @@ public final class TerminalSession {
             // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
