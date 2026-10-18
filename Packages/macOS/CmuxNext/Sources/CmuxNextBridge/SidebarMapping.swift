@@ -11,13 +11,25 @@ public struct SidebarMapping {
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
-    /// The front page's title, else the workspace's name. A daemon default
-    /// name (`workspace-7`) is shown: a terminal workspace gets no page or
-    /// agent title, so hiding it left the row blank until a rename (#21357).
-    /// The creating row sends the same name, so the reply changes nothing.
-    private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
+    /// The front page's title, else the workspace's name. A daemon-generated
+    /// name (`workspace-7`) may use the first tab's folder basename as a
+    /// display-only title. Persisted workspace names and titles remain
+    /// authoritative, and the creating row still sends the daemon name.
+    private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?, folderPath: String?) -> String {
         if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
+        if let title = workspace.title, !title.isEmpty { return title }
+        if isDefaultWorkspaceName(workspace.name), let basename = folderBasename(folderPath) { return basename }
         return workspace.displayName
+    }
+
+    /// The final path component used for display auto-naming. A blank path,
+    /// filesystem root, and dot components do not provide a meaningful name.
+    private static func folderBasename(_ path: String?) -> String? {
+        guard let path else { return nil }
+        let component = path.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init)
+        guard let component, !component.isEmpty, component != ".", component != "..",
+              !component.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return component
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
@@ -119,7 +131,7 @@ public struct SidebarMapping {
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            title: Self.sidebarTitle(workspace, page: page),
+            title: Self.sidebarTitle(workspace, page: page, folderPath: folder?.cwd),
             directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),

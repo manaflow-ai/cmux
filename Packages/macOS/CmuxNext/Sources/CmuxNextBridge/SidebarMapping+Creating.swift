@@ -19,9 +19,8 @@ extension SidebarMapping {
     /// daemon's title from the press.
     public static func defaultWorkspaceName(existing: [String], reserved: [String]) -> String {
         func number(_ name: String) -> Int? {
-            guard name.hasPrefix(defaultNamePrefix) else { return nil }
+            guard isDefaultWorkspaceName(name) else { return nil }
             let digits = name.dropFirst(defaultNamePrefix.count)
-            guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
             return Int(digits)
         }
         // A reserved name the machine lists already is counted once.
@@ -32,6 +31,15 @@ extension SidebarMapping {
 
     /// The prefix of the daemon's default workspace names.
     public static let defaultNamePrefix = "workspace-"
+
+    /// Whether `name` is the daemon-generated workspace name. User names and
+    /// titles stay authoritative; this check only identifies the names that
+    /// may receive a display-only folder basename in the sidebar.
+    public static func isDefaultWorkspaceName(_ name: String) -> Bool {
+        guard name.hasPrefix(defaultNamePrefix) else { return false }
+        let digits = name.dropFirst(defaultNamePrefix.count)
+        return !digits.isEmpty && digits.allSatisfy { $0.isASCII && $0.isNumber }
+    }
 
     /// `defaultWorkspaceName` for the machine of `store`: its listed
     /// workspaces but the home workspace.
