@@ -4,6 +4,7 @@ import CoreVideo
 import CryptoKit
 import Foundation
 import ImageIO
+import os
 import Testing
 import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
@@ -78,6 +79,22 @@ func movieHasLocation(_ url: URL) async throws -> Bool {
     let items = try await AVURLAsset(url: url).load(.metadata)
     return items.contains { $0.identifier == .quickTimeMetadataLocationISO6709 || $0.identifier == .commonIdentifierLocation
         || $0.identifier == .quickTimeUserDataLocationISO6709 }
+}
+
+/// Finishes `writer` through its completion handler and a continuation that resumes once.
+/// The async `finishWriting()` bridge belongs to the AVFoundation completion-handler
+/// family whose continuation crashed the test process on CI's macOS 15 runners.
+func finishWriting(_ writer: AVAssetWriter) async {
+    let resumed = OSAllocatedUnfairLock(initialState: false)
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        writer.finishWriting {
+            let first = resumed.withLock { done in
+                defer { done = true }
+                return !done
+            }
+            if first { continuation.resume() }
+        }
+    }
 }
 
 /// A one-second H.264 movie, `width` x `height` encoded, rotated 90 degrees
@@ -180,7 +197,7 @@ func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int3
     }
     input.markAsFinished()
     writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: fps))
-    await writer.finishWriting()
+    await finishWriting(writer)
     #expect(writer.status == .completed, "AVAssetWriter failed: \(String(describing: writer.error))")
 }
 
