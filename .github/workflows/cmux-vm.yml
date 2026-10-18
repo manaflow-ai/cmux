@@ -155,9 +155,9 @@ jobs:
       # Breaking changes to the published contract against the PR's base.
       # Add the label cmux-vm-breaking-change-ok to accept them deliberately.
       - name: openapi.json has no breaking change against the base branch
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/codex/vm-api-'))) }}
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'feat-cmux-next' }}
           ACCEPT_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'cmux-vm-breaking-change-ok') }}
         run: bash scripts/openapi-breaking.sh "$BASE_REF"
       - name: Upstream coverage (every upstream operation wrapped, planned or denied)

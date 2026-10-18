@@ -1367,6 +1367,11 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub idle_timeout_seconds: ::std::option::Option<i64>,
+        #[serde(
+            rename = "initialNetwork",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub initial_network: ::std::option::Option<InitialVmNetwork>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub labels: ::std::option::Option<Labels>,
         #[serde(
@@ -1559,6 +1564,105 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for CreatedApiKeyId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`CreatedVm`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct CreatedVm {
+        ///Deletes the VM once it has gone this long without running; each start resets the clock. Null: never.
+        #[serde(
+            rename = "autoDeleteSeconds",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub auto_delete_seconds: ::std::option::Option<f64>,
+        #[serde(rename = "createdAt")]
+        pub created_at: ::std::string::String,
+        ///The name given at create or fork; null when none was given.
+        #[serde(
+            rename = "displayName",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub display_name: ::std::option::Option<::std::string::String>,
+        ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        pub id: CreatedVmId,
+        ///Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness.
+        #[serde(
+            rename = "idleTimeoutSeconds",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub idle_timeout_seconds: ::std::option::Option<f64>,
+        #[serde(
+            rename = "initialNetwork",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub initial_network: ::std::option::Option<InitialVmNetworkReceipt>,
+        pub labels: Labels,
+        ///Pauses the VM once a single run lasts this long; each start resets it. Null: no cap.
+        #[serde(
+            rename = "maxRunSeconds",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub max_run_seconds: ::std::option::Option<f64>,
+        pub resources: VmResources,
+        ///starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name.
+        pub state: ::std::string::String,
+        #[serde(rename = "updatedAt")]
+        pub updated_at: ::std::string::String,
+    }
+    ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreatedVmId(::std::string::String);
+    impl ::std::ops::Deref for CreatedVmId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreatedVmId> for ::std::string::String {
+        fn from(value: CreatedVmId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreatedVmId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreatedVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreatedVmId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreatedVmId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -3289,6 +3393,30 @@ pub mod types {
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
         }
+    }
+    ///Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+    pub struct InitialVmNetwork {
+        ///an array of at most 8 item(s)
+        #[serde(
+            rename = "httpsProxies",
+            default,
+            skip_serializing_if = "::std::vec::Vec::is_empty"
+        )]
+        pub https_proxies: ::std::vec::Vec<VmHttpsProxy>,
+        #[serde(
+            rename = "publicEgress",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub public_egress: ::std::option::Option<bool>,
+    }
+    ///Accepted creation-time policy. Proxy credentials and destination origins are never returned.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct InitialVmNetworkReceipt {
+        #[serde(rename = "httpsProxyHosts")]
+        pub https_proxy_hosts: ::std::vec::Vec<::std::string::String>,
+        #[serde(rename = "publicEgress")]
+        pub public_egress: bool,
     }
     ///an integer
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -7141,6 +7269,123 @@ pub mod types {
         #[serde(rename = "updatedAt")]
         pub updated_at: ::std::string::String,
     }
+    ///`VmHttpsProxy`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct VmHttpsProxy {
+        ///A bare HTTPS origin enabled by the deployment's proxy policy.
+        pub destination: VmHttpsProxyDestination,
+        ///Redacted(<redacted>)
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub headers: ::std::option::Option<VmProxyHeaders>,
+        ///a string at most 253 character(s) long
+        pub hostname: VmHttpsProxyHostname,
+    }
+    ///A bare HTTPS origin enabled by the deployment's proxy policy.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmHttpsProxyDestination(::std::string::String);
+    impl ::std::ops::Deref for VmHttpsProxyDestination {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmHttpsProxyDestination> for ::std::string::String {
+        fn from(value: VmHttpsProxyDestination) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmHttpsProxyDestination {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 2048usize {
+                return Err("longer than 2048 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmHttpsProxyDestination {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmHttpsProxyDestination {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmHttpsProxyDestination {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 253 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmHttpsProxyHostname(::std::string::String);
+    impl ::std::ops::Deref for VmHttpsProxyHostname {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmHttpsProxyHostname> for ::std::string::String {
+        fn from(value: VmHttpsProxyHostname) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmHttpsProxyHostname {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 253usize {
+                return Err("longer than 253 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmHttpsProxyHostname {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmHttpsProxyHostname {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmHttpsProxyHostname {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
     ///a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -7207,6 +7452,38 @@ pub mod types {
             deserialize_with = "::std::option::Option::deserialize"
         )]
         pub next_cursor: ::std::option::Option<::std::string::String>,
+    }
+    ///`VmProxyHeaders`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    #[serde(transparent)]
+    pub struct VmProxyHeaders(
+        pub ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+    );
+    impl ::std::ops::Deref for VmProxyHeaders {
+        type Target = ::std::collections::HashMap<::std::string::String, ::std::string::String>;
+        fn deref(
+            &self,
+        ) -> &::std::collections::HashMap<::std::string::String, ::std::string::String> {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmProxyHeaders>
+        for ::std::collections::HashMap<::std::string::String, ::std::string::String>
+    {
+        fn from(value: VmProxyHeaders) -> Self {
+            value.0
+        }
+    }
+    impl
+        ::std::convert::From<
+            ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+        > for VmProxyHeaders
+    {
+        fn from(
+            value: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+        ) -> Self {
+            Self(value)
+        }
     }
     ///`VmResources`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
@@ -9501,7 +9778,7 @@ impl Client {
     }
     /**Create a VM
 
-    Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+    Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
 
     Sends a `POST` request to `/v1/vms`
 

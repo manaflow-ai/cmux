@@ -127,7 +127,8 @@ export const RequestedResources = Schema.Struct({
 
 export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequest")(
   {
-    initialNetwork: Schema.optional(InitialVmNetwork),
+    // An undefined union branch would echo invalid proxy credentials in decode errors.
+    initialNetwork: Schema.optionalWith(InitialVmNetwork, { exact: true }),
     displayName: Schema.optional(DisplayName),
     snapshotId: Schema.optional(SnapshotId.annotations({ description: "Boot from one of the tenant's snapshots; omit for the base image." })),
     resources: Schema.optional(RequestedResources),
@@ -136,7 +137,10 @@ export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequ
     autoDeleteSeconds: Schema.optional(AutoDeleteSeconds),
     labels: Schema.optional(Labels),
   },
-  { description: BASE_IMAGE_DESCRIPTION },
+  {
+    description: BASE_IMAGE_DESCRIPTION,
+    message: () => ({ message: "Invalid VM creation request", override: true }),
+  },
 ) {}
 
 export class ForkVmRequest extends Schema.Class<ForkVmRequest>("ForkVmRequest")({
