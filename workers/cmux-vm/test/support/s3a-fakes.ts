@@ -14,7 +14,7 @@ import type { OwnedResource } from "../../src/db/stores.ts";
 import { newSnapshotId, SnapshotId, TenantId, UpstreamId, type VmId } from "../../src/lib/ids.ts";
 import { makeUpstreamSnapshots } from "../../src/upstream/live-snapshots.ts";
 import { makeUpstreamTerminals } from "../../src/upstream/live-terminals.ts";
-import { UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
+import { UpstreamSnapshots, type UpstreamSnapshotsService } from "../../src/upstream/snapshots.ts";
 import { UpstreamTerminals } from "../../src/upstream/terminals.ts";
 import type { FakeUpstream } from "./fake-upstream.ts";
 
@@ -38,6 +38,8 @@ export interface FakePtySession {
 }
 
 export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream) {
+  let snapshotClient: UpstreamSnapshotsService | null = null;
+  let snapshotFetch: ((request: Request) => Promise<Response>) | null = null;
   const deleted = new Set<string>();
   const tombstones = new Map<string, { readonly row: SnapshotRow; readonly tenantId: string; readonly createdBy: string }>();
   const meta = new Map<string, SnapshotMeta>();
@@ -131,7 +133,7 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     slug: snapshot.slug ?? `slug-${snapshot.id}`,
     displayName: snapshot.displayName ?? `cmux internal ${snapshot.id}`,
     accountId: "acct-leak-check",
-    public: false,
+    public: snapshot.public ?? false,
     ttlSeconds: snapshot.ttlSeconds ?? null,
     autoDeleteSeconds: snapshot.autoDeleteSeconds,
     lastUsedAt: null,
@@ -210,9 +212,11 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
 
   const layer = (fetch: (request: Request) => Promise<Response>) => {
     const config = { baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local" as const, fetch: (request: Request) => fetch(request) };
+    snapshotFetch = fetch;
+    snapshotClient = makeUpstreamSnapshots(config);
     return Layer.mergeAll(
       snapshotStore,
-      Layer.succeed(UpstreamSnapshots, makeUpstreamSnapshots(config)),
+      Layer.succeed(UpstreamSnapshots, snapshotClient),
       Layer.succeed(UpstreamTerminals, makeUpstreamTerminals(config)),
     );
   };
@@ -220,6 +224,11 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
   return {
     upstream,
     layer,
+    changeSnapshotCredential(apiKey: string) {
+      if (snapshotClient === null || snapshotFetch === null) throw new Error("snapshot client not initialized");
+      const send = snapshotFetch;
+      Object.assign(snapshotClient, makeUpstreamSnapshots({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => send(request) }));
+    },
     requests,
     /** Records a snapshot owned by `tenant` and backed by a fake upstream snapshot. */
     addSnapshot(

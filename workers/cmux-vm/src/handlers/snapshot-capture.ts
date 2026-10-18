@@ -86,6 +86,7 @@ export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequ
       labels: Object.fromEntries(Object.entries(payload.labels ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
       ttlSeconds: payload.ttlSeconds ?? null, autoDeleteSeconds: payload.autoDeleteSeconds ?? null });
     const prior = yield* limits.snapshotCapture(caller.value.tenantId, { op: "inspect", key }).pipe(Effect.mapError(() => unavailable()));
+    if (prior.state === "record") yield* name(prior.record.intent.id, (snapshot) => authorizedSnapshotCapture(caller, snapshot));
     if (prior.state === "absent") {
       const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
       if (owns === null) return yield* Effect.fail(vmNotFound());

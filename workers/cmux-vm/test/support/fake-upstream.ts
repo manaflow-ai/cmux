@@ -21,6 +21,7 @@ export interface FakeSnapshot {
   readonly id: string;
   readonly sourceVmId: string;
   readonly autoDeleteSeconds: number | null;
+  readonly public?: boolean;
   readonly ttlSeconds?: number | null;
   readonly slug?: string;
   readonly displayName?: string;

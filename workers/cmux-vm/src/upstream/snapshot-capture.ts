@@ -33,9 +33,9 @@ export const makeSnapshotCaptureClient = (config: UpstreamConfig, http: Upstream
   const verify = (record: ReturnType<typeof snapshotCaptureEvidenceOf>, value: unknown) => Effect.gen(function* () {
     if (record.probe === undefined || record.probe.context !== (yield* context())) return yield* Effect.fail(failure());
     const snapshot = yield* decode(ProviderSnapshot, value);
-    if (snapshot.slug !== slug(record.intent) || snapshot.displayName !== record.probe.stamp || snapshot.public === true
+    if (snapshot.slug !== slug(record.intent) || snapshot.displayName !== record.probe.stamp
       || (yield* digest(snapshot.sourceVmId)) !== record.probe.source) return yield* Effect.fail(failure());
-    if (record.state !== "cancelling" && (!capped(record.intent.ttlSeconds, snapshot.ttlSeconds) || !capped(record.intent.autoDeleteSeconds, snapshot.autoDeleteSeconds))) return yield* Effect.fail(failure());
+    if (record.state !== "cancelling" && (snapshot.public === true || !capped(record.intent.ttlSeconds, snapshot.ttlSeconds) || !capped(record.intent.autoDeleteSeconds, snapshot.autoDeleteSeconds))) return yield* Effect.fail(failure());
     return mint(Object.freeze({ upstreamId: snapshot.id, snapshot }));
   });
   const recoverCapture: UpstreamSnapshotsService["recoverCapture"] = (_snapshot, { capture }) => Effect.gen(function* () {

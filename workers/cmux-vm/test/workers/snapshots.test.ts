@@ -473,6 +473,51 @@ describe("capture controls", () => {
     expect((await h.request(`/v1/snapshot-creations/${id}/reconcile`, bearer(noWrite), { method: "POST" })).status).toBe(403);
     expect(h.upstream.calls).toHaveLength(before);
   });
+  it("refuses provider credential changes before lookup and resumes under the original context", async () => {
+    const { id, headers } = await pending();
+    const calls = h.upstream.calls.length;
+    h.s3a.changeSnapshotCredential("different-provider-account");
+    expect((await h.request(`/v1/snapshot-creations/${id}/reconcile`, headers, { method: "POST" })).status).toBe(503);
+    expect(h.upstream.calls).toHaveLength(calls);
+    h.s3a.changeSnapshotCredential("upstream-test-key");
+    expect((await h.request(`/v1/snapshot-creations/${id}/reconcile`, headers, { method: "POST" })).status).toBe(200);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+  it("cleans an identity-verified public capture during cancellation instead of adopting it", async () => {
+    const { id, headers } = await pending();
+    const captured = [...h.upstream.snapshots.values()][0];
+    if (captured === undefined) throw new Error("missing capture");
+    Object.assign(captured, { public: true });
+    expect((await h.request(`/v1/snapshot-creations/${id}/reconcile`, headers, { method: "POST" })).status).toBe(503);
+    const cancelled = await h.request(`/v1/snapshot-creations/${id}/cancel`, headers, { method: "POST" });
+    expect(await cancelled.json()).toMatchObject({ cancellation: "completed", state: "deleted" });
+    expect(h.upstream.snapshots.size).toBe(0);
+  });
+  it("preserves Cloud service labels and actor ownership across key rotation and recovery", async () => {
+    const labels = { role: "cloud", cmux_next_team: TENANT_A };
+    const { vmId } = h.addVm(TENANT_A, "running", labels);
+    const options = { id: "cloud-api", labels };
+    const token = await h.addServiceKey({ ...options, scopes: ["snapshot:read", "snapshot:write"] });
+    const headers = { ...bearer(token), "x-cmux-team-id": TENANT_A, "idempotency-key": "cloud-snapshot:base" };
+    expect((await create(vmId, headers, {})).status).toBe(403);
+    h.upstream.faults.lostSnapshotResponses = 1;
+    const first = await create(vmId, headers, { displayName: "base", labels });
+    const { pendingSnapshotId: id } = await first.json<{ pendingSnapshotId: string }>();
+    expect(id).toMatch(SNAPSHOT_ID);
+    const foreign = await h.addServiceKey({ id: "another-service", scopes: ["snapshot:read", "snapshot:write"], labels });
+    const foreignHeaders = { ...bearer(foreign), "x-cmux-team-id": TENANT_A };
+    expect((await h.request(`/v1/snapshot-creations/${id}`, foreignHeaders)).status).toBe(404);
+    expect(await (await h.request("/v1/snapshot-creations", foreignHeaders)).json()).toMatchObject({ items: [] });
+    const rotated = await h.addServiceKey({ id: "cloud-api", scopes: ["snapshot:read", "snapshot:write"], labels });
+    const rotatedHeaders = { ...bearer(rotated), "x-cmux-team-id": TENANT_A, "idempotency-key": "cloud-snapshot:base" };
+    expect((await create(vmId, rotatedHeaders, { displayName: "base", labels })).status).toBe(201);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+    const row = h.resources.find((r) => r.cmuxId === id);
+    if (row === undefined) throw new Error("missing row");
+    Object.assign(row, { labels: { role: "other" } });
+    expect((await h.request(`/v1/snapshot-creations/${id}`, rotatedHeaders)).status).toBe(404);
+  });
+
   it("keeps source-allowlisted capture access specific to the original actor", async () => {
     const { vmId } = h.addVm(TENANT_A);
     const original = await h.addKey(TENANT_A, ["snapshot:read", "snapshot:write"], { allowlist: [vmId] });
