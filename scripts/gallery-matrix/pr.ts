@@ -242,7 +242,14 @@ if (import.meta.main) {
   const headEvidence = values.outcomes ? undefined : evidenceReceipt(values.head!, "head", values["head-manifest"], values["capture-manifest"]);
   const repeatEvidence = values.outcomes || !values.repeat ? undefined : evidenceReceipt(values.repeat, "repeat", values["head-manifest"], values["capture-manifest"]);
   const comparison = values.outcomes ? undefined : comparisonReceipt(baseEvidence, headEvidence, repeatEvidence, { base: values["base-sha"]!, head: values["head-sha"]! }, values["live-head-sha"]);
-  meta.evidence = { base: baseEvidence, head: headEvidence, repeat: repeatEvidence, freshness: comparison?.freshness, history: comparison?.history };
+  meta.evidence = {
+    base: baseEvidence,
+    head: headEvidence,
+    repeat: repeatEvidence,
+    freshness: comparison?.freshness,
+    comparisonId: comparison?.comparisonId,
+    history: comparison?.history,
+  };
   writeFileSync(join(out, "outcomes.json"), `${JSON.stringify(outcomes, null, 2)}\n`);
   writeFileSync(join(out, "summary.json"), `${JSON.stringify(feedSummary(outcomes, meta), null, 2)}\n`);
   if (!values.outcomes)
