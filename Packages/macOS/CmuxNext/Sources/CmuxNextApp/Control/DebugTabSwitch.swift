@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextSettings
 
 /// `debug.tab_switch`: the app's own time per tab switch (`SwitchFrameTimer`), apart from the socket
 /// reply, which also waits for the daemon's confirm: intent (`PaneController.select`) to shown
@@ -19,6 +20,6 @@ enum DebugTabSwitch {
         case "stop": timer.stop()
         default: break
         }
-        return ["recording": .bool(timer.isRecording), "switches": .array(timer.samples.map { .object($0.mapValues(JSONValue.number)) })]
+        return ["recording": .bool(timer.isRecording), "switches": .array(timer.samples.map { .object($0.mapValues { JSONValue.number($0) }) })]
     }
 }
