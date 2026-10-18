@@ -8,7 +8,7 @@ here is a real key-down posted to the app's process by CuaDriver (`hotkey`, `pre
 background delivery: the window is never brought to the front).
 
 Each round: Cmd+D, then at once `echo tk<N>` + Return, key by key. Then (bounded wait) the new
-terminal's daemon screen (`cmux terminal <id> read`) must hold the output line `tk<N>` exactly
+terminal's daemon screen (`read-screen` on the daemon socket) must hold the output line `tk<N>` exactly
 once, and no other terminal may show `tk<N>`, and only the new pane has focus. Odd rounds keep their pane,
 so the next round splits a pane that was itself a provisional split; even rounds close back to one.
 
@@ -17,7 +17,7 @@ Usage (fleet-built Debug app, launched and quit by this script):
     -- 'python3 scripts/cmux-next/split-typeahead-input-e2e.py --app "$NX_APP" --out "$NX_ARTIFACTS" --rounds 8'
 Exit 0 when every round passes.
 """
-import argparse, importlib.util, json, os, re, subprocess, sys, time
+import argparse, importlib.util, json, os, socket, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the `cmux DEV <tag>.app` bundle")
@@ -47,17 +47,30 @@ def panes(app):
             for window in (app.rpc("debug.surfaces") or {}).get("windows") or [] for pane in window.get("panes") or []}
 
 
-def cli(app, *args):
-    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "CMUX_SOCKET_PATH": app.socket, "CMUX_QUIET": "1", "CMUX_TAG": app.tag,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{app.tag}", "CMUX_BUNDLED_CLI_PATH": app.cli_path}
-    return subprocess.run([app.cli_path, *args], capture_output=True, text=True, timeout=30, env=env).stdout
+def daemon(app, request):
+    """One request on the app's cmux-tui daemon socket (as cmd-t-focus-e2e.py finds it)."""
+    temp = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.settimeout(10)
+    conn.connect(os.path.join(temp, f"cmux-tui-{os.getuid()}", f"cmux-app-{app.tag}.sock"))
+    conn.sendall((json.dumps(dict(request, id=1)) + "\n").encode())
+    buf = b""
+    while b"\n" not in buf:
+        chunk = conn.recv(1 << 22)
+        if not chunk:
+            break
+        buf += chunk
+    conn.close()
+    return json.loads(buf.split(b"\n")[0]).get("data") or {}
 
 
 def screens(app):
-    """{terminal id: lines of its daemon screen}: what the shells really got."""
-    ids = sorted(set(re.findall(r"term_[0-9a-f]+", cli(app, "terminal", "list"))))
-    return {t: [line.strip() for line in cli(app, "terminal", t, "read").splitlines()] for t in ids}
+    """{surface: lines of its daemon screen} of every terminal tab: what the shells really got."""
+    tabs = [tab for entry in daemon(app, {"cmd": "list-workspaces"}).get("workspaces") or []
+            for screen in entry.get("screens") or [] for pane in screen.get("panes") or [] for tab in pane.get("tabs") or []]
+    surfaces = [tab["surface"] for tab in tabs if tab.get("kind") not in ("browser", "conversation") and tab.get("surface") is not None]
+    return {s: [line.strip() for line in (daemon(app, {"cmd": "read-screen", "surface": s}).get("text") or "").splitlines()]
+            for s in surfaces}
 
 
 def main():
@@ -89,6 +102,8 @@ def main():
                 if made and text[made[0]].count(marker) == 1 or time.monotonic() > deadline:
                     break
                 time.sleep(0.2)  # test script: polls the daemon's screens
+            if not text:
+                print(f"no terminal tabs on the daemon: {json.dumps(daemon(app, {'cmd': 'list-workspaces'}))[:600]}", flush=True)
             row.update(new=new, terminal=made, focused=[p for p, f in now.items() if f],
                        elsewhere=sorted(t for t, lines in text.items() if t not in made and any(marker in l for l in lines)))
             row["ok"] = (len(new) == 1 and len(made) == 1 and text[made[0]].count(marker) == 1
