@@ -69,3 +69,28 @@ fn json_schema_allows_keys_outside_the_schema() {
         validator.iter_errors(&document).map(|error| error.to_string()).collect();
     assert!(errors.is_empty(), "{errors:#?}");
 }
+
+/// The owner itself agrees with the export it embeds: every sample Swift
+/// accepts passes `accepts()`, and every portable sample Swift refuses fails
+/// it (no value domains published, as in `cmux settings validate`).
+#[test]
+fn owner_accepts_what_the_export_accepts_and_refuses_what_it_refuses() {
+    let domains = cmux_config::Domains::default();
+    let mut failures = Vec::new();
+    for row in &Schema::embedded().rows {
+        for sample in &row.accepts {
+            if cmux_config::schema::accepts(row, sample, &domains).is_err() {
+                failures.push(format!("{} refuses {sample}", row.key));
+            }
+        }
+        if row.validation != Validation::Portable {
+            continue;
+        }
+        for sample in &row.refuses {
+            if cmux_config::schema::accepts(row, sample, &domains).is_ok() {
+                failures.push(format!("{} accepts {sample}", row.key));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
