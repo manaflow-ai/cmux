@@ -37,6 +37,13 @@ final class CEFStartSteps {
         return try body()
     }
 
+    /// A point in the first Chromium page's creation (`page_task`,
+    /// `configured`, `history`): recorded once per name, with no duration.
+    func point(_ name: String) {
+        guard marks.count < 64, !marks.contains(where: { $0.name == name }) else { return }
+        marks.append(CEFStartMark(name: name, startUptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW), milliseconds: 0))
+    }
+
     /// A sub-step of the start (`cef_initialize`, `ready_hooks`): timed only.
     func timed<T>(_ name: String, _ body: () -> T) -> T { mark(name, body) }
 

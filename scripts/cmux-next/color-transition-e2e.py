@@ -22,7 +22,8 @@ as fast as the socket answers:
              Ghostty frame counters (debug.surfaces render_counters) show blend frames and 0 cell
              rebuilds for the two color-only changes (the cells keep color references; only the
              color table moves), and no frame is drawn once the blend ended. Then a font size
-             change rebuilds the cells once (full_font).
+             change rebuilds every row once (full_font; the preview switch and the restore that
+             follow keep rows whose content is the same).
   record     (--record) one debug.window_record of a blend, frames under OUT/record/.
   glass      (--material glass) a see-through Liquid Glass window instead: three switches between
              a dark and a light workspace, each recorded (OUT/glass-N/). The old tint's overlay
@@ -459,7 +460,8 @@ try:
         blend_frames = after["blend_frames"] - before["blend_frames"]
         rebuilds = after["cell_rebuilds"] - before["cell_rebuilds"]
         check(blend_frames >= 10, f"terminal: Ghostty drew the blend frame by frame ({blend_frames} blend frames)")
-        full = {k: after.get(k, 0) - before.get(k, 0) for k in ("full_palette", "full_config", "full_font", "full_other")}
+        full = {k: after.get(k, 0) - before.get(k, 0)
+                for k in ("full_palette", "full_config", "full_font", "full_other", "full_swap", "full_resize")}
         updates = after.get("frame_updates", 0) - before.get("frame_updates", 0)
         report["terminal-rebuilds"] = {"cell_rebuilds": rebuilds, "frame_updates": updates, **full}
         check(rebuilds == 0 and not any(full.values()),
@@ -481,14 +483,22 @@ try:
     # font: a font size change (terminal.increaseFontSize) still rebuilds the cells, once for the
     # new font grid.
     before = counters()
-    action("terminal.increaseFontSize")
-    time.sleep(1.5)
+    fire("terminal.increaseFontSize")
+    trace, start = [], time.monotonic()
+    while time.monotonic() - start < 1.5:  # bounded sampling window
+        t = terminal_surface()
+        c = t.get("render_counters") or {}
+        trace.append((round(time.monotonic() - start, 3), t.get("grid"), t.get("fit_grid"), t.get("drawn_grid"),
+                      {k: c.get(k, 0) - before.get(k, 0) for k in c if k.startswith("full_") or k == "cell_rebuilds"}))
+    report["font-trace"] = trace
     after = counters()
     action("terminal.decreaseFontSize")
     if before and after:
-        fonts = after.get("full_font", 0) - before.get("full_font", 0)
-        report["font-rebuilds"] = {k: after.get(k, 0) - before.get(k, 0) for k in after}
-        check(fonts == 1, f"font: a font size change rebuilds the cells once for the new grid ({report['font-rebuilds']})")
+        delta = {k: after.get(k, 0) - before.get(k, 0) for k in after}
+        report["font-rebuilds"] = delta
+        fulls = sum(v for k, v in delta.items() if k.startswith("full_"))
+        check(delta.get("full_font") == 1 and fulls == 1,
+              f"font: a font size change rebuilds every row once, for the new font ({delta})")
     else:
         check(False, "font: render counters before and after")
     time.sleep(1.0)

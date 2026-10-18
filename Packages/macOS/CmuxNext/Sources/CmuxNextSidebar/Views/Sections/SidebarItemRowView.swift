@@ -85,7 +85,7 @@ class SidebarItemRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?

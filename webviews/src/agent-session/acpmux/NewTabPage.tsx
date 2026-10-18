@@ -176,7 +176,8 @@ export function recentSessions(
   // callers may still provide raw summaries, so retain the normalization fallback for those.
   const all = sessions
     .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
-    .filter(listed);
+    // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
+    .filter((entry) => listed(entry) && !entry.unsent);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   const ordered = all.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
   if (!fold) return ordered.slice(0, count);
