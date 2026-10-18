@@ -154,57 +154,25 @@ export function createEntryStore(
     getSnapshot: (): readonly EntryState[] => snapshot,
     /** Resolves as soon as the requested entry loads; unrelated entries may still be loading. */
     find(id: string): Promise<{ entry?: GalleryEntry; state?: EntryState }> {
-      const current = snapshot;
-        if (current.length === 0 && deferredStarted) return Promise.resolve({});
       return new Promise((resolve) => {
-        let remaining = current.length;
         let done = false;
-        const resolveMissing = () => {
-          if (deferredStarted) {
-            const retry = snapshot;
-            let pending = retry.length;
-            const retryDone = () => {
-              pending -= 1;
-              if (pending === 0 && !done) {
-                done = true;
-                resolve({});
-              }
-            };
-            for (const state of retry)
-              void state.promise.then(
-                (entry) => {
-                  if (done) return;
-                  if (entry.id === id) {
-                    done = true;
-                    resolve({ entry, state });
-                  } else retryDone();
-                },
-                retryDone,
-              );
+        const check = () => {
+          if (done) return;
+          const match = snapshot.find((state) => state.status === "ready" && state.entry?.id === id);
+          if (match?.entry) {
+            done = true;
+            listeners.delete(check);
+            resolve({ entry: match.entry, state: match });
             return;
           }
-          // The foreground entry finished before the background queue began. Let the deferred
-          // sources enter the store before declaring an id missing.
-          setTimeout(resolveMissing, 0);
+          if (deferredStarted && snapshot.length === sources.length && snapshot.every((state) => state.status !== "loading")) {
+            done = true;
+            listeners.delete(check);
+            resolve({});
+          }
         };
-        const finish = () => {
-          remaining -= 1;
-          if (remaining === 0 && !done) resolveMissing();
-        };
-        for (const state of current) {
-          void state.promise.then(
-            (entry) => {
-              if (done) return;
-              if (entry.id === id) {
-                done = true;
-                resolve({ entry, state });
-                return;
-              }
-              finish();
-            },
-            () => finish(),
-          );
-        }
+        listeners.add(check);
+        check();
       });
     },
     /** Loads these files again (fresh module copies), each on its own. */
