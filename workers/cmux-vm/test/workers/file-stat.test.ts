@@ -73,6 +73,19 @@ it("accepts numeric epoch metadata without guessing an unavailable timestamp", a
   expect(await (await stat(t, key, owned.vmId)).json()).toMatchObject({ mtime: 1790812800 });
 });
 
+it.each([
+  ["2026-10-01T02:00:00+02:00", 1790812800],
+  ["2026-10-01T00:00:00.999Z", 1790812800],
+  ["-1", -1],
+] as const)("normalizes a valid modification timestamp %s", async (modified, mtime) => {
+  const t = await harness(), owned = t.addVm("team_alpha");
+  const key = await t.addKey("team_alpha", ["vm:files"]);
+  t.upstream.fileStats.set(`${owned.upstreamId}\u0000/srv/team/readme`, raw({ modified, permissions: "104755" }));
+  const r = await stat(t, key, owned.vmId);
+  expect(r.status).toBe(200);
+  expect(await r.json()).toMatchObject({ mtime, mode: 0o4755 });
+});
+
 it("checks scope, current tenant, labels and the resource allowlist before provider access", async () => {
   const t = await harness(), owned = t.addVm("team_alpha", "paused", { role: "other" });
   for (const [key, status] of [
@@ -105,6 +118,8 @@ it("returns a stable file-not-found error without exposing provider details", as
 it.each([
   { size: -1 }, { size: Number.MAX_SAFE_INTEGER + 1 }, { permissions: "invalid" },
   { modified: "tomorrow" }, { owner: null }, { isFile: true, isDirectory: true },
+  { modified: "2026-02-30T00:00:00Z" }, { modified: "2026-10-01T24:00:00Z" },
+  { modified: "999999999999" }, { owner: "x".repeat(257) },
 ])("refuses malformed metadata instead of inventing archive attributes %#", async (extra) => {
   const t = await harness(), owned = t.addVm("team_alpha");
   const key = await t.addKey("team_alpha", ["vm:files"]);

@@ -592,7 +592,11 @@ async fn dispatch(
                     "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
                 ));
             }
-            let body = fetch_body(client.files_stat_file(id.as_str(), &args.path, None)).await?;
+            let path = args
+                .path
+                .parse::<types::GuestPath>()
+                .map_err(|_| CliError::usage("invalid guest path"))?;
+            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
             out.file_stat(&body)
         }
     }
