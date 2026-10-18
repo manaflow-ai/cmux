@@ -142,7 +142,10 @@ final class TabContentCache {
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
         let validity = Self.terminalValidity(tab, daemon: daemon)
         // A provisional split's view stays: its own tab's confirm attaches it (`awaitConfirm`).
-        if let entry = terminals[tab.id], entry.validity == validity || entry.gate != nil { return entry }
+        if let entry = terminals[tab.id], entry.validity == validity || entry.gate != nil {
+            if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
+            return entry
+        }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
         if let stale = terminals.removeValue(forKey: tab.id) {

@@ -77,6 +77,7 @@ final class TerminalEntry {
     private(set) var themeKey: TerminalThemeKey
     /// A provisional view waits for its tab's daemon surface (``TabContentCache/awaitConfirm(_:of:daemon:)``).
     var confirmation: Task<Void, Never>?
+    weak var confirming: TabModel? // the tab record that task watches
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
     let themeBinding: TerminalThemeBinding
