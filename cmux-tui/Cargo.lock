@@ -1122,11 +1122,16 @@ version = "0.1.0"
 dependencies = [
  "cmux-server",
  "cmux-server-core",
+ "flate2",
  "libc",
  "proptest",
+ "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
