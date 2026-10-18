@@ -174,6 +174,7 @@
         "CmuxNextControl",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextFeed",
@@ -207,7 +208,8 @@
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextUpdater",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWorkspaceNaming"
       ],
       "packages": [
         "CmuxAgentBrands",
@@ -242,6 +244,7 @@
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -260,7 +263,8 @@
         "CmuxAgentQuestion",
         "CmuxGhosttyKit",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMessagesLab"
       ],
       "reads": [
         "Resources/ghostty/themes/",
@@ -458,6 +462,19 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDaemonRecovery": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonRecovery",
+      "targets": [
+        "CmuxNextApps",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -831,6 +848,7 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
+        "docs/configuration.md",
         "docs/mdm/",
         "schemas/settings-export/settings-schema.sources.sha256",
         "schemas/settings/settings-schema.json"
@@ -939,6 +957,26 @@
         "CmuxNextCompat"
       ],
       "packages": []
+    },
+    "CmuxNextWorkspaceNaming": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWorkspaceNaming",
+      "targets": [
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign"
+      ],
+      "packages": []
+    },
+    "CmuxNextWorkspaceNamingTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests",
+      "targets": [
+        "CmuxNextWorkspaceNaming"
+      ],
+      "packages": [],
+      "reads": []
     }
   }
 }

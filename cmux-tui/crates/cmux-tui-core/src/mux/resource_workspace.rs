@@ -99,6 +99,7 @@ impl Mux {
         Self::insert_optional_string(fields, RESERVED_TERMINAL_ID_FIELD, spawn.terminal_id);
         Self::insert_optional_string(fields, CLIENT_PANE_ID_FIELD, spawn.pane_id);
         Self::insert_optional_string(fields, CLIENT_TAB_ID_FIELD, spawn.tab_id);
+        Self::insert_optional_string(fields, CLIENT_SPLIT_ID_FIELD, spawn.split_id);
         if let Some(argv) = spawn.argv {
             fields
                 .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));

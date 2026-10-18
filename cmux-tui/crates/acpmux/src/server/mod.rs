@@ -6,7 +6,6 @@ use crate::config::PermissionPolicy;
 use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
-use crate::store::EventRecord;
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
 use futures_util::{SinkExt, StreamExt};
@@ -873,6 +872,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     if watching {
         if let Some(remote) = &ev.remote {
+            // A peer's prompt the person must answer, for a unix socket or app
+            // watcher that did not attach the session (`hub/person.rs` (c)):
+            // never relayed on to a Web client or another peer daemon.
+            if rec.kind == crate::hub::PEER_PERMISSION_PENDING {
+                if !attached && !conn.origin.web_class() {
+                    conn.send(&Message::notification(
+                        method::MUX_PERMISSION_PENDING,
+                        peer_permission_pending(&ev.session_id, rec, &remote.peer),
+                    ));
+                }
+                return;
+            }
             // Peers already filter to the interesting kinds and send a summary.
             if rec.dir == "peer" {
                 let sid = remote
@@ -912,35 +923,6 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
     }
-}
-
-/// A record that asks a client to answer a prompt: a new one, or one the
-/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
-fn is_permission_ask(kind: &str) -> bool {
-    matches!(kind, "permission_request" | "permission_reissued")
-}
-
-/// The `_acpmux/permission_pending` notification. The record's
-/// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
-/// peer's session) are what a relayed allow's decision proof covers
-/// (`hub/person.rs`, cx-0q7o).
-fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
-    let mut p = rec.msg.clone();
-    p["sessionId"] = Value::String(session_id.to_owned());
-    p["seq"] = json!(rec.seq);
-    p["via"] = Value::String(via.to_owned());
-    p
-}
-
-pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
-    json!({
-        "sessionId": session_id,
-        "seq": rec.seq,
-        "at": rec.at,
-        "dir": rec.dir,
-        "kind": rec.kind,
-        "msg": rec.msg,
-    })
 }
 
 fn str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
@@ -996,7 +978,10 @@ mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+mod pending;
 mod processes;
+pub use pending::event_value;
+use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;

@@ -4,11 +4,12 @@ import CmuxNextWakeups
 
 /// Starts Chromium before the first Chromium tab needs it, so its two
 /// unavoidable main-thread steps (`CefInitialize` and the first Chromium
-/// window, about 80-160 ms each; architecture.md 5a, the one allowed
+/// window, about 80-160 ms each on a fast Mac; architecture.md 5a, the one allowed
 /// exception) do not land in the middle of user input.
 ///
-/// - A few seconds after launch the framework is mapped on a background
-///   thread (`CEFEngine.preload`, no Chromium code runs).
+/// - A few seconds after launch, for a user who opened a Chromium tab in the
+///   last 7 days (`ChromiumUseRecord`), the framework is mapped on a
+///   background thread (`CEFEngine.preload`, no Chromium code runs).
 /// - When a Chromium tab is likely, `CefInitialize` runs at the next idle
 ///   moment: no key or mouse input to this app for `Policy.idleInput` and no
 ///   menu tracking, waited for with one-shot deadlines (a deadline re-arms
@@ -18,8 +19,16 @@ import CmuxNextWakeups
 ///   is the default engine (`browser.defaultEngine`) also any browser tab in
 ///   any window, the palette's default browser entries (New Browser Tab,
 ///   Split Browser, New Browser Workspace), or switching the default to
-///   Chromium. Otherwise CEF stays lazy: a user who never browses never pays
-///   for it (AppServices+Chromium).
+///   Chromium. While new browser tabs default to Chromium, the pointer on
+///   the "+" button, a New Tab key (Cmd-T) and the palette opening are
+///   signals too (`tabSignal`), and so is launch itself for a user who opened
+///   a Chromium tab in the last 7 days (`Reason.launch`). Otherwise CEF stays
+///   lazy: a user who never browses never pays for it (AppServices+Chromium).
+/// - Once Chromium runs, the next idle moment builds a spare Chromium window
+///   (`CEFEngine.prepareSpareWindow`), so the first tab joins a live window.
+///   In a macOS 26 VM `CefInitialize` and the first window each held the main
+///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
+///   the first tab.
 @MainActor
 final class ChromiumWarmup {
     enum Reason: String, Sendable {
@@ -30,6 +39,16 @@ final class ChromiumWarmup {
         case browserTab
         /// The default engine was just switched to Chromium.
         case defaultEngine
+        /// New browser tabs default to Chromium and this app opened a
+        /// Chromium tab within `Policy.recentUse`: start it after launch,
+        /// before any tab asks.
+        case launch
+        /// First-tab signals while new browser tabs default to Chromium
+        /// (`tabSignal`): the pointer on the "+" button, a New Tab key
+        /// (Cmd-T) before its tab opens, the palette opening.
+        case newTabButton
+        case newTabKey
+        case paletteOpen
     }
 
     struct Policy: Sendable {
@@ -37,6 +56,9 @@ final class ChromiumWarmup {
         var idleInput: Duration = .milliseconds(750)
         /// Give up (stay lazy) when the app never goes idle this long.
         var maxWait: Duration = .seconds(60)
+        /// A Chromium tab opened this recently (`ChromiumUseRecord`) makes
+        /// launch itself the warm-start signal.
+        var recentUse: TimeInterval = 7 * 24 * 60 * 60
     }
 
     private let engine: CEFEngine
@@ -51,6 +73,14 @@ final class ChromiumWarmup {
     private var inputMonitor: Any?
     private var lastInput: TimeInterval = 0
     private(set) var reason: Reason?
+    /// What the next idle moment runs: `CefInitialize`, then the spare window.
+    private var idleAction: (@MainActor () -> Void)?
+    /// Whether new browser tabs open in Chromium (`browser.defaultEngine`).
+    private var defaultIsChromium: @MainActor () -> Bool = { false }
+    /// Whether a Chromium page is being created: it builds its own window,
+    /// and a spare built meanwhile would race it (os-smoke 2026-10-18).
+    private var pagesPending: @MainActor () -> Bool = { false }
+    private var stopped = false
 
     init(
         engine: CEFEngine,
@@ -70,12 +100,31 @@ final class ChromiumWarmup {
 
     private var isAvailable: Bool { engine.availability == .available }
 
-    /// Maps the framework `launchPreloadDelay` after launch.
-    func start() {
+    /// `launchPreloadDelay` after launch, for a user who opened a Chromium
+    /// tab within `Policy.recentUse`: maps the framework, and while new tabs
+    /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
+    /// the spare window, at idle moments). Anyone else pays nothing until a
+    /// signal (`chromiumLikely`, `tabSignal`).
+    func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
         guard !launchTimer.isScheduled, isAvailable else { return }
+        self.defaultIsChromium = defaultIsChromium
+        self.pagesPending = pagesPending
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
-            self?.engine.preload()
+            guard let self else { return }
+            // task-owner: one launch check per process; reads one small file off the main thread
+            Task { [weak self] in
+                guard let self, await engine.usedRecently(within: policy.recentUse), !stopped else { return }
+                engine.preload()
+                if self.defaultIsChromium() { chromiumLikely(.launch) }
+            }
         }
+    }
+
+    /// A first-tab signal (`Reason.newTabButton`, `.newTabKey`,
+    /// `.paletteOpen`): warm up while new tabs open in Chromium.
+    func tabSignal(_ reason: Reason) {
+        guard defaultIsChromium() else { return }
+        chromiumLikely(reason)
     }
 
     /// A Chromium tab is likely soon: map the framework now and run
@@ -84,6 +133,37 @@ final class ChromiumWarmup {
         guard self.reason == nil, isAvailable, !engine.isRunning else { return }
         self.reason = reason
         engine.preload()
+        // The idle wait starts once the framework is mapped, so CefInitialize
+        // never waits on a cold load and then lands in input.
+        // task-owner: one warm start per process; CEFEngine owns its lifetime
+        Task { [weak self] in
+            await self?.engine.libraryLoadEnded()
+            guard let self, !stopped else { return }
+            waitForIdle { [weak self] in
+                // task-owner: one warm start per process; CEFEngine owns its lifetime
+                Task { [weak self] in
+                    await self?.engine.warmStart(reason: reason.rawValue)
+                    self?.warmStarted()
+                }
+            }
+        }
+    }
+
+    /// Chromium runs: build the spare window (CEFSpareWindow) at the next
+    /// idle moment, a main-thread step of its own, so neither step lands in
+    /// the first tab's open.
+    private func warmStarted() {
+        guard !stopped, engine.isRunning else { return }
+        waitForIdle { [weak self] in
+            guard let self, !pagesPending() else { return }
+            engine.prepareSpareWindow()
+        }
+    }
+
+    /// Runs `action` at the next idle moment (no input for `idleInput`, no
+    /// menu tracking), or never when the app is not idle within `maxWait`.
+    private func waitForIdle(_ action: @escaping @MainActor () -> Void) {
+        idleAction = action
         lastInput = now()
         waiting = true
         installInputMonitor()
@@ -92,6 +172,7 @@ final class ChromiumWarmup {
     }
 
     func stop() {
+        stopped = true
         launchTimer.cancel()
         finishWaiting()
     }
@@ -119,10 +200,9 @@ final class ChromiumWarmup {
         let quiet = now() - lastInput
         let remaining = policy.idleInput.inSeconds - quiet
         guard remaining <= 0 else { return armIdle(after: .seconds(remaining)) }
-        guard let reason else { return }
+        let action = idleAction
         finishWaiting()
-        // task-owner: one warm start per process; CEFEngine owns its lifetime
-        Task { await engine.warmStart(reason: reason.rawValue) }
+        action?()
     }
 
     /// True when no input reached this app for `idleInput` and no menu is
@@ -148,6 +228,7 @@ final class ChromiumWarmup {
 
     private func finishWaiting() {
         waiting = false
+        idleAction = nil
         idleTimer.cancel()
         giveUpTimer.cancel()
         removeMenuObserver()

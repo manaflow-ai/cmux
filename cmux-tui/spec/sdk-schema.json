@@ -1115,6 +1115,17 @@
        "since": 8,
        "description": "Stable for the lifetime of this split node."
       },
+      "split_id": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": false,
+       "since": 12,
+       "capability": "split-client-split-id-v1",
+       "description": "The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it."
+      },
       "dir": {
        "type": {
         "kind": "ref",
@@ -7979,6 +7990,16 @@
      "nullable": true,
      "default": null,
      "description": "Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed."
+    },
+    "split_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed."
     }
    },
    "additional_properties": false
@@ -12506,6 +12527,23 @@
         "format": "client-minted public tab id"
        }
       ]
+     },
+     "split_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-split-id-v1",
+      "constraints": [
+       {
+        "pattern": "^split_[0-9a-f]{32}$",
+        "format": "client-minted public split id"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -12522,7 +12560,8 @@
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
     "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
-    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
+    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
+    "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
    ]
   },
   "set-ratio": {

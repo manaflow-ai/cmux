@@ -72,7 +72,7 @@ final class TabContentCache {
     let browserTabs: BrowserTabService
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
-    private var pendingBrowsers: Set<String> = []
+    private(set) var pendingBrowsers: Set<String> = [] // Chromium pages being created (ChromiumWarmup waits)
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
     /// until the user reloads one: set after cmux quit unexpectedly twice in
     /// a row (`LaunchRecovery.restartedSafely`).
@@ -83,7 +83,7 @@ final class TabContentCache {
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
-        try await cef.makeTab($0)
+        try await cef.makeUserTab($0)
     }
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy

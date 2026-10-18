@@ -44,6 +44,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
+    #if DEBUG
+    private var debugLastSnapshot: Snapshot? // names the fields each re-run changed (DebugLayoutCounters sources)
+    private var debugSnapshotRuns = 0
+    #endif
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
@@ -114,7 +118,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func snapshot(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
         DebugLayoutCounters.paneSnapshots &+= 1
-        DebugLayoutCounters.note("snapshot", file, line)
         #endif
         let store = daemon.store
         let fallback = Strings.untitledTerminal
@@ -126,7 +129,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
-        let titles = TabTitleResolver(services: services)
+        let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).
@@ -184,10 +187,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
             TabItemMapping.shared.groupItem(group, isSaved: group.isSaved, asset: groupAsset)
         }
         let connected = if case .connected = store.connectionState { true } else { false }
-        return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
-                        generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
-                        // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                        hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
+        let result = Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
+                              generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
+                              // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
+                              hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
+        #if DEBUG
+        debugSnapshotRuns += 1
+        let run = debugSnapshotRuns > 3 ? "later" : "#\(debugSnapshotRuns)" // a new pane's runs, else another pane's
+        DebugLayoutCounters.note("snapshot \(run) \(DebugLayoutCounters.changedFields(debugLastSnapshot, result))", file, line)
+        debugLastSnapshot = result
+        #endif
+        return result
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
