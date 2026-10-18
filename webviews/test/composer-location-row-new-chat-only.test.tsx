@@ -138,6 +138,22 @@ test("after the first send the visible strip is gone while its hidden slot keeps
   expect(placeholder()).not.toBeNull();
 });
 
+test("a transient unselected render does not reserve a slot for a reopened chat", async () => {
+  // Gallery and pane navigation can render the unselected new-chat state before the selected
+  // session arrives. That strip has no session identity, so it must not leave a 46px slot behind
+  // once an existing chat with history is attached.
+  await render(noChat());
+  expect(strip()).not.toBeNull();
+  const history = chat([user("Why does the build cache miss on CI?", 30), summary(29, { status: "completed" })]);
+  await render({
+    ...history,
+    sessionId: "old-chat",
+    summary: { ...history.summary!, sessionId: "old-chat", turnCount: 4 },
+  });
+  expect(strip()).toBeNull();
+  expect(placeholder()).toBeNull();
+});
+
 test("a reopened chat with history never renders the strip, not even while it loads", async () => {
   const drawn: boolean[] = [];
   const observer = new dom.window.MutationObserver(() => drawn.push(strip() !== null));
