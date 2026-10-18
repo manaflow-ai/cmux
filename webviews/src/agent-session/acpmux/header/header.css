@@ -127,7 +127,7 @@
    the project muted, a slash, the title in full ink; each is a quiet button, the title turns into a field. */
 .acpmux-thread-title{flex:0 1 auto;display:flex;align-items:center;gap:2px;min-width:0;margin-right:8px;font-size:var(--text-control);line-height:20px}
 .acpmux-thread-title__project,.acpmux-thread-title__name{flex:0 1 auto;min-width:0;height:24px;padding:0 6px;border:0;border-radius:6px;background:none;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-thread-title__project{flex-shrink:0;display:inline-flex;align-items:center;gap:5px;max-width:40%;color:var(--agent-muted)}.acpmux-thread-title__project>svg{flex:none;opacity:.85}.acpmux-thread-title__label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-thread-title__project{flex-shrink:0;display:inline-flex;align-items:center;gap:5px;max-width:min(240px,35vw);color:var(--agent-muted)}.acpmux-thread-title__project>svg{flex:none;opacity:.85}.acpmux-thread-title__label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-thread-title__name{color:var(--agent-text)}.acpmux-thread-title__name:not(:disabled){cursor:text}
 .acpmux-thread-title__name:not(:disabled):hover{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-thread-title__name:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
