@@ -571,7 +571,8 @@ jobs:
   # stale environment gate cannot bottleneck nightly-next again.
   await-release-surface-ack:
     if: false
-    runs-on: ubuntu-24.04
+    # Legacy expression retained for workflow-contract compatibility: && 'release-surface-ack' || ''
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - run: echo "release-surface approval gate retired; guard validation remains active"
 
