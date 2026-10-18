@@ -1832,7 +1832,17 @@ export function VirtualTranscript({
     scrollRangeIn(node, current);
     // Rows are immutable snapshots, so their identity changes when streamed text or a revealed
     // fold changes. The mounted-range signature catches virtualization entering/leaving rows.
-  }, [drawnCard, drawnId, findQuery, findTargetOccurrence, findTargetRowId, layout, mountedRangeKey, revealed, rows, targetKey]);
+  }, [
+    drawnCard,
+    drawnId,
+    findQuery,
+    findTargetOccurrence,
+    findTargetRowId,
+    mountedRangeKey,
+    revealed,
+    rows,
+    targetKey,
+  ]);
   useEffect(() => clearFindHighlights, []);
   // Where the view rests, once a scroll settles; the latest message is null.
   const reportedAnchor = useRef<string | undefined>(undefined);
