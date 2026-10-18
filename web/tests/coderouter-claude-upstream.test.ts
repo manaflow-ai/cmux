@@ -156,6 +156,21 @@ describe("claude upstream input validation", () => {
 });
 
 describe("claude upstream accounts service", () => {
+  test("hasActive answers from metadata alone: an active account, never a disabled one", async () => {
+    const { service: svc, store } = service();
+    expect(await svc.hasActive("team-1")).toBe(false);
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    expect(await svc.hasActive("team-1")).toBe(true);
+    expect(await svc.hasActive("team-2")).toBe(false);
+    await svc.update("team-1", a.id, { state: "disabled" });
+    // A row that cannot be decrypted does not matter: nothing is decrypted.
+    const row = store.rows.get(a.id)!;
+    store.rows.set(a.id, { ...row, state: "active", ciphertext: "garbage" });
+    expect(await svc.hasActive("team-1")).toBe(true);
+    store.rows.set(a.id, { ...row, state: "disabled" });
+    expect(await svc.hasActive("team-1")).toBe(false);
+  });
+
   test("stores many accounts of mixed kinds and lists them without secrets", async () => {
     const { service: svc, store } = service();
     const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY, label: "prod" });

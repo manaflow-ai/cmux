@@ -35,6 +35,9 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
         ]
         scriptLines.append(contentsOf: Self.workspaceEnvironmentRebindingLines.map { "  " + $0 })
         scriptLines += [
+            #"  cmux_default_command="$("$cmux_tmux" show-options -v -t "$cmux_session_target:" default-command 2>/dev/null || true)""#,
+            "  case \"$cmux_default_command\" in *CMUX_PERSISTENT_PTY_EXEC_HELPER*|*CMUX_SHELL_INTEGRATION_DIR*) \"$cmux_tmux\" set-option -t \"$cmux_session_target:\" default-command \"$cmux_shell_command\" >/dev/null 2>/dev/null || exit $? ;; esac",
+            "  unset cmux_default_command",
             "  exec \"$cmux_tmux\" attach-session -t \"$cmux_session_target\"",
             "fi",
             "if \"$cmux_tmux\" new-session -d \(Self.newSessionEnvironmentArguments) -s \"$cmux_session_name\" \"$cmux_shell_command\"; then",

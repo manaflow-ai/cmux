@@ -8,7 +8,8 @@ name: nightly-next feed watch
 # feat-cmux-next pushes have waited for the feed and keeps one
 # `nightly-next-feed-stale` issue naming the stuck stage
 # (scripts/ci/nightly_next_feed_watch.py, tested by
-# tests/test_nightly_next_feed_watch.py).
+# tests/test_nightly_next_feed_watch.py). It also requests the continuation
+# run that publishes a build Apple accepted after its run stopped waiting.
 on:
   schedule:
     - cron: "7,37 * * * *"
@@ -26,13 +27,27 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
-      actions: read # nightly-next, artifacts and cmux-next runs
+      actions: write # read nightly-next runs and artifacts; dispatch a continuation run
       contents: read # the nightly-next release body's published commit
       issues: write # the nightly-next-feed-stale issue
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # A nightly-next run stops waiting for Apple and leaves a recovery
+      # artifact. Only a continuation run publishes it once Apple accepts, and
+      # feat-cmux-next asks for one only after a green Release compile. This
+      # tick asks too, so a quiet branch never holds an accepted build. The
+      # run builds and submits nothing, and the script dispatches at most
+      # every 30 minutes (scripts/cmux-next/continue-nightly-next.sh, tested by
+      # scripts/cmux-next/tests/continue-nightly-next.test.sh).
+      - name: Request a nightly-next continuation for an accepted pending build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: scripts/cmux-next/continue-nightly-next.sh --repo "$REPOSITORY"
 
       - name: Check how long feat-cmux-next pushes have waited for the feed
         env:
