@@ -655,13 +655,15 @@ function App() {
       <input type="range" min="50" max="1000" step="50" value={base} onChange={event => setBase(Number(event.target.value))} style={{flex: 1, minWidth: 0, accentColor: 'var(--cmux-muted)'}} />
       <output style={{minWidth: 60, textAlign: 'right', color: 'var(--cmux-muted)', fontVariantNumeric: 'tabular-nums'}}>{base} ms</output>
     </label>
-    <svg viewBox="0 0 400 112" role="img" aria-label={'Retry delays: ' + delays.join(', ') + ' milliseconds'} style={{display: 'block', width: '100%', height: 112, margin: 'var(--cmux-space-2) 0'}}>
-      <line x1="12" y1="86" x2="388" y2="86" stroke="var(--cmux-border)" />
-      {delays.map((delay, at) => <g key={at}>
-        <rect x={24 + at * 96} y={86 - Math.max(3, delay / 8000 * 72)} width="64" height={Math.max(3, delay / 8000 * 72)} rx="3" fill="var(--cmux-muted)" />
-        <text x={56 + at * 96} y="105" textAnchor="middle" fill="var(--cmux-muted)" style={{fontSize: 'var(--cmux-size-caption)'}}>{delay} ms</text>
-      </g>)}
-    </svg>
+    <div role="img" aria-label={'Retry delays: ' + delays.join(', ') + ' milliseconds'} style={{display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: 'var(--cmux-space-2) var(--cmux-space-3)', margin: 'var(--cmux-space-3) 0'}}>
+      {delays.map((delay, at) => <React.Fragment key={at}>
+        <span style={{color: 'var(--cmux-muted)', fontSize: 'var(--cmux-size-caption)'}}>Attempt {at + 1}</span>
+        <span style={{height: 8, borderRadius: 4, background: 'var(--cmux-control)'}}>
+          <span style={{display: 'block', height: '100%', width: Math.max(2, delay / 8000 * 100) + '%', borderRadius: 4, background: 'var(--cmux-muted)', transition: 'width 120ms ease-out'}} />
+        </span>
+        <span style={{minWidth: 64, textAlign: 'right', color: 'var(--cmux-muted)', fontSize: 'var(--cmux-size-caption)', fontVariantNumeric: 'tabular-nums'}}>{delay} ms</span>
+      </React.Fragment>)}
+    </div>
     <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--cmux-space-2)'}}>
       <small style={{color: 'var(--cmux-muted)'}}>Four attempts, exponential delay.</small>
       <button onClick={() => cmux.prefill('Use exponential retry backoff with a base of ' + base + ' ms and delays of ' + delays.join(', ') + ' ms.').catch(() => {})}>Use these values</button>
