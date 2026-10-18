@@ -435,7 +435,7 @@ export const nextFrame = (run: () => void) => {
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
 /// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
-/// an ended thought can read "Thought for 12s" (conversation/ThoughtRow.tsx).
+/// a folded thought can read "Thought for 12s" (conversation/ThoughtRow.tsx `thoughtDuration`).
 export function appendThought(items: AcpmuxActivity[], text: string, at?: number): AcpmuxActivity[] {
   const last = items.at(-1);
   if (last?.kind === "thought" && !last.tool)
