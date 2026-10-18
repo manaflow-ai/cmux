@@ -4,7 +4,7 @@
 //
 // A chat with summary content shows the inline card when there is room; an empty chat stays quiet
 // until the user explicitly opens the summary button. Any hide choice is stored for this pane.
-import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useLayoutEffect, useState, useSyncExternalStore } from "react";
 
 /// The inline summary column is only useful when the chat keeps a readable width beside it.
 export const SUMMARY_COLUMN_WIDTH = 300;

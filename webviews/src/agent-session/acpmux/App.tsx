@@ -203,14 +203,7 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import {
-  SUBAGENT_OF,
-  SUBAGENT_ROW,
-  type SubagentRows,
-  childView,
-  isSubagentGroup,
-  subagentRowsFrom,
-} from "./subagents/subagentRows";
+import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
