@@ -21,7 +21,7 @@ public final class ResourceSummaryView: NSView {
     private let stack = NSStackView()
     private let totalLabel = ResourceSummaryView.label(Typography.caption)
     private let sharedLabel = ResourceSummaryView.label(Typography.caption)
-    private var rows: [(title: NSTextField, value: NSTextField, row: NSStackView)] = []
+    private var rows: [(title: ChromeLabel, value: ChromeLabel, row: NSStackView)] = []
     private var report: ResourceReport?
 
     public override init(frame: NSRect) {

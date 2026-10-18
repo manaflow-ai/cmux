@@ -37,7 +37,6 @@ final class AgentQuestionOptionRowView: NSView {
         for label in [keycapLabel, title, detail] {
             label.isSelectable = false
             label.drawsBackground = false
-            label.isBordered = false
             addSubview(label)
         }
         keycapLabel.alignment = .center
