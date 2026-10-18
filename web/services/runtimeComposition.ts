@@ -271,7 +271,7 @@ export function createAuthenticatedWorkspaceProvisioner(input: {
     readonly imageVersion?: string | null;
   };
   readonly createVm: (request: AuthenticatedWorkspaceCreateVmInput) => Promise<{ readonly providerVmId: string }>;
-}): RequestScopedWorkspaceInfrastructure["provisionVm"] {
+}): RequestScopedWorkspaceProviderInfrastructure["provisionVm"] {
   return async (_context, request) => {
     const image = input.resolveImage(request);
     return input.createVm({
