@@ -1,5 +1,5 @@
-title: Remote browser tabs show field suggestions and popups
+title: Remote browser tabs show suggestions and popups
 category: improved
 action: remote.openBrowserTab | Open Remote Browser Tab
 
-In a remote browser tab, a field with a suggestion list now shows it, and a click on a suggestion fills the field. Extension popups also show over the page.
+In development builds, a field in a remote browser tab shows its suggestion list, and a click fills the field. Extension popups show over the page too.
