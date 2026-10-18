@@ -94,6 +94,9 @@ try:
         for key in sorted(k for k in values if k != "scale"):
             ratio = values[key]
             check(abs(ratio - 1) <= opts.tolerance, f"{theme} {key}: {ratio * 100 - 100:+.2f}% vs stock NSTextField")
+    # The real chrome (sidebar rows, tab titles) for a look: text upright and in place.
+    shot = rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "window.png")})
+    check(isinstance(shot, dict) and "error" not in shot, f"debug.window_snapshot wrote window.png ({shot})")
 finally:
     with open(os.path.join(opts.out, "text-weight.json"), "w") as f:
         json.dump({"failures": failures, **report}, f, indent=1)
