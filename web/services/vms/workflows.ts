@@ -325,6 +325,8 @@ export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
  * this wait had no resume behind it.
  */
 const UNEXPECTED_WAKE_CONFIRM_MS = 120_000;
+/** Longer than one cron run, so an overlapping run cannot claim the same wake. */
+const UNEXPECTED_WAKE_CLAIM_TTL_MS = 5 * 60 * 1000;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -3576,34 +3578,41 @@ function repauseUnexpectedWake(
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
     if (!providerVmId) return "skipped" as const;
-    const current = yield* repo.findUserVm({
-      userId: vm.userId,
-      billingTeamId: vm.billingTeamId,
-      providerVmId,
-      provider: vm.provider,
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    // When the wake can't be confirmed, record what the first probe saw, as
+    // the cron did before re-pausing existed, so the machine still counts.
+    const relabel = (row: CloudVmRow) => recordWokenMachineRunning(repo, providers, row, providerVmId, modelPlane);
+    const before = yield* readWokenRow(repo, vm, providerVmId);
+    if (before._tag === "Left") return yield* relabel(vm);
     // A resume, pause or destroy that landed meanwhile owns the row now.
+    const current = before.right;
     if (current?.status !== "paused") return "skipped" as const;
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS),
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.either,
     );
-    if (status !== "running") return "skipped" as const;
-    const pause = providers.pause;
-    const paused = pause
-      ? yield* Effect.gen(function* () {
-        if (current.billingPlanId === "go") yield* setRuntimeBudget(providers, current, providerVmId, 0);
-        yield* pause(current.provider, providerVmId);
-      }).pipe(Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS), Effect.either)
-      : null;
-    if (paused?._tag !== "Right") {
-      const recorded = yield* applyObservedProviderStatus(repo, providers, current, {
+    if (status._tag === "Left") return yield* relabel(current);
+    if (status.right !== "running") return "skipped" as const;
+    // One cron at a time per machine: an overlapping run that loses the claim
+    // leaves the wake to the run that won it.
+    if (repo.claimUnexpectedWakeRepause) {
+      const claimed = yield* repo.claimUnexpectedWakeRepause({
+        id: current.id,
         providerVmId,
-        providerStatus: "running",
-        usageEventSource: "provider_status_cron",
-        modelPlane,
-      }).pipe(Effect.catchAll(() => Effect.succeed(false)));
-      return recorded ? "updated" as const : "skipped" as const;
+        nowMs: Date.now(),
+        ttlMs: UNEXPECTED_WAKE_CLAIM_TTL_MS,
+      }).pipe(Effect.either);
+      if (claimed._tag === "Left") return yield* relabel(current);
+      if (!claimed.right) return "skipped" as const;
+    }
+    const parked = yield* pauseWokenMachine(providers, current, providerVmId);
+    if (parked === "in_progress") return "skipped" as const;
+    if (parked === "running") return yield* relabel(current);
+    // A resume can land while the pause runs (a team resume writes `running`
+    // before it calls the provider); give that machine back.
+    const after = yield* readWokenRow(repo, current, providerVmId);
+    if (after._tag === "Right" && after.right?.status !== "paused") {
+      if (after.right?.status === "running") yield* resumeAfterLostRace(providers, current, providerVmId);
+      return "skipped" as const;
     }
     yield* Effect.logWarning("Cloud machine woke while paused; paused it again", { vmId: current.id, providerVmId });
     yield* repo.recordUsageEvent({
@@ -3618,6 +3627,79 @@ function repauseUnexpectedWake(
     }).pipe(Effect.catchAll(() => Effect.void));
     return "repaused" as const;
   });
+}
+
+function readWokenRow(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string) {
+  return repo.findUserVm({
+    userId: vm.userId,
+    billingTeamId: vm.billingTeamId,
+    providerVmId,
+    provider: vm.provider,
+  }).pipe(Effect.either);
+}
+
+function recordWokenMachineRunning(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return applyObservedProviderStatus(repo, providers, vm, {
+    providerVmId,
+    providerStatus: "running",
+    usageEventSource: "provider_status_cron",
+    modelPlane,
+  }).pipe(
+    Effect.map((recorded) => recorded ? "updated" as const : "skipped" as const),
+    Effect.catchAll(() => Effect.succeed("skipped" as const)),
+  );
+}
+
+/**
+ * Pause a woken machine. A pause that errors may still have landed, so read
+ * the raw pause state as `pauseVm` does instead of assuming it still runs:
+ * `paused` or powered off counts as parked, a transition is left for the next
+ * run, and anything else (including an unreadable state) is still running.
+ */
+function pauseWokenMachine(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<"parked" | "in_progress" | "running", never> {
+  return Effect.gen(function* () {
+    const pause = providers.pause;
+    if (!pause) return "running" as const;
+    const paused = yield* Effect.gen(function* () {
+      if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+      yield* pause(vm.provider, providerVmId);
+    }).pipe(Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS), Effect.either);
+    if (paused._tag === "Right") return "parked" as const;
+    const state = providers.getPauseState
+      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(
+        Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS),
+        Effect.catchAll(() => Effect.succeed(null)),
+      )
+      : null;
+    if (state === "paused" || state === "stopped") return "parked" as const;
+    if (state === "in_progress") return "in_progress" as const;
+    return "running" as const;
+  });
+}
+
+function resumeAfterLostRace(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  const resume = providers.resume;
+  if (!resume) return Effect.void;
+  return resume(vm.provider, providerVmId).pipe(
+    Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+    Effect.tapError(() => Effect.logWarning("Could not resume a machine a re-pause raced", { vmId: vm.id, providerVmId })),
+    Effect.catchAll(() => Effect.void),
+    Effect.asVoid,
+  );
 }
 
 function boundedVmStatusReconcileLimit(limit: number | undefined): number {
