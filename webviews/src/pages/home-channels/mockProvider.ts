@@ -756,9 +756,11 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefAvatarSet: {
         const old = this.chief(String(params.chief));
-        const changed = { ...old, avatar: `pic-${old.rev + 1}`, rev: old.rev + 1 };
+        const clear = params.clear === true;
+        const changed = { ...old, avatar: clear ? "" : `pic-${old.rev + 1}`, rev: old.rev + 1 };
         this.chiefs.set(changed.id, changed);
-        this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
+        if (clear) this.pictures.delete(changed.id);
+        else this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
         return { chief: changed } as R;
       }
       case HomeOps.chiefAvatar:

@@ -1476,6 +1476,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-build-identity",
+ "cmux-config",
  "cmux-host",
  "cmux-link",
  "cmux-pty",
