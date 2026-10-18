@@ -63,7 +63,10 @@ export function applyAgentStateEvent(state: PriorityState, event: AgentStateEven
   const existing = state.lanes.filter((lane) => lane.id !== event.sessionId);
   if (event.kind === "purged" || !event.session) return { lanes: existing, seqBySession: nextSeqBySession };
   return {
-    lanes: [...existing, laneFor(event.session, event.workspaceId ?? previous?.workspaceId, event.peer ?? previous?.peer)],
+    lanes: [
+      ...existing,
+      laneFor(event.session, event.workspaceId ?? previous?.workspaceId, event.peer ?? previous?.peer),
+    ],
     seqBySession: nextSeqBySession,
   };
 }

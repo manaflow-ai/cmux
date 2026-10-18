@@ -39,7 +39,9 @@ function App() {
     if (action.type === "filter") void native.request("filter", { value: action.value }).catch(() => undefined);
     if (action.type === "layout") void native.request("layout", { value: action.value }).catch(() => undefined);
     if (action.type === "jump")
-      void native.request("jump", { id: action.id, workspaceId: action.workspaceId ?? undefined }).catch(() => undefined);
+      void native
+        .request("jump", { id: action.id, workspaceId: action.workspaceId ?? undefined })
+        .catch(() => undefined);
   };
   return <ActivityView state={state} dispatch={dispatch} error={error} />;
 }
