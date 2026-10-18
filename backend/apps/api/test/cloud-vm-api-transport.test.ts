@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers"
 import { MemoryRows, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { cloudConfig } from "../src/cloud-driver.ts"
+import type { Env } from "../src/env.ts"
 import { cloudDomain, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, type CloudState, type LedgerRow, type MachineRow } from "../src/domains/cloud.ts"
 import { publicSnapshot, type SnapshotRow } from "../src/domains/cloud-snapshot.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
@@ -30,9 +31,10 @@ const created = () => {
 
 describe("Cloud transport ownership", () => {
   it("selects an explicitly configured VM API without a direct provider key", () => {
-    const e = { ...env, CLOUD_DRIVER: undefined, CLOUD_FREESTYLE_API_KEY: undefined, CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-only-key", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
+    const e = { ...(env as Env), CLOUD_DRIVER: undefined, CLOUD_FREESTYLE_API_KEY: undefined, CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-only-key", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
     expect(cloudConfig(e)).toMatchObject({ transport: "vm-api", prefix: "cmuxnp-test-cld-", image: "cloud-agent" })
-    expect(cloudConfig({ ...e, CLOUD_VM_API_SERVICE_KEY: undefined }).prefix).toBeNull()
+    const missing = { ...e, CLOUD_VM_API_SERVICE_KEY: undefined }
+    expect(cloudConfig(missing).prefix).toBeNull()
   })
 
   it("pins new machines and their creation intent to the chosen transport", () => {

@@ -3,7 +3,9 @@ import { CloudMachineList, planRequiredDetails } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
-import { cloudApiOrigin, cloudConfig, cloudDriver, cloudEnvTag, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
+import { cloudApiOrigin, cloudConfig, cloudEnvTag, cloudProviderReady } from "./cloud-driver.ts"
+import { cloudDriverFor } from "./cloud-vm-api-driver.ts"
+import type { CloudTransport } from "./cloud-vm-api-config.ts"
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit, who } from "./cloud-connect.ts"
@@ -284,6 +286,11 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     return this.boundEngine?.rows.get<LedgerRow>(TABLE_LEDGER, key)?.row
   }
 
+  protected driverFor(row: { readonly transport?: CloudTransport }, purpose: "operate" | "cleanup" = "operate") {
+    const team = this.boundEntity()
+    return team ? cloudDriverFor(this.env, this.sqlStore, team, row, purpose) : Promise.resolve(null)
+  }
+
   /** Test only (fakeControl `unset`): configuration a test removes to prove a fail-closed path. */
   protected testUnset = new Set<string>()
   /** Test only (fakeControl `link_keys`): the signing secret a mint reads instead of the Worker's. */
@@ -334,7 +341,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
       const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
       const tag = { team: engine.currentState.team ?? "", machine: row.machine }
-      const driver = cloudDriver(this.env, this.sqlStore)
+      const driver = await this.driverFor(row, row.cancel || row.op === "delete" || row.op === "snapshot_delete" || row.op === "pause" ? "cleanup" : "operate")
       let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
@@ -425,13 +432,23 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       this.vmStatus.markActivity(d.machine, d.report, now)
       await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
     }
-    const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team
-    if (!driver || !team) return
-    await this.lookUpCancelled(now, team, driver)
-    for (const m of this.edge.schedule.due(now)) await this.edge.refresh(driver, team, m, engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row, now)
+    if (!team) return
+    await this.lookUpCancelled(now, team)
+    for (const m of this.edge.schedule.due(now)) {
+      const row = engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row
+      const driver = row ? await this.driverFor(row) : null
+      if (driver) await this.edge.refresh(driver, team, m, row, now)
+      else this.edge.schedule.retry(m, now)
+    }
     // N5: only while the team has machine, ledger or tombstone rows.
-    if (this.hasRows()) await this.sweep.maybeRun(now, team, engine.stream, () => collectSuspects(driver, team, engine.rows))
+    if (this.hasRows()) await this.sweep.maybeRun(now, team, engine.stream, async () => {
+      const direct = await this.driverFor({ transport: "direct" }, "cleanup")
+      const api = await this.driverFor({ transport: "vm-api" }, "cleanup")
+      const recorded = [...engine.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }), ...engine.rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 })]
+      if ((!direct && recorded.some((r) => r.row.transport === undefined || r.row.transport === "direct")) || (!api && recorded.some((r) => r.row.transport === "vm-api"))) throw new DriverError("cloud.provider.unavailable", "an orphan-report transport is unavailable", false)
+      return [...(direct ? await collectSuspects(direct, team, engine.rows, "direct") : []), ...(api ? await collectSuspects(api, team, engine.rows, "vm-api") : [])]
+    })
   }
 
   /**
@@ -440,7 +457,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
    * there is reported (metadata_mismatch) and never deleted. Deletion is only by ledger name, never
    * from a list.
    */
-  protected async lookUpCancelled(now: number, team: string, driver: GuardedCloudDriver): Promise<void> {
+  protected async lookUpCancelled(now: number, team: string): Promise<void> {
     const engine = this.boundEngine
     if (!engine) return
     for (const [key, w] of Object.entries(engine.currentState.watch ?? {})) {
@@ -448,8 +465,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       const stored = engine.rows.get<LedgerRow>(TABLE_LEDGER, key)
       if (!stored) continue
       const l = stored.row
+      const driver = await this.driverFor(l, "cleanup")
       let outcome: "absent" | "deleted" | "mismatch" = "absent"
       try {
+        if (!driver) throw new DriverError("cloud.provider.unavailable", "recorded transport is unavailable", false)
         const vm = await driver.peek(l.provider_name)
         if (vm && vm.tag.cmux_next_team === team && vm.tag.cmux_next_machine === l.machine) {
           await driver.remove(l.provider_name, { team, machine: l.machine })

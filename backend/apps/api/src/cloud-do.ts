@@ -144,7 +144,7 @@ export class CloudDO extends CloudIdle {
   private readonly stateChecks = new Map<string, number>()
   private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
     const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
-    const driver = row?.status === "running" ? cloudDriver(this.env, this.sqlStore) : null
+    const driver = row?.status === "running" ? await this.driverFor(row) : null
     if (!row || !driver) return
     // At most one provider read per machine per 30 s (review P2-3: the API key is shared by every team).
     const now = Date.now() + this.skewMs
@@ -219,7 +219,7 @@ export class CloudDO extends CloudIdle {
     return {
       team: entity,
       machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
-      driver: () => cloudDriver(this.env, this.sqlStore),
+      driver: (row) => this.driverFor(row),
       members: async (team, user) => {
         const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { member_count?: unknown; members?: Array<{ user?: unknown }> } }> }
         const r = await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 2 })
@@ -246,7 +246,7 @@ export class CloudDO extends CloudIdle {
     if (!engine || this.boundEntity() !== entity) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
     const stored = engine.rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }).find((l) => l.row.machine === machine && l.row.state === "abandoned")
     if (!stored) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
-    const driver = cloudDriver(this.env, this.sqlStore)
+    const driver = await this.driverFor(stored.row, "cleanup")
     if (!driver) return { ok: false, code: "provider_unavailable", message: "no Cloud provider is configured, so the recorded name cannot be checked" }
     const found = await driver.peek(stored.row.provider_name).catch(() => undefined)
     if (found === undefined) return { ok: false, code: "provider_unavailable", message: "the provider lookup failed; try again" }

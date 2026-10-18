@@ -103,6 +103,13 @@ export interface Env {
    * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
    */
   readonly CLOUD_FREESTYLE_API_KEY?: string
+  /** Operator opt-in for new Cloud machines only. Existing rows keep their recorded transport. */
+  readonly CLOUD_VM_TRANSPORT?: string
+  readonly CLOUD_VM_API_ORIGIN?: string
+  /** Service credential stays in this Worker; never returned or stored with a machine. */
+  readonly CLOUD_VM_API_SERVICE_KEY?: string
+  readonly CLOUD_VM_API_IMAGE?: string
+  readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
