@@ -1039,6 +1039,14 @@ pre.cv-math-source {
     animation: cv-thinking-sweep 2s linear infinite;
   }
 }
+/* Static status indicators (cx-sya4n): no sweep; the word stays muted. */
+:root[data-status-indicators="static"] .cv-thinking {
+  color: var(--cv-text-muted);
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  animation: none;
+}
 
 .cv-tools {
   margin: 2px 0 0;
@@ -1102,8 +1110,8 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* A long thought folded (Debug toggle agentPane.debug.foldLongThoughts): "Thought", its first line,
-   a trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
+/* A long thought folded (Debug toggle agentPane.debug.foldLongThoughts): "Thought for 12s", or with
+   agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
    row's gap (AI Elements' Trace nesting); the reader's toggle animates its height (ThoughtRow.tsx). */
 .cv-thought__preview {
   color: var(--cv-text-muted);
@@ -1637,6 +1645,9 @@ pre.cv-math-source {
   .cv-md.is-waiting .cv-caret::after {
     animation: cv-caret-wait 1s ease-in-out infinite;
   }
+}
+:root[data-status-indicators="static"] .cv-md.is-waiting .cv-caret::after {
+  animation: none;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
@@ -2243,6 +2254,10 @@ pre.cv-math-source {
     animation-delay: calc(var(--agent-motion-in) * 3);
   }
 }
+/* Static status indicators (cx-sya4n): the new-content dots hold still. */
+:root[data-status-indicators="static"] .acpmux-jump-latest__dots i {
+  animation: none;
+}
 @keyframes acpmux-jump-latest-dot {
   0%,
   60%,
@@ -2389,4 +2404,13 @@ pre.cv-math-source {
 }
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
+}
+
+/* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */
+.cv-user__steer-label {
+  color: var(--cv-text);
+  font-weight: 500;
+}
+.cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
+  color: var(--agent-accent);
 }

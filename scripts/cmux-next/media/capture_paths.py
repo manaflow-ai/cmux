@@ -26,6 +26,7 @@ TOUR_FILES = {
     "new-tab": TOURS / "new-tab.json",
     "agent-pane": TOURS / "agent-pane.json",
     "now-playing": TOURS / "now-playing.json",
+    "glass": TOURS / "glass.json",
     "core": TOURS / "core.json",
 }
 

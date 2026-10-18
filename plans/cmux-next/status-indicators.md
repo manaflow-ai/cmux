@@ -62,7 +62,11 @@ animates and every indicator draws the Static set's glyphs (`StaticStatusGlyph`,
 whatever the Debug icon set; loading keeps its style's still glyph and known progress its ring. The Debug
 toggle `status.static.shapes` draws `StatusIndicatorPlan.stillPlan` instead: a solid accent dot for work, a
 hand, ? bubble, key or ! for the waiting kinds, an x in a ring for an error, a check for done and an empty
-ring for paused.
+ring for paused. A tab's needs-input, done and failed badge draws the same still marks in place of its
+colored dot, the pane attention ring is the steady ring, and the agent pane's page gets `statusIndicators:
+"static"` (`data-status-indicators`). Every indicator's tooltip and VoiceOver label is the state's short name
+in every look (`StatusIndicatorState.shortLabel`: Working, Loading, Paused, Waiting, Needs permission,
+Question, Sign-in needed, Error, Done); no surface shows it as visible text.
 
 Behavior settings (`status.*`, Settings > Appearance > Loading Indicator and Settings > Notifications):
 `status.inferCommandBusy` (false since cx-ag5.6.5, Lawrence 2026-10-13: htop looked loading) and

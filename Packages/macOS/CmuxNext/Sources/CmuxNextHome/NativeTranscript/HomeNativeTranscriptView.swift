@@ -86,6 +86,7 @@ public final class HomeNativeTranscriptView: NSView {
     private var cursorHold: HomeCursorRectHold?
 
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+        HomeReduceMotion.install()
         self.me = me
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
         // One binding per shown conversation; it opens the conversation on
@@ -132,7 +133,7 @@ public final class HomeNativeTranscriptView: NSView {
         binding.stop()
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     #if DEBUG
