@@ -482,6 +482,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
+                    let result = agent_roster::with_terminals(reader, plan, result);
                     return print_result(global, plan, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -609,6 +610,7 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     let result = plan.view.project(result);
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
+        OutputMode::JsonLines => agent_roster::json_lines(plan, &result),
         _ => std::borrow::Cow::Borrowed(&result),
     };
     let code = print_success(&shown, global.output);
@@ -630,6 +632,9 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
 /// personal` adds an ORDER column (the row's place in the returned order),
 /// because INDEX stays the session order.
 fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    if let Some(roster) = agent_roster::human_view(plan, result) {
+        return roster;
+    }
     let personal = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
@@ -989,12 +994,14 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
+mod agent_roster;
 mod closed_view;
 mod hints;
 mod list_order;
 mod notify_desktop;
 mod sanitize;
 mod socket;
+pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
 use sanitize::{sanitize_human_block, sanitize_human_cell};
 
