@@ -150,9 +150,14 @@ jobs:
           SLUG: cmux-devbox-${{ github.run_id }}
           VERIFY_IMAGE: ${{ inputs.verify_image }}
           BAKE_RESULT: ${{ inputs.bake_result }}
+          PROMOTE: ${{ inputs.promote }}
         run: |
           set -euo pipefail
           if [ -n "$VERIFY_IMAGE" ]; then
+            if [ "$PROMOTE" = "true" ] || [ -n "$BAKE_RESULT" ]; then
+              echo "::error::verify_image verifies an existing snapshot only; dispatch it without promote or bake_result"
+              exit 1
+            fi
             bun run devbox:verify -- freestyle "$VERIFY_IMAGE" --expect-kind desktop
             exit 0
           fi

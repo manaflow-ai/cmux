@@ -115,6 +115,11 @@ mkdir -m 700 -p "$ROOT/state"
 rpc() {
   "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1"
 }
+# One request, killed when the budget runs out: the poll below must end at its
+# deadline even when a single connection hangs.
+rpc_within() {
+  timeout --kill-after=2 "$1" "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds "$1" --reconnect-attempts 1 --request "$2"
+}
 cleanup() {
   if [ -n "$CONNECT_PID" ]; then
     kill "$CONNECT_PID" 2>/dev/null || true
@@ -177,7 +182,9 @@ SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-
 FIRST=""
 DEADLINE=$((SECONDS + 30))
 while :; do
-  FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+  REMAINING=$((DEADLINE - SECONDS))
+  [ "$REMAINING" -ge 1 ] || REMAINING=1
+  FIRST="$(rpc_within "$REMAINING" "$SNAPSHOT_REQUEST")"
   if echo "$FIRST" | jq -e --arg who "$MARKER:${identity}" 'tostring | contains($who)' >/dev/null; then break; fi
   [ "$SECONDS" -lt "$DEADLINE" ] || break
   sleep 0.5

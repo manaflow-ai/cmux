@@ -22,8 +22,7 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle, type Vm } from "freestyle";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { devboxCuaSmokeCommand, readCuaProof } from "./devbox-cua-smoke";
+import { devboxCuaSmokeCommand, saveCuaProof } from "./devbox-cua-smoke";
 import { agentLaunchCheck, codexHookTrustCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
@@ -359,19 +358,14 @@ async function verifyComputerUse(vm: Vm, exec: Exec, phase: string): Promise<voi
   const result = await exec(devboxCuaSmokeCommand(guestDirectory), 300_000);
   console.log(`[computer-use:${phase}] exit=${result.exitCode}\n${result.output}`);
   const proofDirectory = process.env.CMUX_DEVBOX_CUA_PROOF_DIR;
-  if (proofDirectory) {
-    const destination = path.join(proofDirectory, phase);
-    mkdirSync(destination, { recursive: true });
-    writeFileSync(path.join(destination, "probe.log"), result.output);
-    for (const file of await readCuaProof(() => vm.fs.readDir(guestDirectory))) {
-      if (/^[a-z-]+\.(png|json)$/.test(file.name)) {
-        writeFileSync(path.join(destination, file.name), await readCuaProof(() => vm.fs.readFile(`${guestDirectory}/${file.name}`)));
-      }
-    }
-  }
-  if (result.exitCode !== 0 || !result.output.includes("CUA_SMOKE_PASS ")) {
-    throw new Error(`computer-use ${phase} failed: ${result.output.slice(-2000)}`);
-  }
+  await saveCuaProof({
+    files: vm.fs,
+    guestDirectory,
+    destination: proofDirectory ? path.join(proofDirectory, phase) : undefined,
+    output: result.output,
+    passed: result.exitCode === 0 && result.output.includes("CUA_SMOKE_PASS "),
+    label: phase,
+  });
 }
 
 async function runChecks(label: string, checks: readonly string[], exec: Exec): Promise<boolean> {

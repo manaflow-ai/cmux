@@ -23,7 +23,7 @@
  * snapshot.
  */
 import { Freestyle, type FirewallSpec } from "freestyle";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   VM_IMAGE_SIZE_NAMES,
@@ -35,7 +35,7 @@ import {
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
 import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
-import { devboxCuaSmokeCommand, readCuaProof } from "./devbox-cua-smoke";
+import { devboxCuaSmokeCommand, saveCuaProof } from "./devbox-cua-smoke";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -235,19 +235,14 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
         const smoke = await sh(check.vm, devboxCuaSmokeCommand(guestDirectory), 300_000);
         console.log(`[computer-use:${name}] exit=${smoke.code}\n${smoke.out}`);
         const proofDirectory = process.env.CMUX_DEVBOX_CUA_PROOF_DIR;
-        if (proofDirectory) {
-          const destination = path.join(proofDirectory, name);
-          mkdirSync(destination, { recursive: true });
-          writeFileSync(path.join(destination, "probe.log"), smoke.out);
-          for (const file of await readCuaProof(() => check.vm.fs.readDir(guestDirectory))) {
-            if (/^[a-z-]+\.(png|json)$/.test(file.name)) {
-              writeFileSync(path.join(destination, file.name), await readCuaProof(() => check.vm.fs.readFile(`${guestDirectory}/${file.name}`)));
-            }
-          }
-        }
-        if (smoke.code !== 0 || !smoke.out.includes("CUA_SMOKE_PASS ")) {
-          throw new Error(`${name}: computer-use smoke failed: ${smoke.out.slice(-2000)}`);
-        }
+        await saveCuaProof({
+          files: check.vm.fs,
+          guestDirectory,
+          destination: proofDirectory ? path.join(proofDirectory, name) : undefined,
+          output: smoke.out,
+          passed: smoke.code === 0 && smoke.out.includes("CUA_SMOKE_PASS "),
+          label: name,
+        });
       }
     } finally {
       await check.vm.delete().catch(() => {});

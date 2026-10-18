@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 
@@ -15,6 +16,43 @@ export async function readCuaProof<T>(read: () => Promise<T>): Promise<T> {
       console.warn(`CUA proof read interrupted (${code}); retry ${attempt}/2`);
     }
   }
+}
+
+/** The guest file reads proof collection needs (a Freestyle `vm.fs`). */
+export interface CuaProofFiles {
+  readDir(path: string): Promise<readonly { readonly name: string }[]>;
+  readFile(path: string): Promise<Uint8Array>;
+}
+
+/**
+ * Save the probe log and the guest's screenshots and reports, then fail when
+ * the smoke failed. A failed probe may stop before it creates its output
+ * directory, so collection is best effort then and the smoke's own output is
+ * the reported cause; after a pass, a missing proof is an error.
+ */
+export async function saveCuaProof(options: {
+  readonly files: CuaProofFiles;
+  readonly guestDirectory: string;
+  readonly destination: string | undefined;
+  readonly output: string;
+  readonly passed: boolean;
+  readonly label: string;
+}): Promise<void> {
+  const { files, guestDirectory, destination, output, passed, label } = options;
+  if (destination) {
+    mkdirSync(destination, { recursive: true });
+    writeFileSync(path.join(destination, "probe.log"), output);
+    const collect = async () => {
+      for (const file of await readCuaProof(() => files.readDir(guestDirectory))) {
+        if (/^[a-z-]+\.(png|json)$/.test(file.name)) {
+          writeFileSync(path.join(destination, file.name), await readCuaProof(() => files.readFile(`${guestDirectory}/${file.name}`)));
+        }
+      }
+    };
+    if (passed) await collect();
+    else await collect().catch((error: unknown) => console.warn(`${label}: no computer-use proof collected: ${String(error)}`));
+  }
+  if (!passed) throw new Error(`${label}: computer-use smoke failed: ${output.slice(-2000)}`);
 }
 
 /** Speak MCP using the guest's native agent configuration, under its desktop login environment. */

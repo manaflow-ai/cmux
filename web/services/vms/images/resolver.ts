@@ -341,10 +341,19 @@ function resolveRequested(
     // understood, but a new create that names one should boot the currently
     // promoted image instead. Restricted entries are the exception: an
     // allowlisted caller explicitly asking for one must continue to get that
-    // test image rather than being silently redirected.
+    // test image rather than being silently redirected. With no current
+    // default to migrate to, refuse rather than boot the superseded image.
     if (!restricted && entry.defaultForKind !== true) {
       const migrated = resolveLegacyImageToDefault(provider, entry, selection.kind, memoryMb);
       if (migrated) return migrated;
+      throw new VmImageConfigError({
+        provider,
+        image,
+        kind,
+        source: "request",
+        allowedImages: listVmImageIds(provider),
+        reason: `${image} is a superseded ${selection.kind} image and no current ${selection.kind} default fits${memoryMb === undefined ? "" : ` ${memoryMb} MiB`}`,
+      });
     }
     return selection;
   }
