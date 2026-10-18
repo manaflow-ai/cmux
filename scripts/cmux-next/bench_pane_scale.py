@@ -440,7 +440,7 @@ class Bench:
             for _ in range(self.args.tabs - 1):
                 if tabs + added >= want:
                     break
-                _, error = self.action("newTab")
+                _, error = self.action("newTab.page")  # "newTab" is New Workspace
                 if error:
                     break
                 added += 1
