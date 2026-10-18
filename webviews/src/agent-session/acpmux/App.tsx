@@ -1197,6 +1197,9 @@ export function VirtualTranscript({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
+  // This effect validates at most two focused ids, so build the lookup once per rows identity
+  // instead of scanning the whole transcript for every id on each streaming snapshot.
+  const rowIds = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
   useEffect(() => {
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
@@ -1205,14 +1208,13 @@ export function VirtualTranscript({
       pendingFocus.current = undefined;
       return;
     }
-    // Two ids to look up: a scan, not a set of a long chat's every row on each snapshot.
-    const has = (id: string) => rows.some((row) => row.id === id);
+    const has = (id: string) => rowIds.has(id);
     setActiveRowId((current) => (current && has(current) ? current : rows[0]?.id));
     setTranscriptRange((current) => {
       if (!current) return current;
       return has(current.anchorId) && has(current.focusId) ? current : undefined;
     });
-  }, [rows, sessionChanged, sessionKey]);
+  }, [rowIds, rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
