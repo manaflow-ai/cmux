@@ -447,22 +447,30 @@ struct DetectedSSHSession: Equatable, Sendable {
         }
         defer { operation?.clearCancellationHandler() }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
+        // Poll on this thread. A waitUntilExit() queued on a global queue needs a free
+        // pool thread just to see the exit; when the pool is busy it never starts, and a
+        // step that already exited is reported as timed out (#21551).
+        func waitForExit(timeout: TimeInterval) -> DispatchTimeoutResult {
+            let deadline = DispatchTime.now() + timeout
+            while process.isRunning {
+                if DispatchTime.now() >= deadline {
+                    return .timedOut
+                }
+                usleep(5_000)
+            }
+            return .success
         }
 
         func terminateProcessAndWait() {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForExit(timeout: 1)
             if process.isRunning {
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
         }
 
-        if exitSignal.wait(timeout: .now() + timeout) == .timedOut {
+        if waitForExit(timeout: timeout) == .timedOut {
             if operation?.isCancelled == true {
                 terminateProcessAndWait()
                 throw TerminalImageTransferExecutionError.cancelled
