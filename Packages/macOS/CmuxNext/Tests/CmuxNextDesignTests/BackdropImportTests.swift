@@ -93,16 +93,32 @@ import UniformTypeIdentifiers
                                                      headers: ["Content-Length": "\(BackdropUserImages.maximumImageBytes + 1)"]),
             // No length declared: stopped once the count passes the cap for a picture.
             "https://example.com/streamed.png": .init(body: big, type: "image/png", headers: ["Content-Length": ""]),
+            // Called a video, but a picture's bytes: a picture's cap, from the first chunk.
+            "https://example.com/clip.mp4": .init(body: Data([0x89, 0x50, 0x4E, 0x47]) + big, type: "video/mp4",
+                                                  headers: ["Content-Length": ""]),
             "https://example.com/hop.png": .init(body: Data(), type: "text/plain", status: 302,
                                                  headers: ["Location": "http://example.com/plain.png"]),
         ])
-        for link in ["https://example.com/declared.png", "https://example.com/streamed.png"] {
+        for link in ["https://example.com/declared.png", "https://example.com/streamed.png", "https://example.com/clip.mp4"] {
             await #expect(throws: BackdropUserImages.ImportError.tooLarge) {
                 _ = try await BackdropUserImages.download(URL(string: link)!, configuration: configuration)
             }
         }
         await #expect(throws: BackdropUserImages.ImportError.notHTTPS) {
             _ = try await BackdropUserImages.download(URL(string: "https://example.com/hop.png")!, configuration: configuration)
+        }
+    }
+
+    /// The review's crash (#21731): a download cancelled before its task exists ends quietly.
+    @Test func aDownloadCancelledBeforeItStartsEndsQuietly() async throws {
+        let configuration = StubResponses.configuration()
+        StubResponses.set(["https://example.com/sea.png": .init(body: try Self.png(), type: "image/png")])
+        let task = Task { try await BackdropUserImages.download(URL(string: "https://example.com/sea.png")!, configuration: configuration) }
+        task.cancel()
+        let result = await task.result
+        if case .success(let file) = result {
+            // Cancelled too late to stop it: a whole file, cleaned up here.
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
         }
     }
 }
