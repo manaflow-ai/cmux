@@ -148,34 +148,51 @@ swiftpm_binary_module_guard() {
 }
 
 xcode_binary_module_guard() {
-  local root="$1" derived="$2" scratch="$2/SourcePackages" stamp digest previous=""
+  local root="$1" derived="$2" scratch="$2/SourcePackages" stamp digest previous="" resolve_log entry had_outputs=0
   shift 2
   stamp="$derived/$swiftpm_binary_module_inputs_file"
+  resolve_log="$(mktemp)"
   # As above: when resolution fails the artifacts may be the old commit's, so
   # the digest proves nothing; build cold and let the build report why.
   if ! (cd "$root" && xcodebuild "$@" -derivedDataPath "$derived" \
-      -resolvePackageDependencies < /dev/null >/dev/null 2>&1); then
+      -resolvePackageDependencies < /dev/null >"$resolve_log" 2>&1); then
     digest=""
+    echo "ci-phase xcodebuild -resolvePackageDependencies failed; its last lines:"
+    tail -n 20 "$resolve_log" || true
   else
     digest="$(swiftpm_binary_module_digest "$root" "$scratch")"
   fi
+  rm -f "$resolve_log"
   [ ! -f "$stamp" ] || previous="$(cat "$stamp")"
   if [ -n "$digest" ] && [ "$digest" = "$previous" ]; then
     return 0
   fi
+  # Only build outputs need removing: a new DerivedData (a runner's temp dir)
+  # holds at most the packages the resolve just fetched.
+  for entry in "$derived"/* "$derived"/.[!.]*; do
+    [ -e "$entry" ] || continue
+    case "${entry##*/}" in
+      SourcePackages|"$swiftpm_binary_module_inputs_file") ;;
+      *) had_outputs=1 ;;
+    esac
+  done
   # Written only after the outputs are gone: a step stopped in between purges again.
-  bash "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/clear-stale-scheme-build-state.sh" "$derived"
-  mkdir -p "$derived"
+  rm -f "$stamp"
+  if [ "$had_outputs" -eq 1 ]; then
+    bash "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/clear-stale-scheme-build-state.sh" "$derived"
+  fi
   if [ -z "$digest" ]; then
-    rm -f "$stamp"
-    echo "ci-phase xcodebuild -resolvePackageDependencies failed: removed the build outputs in $derived"
+    [ "$had_outputs" -eq 0 ] || echo "ci-phase removed the build outputs in $derived (a cold build)"
     return 0
   fi
+  mkdir -p "$derived"
   printf '%s\n' "$digest" > "$stamp"
-  if [ -n "$previous" ]; then
+  if [ "$had_outputs" -eq 0 ]; then
+    return 0
+  elif [ -n "$previous" ]; then
     echo "ci-phase binary-target headers changed since the last build in $derived: removed its build outputs (a cold build)"
   else
-    echo "ci-phase $derived had no binary-target header digest: removed its build outputs (a cold build)"
+    echo "ci-phase $derived had build outputs but no binary-target header digest: removed them (a cold build)"
   fi
 }
 

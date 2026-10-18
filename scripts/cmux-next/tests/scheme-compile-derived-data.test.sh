@@ -75,4 +75,15 @@ SC_ARG="$TMP/kept-dd" run STUB_STALE_ONCE=1 || fail "kept-path retry run exited 
 [[ $(sort -u "$TMP/paths") == "$TMP/kept-dd" ]] || fail "kept DerivedData not used"
 [[ -d "$TMP/kept-dd" ]] || fail "kept DerivedData was removed"
 
+# 4. A new kept path outside /tmp and the glaeda cache (a runner's RUNNER_TEMP
+#    on Blacksmith or hosted macOS) builds: it has no outputs to clear, so the
+#    binary-module guard never asks clear-stale-scheme-build-state.sh, which
+#    refuses such paths.
+reset
+outside="$ROOT/.scheme-dd-test.$$"
+trap 'rm -rf "$TMP" "$outside"' EXIT
+SC_ARG="$outside" run || fail "a new kept path outside /tmp exited $?"
+[[ $(sort -u "$TMP/paths") == "$outside" ]] || fail "the new kept DerivedData was not used"
+[[ -s "$outside/.cmux-binary-module-inputs" ]] || fail "the guard wrote no header digest"
+
 printf 'scheme compile DerivedData tests: ok\n'
