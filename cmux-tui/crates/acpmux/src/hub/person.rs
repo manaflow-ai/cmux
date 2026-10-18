@@ -82,27 +82,95 @@
 //! table does not list; a spawn env). Such a request gets
 //! [`REASON`] and changes nothing: a prompt stays pending.
 //!
-//! (c) A pending prompt reaches every app that sees the session: a peer's
-//! `_acpmux/permission_pending` reaches the watchers of this daemon that
-//! did not attach the session (`hub/peers.rs`), with the peer's
-//! `decisionNonce` and `personInstance`; an answer still goes to the peer,
-//! which counts an allow only with its own person's proof (above). The
-//! proof covers the prompt's ids, not the text the app shows, so a peer
-//! that re-sends a real prompt with other text could get the person's
-//! allow of that text counted for the real one. A peer's prompt is
-//! therefore relayed only for a session that peer listed as its own and
-//! that is not this daemon's, in the run the peer named at its handshake,
-//! which is neither this daemon's run nor one another peer named; and only
-//! to unix socket and app watchers, never to a Web client or on to
-//! another peer daemon. The app holds the key of the daemons it enrolled,
-//! so this daemon's prompts (whose proofs it can make) never arrive with
-//! a peer's text. Binding the proof to the prompt's text would need the
-//! app to hash what it shows; not done.
-//! Residual: the run a peer names at its handshake is a claim. A peer can
-//! name a third daemon's run (one the app enrolled directly, say over
-//! ssh) and re-send that daemon's prompt with other text; this daemon
-//! cannot tell. The app has to refuse to prove a `via: "peer"` prompt whose
-//! `personInstance` is a daemon it enrolled directly (an app follow-up).
+//! Starting in a mode that does not ask (a `session/new` with
+//! `_meta.acpmux.mode`, or a preset's `mode`), without the person, needs
+//! one of these; each grants a mode the person already approved, never a
+//! wider one, and nothing else:
+//! - (a) Inherit: the caller is an acpmux session whose current mode is
+//!   that exact mode on that same harness family (mode ids are per family).
+//!   The daemon, not the request, says which session calls: each harness it
+//!   starts gets `ACPMUX_SESSION_TOKEN` = lowercase hex HMAC-SHA256(run
+//!   secret, "acpmux-caller-session-v1" 0 session id) ([`caller_token`]), a
+//!   secret made at each daemon start and kept in memory only. A unix
+//!   socket connection whose FIRST request is an `initialize` with
+//!   `_meta.acpmux.callerSession {sessionId, token}` that matches (constant
+//!   time) is that session for its whole life ([`take_caller`]); the field
+//!   is stripped from every request and never read anywhere else, so a
+//!   `parentSessionId` or a `callerSession` in any other request counts for
+//!   nothing. The check reads the caller's mode at the time of the request:
+//!   a caller the person moved back to asking inherits nothing. A peer or
+//!   Web connection never has a caller. The harness also gets
+//!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
+//!   the token only to that socket ([`caller_env`], `client.rs`).
+//! - No start mode that does not ask applies to an adopt without the
+//!   person: an adopt may find a session already running
+//!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
+//!   running session (`session/set_mode` above). Such a request is refused
+//!   before anything starts.
+//! - (b) A preset the person approved: `_acpmux/presets {name, approveMode:
+//!   true}` from the person records `modeApproval`, the sha256 of the
+//!   preset's contents (everything but its description and the approval
+//!   itself, `Preset::approval_digest`). The approval counts only while the
+//!   preset still hashes to it and only for that preset's own mode, with no
+//!   other harness, no adopted conversation and no model, effort, policy or
+//!   env of the request's own (a folder is fine). The contents are read
+//!   three times for one start (the request check, the resolve of model,
+//!   effort and env, the spawn of args, env and system prompt): each read
+//!   records the digest of what it used, and the start counts the approval
+//!   only when the resolve's and the spawn's digests are the approved one
+//!   (`hub/start_gate/preset_bind.rs`), so an edit that is put back between
+//!   reads gains nothing. The spawn's digest is recorded only by the cold
+//!   start of the agent, under the session's spawn lock, for the profile it
+//!   actually started; a request that finds the agent running or re-adopts
+//!   its host records nothing. Such a preset never takes a pooled harness.
+//!   The session records the approved digest; a later cold start from other
+//!   contents (an edit, then a respawn) starts in the harness's own mode
+//!   instead of replaying the approved one, and a running agent keeps the
+//!   mode it runs, which its saved mode keeps saying. Bound to the
+//!   contents, not cleared on a write, so every way the preset can change
+//!   (a `_acpmux/presets` write from any client, a hand edit of config.json
+//!   and a reload, a future write path) drops it without having to know
+//!   about it; the exact contents the person approved are approved again.
+//!   Without the person, `approveMode: true` and a preset `mode` that does
+//!   not ask are refused; `approveMode: false` and an asking mode narrow and
+//!   stay open.
+//! - (d) The refusal ([`mode_person_required`]) is one sentence that names
+//!   where to approve: cmux NEXT on this host ([`host_label`]), or the
+//!   preset to approve there once; `error.data` carries `host`, `mode` and
+//!   `preset` so an app can show its own (localized) text. A Web or peer
+//!   client never gets this host's name, in the text or in `host`.
+//! - (c) A pending prompt reaches every app that sees the session: a peer's
+//!   `_acpmux/permission_pending` reaches the watchers of this daemon that
+//!   did not attach the session (`hub/peers.rs`), with the peer's
+//!   `decisionNonce` and `personInstance`; an answer still goes to the peer,
+//!   which counts an allow only with its own person's proof (above). The
+//!   proof covers the prompt's ids, not the text the app shows, so a peer
+//!   that re-sends a real prompt with other text could get the person's
+//!   allow of that text counted for the real one. A peer's prompt is
+//!   therefore relayed only for a session that peer listed as its own and
+//!   that is not this daemon's, in the run the peer named at its handshake,
+//!   which is neither this daemon's run nor one another peer named; and only
+//!   to unix socket and app watchers, never to a Web client or on to
+//!   another peer daemon. The app holds the key of the daemons it enrolled,
+//!   so this daemon's prompts (whose proofs it can make) never arrive with
+//!   a peer's text. Binding the proof to the prompt's text would need the
+//!   app to hash what it shows; not done.
+//!   Residual: the run a peer names at its handshake is a claim. A peer can
+//!   name a third daemon's run (one the app enrolled directly, say over
+//!   ssh) and re-send that daemon's prompt with other text; this daemon
+//!   cannot tell. The app has to refuse to prove a `via: "peer"` prompt whose
+//!   `personInstance` is a daemon it enrolled directly (an app follow-up).
+//!
+//! The default start mode (`hub/start_mode.rs`, cx-wx93i) is not a request:
+//! with no `mode` asked, a new chat starts in the person's latest pick, else
+//! `defaultPermissionMode` / `agents.defaultPermissionMode`, else the
+//! harness's full-access mode, for every non-Web origin (also the unix
+//! socket CLI). It never widens a proven caller session: one in a mode
+//! that asks starts its chats in the harness's own mode
+//! (`Hub::keeps_harness_mode`, as a handoff target of a source that asks
+//! does). A request that names a mode skips the default; (a) and (b) gate
+//! it as above. Presets, folder profiles, adopted chats and profiles that
+//! pin a mode in their argv keep the harness's own mode.
 //!
 //! Also without the person: no rules change under a session policy that
 //! does not ask (a rule is then what keeps a tool asking), no removal of a
@@ -127,18 +195,48 @@
 //!   See docs/security/threat-model.md "Remote approvals (acpmux person key)".
 //! - Same-uid file writes: an agent that edits config.json, a profile file
 //!   or the store directly. That needs an OS boundary between the agent and
-//!   the user's files.
+//!   the user's files. A preset's `modeApproval` is an unkeyed sha256 in
+//!   config.json, so such a write can approve a preset itself.
+//! - A preset approval covers the preset's `harness` string, not the
+//!   profile it resolves to: `_acpmux/defaults` `prefer` or
+//!   `_acpmux/harness/add` can point that name at another program, which
+//!   `_acpmux/harness/add` can run anyway.
+//! - The person's own pick of a no-ask mode on a preset session (not through
+//!   an approval) stays on respawn even when the preset changed meanwhile.
 //! - `_acpmux/harness/add` (a new harness profile), `_acpmux/defaults`
 //!   `prefer` and a preset's `harness` (which profile, and so which profile
 //!   default policy, a new session gets), a preset's `args`,
 //!   `acp.trust.set`, `_acpmux/harness_enable` and `_acpmux/import` stay
 //!   open to the unix socket.
+//! - A caller token lives in its harness's environment, which any process
+//!   of the same user may read (`/proc/<pid>/environ` on Linux, `ps -E` or
+//!   `KERN_PROCARGS2` on macOS). A process that reads it starts sessions in
+//!   that session's current mode only, which that session's own agent can
+//!   already do without asking (a no-ask mode runs any command). The
+//!   process still has to run somewhere: an agent of a session that asks
+//!   needs an allowed command or read to get there. Binding the token to the
+//!   connecting process's ancestry (peer pid) is a later hardening.
+//! - A token dies with its daemon run: a harness that outlives a restart
+//!   (an agent host) inherits nothing until the next spawn.
+//! - `session/new` with a `policy` other than ask or deny-all is open to the
+//!   unix socket (it predates this check); a mode is not.
+//! - Open question (cx-wx93i): while the person's start mode is full
+//!   access (the default), a unix socket client that is no proven session,
+//!   such as `acpmux new` from a script, or an agent of a session that asks
+//!   that leaves out its caller token, gets a full-access chat without the
+//!   person. Limiting the default to the person (or LocalApp) would close
+//!   it; the person's pick of `standard` or `ask` closes it today.
 //! - DEV only: a same-uid process that starts the unsigned daemon before the
 //!   app does gives it its own spawn key; the app then hands that daemon off
 //!   (when its agents run under agent hosts), but the process held the
 //!   person until then.
 
 use super::*;
+
+pub use super::start_gate::{
+    CALLER_FIELD, CALLER_SOCKET_ENV, CALLER_TOKEN_ENV, START_MODE_FIELD, StartMode, caller_env,
+    caller_proves, caller_token, host_label, mode_person_required, take_caller,
+};
 
 /// The old place of the key in `initialize` (`_meta.acpmux`): stripped, never read.
 pub const KEY_FIELD: &str = "personKey";
@@ -547,10 +645,17 @@ impl Hub {
     /// "remote connection must be authed, and should be able to pretty much
     /// use yolo mode"; `Hub::any_mode_for_web`). The unix socket (the
     /// CLI, scripts, agents) still needs the person for a mode that does not ask.
+    /// `caller`: the acpmux session the connection proved it runs in
+    /// (module docs, (a)), never a value from the request. `starts_modes`:
+    /// a `session/new` on this connection starts in its mode (the unix
+    /// socket and the local app; a Web or peer one is settled to an asking
+    /// mode instead, `server/remote_guard.rs`).
     pub async fn person_check(
         &self,
         person: bool,
         remote_authenticated: bool,
+        caller: Option<&str>,
+        starts_modes: bool,
         m: &str,
         params: &Value,
     ) -> Result<PersonVerdict, RpcError> {
@@ -564,7 +669,7 @@ impl Hub {
             // handler forwards it and never handles it here.
             return Ok(PersonVerdict::PeerOnly);
         }
-        self.person_check_local(remote_authenticated, m, params)
+        self.person_check_local(remote_authenticated, caller, starts_modes, m, params)
             .await
             .map(|()| PersonVerdict::Handle)
     }
@@ -573,10 +678,13 @@ impl Hub {
     async fn person_check_local(
         &self,
         remote_authenticated: bool,
+        caller: Option<&str>,
+        starts_modes: bool,
         m: &str,
         params: &Value,
     ) -> Result<(), RpcError> {
         match m {
+            method::SESSION_NEW if starts_modes => self.session_new_check(caller, params).await,
             method::MUX_PERMISSION_RESPOND => {
                 let option = params.get("optionId").filter(|v| !v.is_null());
                 let proved = option.is_some_and(|o| self.person_decided(params, o));
@@ -622,6 +730,9 @@ impl Hub {
                 }
                 if !asking_policy_value(set.and_then(|s| s.get("policy"))) {
                     return Err(person_required("a permission policy other than ask or deny-all"));
+                }
+                if m == method::MUX_PRESETS {
+                    self.preset_mode_check(params).await?;
                 }
                 // Removing a stored policy (a clear, or `policy: null`) lets
                 // the next layer's policy apply, which may not ask.
@@ -692,6 +803,8 @@ impl Hub {
                 }
                 if self.web_modes().config_value_asks(&family, id, value) {
                     Ok(())
+                } else if let (None | Some("mode"), Some(mode)) = (id, value) {
+                    Err(mode_person_required(mode, None, false, starts_modes))
                 } else {
                     Err(person_required("a mode that does not ask"))
                 }
