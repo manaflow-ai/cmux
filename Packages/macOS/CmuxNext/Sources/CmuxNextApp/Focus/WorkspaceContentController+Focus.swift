@@ -29,7 +29,7 @@ extension WorkspaceContentController {
                 continue
             }
             guard let handle = handles.panes[id], let model = daemon.store.pane(handle) else { continue }
-            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, surface: String($0.surface.rawValue), kind: .of($0)) }
+            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, surface: $0.focusSurface, kind: .of($0)) }
             let selected = state.selection.selection(in: model.id).flatMap { id in tabs.contains { $0.id == id } ? id : nil }
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
@@ -110,8 +110,7 @@ extension PaneController {
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
             if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
-            guard let tab = byID[id] else { return FocusTopology.Tab(id: id, kind: .other) }
-            return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))
+            return byID[id].map { FocusTopology.Tab(id: id, surface: $0.focusSurface, kind: .of($0)) } ?? FocusTopology.Tab(id: id, kind: .other)
         }
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
     }
