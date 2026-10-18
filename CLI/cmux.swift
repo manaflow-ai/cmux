@@ -6579,6 +6579,9 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
+        if command == "automation" {
+            try validateAutomationArgumentsBeforeSocket(commandArgs)
+        }
 
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
