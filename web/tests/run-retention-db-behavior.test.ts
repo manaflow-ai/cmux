@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
-import type * as RunRepository from "../services/runs/repository";
+type RunRepositoryModule = typeof import("../services/runs/repository");
 
 const dbEnabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = dbEnabled ? test : test.skip;
 let sql: Sql | null = null;
-let repository: typeof RunRepository | null = null;
+let repository: RunRepositoryModule | null = null;
 
 beforeAll(async () => {
   if (!dbEnabled) return;
@@ -25,7 +25,7 @@ afterAll(async () => {
   await sql?.end();
 });
 
-function repo(): typeof RunRepository {
+function repo(): RunRepositoryModule {
   if (!repository) throw new Error("Run repository was not loaded");
   return repository;
 }
@@ -175,7 +175,7 @@ describe("cloud Run terminal retention and cancellation", () => {
         leaseGeneration: first.leaseGeneration,
         retentionMs: 60 * 60 * 1000,
       };
-      await expect(repo().scheduleAttemptRetention(staleRetention as Parameters<RunRepository["scheduleAttemptRetention"]>[0])).rejects.toBeInstanceOf(repo().RunLeaseConflictError);
+      await expect(repo().scheduleAttemptRetention(staleRetention as Parameters<RunRepositoryModule["scheduleAttemptRetention"]>[0])).rejects.toBeInstanceOf(repo().RunLeaseConflictError);
 
       const after = (await repo().getRun(created.run.id, userId)).attempts[0];
       expect(after?.providerVmId).toBe("vm-replacement");

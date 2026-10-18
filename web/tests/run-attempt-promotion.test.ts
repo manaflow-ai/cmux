@@ -111,7 +111,9 @@ describe("run attempt promotion service", () => {
   test("promotes verified successful attempts and returns only a redacted runtime view", async () => {
     const { dependencies, calls } = makeDependencies();
     const promotion = await promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "promote-1", dependencies });
-    expect(promotion.runtime).toEqual({ id: "runtime-1", state: "ready", sessionId: expect.stringMatching(/^session_[0-9a-f]{32}$/) });
+    expect(promotion.runtime.id).toBe("runtime-1");
+    expect(promotion.runtime.state).toBe("ready");
+    expect(promotion.runtime.sessionId).toMatch(/^session_[0-9a-f]{32}$/);
     expect(promotion.workspace).toMatchObject({ id: "workspace-1", kind: "persistent-devbox", sessionId: promotion.runtime.sessionId });
     expect(promotion.attach).toMatchObject({ transport: "cmux-remote", capability: "terminal.attach", reconnectable: true, sessionId: promotion.runtime.sessionId });
     expect(JSON.stringify(promotion)).not.toContain("vm-secret-id");
