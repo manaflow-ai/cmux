@@ -232,6 +232,30 @@ export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntr
   return byRecency(sessions);
 }
 
+// Session entries are immutable snapshots. Reuse the assembled, case-folded search text while a
+// user types so each sidebar keystroke does not rebuild every title/path/branch string. A weak map
+// releases entries when the session snapshot is replaced.
+const sessionSearchTextCache = new WeakMap<AcpmuxSessionEntry, string>();
+
+function sessionSearchText(session: AcpmuxSessionEntry): string {
+  const cached = sessionSearchTextCache.get(session);
+  if (cached !== undefined) return cached;
+  const text = [
+    session.displayTitle,
+    session.title,
+    session.name,
+    session.cwd && projectLabel(session.cwd),
+    session.branch,
+    session.worktree && projectLabel(session.worktree),
+    cloudHost(session),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  sessionSearchTextCache.set(session, text);
+  return text;
+}
+
 /** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
 export function groupByProject(
   sessions: AcpmuxSessionEntry[],
@@ -289,31 +313,18 @@ export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): S
 export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return sessions;
-  return sessions.filter((session) => {
-    const text = [
-      session.displayTitle,
-      session.title,
-      session.name,
-      // Folder names, not full paths: a path prefix like `/Users/me` would match every session.
-      session.cwd && projectLabel(session.cwd),
-      session.branch,
-      session.worktree && projectLabel(session.worktree),
-      cloudHost(session),
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .toLowerCase();
-    return terms.every((term) => text.includes(term));
-  });
+  return sessions.filter((session) => terms.every((term) => sessionSearchText(session).includes(term)));
 }
 
 /** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions and side chats are in neither. */
 export function sidebarSections(
   all: AcpmuxSessionEntry[],
   query = "",
+  groupProjects = true,
 ): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
+  active: AcpmuxSessionEntry[];
 } {
   const sessions = withoutChildren(all.filter(listed));
   const pinned = byRecency(
@@ -322,14 +333,25 @@ export function sidebarSections(
       query,
     ),
   );
-  const groups = groupByProject(
-    sessions.filter((session) => !session.pinned),
-    sessions,
-  );
-  if (!query.trim()) return { pinned, groups };
+  const groups = groupProjects
+    ? groupByProject(
+        sessions.filter((session) => !session.pinned),
+        sessions,
+      )
+    : [];
+  const active = groupProjects
+    ? []
+    : byRecency(
+        filterSessions(
+          sessions.filter((session) => !session.pinned),
+          query,
+        ),
+      );
+  if (!query.trim()) return { pinned, groups, active };
   // Projects and their headers come from every session, so a search only hides rows.
   return {
     pinned,
+    active,
     groups: groups
       .map((group) => ({ ...group, sessions: filterSessions(group.sessions, query) }))
       .filter((group) => group.sessions.length > 0),
