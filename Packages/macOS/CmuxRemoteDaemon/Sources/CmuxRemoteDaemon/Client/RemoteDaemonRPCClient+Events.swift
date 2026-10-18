@@ -41,7 +41,7 @@ extension RemoteDaemonRPCClient {
 
     func receiveNextWebSocketMessageLocked() {
         guard let connection = webSocketConnection else { return }
-        connection.receiveMessage { [weak self] data, opcode, error in
+        connection.receiveMessage { [weak self] data, opcode, isComplete, error in
             guard let self else { return }
             self.stateQueue.async {
                 if let error {
@@ -50,6 +50,10 @@ extension RemoteDaemonRPCClient {
                     } else {
                         self.handleWebSocketTermination("daemon websocket failed: \(error.localizedDescription)")
                     }
+                    return
+                }
+                if isComplete, data == nil, opcode == nil {
+                    self.handleWebSocketTermination("daemon websocket closed")
                     return
                 }
                 switch opcode {

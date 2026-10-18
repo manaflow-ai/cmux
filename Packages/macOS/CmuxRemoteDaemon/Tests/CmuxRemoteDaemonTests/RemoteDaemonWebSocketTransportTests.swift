@@ -1,5 +1,6 @@
 import CmuxCore
 import Foundation
+import Network
 import Testing
 @testable import CmuxRemoteDaemon
 
@@ -18,7 +19,20 @@ struct RemoteDaemonWebSocketTransportTests {
 
     @Test("cancelling a WebSocket transport marks it closed and unblocks open waiters")
     func cancellationIsTerminal() throws {
-        let request = URLRequest(url: URL(string: "ws://127.0.0.1:1/daemon")!)
+        let listener = try NWListener(using: .tcp)
+        let listenerQueue = DispatchQueue(label: "remote-daemon-websocket-listener-test")
+        let listenerReady = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { state in
+            if case .ready = state { listenerReady.signal() }
+        }
+        listener.newConnectionHandler = { connection in connection.cancel() }
+        listener.start(queue: listenerQueue)
+        defer { listener.cancel() }
+        guard listenerReady.wait(timeout: .now() + 5) == .success, let port = listener.port else {
+            throw URLError(.cannotConnectToHost)
+        }
+
+        let request = URLRequest(url: URL(string: "ws://127.0.0.1:\(port.rawValue)/daemon")!)
         let connection = try RemoteDaemonWebSocketConnection(
             request: request,
             callbackQueue: DispatchQueue(label: "remote-daemon-websocket-test")

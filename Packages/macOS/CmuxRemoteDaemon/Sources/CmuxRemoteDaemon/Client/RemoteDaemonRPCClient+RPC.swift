@@ -1,6 +1,6 @@
 public import Foundation
 
-// Hands a write completion's error across the @Sendable URLSession completion
+// Hands a write completion's error across the @Sendable network callback
 // boundary to the thread blocked on `semaphore`; the signal->wait pair is the
 // happens-before edge (legacy used a captured local var, which Swift 6
 // rejects in a @Sendable closure).

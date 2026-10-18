@@ -1,11 +1,33 @@
 internal import Foundation
 import Network
 
+private final class RemoteDaemonWebSocketCompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    private let completion: @Sendable ((any Error)?) -> Void
+
+    init(completion: @escaping @Sendable ((any Error)?) -> Void) {
+        self.completion = completion
+    }
+
+    func finish(_ error: (any Error)?) {
+        lock.lock()
+        guard !completed else {
+            lock.unlock()
+            return
+        }
+        completed = true
+        lock.unlock()
+        completion(error)
+    }
+}
+
 /// Owns one Network.framework WebSocket with explicit cancellation semantics.
 /// The synchronous open wait is retained because the RPC client start contract
 /// is synchronous; the short lock only protects that low-level callback bridge.
 final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
     private let connection: NWConnection
+    private let callbackQueue: DispatchQueue
     private let openSemaphore = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var opened = false
@@ -20,7 +42,8 @@ final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
 
         let webSocketOptions = NWProtocolWebSocket.Options()
         webSocketOptions.autoReplyPing = true
-        webSocketOptions.maximumMessageSize = 512 * 1024
+        // A 4 MiB daemon request expands when base64-encoded in a cli.request event.
+        webSocketOptions.maximumMessageSize = 8 * 1024 * 1024
         if let headers = request.allHTTPHeaderFields {
             webSocketOptions.setAdditionalHeaders(headers.map { (name: $0.key, value: $0.value) })
         }
@@ -29,6 +52,7 @@ final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
         parameters.defaultProtocolStack.applicationProtocols.insert(webSocketOptions, at: 0)
         let connection = NWConnection(to: .url(url), using: parameters)
         self.connection = connection
+        self.callbackQueue = callbackQueue
         connection.stateUpdateHandler = { [weak self] state in
             self?.handle(state: state)
         }
@@ -53,11 +77,11 @@ final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
     }
 
     func receiveMessage(
-        _ completion: @escaping @Sendable (Data?, NWProtocolWebSocket.Opcode?, NWError?) -> Void
+        _ completion: @escaping @Sendable (Data?, NWProtocolWebSocket.Opcode?, Bool, NWError?) -> Void
     ) {
-        connection.receiveMessage { data, context, _, error in
+        connection.receiveMessage { data, context, isComplete, error in
             let opcode = (context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata)?.opcode
-            completion(data, opcode, error)
+            completion(data, opcode, isComplete, error)
         }
     }
 
@@ -74,9 +98,15 @@ final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
 
     func sendPing(completion: @escaping @Sendable ((any Error)?) -> Void) {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .ping)
+        let gate = RemoteDaemonWebSocketCompletionGate(completion: completion)
+        metadata.setPongHandler(callbackQueue) { error in
+            gate.finish(error)
+        }
         let context = NWConnection.ContentContext(identifier: "remote-daemon.ping", metadata: [metadata])
         connection.send(content: nil, contentContext: context, isComplete: true, completion: .contentProcessed { error in
-            completion(error)
+            if let error {
+                gate.finish(error)
+            }
         })
     }
 
@@ -93,7 +123,13 @@ final class RemoteDaemonWebSocketConnection: @unchecked Sendable {
         switch state {
         case .ready:
             opened = true
-        case .failed, .cancelled:
+        case .failed:
+            closed = true
+            lock.unlock()
+            openSemaphore.signal()
+            connection.cancel()
+            return
+        case .cancelled:
             closed = true
         default:
             lock.unlock()
