@@ -17,12 +17,10 @@ protocol FocusEffectApplying: AnyObject {
 /// re-entered. While effects run, `isApplying` is true and responder
 /// reports caused by the applier's own `makeFirstResponder` are dropped.
 final class FocusCoordinator {
-    /// The read view of the machine's state (refreshed from each reply), with a pending topology
-    /// reduced first (`setNeedsTopology`).
-    var state: FocusState {
-        reducePendingTopologies()
-        return reduced
-    }
+    /// The read view of the machine's state (refreshed from each reply). A pure read: a pending
+    /// topology (`setNeedsTopology`) is reduced before the next event, at the end of the turn, or
+    /// by `currentState()`, never inside a read (a read can sit inside an AppKit responder change).
+    var state: FocusState { reduced }
     private var reduced = FocusState()
     /// Topologies their owners marked changed, built when next needed (`setNeedsTopology`).
     private var pendingTopologies: [(owner: ObjectIdentifier, build: @MainActor () -> FocusTopology?)] = []
@@ -73,35 +71,45 @@ final class FocusCoordinator {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
-        while !queue.isEmpty {
-            let event = queue.removeFirst()
-            // A topology equal to the one the machine holds is not an event:
-            // nothing is sent, recorded or applied (the window re-reports
-            // its panes after every daemon delta and selection echo).
-            if case .topology(let topology) = event, topology == reduced.topology { continue }
-            // `layout.closeFocus` is read per event: a settings change
-            // applies to the next close.
-            let policy = closeFocus()
-            if appliedCloseFocus != policy {
-                appliedCloseFocus = policy
-                machine.setCloseFocus(mostRecent: policy == .mostRecent)
+        // The settled observer can send or reduce a pending topology: what it queued runs too.
+        repeat {
+            while !queue.isEmpty {
+                let event = queue.removeFirst()
+                // A topology equal to the one the machine holds is not an event:
+                // nothing is sent, recorded or applied (the window re-reports
+                // its panes after every daemon delta and selection echo).
+                if case .topology(let topology) = event, topology == reduced.topology { continue }
+                // `layout.closeFocus` is read per event: a settings change
+                // applies to the next close.
+                let policy = closeFocus()
+                if appliedCloseFocus != policy {
+                    appliedCloseFocus = policy
+                    machine.setCloseFocus(mostRecent: policy == .mostRecent)
+                }
+                let previous = reduced
+                guard let result = machine.send(event, into: &reduced) else {
+                    // The ABI refused the event: a wire mismatch between the app
+                    // and the linked FFI. Keep the state rather than lose focus.
+                    assertionFailure("focus machine refused \(event)")
+                    continue
+                }
+                let effects = result.effects
+                record(event)
+                observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
+                guard !effects.isEmpty, let applier else { continue }
+                isApplying = true
+                applier.apply(effects, state: reduced)
+                isApplying = false
             }
-            let previous = reduced
-            guard let result = machine.send(event, into: &reduced) else {
-                // The ABI refused the event: a wire mismatch between the app
-                // and the linked FFI. Keep the state rather than lose focus.
-                assertionFailure("focus machine refused \(event)")
-                continue
-            }
-            let effects = result.effects
-            record(event)
-            observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
-            guard !effects.isEmpty, let applier else { continue }
-            isApplying = true
-            applier.apply(effects, state: reduced)
-            isApplying = false
-        }
-        settledObserver?(reduced)
+            settledObserver?(reduced)
+        } while !queue.isEmpty
+    }
+
+    /// The state after every pending topology: for a reader that decides on it now, outside
+    /// AppKit's own responder change (a key-down's routing).
+    func currentState() -> FocusState {
+        reducePendingTopologies()
+        return reduced
     }
 
     /// The focus history of `workspace` (nil: the shown one), newest first:
@@ -134,8 +142,9 @@ final class FocusCoordinator {
         guard !pendingTopologies.contains(where: { $0.owner == id }) else { return }
         pendingTopologies.append((id, build))
         guard pendingTopologies.count == 1 else { return }
-        // task-owner: the coordinator (weak); one per burst, ends after one reduction
-        Task { @MainActor [weak self] in self?.reducePendingTopologies() }
+        // task-owner: the coordinator (weak); one per burst, ends after one reduction. Detached: not
+        // under the task-locals (ActionRunScope) of the action run whose change came first.
+        Task.detached { @MainActor [weak self] in self?.reducePendingTopologies() }
     }
 
     /// `owner` sends its current topology itself: its pending one is that one.
