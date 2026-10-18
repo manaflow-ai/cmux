@@ -270,16 +270,45 @@ final class TranscriptSelection {
         guard let tl = r.row.text else { return nil }
         if p.y < r.body.minY { return TextPosition(key: r.key, offset: 0) }
         if p.y > r.body.maxY { return TextPosition(key: r.key, offset: (tl.text as NSString).length) }
-        let x = p.x - r.body.minX - Fixture.bubblePadX, y = p.y - r.body.minY - Fixture.bubblePadY
-        let i = min(tl.lines.count - 1, max(0, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux: no trap on NaN
-        // cmux: a text with no lines (i == -1 trapped) is at its start.
-        guard let lineRange = tl.lines[checked: i]?.range, let line = ctLine(tl, i) else { return TextPosition(key: r.key, offset: 0) }
-        let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, x), y: 0))
-        let off = idx == kCFNotFound ? lineRange.location : lineRange.location + idx
-        return TextPosition(key: r.key, offset: min(off, NSMaxRange(lineRange)))
+        // cmux: the row-local mapping is a pure function of the row (testable without a window).
+        guard let off = Self.offset(in: r.row, at: CGPoint(x: p.x - r.body.minX, y: p.y - r.body.minY)) else { return nil }
+        return TextPosition(key: r.key, offset: off)
     }
 
-    private func ctLine(_ tl: TextLayout, _ i: Int) -> CTLine? { // cmux: nil for a line outside the text
+    /// cmux: the text offset of a body-local point (origin at the bubble's top-left) in a text row.
+    static func offset(in row: PartRow, at p: CGPoint) -> Int? {
+        // cmux: a markdown row's `text` is a one-line proxy of its display string; its lines,
+        // tables and code blocks are in the markdown layout, at the same offsets.
+        if let md = row.markdown { return md.offset(at: p) }
+        guard let tl = row.text else { return nil }
+        let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
+        let i = min(tl.lines.count - 1, max(0, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux: no trap on NaN
+        // cmux: a text with no lines (i == -1 trapped) is at its start.
+        guard let lineRange = tl.lines[checked: i]?.range, let line = ctLine(tl, i) else { return 0 }
+        let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, x), y: 0))
+        let off = idx == kCFNotFound ? lineRange.location : lineRange.location + idx
+        return min(off, NSMaxRange(lineRange))
+    }
+
+    /// cmux: the body-local highlight rects of a selected range of a text row.
+    static func highlightRects(in row: PartRow, range sel: NSRange) -> [CGRect] {
+        if let md = row.markdown { return md.selectionRects(sel, visible: -CGFloat.greatestFiniteMagnitude...CGFloat.greatestFiniteMagnitude) } // cmux
+        guard let tl = row.text else { return [] }
+        var out: [CGRect] = []
+        for (i, line) in tl.lines.enumerated() {
+            let inter = NSIntersectionRange(sel, line.range)
+            let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
+            guard inter.length > 0 || empty else { continue }
+            guard let ct = ctLine(tl, i) else { continue } // cmux: a line from another text draws nothing
+            let x0 = CTLineGetOffsetForStringIndex(ct, inter.location - line.range.location, nil)
+            let x1 = inter.length > 0 ? CTLineGetOffsetForStringIndex(ct, NSMaxRange(inter) - line.range.location, nil) : x0 + 4
+            out.append(CGRect(x: Fixture.bubblePadX + x0, y: Fixture.bubblePadY + CGFloat(i) * Fixture.lineHeight,
+                              width: max(2, x1 - x0), height: Fixture.lineHeight))
+        }
+        return out
+    }
+
+    private static func ctLine(_ tl: TextLayout, _ i: Int) -> CTLine? { // cmux: nil for a line outside the text
         guard let range = tl.lines[checked: i]?.range else { return nil }
         let attr = tl.attributed(color: .white, linkColor: .white)
         guard NSMaxRange(range) <= attr.length else { return nil } // cmux: lines measured for another text
@@ -314,17 +343,8 @@ final class TranscriptSelection {
         let ranges = Dictionary(selectedRanges().map { ($0.key, $0.range) }, uniquingKeysWith: { a, _ in a })
         if !ranges.isEmpty {
             for r in textRows() {
-                guard let sel = ranges[r.key], let tl = r.row.text else { continue }
-                for (i, line) in tl.lines.enumerated() {
-                    let inter = NSIntersectionRange(sel, line.range)
-                    let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
-                    guard inter.length > 0 || empty else { continue }
-                    guard let ct = ctLine(tl, i) else { continue } // cmux: a line from another text draws nothing
-                    let x0 = CTLineGetOffsetForStringIndex(ct, inter.location - line.range.location, nil)
-                    let x1 = inter.length > 0 ? CTLineGetOffsetForStringIndex(ct, NSMaxRange(inter) - line.range.location, nil) : x0 + 4
-                    path.addRect(CGRect(x: r.body.minX + Fixture.bubblePadX + x0, y: r.body.minY + Fixture.bubblePadY + CGFloat(i) * Fixture.lineHeight,
-                                        width: max(2, x1 - x0), height: Fixture.lineHeight))
-                }
+                guard let sel = ranges[r.key] else { continue }
+                for rect in Self.highlightRects(in: r.row, range: sel) { path.addRect(rect.offsetBy(dx: r.body.minX, dy: r.body.minY)) } // cmux
             }
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
