@@ -308,6 +308,32 @@ export function createRequestScopedWorkspaceService(input: {
   });
 }
 
+type RequestScopedWorkspaceInfrastructure = {
+  readonly workspaceStore: PersistentWorkspaceStore;
+  readonly providerFactory: RequestScopedWorkspaceProviderFactory;
+};
+
+let requestScopedInfrastructure: RequestScopedWorkspaceInfrastructure | null = null;
+
+/** Install only provider-neutral request infrastructure; billing remains per request. */
+export function configureRequestScopedWorkspaceInfrastructure(
+  infrastructure: RequestScopedWorkspaceInfrastructure | null,
+): void {
+  requestScopedInfrastructure = infrastructure;
+}
+
+/** Build a route-local service from the caller's already-resolved entitlements. */
+export function requestScopedWorkspaceServiceFor(
+  context: RequestScopedWorkspaceContext,
+): ReturnType<typeof createPersistentWorkspaceService> | null {
+  if (!requestScopedInfrastructure) return null;
+  return createRequestScopedWorkspaceService({
+    context,
+    workspaceStore: requestScopedInfrastructure.workspaceStore,
+    providerFactory: requestScopedInfrastructure.providerFactory,
+  });
+}
+
 /** Install one complete production dependency graph into the route seams. */
 export function installRuntimeComposition(input: {
   readonly workspaceStore: PersistentWorkspaceStore;
