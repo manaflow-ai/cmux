@@ -130,7 +130,8 @@ public final class BackdropVideoView: NSView {
         didSet { if isHidden != oldValue { update() } }
     }
 
-    /// The first frame fades in over the poster (at once under Reduce Motion); frames that stop
+    /// The first frame fades in over the poster (as long as the motion policy's fade, shorter
+    /// under Reduce Motion); frames that stop
     /// (a released decoder) hide at once, leaving the poster below.
     private func showFrames(_ ready: Bool) {
         if ready, playerLayer.opacity == 0, window != nil {
@@ -262,6 +263,8 @@ public final class BackdropVideoPlayers {
         var seen: Set<ObjectIdentifier>
         /// Where a released player picks up.
         var resumeAt: CMTime = .zero
+        /// Waits for a restored item to be ready, then seeks it to ``resumeAt``.
+        var restoring: NSKeyValueObservation?
         let release: DemandTimer
     }
 
@@ -270,13 +273,21 @@ public final class BackdropVideoPlayers {
     /// How long a player no one can see keeps its decoder.
     public var releaseAfter: Duration = .seconds(60)
 
-    public init() {}
+    private let clock: any Clock<Duration>
+
+    /// `clock` times ``releaseAfter`` (tests step a manual one).
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
 
     /// Players alive now (tests).
     public var count: Int { entries.count }
 
     /// Whether `url`'s player has given back its decoder (tests).
     public func isReleased(_ url: URL) -> Bool { entries[url].map { $0.looper == nil } ?? false }
+
+    /// Whether `url`'s restored player is still waiting to seek back to its frame (tests).
+    public func isRestoring(_ url: URL) -> Bool { entries[url]?.restoring != nil }
 
     func attach(_ url: URL, viewer: ObjectIdentifier) -> AVQueuePlayer {
         if var entry = entries[url] {
@@ -290,7 +301,7 @@ public final class BackdropVideoPlayers {
         player.preventsDisplaySleepDuringVideoPlayback = false
         player.actionAtItemEnd = .advance
         entries[url] = Entry(player: player, looper: Self.looper(url, player), viewers: [viewer], playing: [], seen: [],
-                             release: DemandTimer(owner: "backdrop-video-release"))
+                             release: DemandTimer(owner: "backdrop-video-release", clock: clock))
         return player
     }
 
@@ -305,6 +316,7 @@ public final class BackdropVideoPlayers {
         }
         // Torn down in idlesse's order: pause, stop looping, then drop the items.
         entry.release.cancel()
+        entry.restoring = nil
         entry.player.pause()
         entry.looper?.disableLooping()
         entry.player.removeAllItems()
@@ -323,6 +335,7 @@ public final class BackdropVideoPlayers {
     func releaseIfUnseen(_ url: URL) {
         guard var entry = entries[url], entry.playing.isEmpty, entry.seen.isEmpty, let looper = entry.looper else { return }
         entry.resumeAt = entry.player.currentTime()
+        entry.restoring = nil
         entry.player.pause()
         looper.disableLooping()
         entry.player.removeAllItems()
@@ -341,9 +354,19 @@ public final class BackdropVideoPlayers {
             entry.release.cancel()
         }
         if entry.looper == nil, !entry.seen.isEmpty || !entry.playing.isEmpty {
-            // Seen again: new items, at the frame it held.
+            // Seen again: new items, at the exact frame it held once the first is ready (a seek
+            // sent before then can be dropped, or undone by the looper).
             entry.looper = Self.looper(url, entry.player)
-            entry.player.seek(to: entry.resumeAt, toleranceBefore: .zero, toleranceAfter: .positiveInfinity)
+            let resumeAt = entry.resumeAt
+            entry.restoring = entry.player.observe(\.currentItem?.status, options: [.initial, .new]) { [weak self] player, _ in
+                guard player.currentItem?.status == .readyToPlay else { return }
+                // AVFoundation may report from its own threads: inline on main, a hop otherwise.
+                MainDelivery().run {
+                    guard let self, let entry = self.entries[url], entry.restoring != nil else { return }
+                    self.entries[url]?.restoring = nil
+                    entry.player.seek(to: resumeAt, toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+            }
             entries[url] = entry
         }
         if entry.playing.isEmpty {

@@ -103,9 +103,19 @@ import Testing
         #expect(players.count == 0, "a closed window keeps its video decoder")
     }
 
+    /// Waits up to `seconds` for `condition` (AVFoundation readies items on its own schedule).
+    func eventually(_ seconds: Double = 5, _ condition: () -> Bool) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            if Date() > deadline { return false }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
     /// A video no one can see for a minute frees its decoder and frame buffers, and comes back at
-    /// the frame it held. One held for Low Power Mode or Reduce Motion is still on screen: it keeps
-    /// them, so its frame never drops to the poster in front of someone.
+    /// the exact frame it held. One held for Low Power Mode or Reduce Motion is still on screen:
+    /// it keeps them, so its frame never drops to the poster in front of someone.
     @Test func aVideoNoOneCanSeeGivesBackItsDecoderAndPicksUpWhereItWas() async throws {
         let clip = try await Self.clip()
         let players = BackdropVideoPlayers()
@@ -119,33 +129,46 @@ import Testing
         players.releaseIfUnseen(url)
         #expect(!players.isReleased(url) && !player.items().isEmpty, "a paused video someone can see lost its frame")
         h.video.lowPowerOverride = false
+        // Held one second in, then hidden and released.
         h.video.visibleOverride = false
+        #expect(try await eventually { player.currentItem?.status == .readyToPlay })
+        await player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         #expect(!h.video.canBeSeen)
         players.releaseIfUnseen(url)
         #expect(players.isReleased(url) && player.items().isEmpty, "a video no one can see keeps its decoder")
         #expect(players.count == 1, "the released player left the shared set")
+        // Seen again: the same player, new items, back at the second it held, not at the start.
         h.video.visibleOverride = true
         #expect(!players.isReleased(url) && !player.items().isEmpty, "the video does not come back when seen again")
-        #expect(h.video.isPlaying)
         #expect(h.video.playerLayer.player === player, "the window's layer lost its player")
+        #expect(try await eventually { !players.isRestoring(url) }, "the restored item never became ready")
+        #expect(try await eventually { player.currentTime().seconds >= 0.95 },
+                "the video restarted at \(player.currentTime().seconds)s, not at the second it held")
+        #expect(h.video.isPlaying)
     }
 
-    @Test func theDecoderGoesOnlyAfterTheDeadline() async throws {
+    @Test func theDecoderGoesOnlyAMinuteAfterTheLastWindowWentOutOfSight() async throws {
         let clip = try await Self.clip()
-        let players = BackdropVideoPlayers()
-        players.releaseAfter = .milliseconds(150)
+        let clock = ManualClock()
+        let players = BackdropVideoPlayers(clock: clock)
         let h = make(.file(path: clip.path), players: players)
         defer { h.close() }
         let url = try #require(h.video.url)
         h.video.visibleOverride = false
-        #expect(!players.isReleased(url), "the decoder went the moment the window hid")
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(40))
         // Updates while hidden do not push the deadline back.
         h.video.lowPowerOverride = true
         h.video.lowPowerOverride = false
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(players.isReleased(url), "a video hidden past the deadline keeps its decoder")
+        clock.advance(by: .seconds(15))
+        #expect(!players.isReleased(url), "the decoder went before the minute was up")
+        clock.advance(by: .seconds(6))
+        #expect(try await eventually(2) { players.isReleased(url) }, "the deadline moved with the updates, or never came")
+        // Seen again before a new minute: nothing is released.
         h.video.visibleOverride = true
         #expect(!players.isReleased(url))
+        clock.advance(by: .seconds(120))
+        #expect(!players.isReleased(url), "a video someone can see was released")
     }
 
     @Test func aVideoRestsWhileOtherWindowsHideNearlyAllOfItsWindow() async throws {
