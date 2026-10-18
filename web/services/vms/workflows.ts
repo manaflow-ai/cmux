@@ -5587,7 +5587,8 @@ export function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   });
 }
 
-function requireUserVm(input: ExistingVmAccessInput) {
+/** Load the caller's machine row without access-verb side effects (read-only inspection uses it). */
+export function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const vm = yield* repo.findUserVm({
