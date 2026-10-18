@@ -57,7 +57,8 @@ struct AgentCLIIntentLedgerTests {
                 _ = try await connection.agentCLIIntentLedger(expectedMachineID: machine, expectedSessionID: session)
                 Issue.record("unadmitted recovery ledger")
             } catch {}
-            #expect(try await connection.request(Calls()).arrayValue?.isEmpty == true)
+            let calls = try await connection.request(Calls())
+            #expect(calls.arrayValue?.isEmpty == true)
         }
     }
 

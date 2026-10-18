@@ -54,9 +54,11 @@ struct AgentCLIUpdateRecoveryJourneyTests {
             #expect(jobs.first?["session"]?.stringValue == session.rawValue)
             #expect(jobs.first?["can_resume"] == true)
             #expect(jobs.first?["terminal"] == nil)
-            #expect(try await ledger.list().count == 2)
-            #expect(try await control.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
-                .resolveUpdate(cli: .codex, idempotencyKey: original.key) == .notFound)
+            let retained = try await ledger.list()
+            #expect(retained.count == 2)
+            let jobsCarrier = try await control.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            let resolved = try await jobsCarrier.resolveUpdate(cli: .codex, idempotencyKey: original.key)
+            #expect(resolved == .notFound)
 
             services.daemon.policyBlock.set(true)
             do { try await another.recover() } catch {}
