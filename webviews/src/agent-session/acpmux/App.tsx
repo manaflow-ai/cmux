@@ -5284,16 +5284,19 @@ function AcpmuxPane() {
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
   const summaryPanel = (
-    <SummaryCard
-      key={snapshot.sessionId}
-      card={summaryCard}
-      rows={snapshot.rows}
-      changes={quick ? undefined : lastChanges}
-      onOpenChanges={toggleLastChanges}
-      onOpenOutput={quick ? undefined : openOutput}
-      onOpenImage={quick ? undefined : openImage}
-      subagents={cardSubagents}
-    />
+    // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark.
+    <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+      <SummaryCard
+        key={snapshot.sessionId}
+        card={summaryCard}
+        rows={snapshot.rows}
+        changes={quick ? undefined : lastChanges}
+        onOpenChanges={toggleLastChanges}
+        onOpenOutput={quick ? undefined : openOutput}
+        onOpenImage={quick ? undefined : openImage}
+        subagents={cardSubagents}
+      />
+    </SubagentHarnessContext.Provider>
   );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
