@@ -6,7 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import { audioAttachment, promptBlocks } from "../src/agent-session/acpmux/attachments";
+import { audioAttachment, promptBlocks, takesAudio } from "../src/agent-session/acpmux/attachments";
 import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
 
 const scope = globalThis as Record<string, unknown>;
@@ -120,4 +120,26 @@ test("the recording goes to the agent as an ACP audio block after the transcript
     { type: "text", text: "fix the build" },
     { type: "audio", mimeType: "audio/wav", data: clip.data },
   ]);
+});
+
+test("voice input follows the picked model", () => {
+  const picker = (current: string) => [
+    {
+      id: "model",
+      category: "model",
+      currentValue: current,
+      options: [
+        { value: "hears", _meta: { inputModalities: ["text", "audio"] } },
+        { value: "reads", _meta: { inputModalities: ["text", "image"] } },
+        { value: "unknown" },
+      ],
+    },
+  ];
+  expect(takesAudio({ audio: true }, picker("hears"))).toBe(true);
+  expect(takesAudio({ audio: true }, picker("reads"))).toBe(false);
+  // A harness that names no modalities is taken at its word.
+  expect(takesAudio({ audio: true }, picker("unknown"))).toBe(true);
+  expect(takesAudio({ audio: true }, undefined)).toBe(true);
+  expect(takesAudio({ audio: false }, picker("hears"))).toBe(false);
+  expect(takesAudio(undefined, picker("hears"))).toBe(false);
 });
