@@ -60,7 +60,6 @@ public final class HomeSidebarView: NSView {
         compose.owner = self
         addSubview(compose)
         noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        noteLabel.textColor = .secondaryLabelColor
         noteLabel.lineBreakMode = .byTruncatingTail
         noteLabel.isHidden = true
         noteLabel.setAccessibilityIdentifier("cmux.home.sidebar.note")
@@ -149,6 +148,7 @@ public final class HomeSidebarView: NSView {
     /// iMessage blue); the column lays the theme's legibility scrim.
     func applyColors() {
         list.unreadColor = performWithTheme { Palette.accent }
+        noteLabel.textColor = performWithTheme { Palette.textSecondary }
         layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
     }
 
