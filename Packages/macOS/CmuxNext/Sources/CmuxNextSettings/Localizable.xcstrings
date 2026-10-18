@@ -793,127 +793,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registers this Mac's name, platform, app version and relay address with your cmux account so your phone can find it. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+            "value": "cmux registers this Mac's name, device ID, platform, app bundle ID and version, and relay address with your cmux account so your phone can find it. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يسجّل cmux اسم هذا الـ Mac ونظامه وإصدار التطبيق وعنوان الترحيل في حسابك على cmux حتى يتمكن هاتفك من العثور عليه. تنتقل أسماء مساحات العمل والمجلدات والمسارات الكاملة ومخرجات الطرفية عبر الاتصال المشفّر إلى هاتفك فقط. لا يُرسل أي من ذلك، ولا أي اسم فرع أو عنوان URL لمستودع، إلى خوادم cmux."
+            "value": "يسجّل cmux اسم هذا الـ Mac ومعرّف الجهاز والنظام ومعرّف حزمة التطبيق وإصداره وعنوان الترحيل في حسابك على cmux حتى يتمكن هاتفك من العثور عليه. تنتقل أسماء مساحات العمل والمجلدات والمسارات الكاملة ومخرجات الطرفية عبر الاتصال المشفّر إلى هاتفك فقط. لا يُرسل أي من ذلك، ولا أي اسم فرع أو عنوان URL لمستودع، إلى خوادم cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registruje ime, platformu, verziju aplikacije i relej adresu ovog Maca na vašem cmux računu kako bi ga telefon mogao pronaći. Nazivi radnih prostora, mape, pune putanje i izlaz terminala idu samo preko šifrirane veze do vašeg telefona. Ništa od toga, kao ni nazivi grana i URL-ovi repozitorija, ne šalje se na cmux servere."
+            "value": "cmux registruje ime, ID uređaja, platformu, ID paketa i verziju aplikacije te relej adresu ovog Maca na vašem cmux računu kako bi ga telefon mogao pronaći. Nazivi radnih prostora, mape, pune putanje i izlaz terminala idu samo preko šifrirane veze do vašeg telefona. Ništa od toga, kao ni nazivi grana i URL-ovi repozitorija, ne šalje se na cmux servere."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registrerer denne Macs navn, platform, appversion og relæadresse på din cmux-konto, så din telefon kan finde den. Navne på arbejdsområder, mapper, fulde stier og terminaloutput sendes kun via den krypterede forbindelse til din telefon. Intet af det, og hverken grennavne eller repo-URL'er, sendes til cmux' servere."
+            "value": "cmux registrerer denne Macs navn, enheds-id, platform, appens bundle-id og version samt relæadresse på din cmux-konto, så din telefon kan finde den. Navne på arbejdsområder, mapper, fulde stier og terminaloutput sendes kun via den krypterede forbindelse til din telefon. Intet af det, og hverken grennavne eller repo-URL'er, sendes til cmux' servere."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registriert Namen, Plattform, App-Version und Relay-Adresse dieses Macs in deinem cmux-Account, damit dein Telefon ihn findet. Workspace-Namen, Ordner, vollständige Pfade und Terminalausgaben gehen nur über die verschlüsselte Verbindung an dein Telefon. Nichts davon, auch kein Branch-Name und keine Repo-URL, wird an cmux-Server gesendet."
+            "value": "cmux registriert Namen, Geräte-ID, Plattform, Bundle-ID und Version der App sowie die Relay-Adresse dieses Macs in deinem cmux-Account, damit dein Telefon ihn findet. Workspace-Namen, Ordner, vollständige Pfade und Terminalausgaben gehen nur über die verschlüsselte Verbindung an dein Telefon. Nichts davon, auch kein Branch-Name und keine Repo-URL, wird an cmux-Server gesendet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registra el nombre, la plataforma, la versión de la app y la dirección de relé de este Mac en tu cuenta de cmux para que tu teléfono pueda encontrarlo. Los nombres de los espacios de trabajo, las carpetas, las rutas completas y la salida del terminal solo viajan por el enlace cifrado hasta tu teléfono. Nada de eso, ni ningún nombre de rama o URL de repositorio, se envía a los servidores de cmux."
+            "value": "cmux registra el nombre, el ID de dispositivo, la plataforma, el ID de paquete y la versión de la app, y la dirección de relé de este Mac en tu cuenta de cmux para que tu teléfono pueda encontrarlo. Los nombres de los espacios de trabajo, las carpetas, las rutas completas y la salida del terminal solo viajan por el enlace cifrado hasta tu teléfono. Nada de eso, ni ningún nombre de rama o URL de repositorio, se envía a los servidores de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux enregistre le nom, la plateforme, la version de l’app et l’adresse de relais de ce Mac dans votre compte cmux pour que votre téléphone puisse le trouver. Les noms des espaces de travail, les dossiers, les chemins complets et la sortie du terminal passent uniquement par la liaison chiffrée vers votre téléphone. Rien de tout cela, ni aucun nom de branche ou URL de dépôt, n’est envoyé aux serveurs de cmux."
+            "value": "cmux enregistre le nom, l’identifiant d’appareil, la plateforme, l’identifiant de bundle et la version de l’app, ainsi que l’adresse de relais de ce Mac dans votre compte cmux pour que votre téléphone puisse le trouver. Les noms des espaces de travail, les dossiers, les chemins complets et la sortie du terminal passent uniquement par la liaison chiffrée vers votre téléphone. Rien de tout cela, ni aucun nom de branche ou URL de dépôt, n’est envoyé aux serveurs de cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registra nome, piattaforma, versione dell’app e indirizzo di relay di questo Mac nel tuo account cmux così il telefono può trovarlo. I nomi degli spazi di lavoro, le cartelle, i percorsi completi e l’output del terminale passano solo tramite il collegamento cifrato verso il telefono. Niente di tutto ciò, né nomi di branch o URL di repository, viene inviato ai server di cmux."
+            "value": "cmux registra nome, ID dispositivo, piattaforma, bundle ID e versione dell’app e indirizzo di relay di questo Mac nel tuo account cmux così il telefono può trovarlo. I nomi degli spazi di lavoro, le cartelle, i percorsi completi e l’output del terminale passano solo tramite il collegamento cifrato verso il telefono. Niente di tutto ciò, né nomi di branch o URL di repository, viene inviato ai server di cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スマートフォンがこの Mac を見つけられるよう、cmux はこの Mac の名前、プラットフォーム、アプリのバージョン、リレーアドレスを cmux アカウントに登録します。ワークスペース名、フォルダ、フルパス、ターミナルの出力は、暗号化された接続でスマートフォンにのみ送られます。これらも、ブランチ名やリポジトリの URL も、cmux のサーバーには送られません。"
+            "value": "スマートフォンがこの Mac を見つけられるよう、cmux はこの Mac の名前、デバイス ID、プラットフォーム、アプリのバンドル ID とバージョン、リレーアドレスを cmux アカウントに登録します。ワークスペース名、フォルダ、フルパス、ターミナルの出力は、暗号化された接続でスマートフォンにのみ送られます。これらも、ブランチ名やリポジトリの URL も、cmux のサーバーには送られません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ចុះឈ្មោះ វេទិកា កំណែកម្មវិធី និងអាសយដ្ឋានបញ្ជូនបន្តរបស់ Mac នេះក្នុងគណនី cmux របស់អ្នក ដើម្បីឱ្យទូរសព្ទរបស់អ្នករកឃើញវា។ ឈ្មោះកន្លែងធ្វើការ ថត ផ្លូវពេញ និងលទ្ធផលស្ថានីយ ផ្ញើតែតាមតំណដែលបានអ៊ិនគ្រីបទៅទូរសព្ទរបស់អ្នកប៉ុណ្ណោះ។ គ្មានអ្វីមួយក្នុងនោះ ហើយក៏គ្មានឈ្មោះមែក ឬ URL ឃ្លាំង ត្រូវបានផ្ញើទៅម៉ាស៊ីនមេ cmux ឡើយ។"
+            "value": "cmux ចុះឈ្មោះ លេខសម្គាល់ឧបករណ៍ វេទិកា លេខសម្គាល់កញ្ចប់ និងកំណែកម្មវិធី និងអាសយដ្ឋានបញ្ជូនបន្តរបស់ Mac នេះក្នុងគណនី cmux របស់អ្នក ដើម្បីឱ្យទូរសព្ទរបស់អ្នករកឃើញវា។ ឈ្មោះកន្លែងធ្វើការ ថត ផ្លូវពេញ និងលទ្ធផលស្ថានីយ ផ្ញើតែតាមតំណដែលបានអ៊ិនគ្រីបទៅទូរសព្ទរបស់អ្នកប៉ុណ្ណោះ។ គ្មានអ្វីមួយក្នុងនោះ ហើយក៏គ្មានឈ្មោះមែក ឬ URL ឃ្លាំង ត្រូវបានផ្ញើទៅម៉ាស៊ីនមេ cmux ឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "휴대폰이 이 Mac을 찾을 수 있도록 cmux가 이 Mac의 이름, 플랫폼, 앱 버전, 릴레이 주소를 cmux 계정에 등록합니다. 작업 공간 이름, 폴더, 전체 경로, 터미널 출력은 암호화된 연결을 통해 휴대폰으로만 전송됩니다. 이 중 어떤 것도, 브랜치 이름이나 저장소 URL도 cmux 서버로 전송되지 않습니다."
+            "value": "휴대폰이 이 Mac을 찾을 수 있도록 cmux가 이 Mac의 이름, 기기 ID, 플랫폼, 앱 번들 ID와 버전, 릴레이 주소를 cmux 계정에 등록합니다. 작업 공간 이름, 폴더, 전체 경로, 터미널 출력은 암호화된 연결을 통해 휴대폰으로만 전송됩니다. 이 중 어떤 것도, 브랜치 이름이나 저장소 URL도 cmux 서버로 전송되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registrerer navnet, plattformen, appversjonen og reléadressen til denne Macen i cmux-kontoen din, slik at telefonen kan finne den. Navn på arbeidsområder, mapper, fullstendige stier og terminalutdata går bare over den krypterte forbindelsen til telefonen. Ingenting av dette, og verken grennavn eller repo-URL-er, sendes til cmux-servere."
+            "value": "cmux registrerer navnet, enhets-ID-en, plattformen, appens pakke-ID og versjon og reléadressen til denne Macen i cmux-kontoen din, slik at telefonen kan finne den. Navn på arbeidsområder, mapper, fullstendige stier og terminalutdata går bare over den krypterte forbindelsen til telefonen. Ingenting av dette, og verken grennavn eller repo-URL-er, sendes til cmux-servere."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux rejestruje nazwę, platformę, wersję aplikacji i adres przekaźnika tego Maca na Twoim koncie cmux, aby telefon mógł go znaleźć. Nazwy obszarów roboczych, foldery, pełne ścieżki i wyjście terminala trafiają tylko szyfrowanym połączeniem do Twojego telefonu. Nic z tego, ani żadne nazwy gałęzi czy adresy URL repozytoriów, nie jest wysyłane na serwery cmux."
+            "value": "cmux rejestruje nazwę, identyfikator urządzenia, platformę, identyfikator pakietu i wersję aplikacji oraz adres przekaźnika tego Maca na Twoim koncie cmux, aby telefon mógł go znaleźć. Nazwy obszarów roboczych, foldery, pełne ścieżki i wyjście terminala trafiają tylko szyfrowanym połączeniem do Twojego telefonu. Nic z tego, ani żadne nazwy gałęzi czy adresy URL repozytoriów, nie jest wysyłane na serwery cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux registra o nome, a plataforma, a versão do app e o endereço de relay deste Mac na sua conta cmux para que o celular possa encontrá-lo. Nomes de espaços de trabalho, pastas, caminhos completos e a saída do terminal vão apenas pela conexão criptografada até o seu celular. Nada disso, nem nomes de branches ou URLs de repositórios, é enviado aos servidores do cmux."
+            "value": "O cmux registra o nome, o ID do dispositivo, a plataforma, o ID de pacote e a versão do app e o endereço de relay deste Mac na sua conta cmux para que o celular possa encontrá-lo. Nomes de espaços de trabalho, pastas, caminhos completos e a saída do terminal vão apenas pela conexão criptografada até o seu celular. Nada disso, nem nomes de branches ou URLs de repositórios, é enviado aos servidores do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux регистрирует имя, платформу, версию приложения и адрес ретранслятора этого Mac в вашей учётной записи cmux, чтобы телефон мог его найти. Названия рабочих пространств, папки, полные пути и вывод терминала передаются только по зашифрованному каналу на ваш телефон. Ничего из этого, как и названия веток и URL репозиториев, не отправляется на серверы cmux."
+            "value": "cmux регистрирует имя, идентификатор устройства, платформу, идентификатор пакета и версию приложения, а также адрес ретранслятора этого Mac в вашей учётной записи cmux, чтобы телефон мог его найти. Названия рабочих пространств, папки, полные пути и вывод терминала передаются только по зашифрованному каналу на ваш телефон. Ничего из этого, как и названия веток и URL репозиториев, не отправляется на серверы cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ลงทะเบียนชื่อ แพลตฟอร์ม เวอร์ชันแอป และที่อยู่รีเลย์ของ Mac เครื่องนี้กับบัญชี cmux ของคุณ เพื่อให้โทรศัพท์ค้นหาเจอ ชื่อพื้นที่ทำงาน โฟลเดอร์ พาธเต็ม และเอาต์พุตของเทอร์มินัลจะส่งผ่านการเชื่อมต่อที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น ไม่มีข้อมูลเหล่านี้ รวมถึงชื่อสาขาหรือ URL ของรีโพ ถูกส่งไปยังเซิร์ฟเวอร์ของ cmux"
+            "value": "cmux ลงทะเบียนชื่อ ID อุปกรณ์ แพลตฟอร์ม Bundle ID และเวอร์ชันของแอป และที่อยู่รีเลย์ของ Mac เครื่องนี้กับบัญชี cmux ของคุณ เพื่อให้โทรศัพท์ค้นหาเจอ ชื่อพื้นที่ทำงาน โฟลเดอร์ พาธเต็ม และเอาต์พุตของเทอร์มินัลจะส่งผ่านการเชื่อมต่อที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น ไม่มีข้อมูลเหล่านี้ รวมถึงชื่อสาขาหรือ URL ของรีโพ ถูกส่งไปยังเซิร์ฟเวอร์ของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux, telefonunuzun bulabilmesi için bu Mac'in adını, platformunu, uygulama sürümünü ve aktarma adresini cmux hesabınıza kaydeder. Çalışma alanı adları, klasörler, tam yollar ve terminal çıktısı yalnızca şifreli bağlantı üzerinden telefonunuza gider. Bunların hiçbiri, dal adları ve depo URL'leri de dahil, cmux sunucularına gönderilmez."
+            "value": "cmux, telefonunuzun bulabilmesi için bu Mac'in adını, cihaz kimliğini, platformunu, uygulamanın paket kimliğini ve sürümünü ve aktarma adresini cmux hesabınıza kaydeder. Çalışma alanı adları, klasörler, tam yollar ve terminal çıktısı yalnızca şifreli bağlantı üzerinden telefonunuza gider. Bunların hiçbiri, dal adları ve depo URL'leri de dahil, cmux sunucularına gönderilmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux реєструє назву, платформу, версію застосунку й адресу ретранслятора цього Mac у вашому обліковому записі cmux, щоб телефон міг його знайти. Назви робочих просторів, папки, повні шляхи й вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон. Нічого з цього, як і назви гілок чи URL репозиторіїв, не надсилається на сервери cmux."
+            "value": "cmux реєструє назву, ідентифікатор пристрою, платформу, ідентифікатор пакета й версію застосунку, а також адресу ретранслятора цього Mac у вашому обліковому записі cmux, щоб телефон міг його знайти. Назви робочих просторів, папки, повні шляхи й вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон. Нічого з цього, як і назви гілок чи URL репозиторіїв, не надсилається на сервери cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux đăng ký tên, nền tảng, phiên bản ứng dụng và địa chỉ chuyển tiếp của máy Mac này với tài khoản cmux của bạn để điện thoại có thể tìm thấy. Tên không gian làm việc, thư mục, đường dẫn đầy đủ và đầu ra terminal chỉ đi qua kết nối được mã hóa tới điện thoại của bạn. Không thông tin nào trong số đó, kể cả tên nhánh hay URL kho mã, được gửi đến máy chủ cmux."
+            "value": "cmux đăng ký tên, ID thiết bị, nền tảng, bundle ID và phiên bản ứng dụng cùng địa chỉ chuyển tiếp của máy Mac này với tài khoản cmux của bạn để điện thoại có thể tìm thấy. Tên không gian làm việc, thư mục, đường dẫn đầy đủ và đầu ra terminal chỉ đi qua kết nối được mã hóa tới điện thoại của bạn. Không thông tin nào trong số đó, kể cả tên nhánh hay URL kho mã, được gửi đến máy chủ cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会把这台 Mac 的名称、平台、应用版本和中继地址登记到你的 cmux 账户，方便手机找到它。工作区名称、文件夹、完整路径和终端输出只通过加密连接发送到你的手机。这些内容以及分支名称、仓库 URL 都不会发送到 cmux 服务器。"
+            "value": "cmux 会把这台 Mac 的名称、设备 ID、平台、应用的 Bundle ID 和版本以及中继地址登记到你的 cmux 账户，方便手机找到它。工作区名称、文件夹、完整路径和终端输出只通过加密连接发送到你的手机。这些内容以及分支名称、仓库 URL 都不会发送到 cmux 服务器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會把這台 Mac 的名稱、平台、App 版本和中繼位址登記到你的 cmux 帳號，讓手機找得到它。工作區名稱、檔案夾、完整路徑和終端機輸出只會透過加密連線傳到你的手機。這些內容以及分支名稱、儲存庫 URL 都不會傳送到 cmux 伺服器。"
+            "value": "cmux 會把這台 Mac 的名稱、裝置 ID、平台、App 的 Bundle ID 與版本以及中繼位址登記到你的 cmux 帳號，讓手機找得到它。工作區名稱、檔案夾、完整路徑和終端機輸出只會透過加密連線傳到你的手機。這些內容以及分支名稱、儲存庫 URL 都不會傳送到 cmux 伺服器。"
           }
         }
       }
