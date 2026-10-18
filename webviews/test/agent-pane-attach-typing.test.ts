@@ -116,10 +116,12 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     await pasteImages(page, 3);
     const chips = page.locator(".acpmux-attachment-image");
     await chips.nth(2).waitFor();
-    await page
-      .locator(".acpmux-attachment-image img")
-      .nth(2)
-      .evaluate((img: HTMLImageElement) => img.decode());
+    // Every thumbnail loaded and sized by its own shape (decode() can reject while a thumbnail's
+    // source is swapped for its smaller copy).
+    await page.waitForFunction(() => {
+      const images = [...document.querySelectorAll<HTMLImageElement>(".acpmux-attachment-image img")];
+      return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
+    });
     const box = (await page.locator(".acpmux-composer-box").boundingBox())!;
     const strip = (await page.locator(".acpmux-attachments").boundingBox())!;
     const tiles = await Promise.all([0, 1, 2].map(async (i) => (await chips.nth(i).boundingBox())!));
