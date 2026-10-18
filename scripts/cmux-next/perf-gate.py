@@ -265,8 +265,9 @@ class App:
         layout = self.rpc("debug.layout_counters", {"reset": reset}) or {}
         sidebar = self.rpc("debug.sidebar_perf", {"reset": reset}) or {}
         out = {k: v for k, v in layout.items() if isinstance(v, (int, float))}
-        out.update({k: v for k, v in sidebar.items() if isinstance(v, (int, float)) and k not in out})
-        out["sources"] = layout.get("sources") or {}
+        out.update({k: v for k, v in sidebar.items() if isinstance(v, (int, float)) and "@" not in k and k not in out})
+        # The sidebar names the caller of each list reload as "list_reloads@<file>:<line>".
+        out["sources"] = {**(layout.get("sources") or {}), **{k: v for k, v in sidebar.items() if "@" in k}}
         return out
 
     def settle(self):
@@ -385,8 +386,10 @@ class Gate:
             shown = landed.get("shown")
             if shown != target:
                 check(False, f"switch to {target} landed (shown {shown})", scenario)
+            reloads = {k: v for k, v in measured["sources"].items() if k.startswith("list_reloads@")}
             rows.append({"to": target, "latency_ms": round(latency, 1),
-                         **{k: v for k, v in measured.items() if k != "sources"}})
+                         **{k: v for k, v in measured.items() if k != "sources"},
+                         **({"list_reload_callers": reloads} if reloads else {})})
             patches += measured.get("selection_patches", 0)
             breaches = self.unknown(over(measured, BUDGET["switch"]), scenario)
             if breaches:
