@@ -33,6 +33,7 @@ final class SettingsHarnesses {
     @ObservationIgnored private let fetchHealth: @Sendable (AcpmuxEnvironment, Bool) async throws -> Data
     @ObservationIgnored private let openTerminal: @MainActor (String) -> Void
     @ObservationIgnored private let runUpdate: (@MainActor (String?, PageCallContext) async throws -> JSONValue)?
+    @ObservationIgnored private let runResume: (@MainActor (String, PageCallContext) async throws -> JSONValue)?
     @ObservationIgnored private let updateState: @MainActor () -> JSONValue
     @ObservationIgnored private let refreshUpdates: @MainActor () async -> Void
     @ObservationIgnored private var generation = 0
@@ -44,6 +45,7 @@ final class SettingsHarnesses {
          },
          openTerminal: @escaping @MainActor (String) -> Void,
          runUpdate: (@MainActor (String?, PageCallContext) async throws -> JSONValue)? = nil,
+         runResume: (@MainActor (String, PageCallContext) async throws -> JSONValue)? = nil,
          updateState: @escaping @MainActor () -> JSONValue = { .array([]) },
          refreshUpdates: @escaping @MainActor () async -> Void = {}) {
         self.environment = environment
@@ -51,6 +53,7 @@ final class SettingsHarnesses {
         self.fetchHealth = fetchHealth
         self.openTerminal = openTerminal
         self.runUpdate = runUpdate
+        self.runResume = runResume
         self.updateState = updateState
         self.refreshUpdates = refreshUpdates
     }
