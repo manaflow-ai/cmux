@@ -9,8 +9,8 @@
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
 //     to 12 px, centred in a solid text-colored disc with a base-colored square (Q4-B: the faint
 //     disc read as a disabled Send);
-//   - no label is cut while the row has free space, and a short row cuts by priority: the
-//     permission labels go to icons first, then effort shortens, the model last;
+//   - no label is ever cut: a short row swaps whole units instead (a short label, a glyph alone),
+//     in composerRowFit.ts's order, which composer-row-steps.test.ts plays;
 //   - these chats have started, so no location strip heads the card (a new chat's strip is
 //     composer-location-strip.test.ts's).
 //
@@ -110,7 +110,11 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       right: rect(bar.querySelector(".acpmux-composer-actions")!),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
-        model: label(".acpmux-model .acpmux-picker-button", ".acpmux-model-name", ".acpmux-model"),
+        model: label(
+          ".acpmux-model .acpmux-picker-button",
+          '[data-fit-part="model"][data-fit-forms~="full"], .acpmux-model-name:not([data-short])',
+          ".acpmux-model",
+        ),
         effort: label(".acpmux-effort .acpmux-picker-button", "span", ".acpmux-effort"),
         access: label(".acpmux-access-trigger", ".acpmux-mode-text", ".acpmux-access"),
       },
@@ -198,7 +202,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
 
   for (const variant of ["claude-auto", "long-model", "granted", "queued"])
     for (const width of [420, 720, 1100])
-      test(`${variant} at ${width} px: two clusters, cut by priority, no location strip`, async () => {
+      test(`${variant} at ${width} px: two clusters, no cut label, no location strip`, async () => {
         const measured = await row(variant, width);
         const { left, right, labels, barGap } = measured;
         const names = left.map((control) => control.name);
@@ -212,21 +216,19 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         // The permission mode follows effort directly, in the left cluster.
         if (names.indexOf("access") < names.indexOf("effort"))
           problems.push(`access is not after effort: ${names.join(", ")}`);
-        // The free space is only between the clusters; a cut label means there is none.
-        const free = right.left - left.at(-1)!.rect.right - barGap;
-        // A label dropped for its icon is a step: the row may keep less than that label's width.
-        const cut = Object.entries(labels).flatMap(([name, label]) => (label?.cut ? [name] : []));
-        for (const name of cut)
-          if (labels[name]!.dropped ? free >= labels[name]!.need - 0.5 : free > 1)
-            problems.push(`${name} cut with ${Math.round(free)} px free in the row`);
-        // Priority: the permission label goes first, then effort, the model last.
-        if (labels.effort?.cut && labels.access?.cut === false)
-          problems.push("effort is cut while the permission label shows");
-        if (labels.model?.cut && (labels.effort?.atMin === false || labels.access?.cut === false))
-          problems.push("the model is cut before effort and the permission label");
-        // At a normal and a wide pane every label of Leo's row shows whole.
-        if (width >= 720 && variant !== "long-model" && cut.length > 0)
-          problems.push(`${cut.join(", ")} cut at ${width} px`);
+        // The row's free space sits between the clusters: the trailing one starts after the left ends.
+        if (right.left < left.at(-1)!.rect.right + barGap - 0.5)
+          problems.push(
+            `the trailing cluster overlaps the chips by ${Math.round(left.at(-1)!.rect.right + barGap - right.left)} px`,
+          );
+        // A drawn label is never cut (an ellipsis, or laid out outside its chip); a label swapped
+        // for its short form or glyph is a step of the row (composer-row-steps.test.ts).
+        const cut = Object.entries(labels).flatMap(([name, label]) => (label?.cut && !label.dropped ? [name] : []));
+        for (const name of cut) problems.push(`${name} cut at ${width} px`);
+        // At a normal and a wide pane every label of Leo's row shows whole, in full.
+        const dropped = Object.entries(labels).flatMap(([name, label]) => (label?.dropped ? [name] : []));
+        if (width >= 720 && variant !== "long-model" && dropped.length > 0)
+          problems.push(`${dropped.join(", ")} not in full at ${width} px`);
         // A started chat cannot change its folder or machine: no location strip heads the card.
         if (measured.footer) problems.push("a started chat draws the location strip");
         expect(problems).toEqual([]);

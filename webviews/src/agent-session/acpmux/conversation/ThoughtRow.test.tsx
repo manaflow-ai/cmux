@@ -2,7 +2,8 @@
 // A long thought folds once done (behind the Debug toggle agentPane.debug.foldLongThoughts, off by
 // default): it shows in full while it streams, and once done a thought taller than about one
 // transcript viewport (never less than THOUGHT_FOLD_MIN_PX) folds to one line that opens to its
-// text. The reader's toggle always wins over the fold; the toggle animates the height, the
+// text: "Thought for 12s", or with the Debug choice agentPane.debug.thoughtHeader "preview",
+// "Thought" and its first line. The reader's toggle always wins over the fold; the toggle animates the height, the
 // automatic fold snaps (as Codex's does), and Reduce Motion animates nothing. Off, a thought shows
 // in full as it always did (Leo 2026-10-13, #20330).
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -10,7 +11,15 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { THOUGHT_FOLD_MIN_PX, THOUGHT_FOLD_MS, ThoughtRow, thoughtLayout, thoughtPreview } from "./ThoughtRow";
+import {
+  THOUGHT_FOLD_MIN_PX,
+  THOUGHT_FOLD_MS,
+  ThoughtRow,
+  thoughtDuration,
+  thoughtLayout,
+  thoughtPreview,
+  type ThoughtHeader,
+} from "./ThoughtRow";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -23,6 +32,7 @@ let height = 0;
 let viewport = 600;
 let enabled = true;
 let reduce = false;
+let header: ThoughtHeader = "duration";
 type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void };
 let animations: Animated[] = [];
 
@@ -52,7 +62,9 @@ beforeEach(() => {
   viewport = 600;
   enabled = true;
   reduce = false;
+  header = "duration";
   animations = [];
+  thoughtLayout.header = () => header;
   thoughtLayout.height = () => height;
   thoughtLayout.viewport = () => viewport;
   thoughtLayout.enabled = () => enabled;
@@ -117,10 +129,40 @@ test("a tiny pane folds only thoughts taller than the floor", () => {
   expect(folds(THOUGHT_FOLD_MIN_PX + 1, 200, "floor-3:0")).toBe(true);
 });
 
-test("a folded thought reads its first line", () => {
+test("a folded thought reads how long the agent thought, without its text", () => {
   height = 900;
-  render(thought(), false, "over:0");
+  render({ ...thought(), startedAt: 1_000, endedAt: 13_400 }, false, "for:0");
   expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.textContent).toBe("Thought for 12s");
+  expect(body()).toBeNull();
+  click();
+  expect(toggle()?.textContent).toBe("Thought for 12s");
+  expect(body()?.textContent).toBe(LONG);
+});
+
+test("a folded thought that is undated or under a second reads Thought", () => {
+  height = 900;
+  render(thought(), false, "undated:0");
+  expect(toggle()?.textContent).toBe("Thought");
+  act(() => root!.unmount());
+  root = undefined;
+  render({ ...thought(), startedAt: 1_000, endedAt: 1_900 }, false, "short:0");
+  expect(toggle()?.textContent).toBe("Thought");
+});
+
+test("a thought's duration never goes negative when its events came out of order", () => {
+  expect(thoughtDuration({ ...thought(), startedAt: 5_000, endedAt: 2_000 })).toBe(0);
+  expect(thoughtDuration({ ...thought(), startedAt: 1_000, endedAt: 66_000 })).toBe(65_000);
+  expect(thoughtDuration(thought())).toBeUndefined();
+});
+
+test("with the Debug choice preview, a folded thought reads Thought and its first line", () => {
+  header = "preview";
+  height = 900;
+  render({ ...thought(), startedAt: 1_000, endedAt: 13_000 }, false, "over:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.textContent).toContain("Thought");
+  expect(toggle()?.textContent).not.toContain("Thought for");
   expect(toggle()?.textContent).toContain("Step 1: check the retry path.");
   expect(toggle()?.textContent).not.toContain("Step 2");
   expect(body()).toBeNull();
