@@ -1115,6 +1115,17 @@
        "since": 8,
        "description": "Stable for the lifetime of this split node."
       },
+      "split_id": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": false,
+       "since": 12,
+       "capability": "split-client-split-id-v1",
+       "description": "The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it."
+      },
       "dir": {
        "type": {
         "kind": "ref",
@@ -1774,6 +1785,31 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "name_source": {
+     "type": {
+      "kind": "ref",
+      "name": "NameSource"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "workspace-name-source-v1"
+    },
+    "name_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "workspace-name-source-v1",
+     "constraints": [
+      {
+       "format": "decimal uint64"
+      }
+     ]
     },
     "active": {
      "type": {
@@ -7958,6 +7994,41 @@
    },
    "additional_properties": false
   },
+  "ConversationTabSplit": {
+   "kind": "object",
+   "fields": {
+    "direction": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The side of pane the new pane takes: right, down, left or up."
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed."
+    },
+    "split_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed."
+    }
+   },
+   "additional_properties": false
+  },
   "ConversationTabRecord": {
    "kind": "object",
    "fields": {
@@ -8970,6 +9041,13 @@
     }
    },
    "additional_properties": false
+  },
+  "NameSource": {
+   "kind": "enum",
+   "values": [
+    "user",
+    "auto"
+   ]
   }
  },
  "commands": {
@@ -12481,6 +12559,23 @@
         "format": "client-minted public tab id"
        }
       ]
+     },
+     "split_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-client-split-id-v1",
+      "constraints": [
+       {
+        "pattern": "^split_[0-9a-f]{32}$",
+        "format": "client-minted public split id"
+       }
+      ]
      }
     },
     "additional_properties": false,
@@ -12497,7 +12592,8 @@
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
     "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
-    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
+    "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
+    "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
    ]
   },
   "set-ratio": {
@@ -13709,6 +13805,47 @@
        }
       ]
      },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "description": "Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision."
+     },
+     "expected_name_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "constraints": [
+       {
+        "format": "decimal uint64"
+       }
+      ],
+      "description": "The workspace name_revision the caller read; a rename since then fails."
+     },
+     "release": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "description": "With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -13756,7 +13893,9 @@
     "additional_properties": false,
     "constraints": [
      "At least one of workspace and key must be supplied; both must identify the same workspace when supplied.",
-     "origin and mutation_id are either both present or both absent."
+     "origin and mutation_id are either both present or both absent.",
+     "source auto requires expected_generation and expected_name_revision unless release is true.",
+     "release requires source auto."
     ]
    },
    "result": {
@@ -16536,6 +16675,17 @@
       "default": null,
       "capability": "conversation-tab-transaction-v1",
       "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result."
+     },
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabSplit"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "conversation-tab-split-v1",
+      "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction."
      }
     },
     "additional_properties": false
@@ -16597,7 +16747,7 @@
    },
    "stream": null,
    "constraints": [
-    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. split (conversation-tab-split-v1) needs pane and excludes workspace. See spec/commands.md."
    ]
   },
   "bind-conversation-tab-session": {

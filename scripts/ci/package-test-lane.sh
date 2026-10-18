@@ -113,6 +113,10 @@ sanitize_link_flags=(-Xlinker -no_compact_unwind)
 # builds and the test runs below share it (scripts/ci/swift-test-debug-info.sh).
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swift-test-debug-info.sh" || exit 2
+# A reused .build drops its build outputs when a binary target's headers
+# change (CCmuxAppFFI or GhosttyNextKit pin): scripts/ci/swiftpm-binary-module-guard.sh.
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swiftpm-binary-module-guard.sh" || exit 2
 
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
@@ -362,6 +366,7 @@ package_args() {
     swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
+  swiftpm_binary_module_guard "$pkgdir" "$pkgdir/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
 }
 
 # record_built_ref PKGDIR: after a complete build of PKGDIR, name the commit in
@@ -642,8 +647,24 @@ run_suite() {
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
     ensure_web_bundles
   fi
+  local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+  swiftpm_binary_module_guard "$suite_package" "$scratch"
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
-  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
+  local build_log build_status=0
+  build_log="$(mktemp -t swift-suite-build.XXXXXX)"
+  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 \
+    | tee "$build_log" || build_status=$?
+  # Backstop for a stale module the guard did not see (a header outside a
+  # binary target): one build from clean outputs, as a cold slot would do.
+  if [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
+    echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
+    swiftpm_purge_build_outputs "$scratch"
+    swiftpm_binary_module_guard "$suite_package" "$scratch"
+    build_status=0
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+  fi
+  rm -f "$build_log"
+  [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the

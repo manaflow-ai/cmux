@@ -12,10 +12,10 @@ mod presets;
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
     let resolved = hub.resolve(id).ok();
-    if conn.subscribe(id) {
-        if let Some(s) = &resolved {
-            hub.attach_count(s, 1, true);
-        }
+    if conn.subscribe(id)
+        && let Some(s) = &resolved
+    {
+        hub.attach_count(s, 1, true);
     }
     if let Some(s) = resolved {
         conn.bind_mailbox_receipt(crate::session_identity::SessionReceipt::new(
@@ -81,7 +81,16 @@ pub(super) async fn handle_request(
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
-    let verdict = hub.person_check(conn.is_person(), remote_authenticated, m, &params).await?;
+    let verdict = hub
+        .person_check(
+            conn.is_person(),
+            remote_authenticated,
+            conn.caller(),
+            !conn.origin.web_class(),
+            m,
+            &params,
+        )
+        .await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -271,6 +280,7 @@ async fn dispatch_request(
             }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
+            let adopting = adopt.is_some();
             let pick = |key: &str| {
                 meta.and_then(|m| m.get(key))
                     .and_then(Value::as_str)
@@ -300,12 +310,16 @@ async fn dispatch_request(
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
-                keep_harness_mode: false,
+                keep_harness_mode: hub
+                    .keeps_harness_mode(conn.is_person(), conn.caller(), &params)
+                    .await,
                 route,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
+            } else {
+                hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);
             let meta = s.meta();

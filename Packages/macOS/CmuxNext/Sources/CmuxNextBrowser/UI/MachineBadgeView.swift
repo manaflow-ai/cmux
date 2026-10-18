@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// (plans/cmux-next/remote-localhost.md section 6), at the trailing end of
 /// the omnibar. Hidden while the page is not a loopback origin.
 final class MachineBadgeView: NSView {
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     override init(frame: NSRect) {
         super.init(frame: frame)

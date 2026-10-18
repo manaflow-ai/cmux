@@ -9,7 +9,7 @@ import { readyEntries, type EntryState } from "../entryStore";
 import { LOCALES, PSEUDO_LOCALES, type GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
 import { ageText, liveStatus, type LiveStatus } from "../liveStatus";
-import { entryStore } from "../registry";
+import { getEntryStore } from "../registry";
 import { DEFAULT_DARK_THEME, themeIsDark } from "../theme/ghostty";
 import { css } from "../theme/tokens";
 import { themeTokens } from "../theme/web";
@@ -37,7 +37,7 @@ const VIEW_LABELS: Record<View, string> = {
 
 export const { router } = createGalleryRouter(Layout);
 
-type Address = { entry: string; variant: string; search: ShellSearch };
+type Address = { entry: string; variant: string; search: ShellSearch; sourcePath?: string };
 
 function href({ entry, variant, search }: Address): string {
   const location = router.buildLocation({
@@ -55,9 +55,40 @@ function go({ entry, variant, search }: Address, replace = false): void {
   } as never);
 }
 
+const TEAM_FEED_URL = "https://cmux-lawrences-mac-mini.tail137216.ts.net:8443/feed/";
+
+/** Small, durable handoff actions: copy the exact shell route and jump to the shared review feed. */
+function GalleryLinks({ address }: { address: Address }) {
+  const [copied, setCopied] = useState(false);
+  const permalink = href(address);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(new URL(permalink, window.location.href).href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard access is optional in locked-down previews; the permalink remains usable.
+    }
+  };
+  return (
+    <div className="gallery-header-links" aria-label="Gallery links">
+      <a href={permalink} title="Open this exact gallery state">
+        Permalink
+      </a>
+      <button type="button" onClick={copy} aria-live="polite">
+        {copied ? "Copied" : "Copy link"}
+      </button>
+      <a href={TEAM_FEED_URL} target="_blank" rel="noreferrer">
+        Team feed
+      </a>
+    </div>
+  );
+}
+
 /** Every entry file's load, re-rendered when one changes (entryStore.ts). */
 function useEntryStates(): readonly EntryState[] {
-  return useSyncExternalStore(entryStore.subscribe, entryStore.getSnapshot);
+  const store = getEntryStore();
+  return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
 /** The entry a state stands for: the loaded one, else the last one that file loaded. */
@@ -80,7 +111,7 @@ function useAddress(states: readonly EntryState[]): Address & { state: EntryStat
     const variants = entry ? Object.keys(entry.variants) : [];
     const variant = variants.includes(variantId) ? variantId : (variants[0] ?? variantId);
     const search = validateShellSearch(location.search as Record<string, unknown>);
-    return { entry: entry?.id ?? entryId, variant, search, state };
+    return { entry: entry?.id ?? entryId, variant, search, state, sourcePath: state?.path };
   }, [location, states]);
 }
 
@@ -103,17 +134,23 @@ const reveal = (node: HTMLElement | null) => node?.scrollIntoView({ block: "near
 function Sidebar({ address, states, status }: { address: Address; states: readonly EntryState[]; status: LiveStatus }) {
   const [filter, setFilter] = useState("");
   const [active, setActive] = useState(-1);
+  const [browseAll, setBrowseAll] = useState(false);
   const needle = filter.trim().toLowerCase();
   const entries = readyEntries(states);
   const groups = sidebarGroups(states);
   const experimental = experimentalLabel(address.search.locale);
+  const focusedEntry = entries.find((entry) => entry.id === address.entry);
+  const focused = !needle && !browseAll;
   const entryMatches = (entry: GalleryEntry) =>
     !needle ||
     `${entry.area} ${entry.title} ${entry.id} ${entry.experimental ? experimental : ""}`.toLowerCase().includes(needle);
   const variantsOf = (entry: GalleryEntry) =>
     Object.keys(entry.variants).filter((variant) => entryMatches(entry) || variant.includes(needle));
   // The filter's arrow keys walk every visible variant in order; Return opens the active one.
-  const flat = groups.flatMap((group) =>
+  const visibleGroups = groups.filter(
+    (group) => !focused || group.states.some((state) => known(state)?.id === address.entry),
+  );
+  const flat = visibleGroups.flatMap((group) =>
     group.states.flatMap((state) =>
       state.status === "ready" && state.entry
         ? variantsOf(state.entry).map((variant) => ({ entry: state.entry!.id, variant }))
@@ -133,7 +170,9 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
           value={filter}
           aria-label="Filter entries and variants"
           onChange={(event) => {
-            setFilter(event.target.value);
+            const value = event.target.value;
+            setFilter(value);
+            if (value.trim()) setBrowseAll(true);
             setActive(-1);
           }}
           // ui-allow: the gallery's own filter field moves through its result list (a dev tool).
@@ -147,6 +186,15 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
             }
           }}
         />
+        {focusedEntry && (
+          <div className="gallery-focus-card" aria-live="polite">
+            <span className="gallery-focus-label">Focused</span>
+            <strong>{focusedEntry.title}</strong>
+            <button type="button" className="gallery-focus-toggle" onClick={() => setBrowseAll((value) => !value)}>
+              {browseAll ? "Focus current" : "Browse all"}
+            </button>
+          </div>
+        )}
         <a
           className="gallery-browse-link"
           href={href({ ...address, search: browseSearch })}
@@ -156,14 +204,15 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
             go({ ...address, search: browseSearch });
           }}
         >
-          Browse all {entries.length} entries
+          Browse gallery
         </a>
       </div>
-      {groups.map(({ area, states: all }) => {
+      {visibleGroups.map(({ area, states: all }) => {
+        const scoped = focused ? all.filter((state) => known(state)?.id === address.entry) : all;
         // A broken or loading file always shows (its card names the file); a loaded one when it matches.
-        const items = all.filter((state) => state.status !== "ready" || variantsOf(state.entry!).length > 0);
+        const items = scoped.filter((state) => state.status !== "ready" || variantsOf(state.entry!).length > 0);
         if (needle && items.length === 0) return null;
-        const loaded = all.flatMap((state) => (state.entry ? [state.entry] : []));
+        const loaded = scoped.flatMap((state) => (state.entry ? [state.entry] : []));
         const variantCount = loaded.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
         return (
           <section key={area} className="gallery-group">
@@ -324,7 +373,7 @@ function Layout() {
               key={state.path}
               state={state}
               loading={<p className="gallery-empty">Loading {state.path}</p>}
-              render={(entry) => <EntryView entry={entry} address={address} />}
+              render={(entry) => <EntryView entry={entry} address={address} status={status} />}
             />
           ) : states.length === 0 ? (
             <p className="gallery-empty">No gallery entries. Add a *.gallery.ts file.</p>
@@ -381,6 +430,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
             )
           }
         />
+        <GalleryLinks address={address} />
       </header>
       <BrowseView
         entries={readyEntries(states)}
@@ -394,13 +444,14 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         hrefFor={(target, targetVariant) =>
           href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
         }
+        sourceFor={(target) => states.find((state) => state.entry?.id === target.id)?.path}
       />
     </>
   );
 }
 
 /** One entry's header and stages. */
-function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }) {
+function EntryView({ entry, address, status }: { entry: GalleryEntry; address: Address; status: LiveStatus }) {
   const [stagesRef, room] = useRoom();
   const { search } = address;
   const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
@@ -468,6 +519,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             }
           />
         </Toolbar>
+        <GalleryLinks address={address} />
         {entry.tunables && entry.tunables.length > 0 && (
           <Tunables
             tunables={entry.tunables}
@@ -490,6 +542,8 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             variant={variant}
             env={env}
             tune={search.tune}
+            sourcePath={address.sourcePath}
+            revisionSha={status.sha}
             compare={search.compare}
             room={room}
             onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
@@ -504,6 +558,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
                 state={name}
                 env={env}
                 tune={search.tune}
+                sourcePath={address.sourcePath}
                 available={{ width: 420, height: room.height }}
                 thumbnail
               />
@@ -517,8 +572,12 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               state={stage.variant}
               env={stage.env}
               tune={search.tune}
+              sourcePath={address.sourcePath}
               label={stage.label}
-              available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
+              available={{
+                width: Math.max(320, room.width - 4),
+                height: Math.max(240, room.height),
+              }}
               thumbnail={search.view !== "variant"}
             />
           ))

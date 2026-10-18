@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextTabs
 import Observation
+import CmuxNextFocus
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
@@ -16,7 +17,7 @@ import Observation
 final class PaneController: SurfacePresenter, PresentablePane {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
-    var pane: PaneModel // set only by adopt(_:): the daemon pane replacing a provisional one
+    var pane: PaneModel // set only by adopt(_:): a resync's new record of the same pane
     /// The machine daemon that owns `pane`.
     let daemon: DaemonService
     let stripModel = TabStripModel()
@@ -43,12 +44,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
+    #if DEBUG
+    private var debugLastSnapshot: Snapshot? // names the fields each re-run changed (DebugLayoutCounters sources)
+    private var debugSnapshotRuns = 0
+    #endif
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
         var groups: [TabGroupItem]
         var defaultIndex: Int
-        var connected: Bool
         var generation: String?
         var surfaces: [UInt64]
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
@@ -74,6 +78,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
             services?.surfaceInvariant.noteChange()
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
         }
+        #if DEBUG
+        DebugLayoutCounters.note("pane mount", #fileID, #line)
+        #endif
         observe()
     }
 
@@ -95,18 +102,19 @@ final class PaneController: SurfacePresenter, PresentablePane {
     // MARK: Sync
 
     func observe() {
+        // One snapshot now (the first frame), tracked; the stream brings the later ones. A trigger:
+        // `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
+        let (first, later) = ObservationStream.current({ [weak self] in ObservationTrigger(self?.snapshot()) })
         observation?.cancel(); observation = Task { [weak self] in
-            guard let self else { return }
-            // A trigger: `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
-            for await snapshot in ObservationStream({ [weak self] in ObservationTrigger(self?.snapshot()) }) {
-                guard let snapshot = snapshot.value else { return }
+            for await snapshot in later {
+                guard let self, let snapshot = snapshot.value else { return }
                 self.apply(snapshot)
             }
         }
-        apply(snapshot())
+        if let first = first.value { apply(first) }
     }
 
-    func snapshot() -> Snapshot {
+    func snapshot(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
         DebugLayoutCounters.paneSnapshots &+= 1
         #endif
@@ -120,7 +128,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
-        let titles = TabTitleResolver(services: services)
+        let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).
@@ -154,7 +162,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     let live = services.cache.incognitoDisplay(tab)
                     (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
                 } else {
-                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id)
+                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id, room: state?.profileID)
                     if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
@@ -177,11 +185,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let groups = pane.tabGroups.map { group in
             TabItemMapping.shared.groupItem(group, isSaved: group.isSaved, asset: groupAsset)
         }
-        let connected = if case .connected = store.connectionState { true } else { false }
-        return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
-                        generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
-                        // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                        hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
+        let result = Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex,
+                              generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
+                              // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
+                              hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
+        #if DEBUG
+        debugSnapshotRuns += 1
+        let run = debugSnapshotRuns > 3 ? "later" : "#\(debugSnapshotRuns)" // a new pane's runs, else another pane's
+        DebugLayoutCounters.note("snapshot \(run) \(DebugLayoutCounters.changedFields(debugLastSnapshot, result))", file, line)
+        debugLastSnapshot = result
+        #endif
+        return result
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
@@ -251,12 +265,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let key = id?.rawValue, services.cache.pageRequests.titleAttention.viewed(key) { remapsViewedTab = true }
     }
 
-    /// Sends the workspace's focus topology when this pane's part of it changed.
+    /// Marks the workspace's focus topology changed when this pane's part of it changed: the
+    /// workspace sends one for all panes that change in this turn (`setNeedsTopology`).
     func sendTopologyIfChanged() {
         let current = focusPane
         guard current != sentFocusPane else { return }
         sentFocusPane = current
-        workspace?.sendTopology()
+        workspace?.setNeedsTopology()
     }
 
     /// A terminal, browser or agent page parked in this pane (`PaneContentView+Parking`)

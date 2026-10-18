@@ -6,7 +6,7 @@ import CmuxNextDesign
 final class BookmarkBarItemView: NSView {
     let node: BookmarkNode
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var hovered = false
     private var pressed = false
     /// Only a hover change fades the fill (`ChromeHover.fade`); redraws for
@@ -29,7 +29,7 @@ final class BookmarkBarItemView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         label.stringValue = node.displayTitle
         label.lineBreakMode = .byTruncatingTail
-        label.cell?.truncatesLastVisibleLine = true
+        label.truncatesLastVisibleLine = true
         addSubview(icon)
         addSubview(label)
         themedToolTip = node.url.map { "\(node.displayTitle)\n\($0.absoluteString)" } ?? node.displayTitle

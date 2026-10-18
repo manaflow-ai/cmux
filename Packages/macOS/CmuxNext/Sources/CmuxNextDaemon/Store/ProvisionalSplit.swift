@@ -7,6 +7,12 @@ import Foundation
 /// public id, so the two never show side by side. The daemon reports that pane (`pane-added`)
 /// before the layout that places it (`layout-changed`): in between, the split places the
 /// daemon's pane instead, so the screen never shows unsplit (cx-ry0y).
+///
+/// The echo does no work (perf I3, plans/cmux-next/perf-speed-of-light.md): the provisional pane
+/// is one `PaneModel` for the intent's whole life, and the daemon's pane-added updates that same
+/// object in place (``DaemonStore/confirmedPane(_:)``), so every observer keeps its model. The
+/// split goes out under the provisional split's public id (`split-client-split-id-v1`), so the
+/// daemon's layout names the split the window already shows.
 @MainActor struct ProvisionalSplit {
     /// Whether the daemon's records hold that pane and a screen's layout places it: the split
     /// has nothing left to show.
@@ -27,14 +33,14 @@ import Foundation
         guard store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
               let screen = store.screen(containing: target),
-              let layout = split(screen.layout, target, direction, ratio, leaf) else { return nil }
+              let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID) else { return nil }
         // The target's column tree (and row tree) take the split too; a tree the split cannot
         // reach leaves the intent unapplied, as cmux-tui would refuse it.
         var reached = true
         let columns = screen.columns.map { column -> ColumnSnapshot in
             guard column.layout.paneIDs.contains(target) else { return column }
             var column = column
-            guard let tree = split(column.layout, target, direction, ratio, leaf) else {
+            guard let tree = split(column.layout, target, direction, ratio, leaf, provisional.splitID) else {
                 reached = false
                 return column
             }
@@ -42,7 +48,7 @@ import Foundation
             column.rows = column.rows.map { row -> RowSnapshot in
                 guard row.layout.paneIDs.contains(target) else { return row }
                 var row = row
-                guard let rowTree = split(row.layout, target, direction, ratio, leaf) else {
+                guard let rowTree = split(row.layout, target, direction, ratio, leaf, provisional.splitID) else {
                     reached = false
                     return row
                 }
@@ -58,14 +64,23 @@ import Foundation
         screen.layout = layout
         if columns != screen.columns { screen.columns = columns }
         guard daemon == nil else { return undo }
-        let tab = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
-                              terminalID: TerminalID(rawValue: provisional.terminalID))
-        let pane = PaneModel(PaneSnapshot(id: provisional.handle, resourceID: ResourceID(rawValue: provisional.paneID),
-                                          tabs: [tab]))
+        let pane = model(of: provisional, in: store)
         let after = (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1
         screen.panes.insert(pane, at: min(after, screen.panes.count))
         store.index.insert(pane, in: screen)
         return undo
+    }
+
+    /// The one model of `provisional` while its intent is pending: every restore shows the same
+    /// object, and the daemon's pane-added takes it over (``DaemonStore/confirmedPane(_:)``).
+    private static func model(of provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel {
+        if let model = store.provisionalPanes[provisional.paneID] { return model }
+        let tab = provisional.tab ?? TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.tabID),
+                                                 terminalID: TerminalID(rawValue: provisional.terminalID))
+        let model = PaneModel(PaneSnapshot(id: provisional.handle, resourceID: ResourceID(rawValue: provisional.paneID),
+                                           tabs: [tab]))
+        store.provisionalPanes[provisional.paneID] = model
+        return model
     }
 
     /// `pane`: the provisional pane to remove; nil when the split placed the daemon's pane.
@@ -86,15 +101,21 @@ import Foundation
     }
 
     /// `node` with the leaf `target` replaced by a split of `target` and `new`, or nil when the
-    /// leaf is not in it (or sits in a stack, which `split` turns into its own layout).
+    /// leaf is not in it (or sits in a stack, which `split` turns into its own layout). The new
+    /// split has no handle until the daemon's arrives; `splitID` is its public id.
     private static func split(_ node: LayoutNode, _ target: PaneID, _ direction: SplitDirection, _ ratio: Double,
-                              _ new: PaneID) -> LayoutNode? {
+                              _ new: PaneID, _ splitID: String) -> LayoutNode? {
         switch node {
         case .leaf(let pane) where pane == target:
-            return .split(id: nil, direction: direction, ratio: ratio, a: .leaf(target), b: .leaf(new))
-        case .split(let id, let dir, let r, let a, let b):
-            if let a = split(a, target, direction, ratio, new) { return .split(id: id, direction: dir, ratio: r, a: a, b: b) }
-            if let b = split(b, target, direction, ratio, new) { return .split(id: id, direction: dir, ratio: r, a: a, b: b) }
+            return .split(id: nil, resourceID: ResourceID(rawValue: splitID), direction: direction, ratio: ratio,
+                          a: .leaf(target), b: .leaf(new))
+        case .split(let id, let resourceID, let dir, let r, let a, let b):
+            if let a = split(a, target, direction, ratio, new, splitID) {
+                return .split(id: id, resourceID: resourceID, direction: dir, ratio: r, a: a, b: b)
+            }
+            if let b = split(b, target, direction, ratio, new, splitID) {
+                return .split(id: id, resourceID: resourceID, direction: dir, ratio: r, a: a, b: b)
+            }
             return nil
         default:
             return nil

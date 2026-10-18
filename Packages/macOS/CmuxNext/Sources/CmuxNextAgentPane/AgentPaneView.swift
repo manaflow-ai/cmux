@@ -50,7 +50,7 @@ public final class AgentPaneView: NSView {
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: NSTextField?
+    var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -70,6 +70,9 @@ public final class AgentPaneView: NSView {
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
     var deliveredThemeScript: String?
+    /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
+    /// shown after a change paints its first frame in the new colors (cx-8w027.12).
+    private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
@@ -229,7 +232,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Motion.speed }) {
+            for await _ in ObservationStream({ (Motion.speed, DesignSettings.shared.statusIndicator.animation) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
@@ -345,16 +348,14 @@ public final class AgentPaneView: NSView {
         popupHostStorage?.dismiss()
     }
 
-    /// Shown again in its pane (parked there while another tab showed): a theme change meanwhile
-    /// (a push only when the theme moved since the last one).
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
-        applyTheme()
-    }
-
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        themeFollower.rebind()
     }
 
     public override func viewDidMoveToWindow() {
@@ -391,6 +392,7 @@ public final class AgentPaneView: NSView {
     /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
     /// that just loaded has none).
     public func applyTheme(force: Bool = false) {
+        themeFollower.rebind()
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor

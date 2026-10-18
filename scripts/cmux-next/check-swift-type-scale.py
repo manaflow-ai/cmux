@@ -22,8 +22,13 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 SOURCES = "Packages/macOS/CmuxNext/Sources"
-# The scale's own definitions.
-SKIP = ("CmuxNextDesign/TypeScale.generated.swift",)
+# The scale's own definitions, and the DEBUG text probes (cx-8w027.12, cx-8w027.26), which draw the
+# off-scale fonts chrome still uses (12 pt medium, 10.5 pt) to measure them; no chrome draws theirs.
+SKIP = (
+    "CmuxNextDesign/TypeScale.generated.swift",
+    "CmuxNextDesign/Text/LabelParityProbe.swift",
+    "CmuxNextDesign/Text/TextWeightProbe.swift",
+)
 
 NUMBER = r"\d+(?:\.\d+)?"
 SIZE = re.compile(

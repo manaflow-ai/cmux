@@ -92,11 +92,11 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
       test("installed update, permission, log, enable, and hide controls reflect host results", async () => {
         const page = await open(engine, "installed");
         try {
-          const github = page.locator(".apps-installed-row").filter({ hasText: "GitHub PRs" });
+          const github = page.locator(".apps-installed > .apps-installed-row").filter({ hasText: "GitHub PRs" });
           await github.waitFor();
           expect(await github.innerText()).toContain("1.1.0");
           await github.getByRole("button", { name: "Update" }).click();
-          await page.waitForFunction(() => document.body.innerText.includes("1.2.0"));
+          await github.getByRole("button", { name: "Update" }).waitFor({ state: "detached" });
           expect(await github.innerText()).toContain("1.2.0");
           expect(await github.getByRole("button", { name: "Update" }).count()).toBe(0);
 
@@ -155,8 +155,11 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         const page = await open(engine, "empty");
         try {
           expect(await page.locator(".apps-card").count()).toBe(0);
-          expect(await page.locator(".apps-empty").innerText()).toContain("No apps match");
+          const emptyDiscover = page.locator(".apps-state-empty, .apps-empty").filter({ hasText: "No apps match" });
+          await emptyDiscover.waitFor();
+          expect(await emptyDiscover.innerText()).toContain("No apps match");
           await page.getByRole("tab", { name: "Installed" }).click();
+          await page.locator(".apps-empty").waitFor();
           expect(await page.locator(".apps-empty").innerText()).toContain("No apps installed");
         } finally {
           await page.close();

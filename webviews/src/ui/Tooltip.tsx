@@ -2,7 +2,7 @@
 // control carries `aria-label`, the tooltip is the sighted hint. It opens on hover and on keyboard
 // focus, and Escape closes it. It looks like the native tooltip and the title tooltip
 // (pages/shared/desktop.css): the solid popup surface, primary ink, an optional shortcut hint.
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useState, type PointerEventHandler, type ReactElement, type ReactNode } from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
@@ -54,11 +54,15 @@ export function Tooltip({ label, children, side = "bottom", shortcut }: TooltipP
 }
 
 export interface AnchoredCardProps {
+  /** Stable id for a control's `aria-describedby` relationship. */
+  id?: string;
   /** Shown when set; the element (or rect) it sits under. */
   anchor: UiAnchor;
   /** Whether it shows (default: while `anchor` is set); false keeps it placed while it fades out. */
   open?: boolean;
   className?: string;
+  /** Which side of the anchor receives the card. */
+  side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** `data-state` on the card, for styling. */
   state?: string;
   /** Shows at once, with no fade in (a warm tooltip group's hint). */
@@ -67,6 +71,8 @@ export interface AnchoredCardProps {
   interactive?: boolean;
   /** Accessible name for an interactive card. */
   ariaLabel?: string;
+  onPointerEnter?: PointerEventHandler<HTMLDivElement>;
+  onPointerLeave?: PointerEventHandler<HTMLDivElement>;
   children: ReactNode;
 }
 
@@ -76,13 +82,17 @@ export interface AnchoredCardProps {
  * take focus; interactive cards may contain focusable controls.
  */
 export function AnchoredCard({
+  id,
   anchor,
   open,
   className,
+  side = "bottom",
   state,
   instant,
   interactive = false,
   ariaLabel,
+  onPointerEnter,
+  onPointerLeave,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
@@ -92,16 +102,19 @@ export function AnchoredCard({
         <BaseTooltip.Positioner
           className="ui-positioner"
           anchor={virtualAnchor(anchor)}
-          side="bottom"
+          side={side}
           align="start"
           sideOffset={6}
         >
           <BaseTooltip.Popup
+            id={id}
             className={cx("ui-tooltip ui-card", className)}
             data-state={state}
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}
             aria-label={interactive ? ariaLabel : undefined}
+            onPointerEnter={onPointerEnter}
+            onPointerLeave={onPointerLeave}
           >
             {children}
           </BaseTooltip.Popup>

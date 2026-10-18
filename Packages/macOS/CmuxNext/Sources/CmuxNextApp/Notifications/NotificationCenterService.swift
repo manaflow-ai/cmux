@@ -7,6 +7,7 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
+import CmuxNextFocus
 
 /// Notifications in the app (plans/cmux-next/notifications.md). The daemon
 /// owns every notification and its unread marker; this service reacts to
@@ -28,6 +29,9 @@ final class NotificationCenterService {
     /// new session, so the dismissals apply only within this one.
     var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
+    /// Bumped when a window's settled focus changes: the viewed-tab rules
+    /// (`followViewedProgramStatus`) re-read which tabs are viewed.
+    private(set) var viewedRevision: UInt64 = 0
     @ObservationIgnored let desktop = DesktopNotifier()
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
@@ -157,11 +161,12 @@ final class NotificationCenterService {
         interacted(.click, tabID: tab)
     }
 
-    /// A window's focus settled: the viewed tab counts as focused while the
-    /// window is key and cmux is active.
-    func focusDidSettle(_ state: FocusState) {
-        guard state.windowKey, state.appActive, let tab = Self.contentTab(state.resolved) else { return }
-        interacted(.focus, tabID: tab)
+    /// A window's settled focus changed (window key, app active, workspace or
+    /// keyboard target): the viewed tab counts as focused while the window is
+    /// key and cmux is active. The viewed-tab rules read it (one path for a
+    /// focus and for an unread mark that lands on a viewed tab).
+    func focusDidSettle(_ state: FocusState, in controller: WindowController) {
+        viewedRevision &+= 1
     }
 
     /// Opens the tab of `surface` (banner click) and reads it per policy.
@@ -203,12 +208,16 @@ final class NotificationCenterService {
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
         guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
+        interacted(trigger, tab: tab)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, tab: TabModel) {
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
         guard tab.hasUnread else { return }
-        guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
-        note("\(trigger.rawValue) read \(tabID)")
+        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
+        note("\(trigger.rawValue) read \(tab.id)")
         acknowledge(tab)
     }
 
@@ -267,13 +276,14 @@ final class NotificationCenterService {
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        let decision = NotificationPolicy.decide(arrival, prefs: preferences)
+        let decision = NotificationPolicy(prefs: preferences).decide(arrival)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
+            bounceDock(decision.bounce)
             return
         }
         if decision.acknowledge {
@@ -335,6 +345,7 @@ final class NotificationCenterService {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
         }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
+        bounceDock(decision.bounce)
     }
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,

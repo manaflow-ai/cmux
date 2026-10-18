@@ -12,9 +12,13 @@ extension SidebarTransientItem {
 
     @MainActor
     public static func lanes(_ store: AgentLaneStore) -> SidebarTransientItem? {
-        guard !store.shown.isEmpty else { return nil }
+        // `shown` is stably ordered and sorting it is the store's expensive derived read. Keep the
+        // same snapshot for the visibility check and badge so one sidebar observation does not sort
+        // the lane dictionary twice on the main actor.
+        let shown = store.shown
+        guard !shown.isEmpty else { return nil }
         var info = SidebarItemInfo(title: AgentActivityLane.lanesTitle, symbol: "list.bullet.rectangle")
-        let count = store.attentionCount
+        let count = shown.count(where: \.needsAttention)
         info.badge = count > 0 ? count : nil
         return SidebarTransientItem(id: lanesID, info: info)
     }

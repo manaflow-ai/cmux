@@ -1,4 +1,4 @@
-import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   filterSessions,
   groupMark,
@@ -17,6 +17,9 @@ import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
+import { AnchoredCard } from "../../ui/Tooltip";
+import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../ui/hoverIntent";
+import { useSidebarPreviewVariant, type SidebarPreviewVariant } from "./sidebarPreview";
 
 const MARK_LABELS = {
   input: "sidebar.markInput",
@@ -46,6 +49,9 @@ const PLACE_LABELS = {
   worktree: "sidebar.worktree",
   branch: "sidebar.branch",
 } as const satisfies Record<string, StringKey>;
+
+/** Sidebar previews are one warm hover-card group, so moving between rows does not replay the dwell. */
+const sessionPreviewGroup = new HoverGroup(HOVER_INTENT.cardGrace);
 
 /** What the rail switches the list to. */
 export type SidebarView = "sessions" | "history" | "pulls" | "closed";
@@ -86,6 +92,7 @@ export function SessionSidebar({
   onNewChat,
   account,
   preview = false,
+  previewVariant,
   groupProjects = false,
   actions,
   onContinue,
@@ -101,8 +108,10 @@ export function SessionSidebar({
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
   account?: SidebarAccount;
-  /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
+  /** Preview features are on (`labs.previewFeatures`): show Pull requests and session hover cards. */
   preview?: boolean;
+  /** DEV/NIGHTLY visual trial; defaults to the shared `card` treatment. */
+  previewVariant?: SidebarPreviewVariant;
   /** Preserves project grouping as an option while keeping the default compact and ungrouped. */
   groupProjects?: boolean;
   /** Host-owned desktop-parity row actions. */
@@ -112,6 +121,7 @@ export function SessionSidebar({
   onShowMoreSettled?: () => void;
 }) {
   const t = useT();
+  const activePreviewVariant = useSidebarPreviewVariant(previewVariant);
   const [picked, setView] = useState<SidebarView>("sessions");
   // Pull requests turned off while shown falls back to the session list, and stays there.
   const view = picked === "pulls" && !preview ? "sessions" : picked;
@@ -175,12 +185,22 @@ export function SessionSidebar({
                 settledSessions={settledSessions}
                 groupProjects={groupProjects}
                 actions={actions}
+                preview={preview}
+                previewVariant={activePreviewVariant}
                 onContinue={onContinue}
                 onSettle={onSettle}
                 onShowMoreSettled={onShowMoreSettled}
               />
             ) : (
-              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} actions={actions} />
+              <FlatView
+                view={view}
+                sessions={sessions}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                preview={preview}
+                previewVariant={activePreviewVariant}
+                actions={actions}
+              />
             )}
           </div>
           {account && (
@@ -246,6 +266,8 @@ function SessionsView({
   onExpand,
   groupProjects,
   actions,
+  preview,
+  previewVariant,
   onContinue,
   onSettle,
   onShowMoreSettled,
@@ -261,6 +283,8 @@ function SessionsView({
   onExpand: (groupKey: string) => void;
   groupProjects: boolean;
   actions?: SessionSidebarActions;
+  preview: boolean;
+  previewVariant: SidebarPreviewVariant;
   onContinue?: (sessionIds: string[]) => void;
   onSettle?: (sessionIds: string[]) => void;
   onShowMoreSettled?: () => void;
@@ -273,16 +297,9 @@ function SessionsView({
     </button>
   );
   const searching = query.trim() !== "";
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
-  const active = useMemo(
-    () =>
-      sortByRecency(
-        filterSessions(
-          sessions.filter((session) => !session.pinned),
-          query,
-        ),
-      ),
-    [sessions, query],
+  const { pinned, groups, active } = useMemo(
+    () => sidebarSections(sessions, query, groupProjects),
+    [sessions, query, groupProjects],
   );
   const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
   const noMatches = pinned.length === 0 && active.length === 0 && settled.length === 0;
@@ -332,6 +349,8 @@ function SessionsView({
               <SessionRow
                 key={session.sessionId}
                 session={session}
+                preview={preview}
+                previewVariant={previewVariant}
                 selected={session.sessionId === selectedId}
                 onSelect={onSelect}
                 section="active"
@@ -352,6 +371,8 @@ function SessionsView({
               <SessionRow
                 key={session.sessionId}
                 session={session}
+                preview={preview}
+                previewVariant={previewVariant}
                 selected={session.sessionId === selectedId}
                 onSelect={onSelect}
                 section="active"
@@ -390,6 +411,8 @@ function SessionsView({
                     <SessionRow
                       key={session.sessionId}
                       session={session}
+                      preview={preview}
+                      previewVariant={previewVariant}
                       selected={session.sessionId === selectedId}
                       groupHost={group.host}
                       onSelect={onSelect}
@@ -430,6 +453,8 @@ function SessionsView({
                 <SessionRow
                   key={session.sessionId}
                   session={session}
+                  preview={preview}
+                  previewVariant={previewVariant}
                   selected={session.sessionId === selectedId}
                   onSelect={onSelect}
                   section="settled"
@@ -458,12 +483,16 @@ function FlatView({
   selectedId,
   onSelect,
   actions,
+  preview,
+  previewVariant,
 }: {
   view: Exclude<SidebarView, "sessions">;
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
   onSelect: (sessionId: string) => void;
   actions?: SessionSidebarActions;
+  preview: boolean;
+  previewVariant: SidebarPreviewVariant;
 }) {
   const t = useT();
   // Pull requests appear once the session summary reports them; until then the view says so.
@@ -488,6 +517,8 @@ function FlatView({
             <SessionRow
               key={session.sessionId}
               session={session}
+              preview={preview}
+              previewVariant={previewVariant}
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
@@ -503,6 +534,8 @@ function FlatView({
 
 const SessionRow = memo(function SessionRow({
   session,
+  preview,
+  previewVariant,
   selected,
   groupHost,
   onSelect,
@@ -514,6 +547,8 @@ const SessionRow = memo(function SessionRow({
   actions,
 }: {
   session: AcpmuxSessionEntry;
+  preview: boolean;
+  previewVariant: SidebarPreviewVariant;
   selected: boolean;
   groupHost?: string;
   onSelect: (sessionId: string) => void;
@@ -529,6 +564,50 @@ const SessionRow = memo(function SessionRow({
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
+  const previewText = preview ? session.preview?.trim() : undefined;
+  const previewId = useId();
+  const previewIntent = useHoverIntent<HTMLElement>({ delay: HOVER_INTENT.cardDwell, group: sessionPreviewGroup });
+  const { dismiss: dismissPreview } = previewIntent;
+  const previewLeaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [placedPreview, setPlacedPreview] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (previewIntent.shown) setPlacedPreview(previewIntent.shown);
+  }, [previewIntent.shown]);
+  useEffect(() => {
+    if (!previewText) {
+      clearTimeout(previewLeaveTimer.current);
+      previewLeaveTimer.current = undefined;
+      dismissPreview();
+    }
+  }, [dismissPreview, previewText]);
+  useEffect(() => () => clearTimeout(previewLeaveTimer.current), []);
+  const cancelPreviewLeave = () => {
+    clearTimeout(previewLeaveTimer.current);
+    previewLeaveTimer.current = undefined;
+  };
+  const hoverPreview = (anchor: HTMLElement, delay?: number) => {
+    cancelPreviewLeave();
+    previewIntent.hover(anchor, delay);
+  };
+  const leavePreviewRow = () => {
+    cancelPreviewLeave();
+    if (!previewIntent.shown) {
+      previewIntent.hover(null);
+      return;
+    }
+    previewLeaveTimer.current = setTimeout(() => {
+      previewLeaveTimer.current = undefined;
+      previewIntent.hover(null);
+    }, HOVER_INTENT.cardGrace);
+  };
+  const leavePreviewCard = () => {
+    cancelPreviewLeave();
+    previewIntent.hover(null);
+  };
+  const dismissPreviewNow = () => {
+    cancelPreviewLeave();
+    dismissPreview();
+  };
   const keyboard = listRowKeyboardProps(".acpmux-session-row", (row) => {
     const sessionId = row.dataset.sessionId;
     if (sessionId) onSelect(sessionId);
@@ -536,6 +615,7 @@ const SessionRow = memo(function SessionRow({
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
+  const previewStatus = mark ? t(MARK_LABELS[mark]) : undefined;
   const menuItems: ContextMenuItem[] = [];
   if (section === "settled" && onContinue) {
     menuItems.push({
@@ -655,6 +735,7 @@ const SessionRow = memo(function SessionRow({
       data-focus-ring="row"
       className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
       aria-current={selected ? "true" : undefined}
+      aria-describedby={previewText && previewIntent.shown ? previewId : undefined}
       aria-label={
         mark || place || trailing || open
           ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]
@@ -662,6 +743,16 @@ const SessionRow = memo(function SessionRow({
               .join(", ")
           : undefined
       }
+      onPointerEnter={(event) => previewText && hoverPreview(event.currentTarget)}
+      onPointerLeave={leavePreviewRow}
+      onPointerDown={dismissPreviewNow}
+      onFocus={(event) => previewText && hoverPreview(event.currentTarget, 0)}
+      onBlur={leavePreviewCard}
+      // ui-allow: Escape dismisses this row's anchored preview; arrow/Home/End navigation stays in the shared helper.
+      onKeyDown={(event) => {
+        keyboard.onKeyDown?.(event);
+        if (event.key === "Escape") dismissPreviewNow();
+      }}
       onClick={() => onSelect(session.sessionId)}
     >
       <span className="acpmux-session-row-title">{title}</span>
@@ -689,5 +780,40 @@ const SessionRow = memo(function SessionRow({
       )}
     </button>
   );
-  return <li>{menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}</li>;
+  return (
+    <li>
+      {menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}
+      {previewText && placedPreview && (
+        <AnchoredCard
+          id={previewId}
+          anchor={placedPreview}
+          open={previewIntent.shown !== null}
+          side="inline-end"
+          className={`acpmux-session-preview acpmux-session-preview-${previewVariant}`}
+          instant={previewIntent.instant}
+          onPointerEnter={cancelPreviewLeave}
+          onPointerLeave={leavePreviewCard}
+        >
+          <div className="acpmux-session-preview-title">{title}</div>
+          <div className="acpmux-session-preview-copy">{previewText}</div>
+          {(previewStatus || placeLabel) && (
+            <div className="acpmux-session-preview-meta">
+              {previewStatus && (
+                <span className={`acpmux-session-preview-status acpmux-session-mark-${mark}`}>
+                  {mark && MARK_GLYPHS[mark]}
+                  {previewStatus}
+                </span>
+              )}
+              {placeLabel && (
+                <span className="acpmux-session-preview-place">
+                  {place && PLACE_GLYPHS[place.kind]}
+                  {placeLabel}
+                </span>
+              )}
+            </div>
+          )}
+        </AnchoredCard>
+      )}
+    </li>
+  );
 });

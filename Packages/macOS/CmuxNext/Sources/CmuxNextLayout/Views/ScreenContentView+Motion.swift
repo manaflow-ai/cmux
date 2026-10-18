@@ -42,7 +42,7 @@ extension ScreenContentView {
     /// New dock columns' panes still growing in from their screen edge (their frames).
     var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
     func applyPresentation() {
-        let strip = stripShift
+        let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks)
         var clips: [(host: PaneHostView, scrolls: Bool, revealing: CGRect?)] = []
         for (pane, frame) in paneFrames {
@@ -61,6 +61,9 @@ extension ScreenContentView {
                 ? SplitMotion.visible(frame.rect, padding: host.padding).offsetBy(dx: shift.dx, dy: shift.dy) : nil
             let placed = (zoomed ?? held ?? (arriving.contains(pane) ? PaneArrival.presentation(shown: frame.rect, target: frame.targetRect) : frame.rect))
                 .offsetBy(dx: shift.dx, dy: shift.dy)
+            // Before the frame moves: chrome that re-checks itself on the move reads the rest.
+            let rest = frame.targetRect.offsetBy(dx: scrolls ? restStrip : 0, dy: shift.dy)
+            host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.frame != placed { host.frame = placed }
             (host.alphaValue, host.isDocked, host.revealRect) = (frame.alpha.value, !scrolls, revealing)
             clips.append((host, scrolls, revealing))

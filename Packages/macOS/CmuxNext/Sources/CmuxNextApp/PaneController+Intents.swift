@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextFocus
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -55,6 +56,7 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        if DebugTabSwitch.isRecording, stripModel.selectedID != id { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
@@ -74,6 +76,7 @@ extension PaneController {
         presentSelection()
         remapViewedTab()
         services.windows.recordSaver.stateDidChange(state)
+        DebugTabSwitch.shown(self, in: view.window)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.

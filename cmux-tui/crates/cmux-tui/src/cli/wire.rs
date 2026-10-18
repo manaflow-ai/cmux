@@ -122,6 +122,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     }
     if notify_desktop::drop_unsupported(&mut reader, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
+        | list_order::apply(&mut plan, &mut request, &socket)
     {
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
@@ -990,6 +991,7 @@ fn human_key_rank(key: &str) -> usize {
 
 mod closed_view;
 mod hints;
+mod list_order;
 mod notify_desktop;
 mod sanitize;
 mod socket;
