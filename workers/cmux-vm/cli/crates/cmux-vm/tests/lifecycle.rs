@@ -1065,15 +1065,29 @@ async fn help_names_the_cmux_dev_default_base_url() {
 async fn create_with_an_approved_image_revision() {
     let server = MockServer::start().await;
     let mut response = vm("starting");
-    response["bootImage"] = json!({ "id": "cloud-standard", "revision": "r1", "displayName": "Cloud standard" });
+    response["bootImage"] =
+        json!({ "id": "cloud-standard", "revision": "r1", "displayName": "Cloud standard" });
     Mock::given(method("POST"))
         .and(path("/v1/vms"))
-        .and(body_json(json!({ "image": { "id": "cloud-standard", "revision": "r1" } })))
+        .and(body_json(
+            json!({ "image": { "id": "cloud-standard", "revision": "r1" } }),
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(response))
         .expect(1)
         .mount(&server)
         .await;
-    let out = run(&server, &["create", "--image", "cloud-standard", "--image-revision", "r1", "--json"]).await;
+    let out = cli(
+        &server,
+        &[
+            "create",
+            "--image",
+            "cloud-standard",
+            "--image-revision",
+            "r1",
+            "--json",
+        ],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out)["bootImage"]["revision"], "r1");
 }
@@ -1088,7 +1102,7 @@ async fn list_approved_images_as_json() {
         .expect(1)
         .mount(&server)
         .await;
-    let out = run(&server, &["image", "list", "--json"]).await;
+    let out = cli(&server, &["image", "list", "--json"]).await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out), response);
 }
