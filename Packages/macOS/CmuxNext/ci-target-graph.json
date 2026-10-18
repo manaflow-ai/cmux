@@ -832,7 +832,6 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
         "docs/configuration.md",
         "docs/mdm/",
         "schemas/settings-export/settings-schema.sources.sha256",
