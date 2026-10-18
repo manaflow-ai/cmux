@@ -25,6 +25,26 @@ export type ReportMeta = {
   evidence?: { base?: unknown; head?: unknown; repeat?: unknown };
 };
 
+type EvidenceView = { captureId?: string; role?: string; sha?: string; scenarioFingerprint?: string; status?: string; quality?: string };
+
+function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
+  if (!evidence) return "";
+  const item = (label: string, value: unknown) => {
+    if (!value || typeof value !== "object") return "";
+    const receipt = value as EvidenceView;
+    const details = [
+      receipt.captureId ? `<code>${escapeHtml(receipt.captureId)}</code>` : "",
+      receipt.sha ? `head <code>${escapeHtml(receipt.sha.slice(0, 12))}</code>` : "",
+      receipt.status ?? "",
+      receipt.quality ? `quality ${escapeHtml(receipt.quality)}` : "",
+      receipt.scenarioFingerprint ? `scenario <code>${escapeHtml(receipt.scenarioFingerprint.slice(0, 12))}</code>` : "",
+    ].filter(Boolean).join(" · ");
+    return `<span class="evidence-item"><strong>${label}</strong> ${details}</span>`;
+  };
+  const freshness = evidence.head && typeof evidence.head === "object" ? "Candidate freshness: unverified" : "Candidate freshness: missing";
+  return `<div class="evidence" data-evidence="comparison"><strong>Evidence</strong><span class="evidence-freshness">${freshness}</span>${item("Baseline", evidence.base)}${item("Candidate", evidence.head)}${item("Repeat", evidence.repeat)}</div>`;
+}
+
 export const COMMENT_MARKER = "<!-- cmux-gallery-pr -->";
 export const COMMENT_THUMBS = 6;
 const SUMMARY_STATES = 5;
@@ -245,6 +265,7 @@ header{padding:20px 16px 8px;max-width:1240px;margin:0 auto}
 h1{font-size:18px;margin:0 0 4px}
 .sub{color:var(--muted)}
 .live-links{margin-top:10px;color:var(--muted);font-size:12px}.live-links ul{columns:2;margin:6px 0 0;padding-left:18px}.live-links a{color:inherit}
+.evidence{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;padding:8px 10px;border:1px solid var(--edge);border-radius:7px;color:var(--muted);font-size:12px}.evidence-freshness{font-weight:600;color:var(--removed)}.evidence-item code{font-size:11px}
 label{display:inline-flex;align-items:center;gap:6px;margin-top:10px;color:var(--muted);font-size:12px}
 select{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--edge);border-radius:6px;padding:3px 6px}
 main{max-width:1240px;margin:0 auto;padding:8px 16px 48px}
@@ -276,7 +297,7 @@ details summary{cursor:pointer;color:var(--muted)}
 ul.plain{columns:2;padding-left:18px;color:var(--muted)}
 @media (max-width:640px){ul.plain{columns:1}.pair{grid-template-columns:1fr}}
 </style>
-<header><h1>${title}</h1><div class="sub" id="summary"></div><label>Entry <select id="entry-filter" aria-label="Filter gallery diff by entry"><option value="">All entries</option></select></label>${liveMarkup}</header>
+<header><h1>${title}</h1><div class="sub" id="summary"></div>${evidenceMarkup(meta.evidence)}<label>Entry <select id="entry-filter" aria-label="Filter gallery diff by entry"><option value="">All entries</option></select></label>${liveMarkup}</header>
 <main id="main"></main>
 <script>
 const {outcomes, labels} = ${data};

@@ -282,6 +282,22 @@ test("the diff page embeds its data safely and lists changed states first", () =
   expect(readFileSync(new URL("./report.ts", import.meta.url), "utf8")).toContain("onion");
 });
 
+test("the diff page exposes comparison evidence roles and freshness", () => {
+  const html = diffPage([outcome({})], {
+    ...meta,
+    evidence: {
+      base: { captureId: "base-capture", sha: "base-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
+      head: { captureId: "head-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete", quality: "pass" },
+      repeat: { captureId: "repeat-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
+    },
+  });
+  expect(html).toContain('data-evidence="comparison"');
+  expect(html).toContain("Candidate freshness: unverified");
+  expect(html).toContain("base-capture");
+  expect(html).toContain("head-capture");
+  expect(html).toContain("repeat-capture");
+});
+
 test("entry-filter counts only outcomes belonging to the selected entry", () => {
   const outcomes = [
     outcome({ entry: "agent-pane.composer", status: "unchanged" }),
