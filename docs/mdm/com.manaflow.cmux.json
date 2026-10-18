@@ -1960,6 +1960,17 @@
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
     },
+    "notifications.dockBounce" : {
+      "default" : "once",
+      "description" : "When a notification alerts while cmux isn't the active app.",
+      "enum" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "title" : "Bounce Dock Icon",
+      "type" : "string"
+    },
     "notifications.mutedWorkspaces" : {
       "default" : [
 
