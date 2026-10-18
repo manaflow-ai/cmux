@@ -74,6 +74,7 @@ describe("forkVm", () => {
     const body = await json(response);
     expect(body).toEqual({
       _tag: "ForkIncomplete",
+      creationKey: expect.stringMatching(/^vcr_[0-9a-hjkmnp-tv-z]{26}$/),
       message: expect.any(String),
       snapshotId: expect.stringMatching(SNAPSHOT_ID),
     });

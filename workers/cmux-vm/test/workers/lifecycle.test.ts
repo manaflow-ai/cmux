@@ -48,9 +48,10 @@ describe("createVm", () => {
     const creates = t.upstream.callsTo("POST", /^\/v5\/vms$/);
     expect(creates).toHaveLength(1);
     expect(creates[0]?.json).toEqual({
+      slug: `cmux-vm-local-${id.replace("_", "-")}`,
       displayName: `cmux-vm-local ${TENANT_A} ${id}`,
       idleTimeoutSeconds: 300,
-      metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local" },
+      metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local", cmux_actor: expect.stringMatching(/^key:/), cmux_create: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
       firewall: { rules: [] },
     });
     const upstreamId = [...t.upstream.vms.keys()][0] ?? "missing";

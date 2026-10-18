@@ -89,3 +89,64 @@ it("requires read scope and an unrestricted credential for history, with tenant 
   const page = await history("", other); expect(page.status).toBe(200);
   expect(await page.json()).toEqual({ items: [], nextCursor: null });
 });
+
+it("pages stable public handles without exposing private keys or using provider I/O", async () => {
+  const expected: string[] = [];
+  for (let n = 0; n < 3; n++) {
+    const response = await create(); expect(response.status).toBe(201);
+    const body = await response.json<{ id: string; creationKey: string }>(); expected.push(body.creationKey);
+    expect((await h.request(`/v1/vms/${body.id}`, headers(), { method: "DELETE" })).status).toBe(204);
+  }
+  const before = h.upstreamRequests.length, found: string[] = [];
+  let cursor: string | null = null;
+  for (let n = 0; n < 3; n++) {
+    const response = await history(`?limit=1${cursor === null ? "" : `&cursor=${cursor}`}`);
+    expect(response.status).toBe(200);
+    const page = await response.json<{ items: Array<{ creationKey: string; state: string }>; nextCursor: string | null }>();
+    expect(page.items).toHaveLength(1); expect(page.items[0]!.state).toBe("deleted");
+    found.push(page.items[0]!.creationKey); cursor = page.nextCursor;
+    if (n < 2) expect(cursor).toMatch(/^[a-f0-9]{64}$/);
+  }
+  expect(cursor).toBeNull(); expect(found.sort()).toEqual(expected.sort());
+  expect(h.upstreamRequests).toHaveLength(before);
+  expect((await history("?limit=0")).status).toBe(400);
+  expect((await history("?cursor=invalid")).status).toBe(400);
+});
+
+it("isolates service history, preserves handle discovery across key rotation and rechecks current labels", async () => {
+  const service = await h.addServiceKey({ id: "driver", labels: { role: "cloud" } });
+  const serviceHeaders = (credential: string) => ({ ...bearer(credential), "x-cmux-team-id": "team_alpha" });
+  const response = await h.request("/v1/vms", serviceHeaders(service), { method: "POST", body: { labels: { role: "cloud" } } });
+  expect(response.status).toBe(201);
+  const { creationKey } = await response.json<{ creationKey: string }>();
+  const rotated = await h.addServiceKey({ id: "driver", labels: { role: "cloud" } });
+  const page = await h.request("/v1/vm-creations", serviceHeaders(rotated)); expect(page.status).toBe(200);
+  expect(await page.json()).toMatchObject({ items: [{ creationKey, state: "committed" }] });
+  const other = await h.addServiceKey({ id: "unrelated-driver", labels: { role: "cloud" } });
+  const unrelated = await h.request("/v1/vm-creations", serviceHeaders(other));
+  expect(await unrelated.json()).toEqual({ items: [], nextCursor: null });
+  Object.assign(h.resources[0]!, { labels: { role: "unrelated" } });
+  const hidden = await h.request("/v1/vm-creations", serviceHeaders(rotated));
+  expect(await hidden.json()).toEqual({ items: [], nextCursor: null });
+});
+
+it("keeps caller-supplied keys private even when they resemble server handles", async () => {
+  const supplied = "vcr_00000000000000000000000001";
+  const response = await create(supplied); expect(response.status).toBe(201);
+  expect(await response.json()).not.toHaveProperty("creationKey");
+  const page = await history(); expect(await page.json()).toEqual({ items: [], nextCursor: null });
+});
+
+it("resumes an unkeyed fork's retained allocation after the source is deleted", async () => {
+  await h.dispose(); h = await makeHarness({ maxVms: 2 }); token = await h.addKey("team_alpha", ["vm:read", "vm:write"]);
+  const source = h.addVm("team_alpha"), body = { displayName: "forked agent" };
+  h.upstream.fail("create", 429);
+  const first = await h.request(`/v1/vms/${source.vmId}/fork`, headers(), { method: "POST", body });
+  expect(first.status).toBe(503); const key = await handle(first);
+  expect((await h.request(`/v1/vms/${source.vmId}`, headers(), { method: "DELETE" })).status).toBe(204);
+  const page = await history(); expect(await page.json()).toMatchObject({ items: [{ creationKey: key, operation: "fork", sourceId: source.vmId }] });
+  const resumed = await h.request(`/v1/vms/${source.vmId}/fork`, headers(key), { method: "POST", body });
+  expect(resumed.status).toBe(201); expect(await resumed.json()).toMatchObject({ creationKey: key });
+  expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  expect(allocations()).toHaveLength(2);
+});

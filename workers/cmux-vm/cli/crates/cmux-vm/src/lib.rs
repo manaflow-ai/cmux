@@ -121,6 +121,8 @@ enum Command {
 
 #[derive(Subcommand, Debug)]
 enum CreationCommand {
+    /// Discover server-issued handles after a lost create response
+    List(CreationListArgs),
     /// Read retained creation intent and ownership without provider I/O
     Get(CreationArgs),
     /// Recover the original allocation; never creates, starts or grows a VM
@@ -143,6 +145,16 @@ struct CreationArgs {
     /// The original creation's idempotency key
     #[arg(long)]
     idempotency_key: String,
+}
+
+#[derive(Args, Debug)]
+struct CreationListArgs {
+    /// Page size (1-100)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    limit: Option<u32>,
+    /// Continue from a previous page's opaque cursor
+    #[arg(long)]
+    cursor: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -534,6 +546,20 @@ async fn dispatch(
         }
         Command::Creation(command) => {
             let body = match command {
+                CreationCommand::List(args) => {
+                    let cursor = parse_opt::<types::VmCreationsListVmCreationsCursor>(
+                        "--cursor",
+                        args.cursor,
+                    )?;
+                    let limit = args.limit.map(|value| value.to_string());
+                    let page = fetch_body(client.vm_creations_list_vm_creations(
+                        cursor.as_ref(),
+                        limit.as_deref(),
+                        None,
+                    ))
+                    .await?;
+                    return out.creation_list(&page);
+                }
                 CreationCommand::Get(args) => {
                     let key = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(
                         &args.idempotency_key,

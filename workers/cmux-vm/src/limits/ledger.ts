@@ -100,6 +100,20 @@ const isRecord = Schema.is(IdempotencyRecord);
 const GeneratedIndex = Schema.Struct({ key: Schema.String, generated: GeneratedCreation });
 const isGeneratedIndex = Schema.is(GeneratedIndex);
 const generatedPrefix = (scope: string) => `generated:${encodeURIComponent(scope)}:`;
+// An older ledger rejects this progress tag instead of expiring or rewriting a generated operation.
+const GeneratedRecord = Schema.Struct({
+  ...IdempotencyRecord.fields,
+  generated: GeneratedCreation,
+  progress: Schema.Struct({ phase: Schema.Literal("generated"), value: Progress }),
+});
+const isGeneratedRecord = Schema.is(GeneratedRecord);
+const readRecord = (value: unknown): IdempotencyRecord | undefined => isGeneratedRecord(value)
+  ? { ...value, progress: value.progress.value }
+  : checked(isRecord, value);
+const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
+  record.generated === undefined ? record : { ...record, progress: { phase: "generated", value: record.progress } },
+);
+
 const isReservation = Schema.is(Reservation);
 
 const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
@@ -124,26 +138,26 @@ export class TenantLedger {
 
   /** Read only: inspecting an expired record never drops a retained allocation. */
   async inspect(key: string): Promise<IdempotencyRecord | null> {
-    return checked(isRecord, await this.storage.get(`idem:${key}`)) ?? null;
+    return readRecord(await this.storage.get(`idem:${key}`)) ?? null;
   }
 
   /** Called only after ownership has committed, including a lost completion receipt. */
   async settleCreation(key: string, vmId: string, nowMs: number): Promise<void> {
     await this.storage.transaction(async (storage) => {
-      const record = checked(isRecord, await storage.get(`idem:${key}`));
+      const record = readRecord(await storage.get(`idem:${key}`));
       if (record?.progress.phase === "done" && record.progress.vmId === vmId) return;
       if (record?.progress.phase !== "creating" || record.progress.vmId !== vmId || record.progress.cancelRequested === true) throw new Error("allocation intent changed");
       await storage.delete(`reserve:${record.progress.reservationId}`);
-      await storage.put(`idem:${key}`, { ...record, progress: { phase: "done", vmId }, leaseUntilMs: nowMs, expiresMs: Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) });
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { phase: "done", vmId }, leaseUntilMs: nowMs, expiresMs: Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) });
     });
   }
 
   /** Exactly one potentially allocating provider send. Unknown outcomes never reopen this gate. */
   async beginCreateSend(key: string, vmId: string, token: string): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
-      const record = checked(isRecord, await storage.get(`idem:${key}`)), p = record?.progress;
+      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
       if (p?.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || p.dispatch.state === "sent") return false;
-      await storage.put(`idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token } } });
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token } } });
       return true;
     });
   }
@@ -151,10 +165,10 @@ export class TenantLedger {
   /** Only a documented provider rejection proves that this exact send allocated nothing. */
   async rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
-      const record = checked(isRecord, await storage.get(`idem:${key}`)), p = record?.progress;
+      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
       if (p?.phase !== "creating" || p.vmId !== vmId || p.dispatch?.state !== "sent" || p.dispatch.token !== token) return false;
       if (p.cancelRequested === true) await storage.delete(`reserve:${p.reservationId}`);
-      await storage.put(`idem:${key}`, { ...record, progress: { ...p, phase: p.cancelRequested === true ? "cancelled" : "creating", dispatch: { state: "rejected", token } } });
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, phase: p.cancelRequested === true ? "cancelled" : "creating", dispatch: { state: "rejected", token } } });
       return true;
     });
   }
@@ -167,13 +181,13 @@ export class TenantLedger {
   /** Monotonic fence, before any provider cleanup. Legacy sends have no trustworthy dispatch receipt. */
   async cancelCreation(key: string, vmId: string): Promise<CancelCreationDecision> {
     return this.storage.transaction(async (storage) => {
-      const record = checked(isRecord, await storage.get(`idem:${key}`)), p = record?.progress;
+      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
       if (p?.phase === "cancelled" && p.vmId === vmId) return "accepted";
       if (p?.phase !== "creating" || p.vmId !== vmId) return "finished";
       if (p.dispatch === undefined) return "legacy";
       const terminal = p.dispatch.state !== "sent";
       if (terminal) await storage.delete(`reserve:${p.reservationId}`);
-      await storage.put(`idem:${key}`, { ...record, progress: { ...p, cancelRequested: true, phase: terminal ? "cancelled" : "creating" } });
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, cancelRequested: true, phase: terminal ? "cancelled" : "creating" } });
       return "accepted";
     });
   }
@@ -181,11 +195,11 @@ export class TenantLedger {
   /** After a verified allocation is deleted and SQL has a tombstone. Never expires into another create. */
   async settleCancellation(key: string, vmId: string): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
-      const record = checked(isRecord, await storage.get(`idem:${key}`)), p = record?.progress;
+      const record = readRecord(await storage.get(`idem:${key}`)), p = record?.progress;
       if (p?.phase === "cancelled" && p.vmId === vmId) return true;
       if (p?.phase !== "creating" || p.vmId !== vmId || p.cancelRequested !== true || p.dispatch === undefined) return false;
       await storage.delete(`reserve:${p.reservationId}`);
-      await storage.put(`idem:${key}`, { ...record, progress: { ...p, phase: "cancelled" } });
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, phase: "cancelled" } });
       return true;
     });
   }
@@ -236,7 +250,7 @@ export class TenantLedger {
   /** A retry reuses only the quota slot durably attached to this exact allocation intent. */
   async creationReservation(key: string, vmId: string): Promise<string | null> {
     return this.storage.transaction(async (storage) => {
-      const record = checked(isRecord, await storage.get(`idem:${key}`));
+      const record = readRecord(await storage.get(`idem:${key}`));
       if (record?.progress.phase !== "creating" || record.progress.vmId !== vmId) return null;
       const held = checked(isReservation, await storage.get(`reserve:${record.progress.reservationId}`));
       return held?.kind === "vm" && held.retained === true ? record.progress.reservationId : null;
@@ -247,7 +261,7 @@ export class TenantLedger {
   async begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin> {
     return this.storage.transaction(async (storage) => {
       const storageKey = `idem:${key}`;
-      const raw = await storage.get(storageKey), record = checked(isRecord, raw);
+      const raw = await storage.get(storageKey), record = readRecord(raw);
       if (raw !== undefined && record === undefined) throw new Error("unrecognized idempotency record");
       if (record !== undefined && (record.generated !== undefined || record.expiresMs > nowMs || record.progress.phase === "creating" || record.progress.phase === "cancelled" || record.progress.phase === "pending")) {
         if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint) || (generated !== undefined && JSON.stringify(record.generated) !== JSON.stringify(generated))) return { state: "mismatch" };
@@ -258,11 +272,11 @@ export class TenantLedger {
         if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") return { state: "resume", progress: record.progress };
         if (record.leaseUntilMs > nowMs) return record.progress.phase === "creating" ? { state: "in_progress", progress: record.progress } : { state: "in_progress" };
         if (record.progress.phase === "snapshotted" || record.progress.phase === "creating") {
-          await storage.put(storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
+          await putRecord(storage, storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
           return { state: "resume", progress: record.progress };
         }
       }
-      await storage.put(storageKey, {
+      await putRecord(storage, storageKey, {
         fingerprint,
         ...(clientFingerprint === undefined ? {} : { clientFingerprint }),
         ...(generated === undefined ? {} : { generated }),
@@ -279,7 +293,7 @@ export class TenantLedger {
   async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void> {
     await this.storage.transaction(async (storage) => {
       const storageKey = `idem:${key}`;
-      const record = checked(isRecord, await storage.get(storageKey));
+      const record = readRecord(await storage.get(storageKey));
       if (record === undefined) throw new Error("missing idempotency claim");
       if (record.progress.phase === "cancelled" || (record.progress.phase === "creating" && record.progress.cancelRequested === true)) throw new Error("creation cancellation is fenced");
       if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") {
@@ -301,7 +315,7 @@ export class TenantLedger {
       if (record.generated !== undefined && (progress.phase === "creating" || progress.phase === "snapshotted")) {
         await storage.put(`${generatedPrefix(record.generated.scope)}${record.generated.cursor}`, { key, generated: record.generated });
       }
-      await storage.put(storageKey, {
+      await putRecord(storage, storageKey, {
         ...record,
         progress,
         expiresMs: progress.phase === "done" || progress.phase === "snapshotDone" ? Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) : record.expiresMs,
@@ -317,10 +331,10 @@ export class TenantLedger {
   async abandon(key: string, nowMs: number): Promise<void> {
     await this.storage.transaction(async (storage) => {
       const storageKey = `idem:${key}`;
-      const record = checked(isRecord, await storage.get(storageKey));
+      const record = readRecord(await storage.get(storageKey));
       if (record === undefined) return;
       if (record.progress.phase === "claimed") await storage.delete(storageKey);
-      else await storage.put(storageKey, { ...record, leaseUntilMs: nowMs });
+      else await putRecord(storage, storageKey, { ...record, leaseUntilMs: nowMs });
     });
   }
 
@@ -365,7 +379,7 @@ export class TenantLedger {
     const previous = await storage.get("maintenance:sweep-cursor");
     const records = await storage.list({ prefix: "idem:", ...(typeof previous === "string" ? { startAfter: previous } : {}), limit: 64 });
     for (const [key, value] of records) {
-      const record = checked(isRecord, value);
+      const record = readRecord(value);
       if (record !== undefined && record.generated === undefined && record.progress.phase !== "creating" && record.progress.phase !== "cancelled" && record.progress.phase !== "pending" && record.expiresMs <= nowMs) await storage.delete(key);
     }
     if (records.size === 64) await storage.put("maintenance:sweep-cursor", [...records.keys()].at(-1));

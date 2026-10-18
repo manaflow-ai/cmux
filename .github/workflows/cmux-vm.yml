@@ -168,6 +168,9 @@ jobs:
       - name: Integration tests in workerd (fake upstream)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:workers
+      - name: Generated creation storage survives an older ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-generated-creation-compat.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg

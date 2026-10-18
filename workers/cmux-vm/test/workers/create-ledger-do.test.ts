@@ -3,7 +3,24 @@ import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
 import { IDEMPOTENCY_TTL_MS } from "../../src/limits/ledger.ts";
 import { durableObjectLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
-import { TenantId, VmId } from "../../src/lib/ids.ts";
+import { TenantId, VmId, VmCreationKey } from "../../src/lib/ids.ts";
+
+it("persists generated history and permanent replay through native RPC serialization", async () => {
+  const tenant = TenantId.make(crypto.randomUUID()), now = Date.now();
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));
+  const generated = { key: VmCreationKey.make("vcr_00000000000000000000000001"), cursor: "a".repeat(64), scope: "tenant",
+    createdBy: "key:owner", createdAt: "2026-10-18T00:00:00Z", displayName: null, labels: {}, operation: "create" as const };
+  expect(await Effect.runPromise(limits.begin(tenant, "native-generated", "request", undefined, generated))).toEqual({ state: "new" });
+  const stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  const id = "vm_00000000000000000000000001";
+  await stub.reserve("vm", 1, 0, now, "held-generated");
+  expect(await stub.advance("native-generated", { phase: "creating", vmId: id, reservationId: "held-generated", context: "provider", createdBy: "key:owner" }, now + 1)).toBe(true);
+  expect(await Effect.runPromise(limits.listGenerated(tenant, "tenant", undefined, 1))).toEqual({ items: [generated], nextCursor: null });
+  expect(await Effect.runPromise(limits.listGenerated(tenant, "service:other", undefined, 1))).toEqual({ items: [], nextCursor: null });
+  expect(await stub.advance("native-generated", { phase: "done", vmId: id }, now + 2)).toBe(true);
+  expect(await stub.begin("native-generated", "request", now + IDEMPOTENCY_TTL_MS * 3)).toMatchObject({ state: "resume", progress: { phase: "done", vmId: id } });
+  expect((await Effect.runPromise(limits.inspect(tenant, "native-generated")))?.generated).toEqual(generated);
+});
 
 it("keeps the admitted client request binding through native RPC, completion and later retries", async () => {
   const tenant = TenantId.make(crypto.randomUUID()), now = Date.now();

@@ -66,7 +66,7 @@ export const resourceFloorsReached = (vm: UpstreamVm, size: SizeRequest): boolea
 export interface CreateVmSpec {
   readonly createdBy?: string;
   /** Private effect journal: persist only the opaque request/context digest before provider I/O. */
-  readonly journal?: {
+  readonly journal: {
     readonly context: string | null;
     readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
     readonly beginSend: () => Effect.Effect<string, UpstreamError>;

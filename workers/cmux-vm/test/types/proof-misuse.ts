@@ -15,7 +15,13 @@ import { tenantMayCreate } from "../../src/proofs/tenant-may-create.ts";
 import { vmImageAllowed } from "../../src/proofs/vm-image.ts";
 import { vmNetworkAllowed } from "../../src/proofs/vm-network.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
+import type { CreateVmSpec } from "../../src/upstream/client.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
+
+const journalFixture: CreateVmSpec["journal"] = {
+  context: null, beforeSend: () => Effect.void, beginSend: () => Effect.succeed("send"),
+  rejected: () => Effect.void, active: Effect.void,
+};
 
 export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {
@@ -66,7 +72,7 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
           yield* upstream.statFile(b, { owns: ownsA, scope: files }, "/");
         }
         // @ts-expect-error a create needs a TenantMayCreate proof
-        yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
+        yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local", journal: journalFixture }, { scope: write });
       }),
     );
 
@@ -93,10 +99,12 @@ export const networkMisuse = (principal: Principal, vmId: VmId) =>
       const networkScope = keyHasScope(caller, "vm:network");
       const decision = yield* tenantMayCreate(caller, "vm");
       if (scope === null || networkScope === null || decision._tag !== "granted") return;
-      const spec = { cmuxId: vmId, idleTimeoutSeconds: 300, environment: "local" };
+      const spec = { cmuxId: vmId, idleTimeoutSeconds: 300, environment: "local", journal: journalFixture };
       const network = yield* vmNetworkAllowed(caller, { publicEgress: true, httpsProxies: [] });
       const otherNetwork = yield* vmNetworkAllowed(other, { publicEgress: true, httpsProxies: [] });
       yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, network });
+      // @ts-expect-error allocation requires a durable journal even with every other proof
+      yield* upstream.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: 300, environment: "local" }, { scope, mayCreate: decision.proof, network });
       // @ts-expect-error a network scope alone is not a checked network policy
       yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, network: networkScope });
       // @ts-expect-error another caller's network proof cannot authorize this create
@@ -137,7 +145,7 @@ export const imageMisuse = (principal: Principal, vmId: VmId) => Effect.gen(func
     const scope = keyHasScope(caller, "vm:write");
     const decision = yield* tenantMayCreate(caller, "vm");
     if (scope === null || decision._tag !== "granted") return;
-    const spec = { cmuxId: vmId, idleTimeoutSeconds: 300, environment: "local" };
+    const spec = { cmuxId: vmId, idleTimeoutSeconds: 300, environment: "local", journal: journalFixture };
     const image = yield* vmImageAllowed(caller, { id: "cloud-standard", revision: "r1" });
     const otherImage = yield* vmImageAllowed(other, { id: "cloud-standard", revision: "r1" });
     yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, image });

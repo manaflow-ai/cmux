@@ -48,6 +48,38 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    pub fn creation_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let page: serde_json::Value = decode(body)?;
+        let items = page["items"]
+            .as_array()
+            .ok_or_else(|| CliError::unexpected("invalid creation page"))?;
+        if items.is_empty() {
+            self.line("no creations on this page")?;
+        } else {
+            self.line(&format!("{:<31} {:<12} VM", "CREATION_KEY", "STATE"))?;
+            for item in items {
+                let key = item["creationKey"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .escape_debug();
+                let state = item["state"].as_str().unwrap_or("unknown").escape_debug();
+                let id = item["id"].as_str().unwrap_or("unresolved").escape_debug();
+                self.line(&format!("{key:<31} {state:<12} {id}"))?;
+            }
+        }
+        if let Some(cursor) = page["nextCursor"].as_str() {
+            self.line(&format!(
+                "more: cmux-vm creation list --cursor {}",
+                cursor.escape_debug()
+            ))?;
+        }
+        Ok(())
+    }
+
     pub fn creation(&mut self, body: &[u8]) -> Result<(), CliError> {
         let _: cmux_vm_client::types::VmCreationStatus = decode(body)?;
         self.creation_body(body)

@@ -146,12 +146,14 @@ include a public `creationKey` (`vcr_…`). Save it and use it as the
 request without a key is a distinct intent. Server-issued handles never become
 fresh allocation authority, including after the VM is deleted.
 
-`GET /v1/vm-creations?limit=50&cursor=…` discovers server-issued handles after
+`cmux-vm creation list --json` and
+`GET /v1/vm-creations?limit=50&cursor=…` discover server-issued handles after
 a lost response. It returns `items` and an opaque `nextCursor`; a filtered page
 may be empty while still having a next cursor. It reads no provider state.
 The caller needs `vm:read` and an unrestricted credential; tenant, service
 identity and current resource labels still apply. Client-supplied keys are
-never returned or indexed in this history. History persists with its operation.
+never returned or indexed in this history. History persists with its operation. Older Worker versions fail closed on these
+protected records; recovery requires a version that understands them.
 
 An uncertain send or failed grow retains the VM and its quota reservation.
 Use the original intent to recover it, or cancel with its handle. A fork that

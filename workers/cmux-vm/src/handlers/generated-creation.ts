@@ -8,7 +8,7 @@ import { newVmCreationKey, parseVmCreationKey, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { requestFingerprint } from "./idempotency.ts";
 
-export const issueCreation = (principal: Principal, operation: "create" | "fork", payload: { readonly displayName?: string; readonly labels?: Readonly<Record<string, string>> }, sourceId?: VmId) => Effect.gen(function* () {
+export const issueCreation = (principal: Principal, operation: "create" | "fork", payload: { readonly displayName?: string | undefined; readonly labels?: Readonly<Record<string, string>> | undefined }, sourceId?: VmId) => Effect.gen(function* () {
   const key = newVmCreationKey();
   const generated: GeneratedCreation = {
     key, cursor: yield* requestFingerprint(["creation-page:v1", key]), scope: creationDiscoveryScope(principal),

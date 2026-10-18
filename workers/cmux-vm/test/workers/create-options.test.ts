@@ -26,7 +26,7 @@ const json = async (response: Response): Promise<Record<string, unknown>> => {
   return typeof body === "object" && body !== null ? Object.fromEntries(Object.entries(body)) : {};
 };
 
-const create = (t: Harness, key: string, body: unknown) => t.request("/v1/vms", bearer(key), { method: "POST", body });
+const create = (t: Harness, key: string, body: unknown, headers: Record<string, string> = {}) => t.request("/v1/vms", { ...bearer(key), ...headers }, { method: "POST", body });
 
 describe("resources", () => {
   it("boots the largest base size inside the request, then grows to it", async () => {
@@ -51,16 +51,22 @@ describe("resources", () => {
     expect(t.upstream.callsTo("POST", /\/resize$/)).toHaveLength(0);
   });
 
-  it("deletes the new VM and answers 409 when growing fails", async () => {
+  it("retains the allocation and returns its recovery handle when growing fails", async () => {
     const t = await harness();
     const key = await t.addKey(TENANT_A, ["vm:write"]);
     t.upstream.fail("resize", 409);
 
     const response = await create(t, key, { resources: { diskMib: 50000 } });
 
-    expect(response.status).toBe(409);
-    expect(t.upstream.vms.size).toBe(0);
-    expect(t.resources.filter((row) => row.kind === "vm")).toHaveLength(0);
+    expect(response.status).toBe(503);
+    const { creationKey } = await response.json<{ creationKey: string }>();
+    expect(creationKey).toMatch(/^vcr_[0-9a-hjkmnp-tv-z]{26}$/);
+    expect(t.upstream.vms.size).toBe(1);
+    const retry = await create(t, key, { resources: { diskMib: 50000 } }, { "idempotency-key": creationKey });
+    expect(retry.status).toBe(201);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+    expect(t.upstream.vms.size).toBe(1);
+    expect(t.resources.filter((row) => row.kind === "vm")).toHaveLength(1);
   });
 
   it("rejects sizes outside the allowed range", async () => {
