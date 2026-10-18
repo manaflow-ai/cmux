@@ -2258,6 +2258,7 @@
           "currentLineHighlight": "Resalta con color la fila que contiene el cursor de texto mientras no haya nada seleccionado.",
           "tabWidth": "Cuántas columnas abarca una tabulación. Las guías de sangría usan el mismo espaciado."
         },
+        "actions": "Acciones reutilizables para la paleta de comandos, los atajos, los botones de la barra de pestañas y el menú del botón más. Admite builtin, command, agent, workspaceCommand, workspace, setting, settingPreset y text. Las acciones de texto pegan en el terminal enfocado y conservan los saltos de línea; submit: true pulsa Enter. Las acciones de ajustes requieren configuración global.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

@@ -244,6 +244,9 @@
          location = "group:CmuxGit">
       </FileRef>
       <FileRef
+         location = "group:CmuxHerdrResume">
+      </FileRef>
+      <FileRef
          location = "group:CmuxHive">
       </FileRef>
       <FileRef
@@ -332,6 +335,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTextActions">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">

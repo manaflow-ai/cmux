@@ -2258,6 +2258,7 @@
           "currentLineHighlight": "Colora la riga che contiene il cursore di testo quando non è selezionato nulla.",
           "tabWidth": "Quante colonne occupa una tabulazione. Le guide di rientro usano la stessa spaziatura."
         },
+        "actions": "Azioni riutilizzabili per la tavolozza dei comandi, le scorciatoie, i pulsanti della barra delle schede e il menu del pulsante più. Supporta builtin, command, agent, workspaceCommand, workspace, setting, settingPreset e text. Le azioni di testo incollano nel terminale attivo mantenendo le interruzioni di riga; submit: true preme Enter. Le azioni delle impostazioni richiedono una configurazione globale.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

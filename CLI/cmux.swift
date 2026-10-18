@@ -4638,9 +4638,7 @@ final class SocketClient {
             "method": method,
             "params": params
         ]
-        guard JSONSerialization.isValidJSONObject(request),
-              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
-              let requestLine = String(data: requestData, encoding: .utf8) else {
+        guard let requestLine = try? ControlRequestLine.encode(request) else {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
@@ -6582,6 +6580,9 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
+        if command == "automation" {
+            try validateAutomationArgumentsBeforeSocket(commandArgs)
+        }
 
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
@@ -23549,13 +23550,16 @@ struct CMUXCLI {
     /// Rejects arguments a command doesn't accept, before it contacts the app,
     /// so a typo can't fall through to a different request. A value option
     /// needs a value that isn't another `--` flag (`--name=value` works too);
-    /// everything after `--` counts as a positional.
+    /// everything after `--` counts as a positional. Commands whose
+    /// positionals are free text and that have no single-dash options pass
+    /// `singleDashWordsArePositionals` so `-5C` stays text.
     func rejectUnexpectedArguments(
         _ args: [String],
         commandName: String,
         valueOptions: Set<String>,
         flags: Set<String> = [],
-        maxPositionals: Int
+        maxPositionals: Int,
+        singleDashWordsArePositionals: Bool = false
     ) throws {
         var positionals = 0
         var pastTerminator = false
@@ -23585,7 +23589,7 @@ struct CMUXCLI {
                 if flags.contains(arg) {
                     continue
                 }
-                if arg.hasPrefix("-"), arg.count > 1 {
+                if arg.hasPrefix("--") || (!singleDashWordsArePositionals && arg.hasPrefix("-") && arg.count > 1) {
                     let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
                     throw CLIError(message: String.localizedStringWithFormat(
                         String(localized: "cli.arguments.error.unknownOption", defaultValue: "%1$@: unknown option %2$@"),
@@ -31438,6 +31442,14 @@ struct CMUXCLI {
                     color: "#8E8E93",
                     pid: claudePid
                 )
+                // `claude --worktree` starts the session outside the shell's
+                // directory; the pane follows the session from here on.
+                reportClaudeHookPaneDirectory(
+                    hookCwd: hookCwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
             }
             printClaudeHookAck()
 
@@ -31554,6 +31566,14 @@ struct CMUXCLI {
                     printClaudeHookAck()
                     return
                 }
+
+                // A worktree entered or left during the turn shows up here.
+                reportClaudeHookPaneDirectory(
+                    hookCwd: hookCwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
 
                 // Whether this turn ended with unfinished background work (a running
                 // background task or a pending cron). Cached on the session record so
@@ -31833,6 +31853,12 @@ struct CMUXCLI {
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                 store: sessionStore,
                 telemetry: telemetry
+            )
+            reportClaudeHookPaneDirectory(
+                hookCwd: hookCwd,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                client: client
             )
             try setClaudeStatus(
                 client: client,
@@ -32329,6 +32355,18 @@ struct CMUXCLI {
                         "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
                         client: client
                     )
+                    // The shell re-reports only a directory it has not sent,
+                    // so hand the pane back to where Claude was launched.
+                    // `/clear` ends a session but Claude keeps running, and
+                    // the next SessionStart reports its cwd again.
+                    let endReason = normalizedHookValue(parsedInput.object?["reason"] as? String)
+                    if !relayOrigin, endReason?.lowercased() != "clear" {
+                        restoreClaudeLaunchPaneDirectory(
+                            workspaceId: workspaceId,
+                            surfaceId: cleanupSurfaceId,
+                            client: client
+                        )
+                    }
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
@@ -36397,6 +36435,10 @@ struct CMUXCLI {
                     eventName: event.agentEvent
                 ))
                 result[event.agentEvent] = entries
+            case .copilotHooksJSON(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.copilotHookEntry(command: cmd, timeoutSeconds: timeoutSeconds))
+                result[event.agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
@@ -36433,6 +36475,13 @@ struct CMUXCLI {
                     command: feedCmd,
                     timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs),
                     eventName: agentEvent
+                ))
+                result[agentEvent] = entries
+            case .copilotHooksJSON:
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.copilotHookEntry(
+                    command: feedCmd,
+                    timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs)
                 ))
                 result[agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
@@ -37371,6 +37420,201 @@ export default {
         ))
     }
 
+    /// Copilot CLI runs a `bash` entry with bash and stops it after
+    /// `timeoutSec` seconds (30 when absent). `type` is optional there; it is
+    /// written so the file reads like Copilot's own examples.
+    private static func copilotHookEntry(command: String, timeoutSeconds: Int) -> [String: Any] {
+        ["type": "command", "bash": command, "timeoutSec": max(timeoutSeconds, 1)]
+    }
+
+    /// Where cmux versions before this one wrote Copilot hooks. Copilot CLI
+    /// does not read hooks from it any more, so setup and uninstall both prune
+    /// the cmux groups left there and keep everything else.
+    private static let copilotLegacyConfigFile = "config.json"
+
+    /// Copilot CLI loads every `*.json` under its `hooks/` directory as a
+    /// `version: 1` file, so cmux owns one whole file there (`def.configFile`)
+    /// instead of merging into a shared document.
+    private func installCopilotHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        let hooksDir = (filePath as NSString).deletingLastPathComponent
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        var isDirectory = ObjCBool(false)
+        if fm.fileExists(atPath: hooksDir, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.configDirectoryIsFile",
+                        defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
+                    ),
+                    hooksDir
+                ))
+            }
+        } else {
+            do {
+                try fm.createDirectory(atPath: hooksDir, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.error.configDirectoryCreateFailed",
+                        defaultValue: "cmux could not create the hooks directory at %@. Check the parent directory permissions and try again."
+                    ),
+                    hooksDir
+                ))
+            }
+        }
+
+        let document: [String: Any] = ["version": 1, "hooks": buildHooksDict(for: def)]
+        let newData = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys])
+        let newString = String(data: newData, encoding: .utf8) ?? "{}"
+        let oldString: String = {
+            guard let data = fm.contents(atPath: filePath),
+                  let json = try? JSONSerialization.jsonObject(with: data),
+                  let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
+                  let string = String(data: pretty, encoding: .utf8) else {
+                return ""
+            }
+            return string
+        }()
+
+        if oldString == newString {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.antigravity.alreadyUpToDate",
+                    defaultValue: "%@ hooks already up to date at %@"
+                ),
+                def.displayName,
+                filePath
+            ))
+            try removeLegacyCopilotConfigHooks(def, configDir: configDir)
+            return
+        }
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: filePath,
+                oldContent: oldString,
+                newContent: newString,
+                fallbackContent: newString
+            )
+            print(String(
+                localized: "cli.hooks.antigravity.confirmProceed",
+                defaultValue: "\nProceed? [y/N] "
+            ), terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print(String(
+                    localized: "cli.hooks.antigravity.aborted",
+                    defaultValue: "Aborted."
+                ))
+                return
+            }
+        }
+        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.antigravity.installed",
+                defaultValue: "%@ hooks installed at %@"
+            ),
+            def.displayName,
+            filePath
+        ))
+        try removeLegacyCopilotConfigHooks(def, configDir: configDir)
+    }
+
+    /// Removes the file when it carries cmux's commands. A `cmux.json` the
+    /// user wrote themselves stays put; other files in `hooks/` are never read.
+    private func uninstallCopilotHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        if let data = fm.contents(atPath: filePath) {
+            if let json = try? JSONSerialization.jsonObject(with: data),
+               Self.jsonHookValueContainsCmuxOwnedCommand(json, for: def) {
+                try fm.removeItem(atPath: filePath)
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.copilot.removed",
+                        defaultValue: "Removed Copilot cmux hooks from %@"
+                    ),
+                    filePath
+                ))
+            } else {
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.antigravity.removedZero",
+                        defaultValue: "Removed 0 cmux hook(s) from %@"
+                    ),
+                    filePath
+                ))
+            }
+        } else {
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.antigravity.noneFound",
+                    defaultValue: "No %@ found at %@"
+                ),
+                def.configFile,
+                filePath
+            ))
+        }
+        try removeLegacyCopilotConfigHooks(def, configDir: configDir)
+    }
+
+    /// Prunes the nested `hooks` groups an older cmux wrote into Copilot's
+    /// `config.json`. Entries the user added stay, even inside a group that
+    /// also held a cmux hook; events left empty are dropped. A missing or
+    /// unreadable file is left alone.
+    private func removeLegacyCopilotConfigHooks(_ def: AgentHookDef, configDir: String) throws {
+        let configPath = "\(configDir)/\(Self.copilotLegacyConfigFile)"
+        let fm = FileManager.default
+        guard let data = fm.contents(atPath: configPath),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var hooks = json["hooks"] as? [String: Any] else {
+            return
+        }
+        var removed = 0
+        for (event, value) in hooks {
+            guard let groups = value as? [[String: Any]] else { continue }
+            var keptGroups: [[String: Any]] = []
+            for var group in groups {
+                guard var hookList = group["hooks"] as? [[String: Any]] else {
+                    keptGroups.append(group)
+                    continue
+                }
+                let before = hookList.count
+                hookList.removeAll { Self.isCmuxOwnedHookCommand($0["command"] as? String ?? "", for: def) }
+                removed += before - hookList.count
+                if hookList.isEmpty { continue }
+                group["hooks"] = hookList
+                keptGroups.append(group)
+            }
+            if keptGroups.isEmpty {
+                hooks.removeValue(forKey: event)
+            } else {
+                hooks[event] = keptGroups
+            }
+        }
+        guard removed > 0 else { return }
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try newData.write(to: URL(fileURLWithPath: configPath), options: .atomic)
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.copilot.legacyRemoved",
+                defaultValue: "Removed %1$lld cmux hook(s) from %2$@"
+            ),
+            Int64(removed),
+            configPath
+        ))
+    }
+
     private func uninstallAntigravityHooks(_ def: AgentHookDef) throws {
         let filePath = "\(def.resolvedConfigDir())/\(def.configFile)"
         let fm = FileManager.default
@@ -37493,6 +37737,10 @@ export default {
             try installAntigravityHooks(def)
             return
         }
+        if case .copilotHooksJSON = def.format {
+            try installCopilotHooks(def)
+            return
+        }
         if case .tomlArrayTable = def.format {
             try installKimiHooks(def)
             return
@@ -37604,7 +37852,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .copilotHooksJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -37632,7 +37880,7 @@ export default {
                     }
                 }
                 hooks[event] = groups
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .copilotHooksJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -37875,6 +38123,10 @@ export default {
             try uninstallAntigravityHooks(def)
             return
         }
+        if case .copilotHooksJSON = def.format {
+            try uninstallCopilotHooks(def)
+            return
+        }
         if case .tomlArrayTable = def.format {
             try uninstallKimiHooks(def)
             return
@@ -37943,7 +38195,7 @@ export default {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
+            case .antigravityJSON, .copilotHooksJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -39780,8 +40032,7 @@ export default {
                             "wait_timeout_seconds": 0,
                         ],
                     ]
-                    if let data = try? JSONSerialization.data(withJSONObject: frame),
-                       let line = String(data: data, encoding: .utf8) {
+                    if let line = try? ControlRequestLine.encode(frame) {
                         sendBestEffortFeedTelemetry(
                             socketPath: client.socketPath,
                             line: line,
@@ -42081,9 +42332,7 @@ export default {
                 "wait_timeout_seconds": 0,
             ],
         ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8)
-        else { return }
+        guard let line = try? ControlRequestLine.encode(frame) else { return }
         // Deliberately NO native-approval-prompt clear on this lane: the
         // wrapper-injected codex hooks that reach it (`hooks codex
         // post-tool-use`) run as fire-and-forget nohup workers with no
@@ -44566,7 +44815,19 @@ export default {
         if let surfaceId = validatedCodexFeedTarget?.surfaceId ?? claimedSurfaceId {
             eventDict["surface_id"] = surfaceId
         }
-        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        // Copilot CLI sends the tool arguments as `toolArgs`, documented as a
+        // JSON-encoded string. Decode it so the cwd fallback and the Feed's
+        // command extraction see an object; a string that is not a JSON object
+        // is kept as it came.
+        let copilotToolArgs: Any? = stdinObj["toolArgs"].map { (value: Any) -> Any in
+            guard let text = value as? String,
+                  let data = text.data(using: .utf8),
+                  let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return value
+            }
+            return decoded
+        }
+        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? copilotToolArgs ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
             ?? stdinObj["toolResponse"]
             ?? stdinObj["tool_result"]
@@ -44672,8 +44933,7 @@ export default {
         }
 
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
-            let payload = try JSONSerialization.data(withJSONObject: request)
-            let line = String(data: payload, encoding: .utf8) ?? "{}"
+            let line = try ControlRequestLine.encode(request)
             // Codex-style agents block in their own approval UI while this
             // (telemetry) event is their only signal, so the permission-prompt
             // notification — and the clear once execution proceeds — ride
@@ -44817,8 +45077,7 @@ export default {
                 ]
             }
         }
-        let payload = try JSONSerialization.data(withJSONObject: request)
-        let line = String(data: payload, encoding: .utf8) ?? "{}"
+        let line = try ControlRequestLine.encode(request)
         let response: String
         do {
             response = try activeClient.send(
