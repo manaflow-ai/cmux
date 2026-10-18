@@ -38,8 +38,11 @@ fn open_integrity_check_skips_mutation_ledgers() {
         checked.iter().any(|table| table == "workspaces"),
         "state tables stay checked: {checked:?}"
     );
-    for ledger in ["mutations", "projection_mutations", "terminal_mutations", "resource_mutations"]
-    {
+    assert!(
+        checked.iter().any(|table| table == "resource_mutations"),
+        "resource_mutations holds restored state and stays checked: {checked:?}"
+    );
+    for ledger in ["mutations", "projection_mutations", "terminal_mutations"] {
         assert!(!checked.iter().any(|table| table == ledger), "{ledger} was quick_checked on open");
     }
     fs::remove_dir_all(root).unwrap();
