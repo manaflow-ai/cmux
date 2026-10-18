@@ -83,7 +83,11 @@ extension WindowManager {
             // A room change shows the workspace last shown in that room.
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
-            let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
+            // "The next row" is the sidebar's next row, not the next member to have joined.
+            let rows = controller(for: window.id)?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+            let prior = WindowRegistry.sidebarOrdered(
+                WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines),
+                rows: rows, current: state.workspaceID)
             let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior,
                                                         members: visible, preferred: wanted)
             if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }

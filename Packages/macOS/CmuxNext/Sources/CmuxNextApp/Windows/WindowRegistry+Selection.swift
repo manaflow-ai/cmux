@@ -16,4 +16,14 @@ extension WindowRegistry {
         if let pick = preferred.first(where: members.contains) { return pick }
         return FocusAfterClose.workspace(shown: current, old: previous, surviving: members)
     }
+
+    /// A window's members (`ids`, in the order they joined it) in its sidebar's row order
+    /// (`rows`), the order a close's "next row" means. Members the sidebar does not list
+    /// keep their order after the rows. When the sidebar no longer lists `current` (it
+    /// already dropped the closed row), `ids` as they are: the rows cannot place it.
+    static func sidebarOrdered(_ ids: [String], rows: [String], current: String?) -> [String] {
+        guard let current, rows.contains(current) else { return ids }
+        let members = Set(ids), listed = Set(rows)
+        return rows.filter(members.contains) + ids.filter { !listed.contains($0) }
+    }
 }
