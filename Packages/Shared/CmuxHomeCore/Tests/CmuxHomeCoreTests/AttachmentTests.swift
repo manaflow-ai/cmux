@@ -10,24 +10,7 @@ import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
-// TEMP diagnostic (drop before merge): print the crashing thread's stack, since
-// CI's macOS 15 VMs collect no crash report for this test process.
-let crashBacktraceInstalled: Void = {
-    for sig in [SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGABRT] {
-        signal(sig) { received in
-            var frames = [UnsafeMutableRawPointer?](repeating: nil, count: 128)
-            let count = backtrace(&frames, 128)
-            fputs("\n=== CMUX_HOMECORE_CRASH signal \(received) ===\n", stderr)
-            backtrace_symbols_fd(&frames, count, 2)
-            fputs("=== CMUX_HOMECORE_CRASH end ===\n", stderr)
-            signal(received, SIG_DFL)
-            raise(received)
-        }
-    }
-}()
-
 func temporaryDirectory() throws -> URL {
-    _ = crashBacktraceInstalled
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-attach-tests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
