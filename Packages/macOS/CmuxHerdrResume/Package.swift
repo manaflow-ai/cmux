@@ -24,7 +24,12 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxHerdrResumeTests",
-            dependencies: ["CmuxHerdrResume"]
+            dependencies: ["CmuxHerdrResume"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
         ),
     ]
 )
