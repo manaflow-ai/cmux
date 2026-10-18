@@ -1,5 +1,5 @@
 import type { AcpmuxRow } from "../model";
-import type { AttachTicket, RunArtifact, RunAttempt, RunBoardSnapshot } from "./model";
+import type { AttachTicket, RunArtifact, RunAttempt, RunBoardSnapshot, RunReceiptState } from "./model";
 export type { AttachTicket } from "./model";
 
 /** The JSON shape returned by the Run control plane. */
@@ -22,6 +22,7 @@ export type RunApiAttempt = {
   ordinal: number;
   status: string;
   providerVmId?: string | null;
+  terminalRetainUntil?: string | null;
   result?: Record<string, unknown> | null;
   exitCode?: number | null;
   error?: string | null;
@@ -288,6 +289,13 @@ function attemptState(status: string): RunAttempt["state"] {
   return "running";
 }
 
+function attemptReceipt(status: string): RunReceiptState {
+  if (status === "queued") return "queue";
+  if (status === "failed" || status === "cancelled" || status === "expired") return "failed";
+  if (status === "succeeded") return "reused";
+  return "running";
+}
+
 function resultValue(result: Record<string, unknown>, key: string): unknown {
   return result[key];
 }
@@ -332,6 +340,7 @@ function mapAttempt(attempt: RunApiAttempt, artifacts: RunApiArtifact[]): RunAtt
     worker: `${stringValue(resultValue(result, "provider")) ?? "cloud-vm"}${providerVmId ? ` · ${providerVmId}` : ""}`,
     sessionId: stringValue(resultValue(result, "sessionId")) ?? providerVmId ?? attempt.id,
     state,
+    receipt: attemptReceipt(attempt.status),
     activity:
       stringValue(resultValue(result, "activity")) ??
       (state === "completed" ? "Finished. Ready for your review." : state === "failed" ? attempt.error ?? "Attempt failed." : "Working on the shared intent."),
@@ -380,11 +389,11 @@ export function applyRunEvent(snapshot: RunBoardSnapshot, event: RunApiEvent): R
   let next = appendEventRow(current, event);
   if (event.kind === "attempt.started") {
     const providerVmId = stringValue(payload.providerVmId);
-    next = { ...next, state: "running", worker: providerVmId ? `cloud-vm · ${providerVmId}` : next.worker, sessionId: providerVmId ?? next.sessionId, activity: "Agent started." };
+    next = { ...next, state: "running", receipt: "running", worker: providerVmId ? `cloud-vm · ${providerVmId}` : next.worker, sessionId: providerVmId ?? next.sessionId, activity: "Agent started." };
   } else if (event.kind === "attempt.succeeded") {
-    next = { ...next, state: "completed", build: "passed", activity: "Finished. Ready for your review." };
+    next = { ...next, state: "completed", receipt: "reused", build: "passed", activity: "Finished. Ready for your review." };
   } else if (event.kind === "attempt.failed") {
-    next = { ...next, state: "failed", build: "failed", activity: eventText(event) ?? "Attempt failed." };
+    next = { ...next, state: "failed", receipt: "failed", build: "failed", activity: eventText(event) ?? "Attempt failed." };
   } else if (event.kind === "attempt.artifact") {
     const digest = stringValue(payload.digest);
     const name = stringValue(payload.name);

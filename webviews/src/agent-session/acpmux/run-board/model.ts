@@ -15,12 +15,31 @@ export type RunAttempt = {
   worker: string;
   sessionId: string;
   state: "running" | "completed" | "failed";
+  /** A receipt projected from the run control-plane status and retention data. */
+  receipt?: RunReceiptState;
   activity: string;
   build: "pending" | "passed" | "failed";
   tests: { passed: number; failed: number };
   artifacts: RunArtifact[];
   rows: AcpmuxRow[];
 };
+
+export const RUN_RECEIPT_STATES = ["queue", "running", "reused", "failed", "promotion"] as const;
+export type RunReceiptState = (typeof RUN_RECEIPT_STATES)[number];
+
+export type RunReceipt = { state: RunReceiptState; label: string; detail: string };
+
+/** The promotion receipt is local human intent layered over server-owned state. */
+export function runReceipt(attempt: RunAttempt, promoted = false): RunReceipt {
+  if (promoted) return { state: "promotion", label: "Promotion requested", detail: "This attempt is queued for integration review." };
+  switch (attempt.receipt ?? (attempt.state === "failed" ? "failed" : attempt.state === "completed" ? "reused" : "running")) {
+    case "queue": return { state: "queue", label: "Queued", detail: "Waiting for a worker lease." };
+    case "running": return { state: "running", label: "Running", detail: "The leased worker is producing evidence." };
+    case "reused": return { state: "reused", label: "Retained for reuse", detail: "The completed worker remains attachable." };
+    case "failed": return { state: "failed", label: "Failed", detail: "The attempt stopped with an error; its evidence is preserved." };
+    case "promotion": return { state: "promotion", label: "Promotion requested", detail: "This attempt is queued for integration review." };
+  }
+}
 
 /** A projection from the Run owner, separate from the existing agent transcript. */
 export type RunBoardSnapshot = {
