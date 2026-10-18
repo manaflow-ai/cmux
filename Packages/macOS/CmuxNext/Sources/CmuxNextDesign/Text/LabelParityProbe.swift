@@ -18,6 +18,8 @@ public struct LabelParityProbe {
         public var mismatchCount = 0
         /// Every value of each pair (the first 2000 pairs).
         public var rows: [[String: String]] = []
+        /// The shared layout's line numbers per probe font.
+        public var lines: [String] = []
     }
 
     private enum Factory: String, CaseIterable { case label, wrapping, font }
@@ -77,6 +79,7 @@ public struct LabelParityProbe {
                 }
             }
         }
+        report.lines = Self.fonts.map { LabelText.lineReport($0.1) }
         return report
     }
 
