@@ -61,14 +61,26 @@ export function admissibleSource(src: string | undefined): string | undefined {
   return src;
 }
 
+/** The summary, or "" when it only repeats the title: a digest built from summary lines
+    carries each line as both (scripts/cmux-next/release-notes.py). */
+export function distinctSummary(title: string, summary: string): string {
+  const key = (text: string) =>
+    text
+      .trim()
+      .replace(/[.!…\s]+$/u, "")
+      .toLowerCase();
+  return key(summary) === key(title) ? "" : summary;
+}
+
 function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
   const light = admissibleSource(entry.media?.light);
   const dark = admissibleSource(entry.media?.dark);
+  const title = localized(entry.title, language);
   return {
     id: entry.id,
     category: entry.category,
-    title: localized(entry.title, language),
-    summary: localized(entry.summary, language),
+    title,
+    summary: distinctSummary(title, localized(entry.summary, language)),
     media:
       entry.media && (light || dark)
         ? {
