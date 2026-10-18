@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=leo
 EnvironmentFile=/etc/cmux/agent-broker-staging.env
-ExecStart=/usr/bin/podman run --rm --name cmux-agent-broker-staging --network=host --env-file=/etc/cmux/agent-broker-staging.env --volume=/etc/cmux/agent-broker-adapters.mjs:/etc/cmux/agent-broker-adapters.mjs:ro --volume=/home/leo/.ssh/id_ed25519_manaflow_cmux:/run/secrets/huge-blue-key:ro --volume=/home/leo/.local/bin/tailscale-manaflow:/usr/local/bin/tailscale-manaflow:ro --volume=/usr/bin/tailscale:/usr/bin/tailscale:ro --volume=/home/leo/.local/state/tailscale-manaflow:/home/leo/.local/state/tailscale-manaflow:rw localhost/cmux-agent-broker:staging
+ExecStart=/usr/bin/podman run --rm --name cmux-agent-broker-staging --network=host --env-file=/etc/cmux/agent-broker-staging.env --volume=/home/leo/.ssh/id_ed25519_manaflow_cmux:/run/secrets/huge-blue-key:ro --volume=/home/leo/.local/bin/tailscale-manaflow:/usr/local/bin/tailscale-manaflow:ro --volume=/usr/bin/tailscale:/usr/bin/tailscale:ro --volume=/home/leo/.local/state/tailscale-manaflow:/home/leo/.local/state/tailscale-manaflow:rw localhost/cmux-agent-broker:staging
 ExecStop=/usr/bin/podman stop --time 10 cmux-agent-broker-staging
 Restart=always
 RestartSec=5
