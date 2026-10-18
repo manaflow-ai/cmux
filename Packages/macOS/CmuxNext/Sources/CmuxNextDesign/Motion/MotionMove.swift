@@ -21,11 +21,6 @@ public struct MotionMove: Sendable {
     /// Seconds from the start to rest.
     public let duration: CFTimeInterval
 
-    /// Whether the move runs on a tween's curve (so `keyframes` can follow its progress).
-    public var isTween: Bool {
-        if case .tween = curve { true } else { false }
-    }
-
     /// A move on tween `token` (Chrome's tab strip tweens: open, close, move), or nil when the change
     /// applies at once (`Motion.duration(token)` is 0: speed off, Reduce Motion, a live resize, or a
     /// `ui.animations.newTab` kind that is off).
@@ -55,19 +50,6 @@ public struct MotionMove: Sendable {
         animation.fromValue = offset
         animation.toValue = zero
         animation.isAdditive = true
-        return animation
-    }
-
-    /// `values` spaced evenly in the move's progress (the tween's curve maps time to progress), for a
-    /// value that is not a straight line from old to new: a mask whose cover crosses it. Tweens only
-    /// (nil for a spring, whose progress has no curve to sample).
-    public func keyframes(_ keyPath: String, values: [Any]) -> CAAnimation? {
-        guard case .tween(let token) = curve, values.count > 1 else { return nil }
-        let animation = CAKeyframeAnimation(keyPath: keyPath)
-        animation.values = values
-        animation.calculationMode = .linear
-        animation.duration = duration
-        animation.timingFunction = token.timingFunction
         return animation
     }
 }

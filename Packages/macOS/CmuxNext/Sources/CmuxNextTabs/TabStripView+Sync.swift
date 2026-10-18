@@ -35,7 +35,7 @@ extension TabStripView {
         } else {
             // Same geometry: only what the selected tab draws over or hides changes.
             TabSeparatorVisibility.apply(to: self)
-            TabOcclusion.apply(cells: cells, selected: selected, in: tabsClip.layer, band: scrollMapping.band, skipping: { self.occlusionMoves[$0] != nil })
+            updateOcclusion()
         }
         if let selected { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
@@ -232,7 +232,6 @@ extension TabStripView {
         placed[id] = nil
         dying.remove(id)
         goesAt[id] = nil
-        occlusionMoves[id] = nil
-        clipMoves[id] = nil
+        occlusionEnds[id] = nil
     }
 }

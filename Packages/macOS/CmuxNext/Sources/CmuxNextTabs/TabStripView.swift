@@ -93,20 +93,16 @@ public final class TabStripView: NSView {
     var moveGeneration = 0
     /// When a closing tab's or chip's last move ends: it goes then (`moveEnded`).
     var goesAt: [TabID: CFTimeInterval] = [:]
-    /// Moves of a reveal's scroll spring still in flight (`settleScroll`).
-    var scrollMoves: Set<Int> = []
-    /// Takes every reveal's scroll spring and nothing else: what the springs add now is its
-    /// presentation x minus its model x (`settleScroll`).
+    /// Takes the scroll part of every move (a reveal's spring, a relayout that keeps the selected tab
+    /// in view) and nothing else: what they add now is its presentation x minus its model x (`settleScroll`).
     let scrollProbe: CALayer = {
         let probe = CALayer()
         probe.actions = ["position": NSNull(), "bounds": NSNull()]
         probe.opacity = 0
         return probe
     }()
-    /// Tabs whose occlusion mask a move animates, by generation: the mask comes off when it ends.
-    var occlusionMoves: [TabID: Int] = [:]
-    /// Widening tabs clipped for a move, by generation.
-    var clipMoves: [TabID: Int] = [:]
+    /// Tabs whose occlusion mask follows the moves in flight, and when that path ends (`updateOcclusion`).
+    var occlusionEnds: [TabID: CFTimeInterval] = [:]
     var closingModeWidth: CGFloat?
     var closingHit = TabClosingModeHit()
     /// Closing mode's exit: the pointer leaving the strip's extended area (`TabClosingModeWatch`).

@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// when the rect is narrower than the tunable minimum or labels are off.
 @MainActor
 final class DropOverlayLabel {
-    let field = NSTextField(labelWithString: "")
+    let field = ChromeLabel(labelWithString: "")
 
     init() {
         field.alignment = .center

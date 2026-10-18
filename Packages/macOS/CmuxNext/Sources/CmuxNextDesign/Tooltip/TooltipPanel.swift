@@ -40,8 +40,8 @@ final class TooltipPanel: NSPanel {
     /// How far the surface rises as it fades in.
     static let rise: CGFloat = 2
 
-    let text = NSTextField(wrappingLabelWithString: "")
-    let hint = NSTextField(labelWithString: "")
+    let text = ChromeLabel(wrappingLabelWithString: "")
+    let hint = ChromeLabel(labelWithString: "")
     /// The surface: it carries the shadow, and the fade and the rise run on its layer.
     let surface = NSView()
     /// The frosted glass under the tint (hidden under Reduce Transparency).
