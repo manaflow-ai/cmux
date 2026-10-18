@@ -34,7 +34,10 @@ struct BackdropPlaybackSettingTests {
         for (key, choices) in [("backgroundVideo", BackdropVideoMode.allCases.map(\.rawValue)),
                                ("backgroundVideoOnBattery", BackdropBatteryMode.allCases.map(\.rawValue))] {
             let row = try #require(SettingsSchema.descriptor(for: ["appearance", key]))
-            guard case .choice(let offered) = row.kind else { return Issue.record("\(key) is not a choice row") }
+            guard case .choice(let offered) = row.kind else {
+            Issue.record("\(key) is not a choice row")
+            return
+        }
             #expect(offered.map(\.value) == choices)
             #expect(row.defaultValue == .string("play"))
         }
@@ -56,7 +59,10 @@ struct BackdropPlaybackSettingTests {
         let bad = parse("sometimes")
         #expect(bad.chiefPictureMotion == .hover && bad.diagnostics.contains { $0.path == "home.chiefPictureMotion" })
         let row = try #require(SettingsSchema.descriptor(for: ["home", "chiefPictureMotion"]))
-        guard case .choice(let offered) = row.kind else { return Issue.record("not a choice row") }
+        guard case .choice(let offered) = row.kind else {
+            Issue.record("not a choice row")
+            return
+        }
         #expect(offered.map(\.value) == ChiefPictureMotion.allCases.map(\.rawValue) && row.defaultValue == .string("hover"))
         #expect(SettingsSchema.agentSettableKeys.contains("home.chiefPictureMotion"))
     }

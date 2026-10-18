@@ -90,13 +90,19 @@ import UniformTypeIdentifiers
         let square = source.appendingPathComponent("square.gif")
         try Self.picture(.gif, width: 64, height: 64, frames: 3, to: square)
         try files.writePicture(from: square)
-        guard case .picture(let kept) = files.tileAvatar() else { return Issue.record("no tile picture") }
+        guard case .picture(let kept) = files.tileAvatar() else {
+            Issue.record("no tile picture")
+            return
+        }
         #expect(kept.pathExtension == "gif")
         #expect(CGImageSourceCreateWithURL(kept as CFURL, nil).map(CGImageSourceGetCount) == 3, "a square GIF lost its motion")
         let wide = source.appendingPathComponent("wide.gif")
         try Self.picture(.gif, width: 96, height: 48, frames: 3, to: wide)
         try files.writePicture(from: wide)
-        guard case .picture(let tile) = files.tileAvatar() else { return Issue.record("no tile picture") }
+        guard case .picture(let tile) = files.tileAvatar() else {
+            Issue.record("no tile picture")
+            return
+        }
         #expect(tile.pathExtension == "png")
         let frame = try #require(CGImageSourceCreateWithURL(tile as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
         #expect(frame.width == frame.height)
