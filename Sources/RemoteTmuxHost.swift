@@ -363,6 +363,20 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             + ["-o", "BatchMode=no", "-n", "-T", "--", destination, "true"]
     }
 
+    /// The `-t` target that names exactly the tmux session `sessionName`.
+    ///
+    /// tmux parses a bare target before it looks for a session: a name that
+    /// starts with `@` is read as a window id and one that starts with `%` as a
+    /// pane id, and a name that matches no session is tried as a prefix of
+    /// another one (#21595). A leading `=` makes it an exact session name.
+    ///
+    /// A name that starts with `$` is read as a session id even after `=`, so
+    /// no name-based target reaches it; such a session can only be named by
+    /// its `$id`, and this returns nil for it.
+    static func exactSessionTarget(_ sessionName: String) -> String? {
+        sessionName.hasPrefix("$") ? nil : "=" + sessionName
+    }
+
     /// Single-quotes a value for safe interpolation into a `/bin/sh` command.
     static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
