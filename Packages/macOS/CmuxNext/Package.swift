@@ -179,6 +179,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextKeepAwake",
+                "CmuxNextChromiumWarmup",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
@@ -537,6 +538,14 @@ let package = Package(
         .testTarget(
             name: "CmuxNextKeepAwakeTests",
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Chromium warm start: maps the framework and runs CefInitialize and the
+        // spare window at idle moments once a Chromium tab is likely. The App
+        // supplies the signals (AppServices+Chromium).
+        .target(
+            name: "CmuxNextChromiumWarmup",
+            dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the

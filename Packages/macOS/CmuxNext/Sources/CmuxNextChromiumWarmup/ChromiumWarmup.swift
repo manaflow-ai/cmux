@@ -1,6 +1,7 @@
 import AppKit
-import CmuxNextBrowser
+public import CmuxNextBrowser
 import CmuxNextWakeups
+public import Foundation
 
 /// Starts Chromium before the first Chromium tab needs it, so its two
 /// unavoidable main-thread steps (`CefInitialize` and the first Chromium
@@ -30,8 +31,8 @@ import CmuxNextWakeups
 ///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
 ///   the first tab.
 @MainActor
-final class ChromiumWarmup {
-    enum Reason: String, Sendable {
+public final class ChromiumWarmup {
+    public enum Reason: String, Sendable {
         case restoredTab
         case newTabMenu
         case palette
@@ -51,14 +52,16 @@ final class ChromiumWarmup {
         case paletteOpen
     }
 
-    struct Policy: Sendable {
-        var launchPreloadDelay: Duration = .seconds(3)
-        var idleInput: Duration = .milliseconds(750)
+    public struct Policy: Sendable {
+        public var launchPreloadDelay: Duration = .seconds(3)
+        public var idleInput: Duration = .milliseconds(750)
         /// Give up (stay lazy) when the app never goes idle this long.
-        var maxWait: Duration = .seconds(60)
+        public var maxWait: Duration = .seconds(60)
         /// A Chromium tab opened this recently (`ChromiumUseRecord`) makes
         /// launch itself the warm-start signal.
-        var recentUse: TimeInterval = 7 * 24 * 60 * 60
+        public var recentUse: TimeInterval = 7 * 24 * 60 * 60
+
+        public init() {}
     }
 
     private let engine: CEFEngine
@@ -72,7 +75,7 @@ final class ChromiumWarmup {
     private var menuObserver: (any NSObjectProtocol)?
     private var inputMonitor: Any?
     private var lastInput: TimeInterval = 0
-    private(set) var reason: Reason?
+    public private(set) var reason: Reason?
     /// What the next idle moment runs: `CefInitialize`, then the spare window.
     private var idleAction: (@MainActor () -> Void)?
     /// Whether new browser tabs open in Chromium (`browser.defaultEngine`).
@@ -82,7 +85,7 @@ final class ChromiumWarmup {
     private var pagesPending: @MainActor () -> Bool = { false }
     private var stopped = false
 
-    init(
+    public init(
         engine: CEFEngine,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
@@ -105,7 +108,7 @@ final class ChromiumWarmup {
     /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
     /// the spare window, at idle moments). Anyone else pays nothing until a
     /// signal (`chromiumLikely`, `tabSignal`).
-    func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
+    public func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
         guard !launchTimer.isScheduled, isAvailable else { return }
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
@@ -122,14 +125,14 @@ final class ChromiumWarmup {
 
     /// A first-tab signal (`Reason.newTabButton`, `.newTabKey`,
     /// `.paletteOpen`): warm up while new tabs open in Chromium.
-    func tabSignal(_ reason: Reason) {
+    public func tabSignal(_ reason: Reason) {
         guard defaultIsChromium() else { return }
         chromiumLikely(reason)
     }
 
     /// A Chromium tab is likely soon: map the framework now and run
     /// `CefInitialize` at the next idle moment. Once per process.
-    func chromiumLikely(_ reason: Reason) {
+    public func chromiumLikely(_ reason: Reason) {
         guard self.reason == nil, isAvailable, !engine.isRunning else { return }
         self.reason = reason
         engine.preload()
@@ -171,7 +174,7 @@ final class ChromiumWarmup {
         giveUpTimer.schedule(after: policy.maxWait) { @MainActor [weak self] in self?.finishWaiting() }
     }
 
-    func stop() {
+    public func stop() {
         stopped = true
         launchTimer.cancel()
         finishWaiting()
@@ -207,14 +210,14 @@ final class ChromiumWarmup {
 
     /// True when no input reached this app for `idleInput` and no menu is
     /// tracking.
-    func isIdle(_ policy: Policy) -> Bool {
+    public func isIdle(_ policy: Policy) -> Bool {
         guard !isTrackingMenu() else { return false }
         let quiet = now() - lastInput
         return quiet >= policy.idleInput.inSeconds
     }
 
     /// Records input while a warm start waits (no monitor otherwise).
-    func noteInput() { lastInput = now() }
+    public func noteInput() { lastInput = now() }
 
     private func installInputMonitor() {
         guard inputMonitor == nil else { return }
