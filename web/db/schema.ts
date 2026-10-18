@@ -324,6 +324,8 @@ export const runAttempts = pgTable(
     /** Tenant-scoped durable runtime selected for this execution attempt. */
     runtimeId: uuid("runtime_id").references(() => cloudRuntimes.id, { onDelete: "set null" }),
     ordinal: integer("ordinal").notNull(),
+    /** Variant payload is optional to the nightly runtime path but required on disk. */
+    variant: jsonb("variant").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     status: runAttemptStatus("status").notNull().default("queued"),
     providerVmId: text("provider_vm_id"),
     providerWorkspaceId: text("provider_workspace_id"),

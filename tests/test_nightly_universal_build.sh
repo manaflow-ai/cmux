@@ -233,7 +233,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -421,7 +421,7 @@ if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'
   exit 1
 fi
 
-if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle delta work' "$WORKFLOW_FILE"; then
+if ! grep -Fq 'description: Manual build mode. `normal` publishes, `force` rebuilds a published main commit, and `fast` builds one arm64 dogfood DMG without publishing.' "$WORKFLOW_FILE"; then
   echo "FAIL: workflow dispatch must expose the fast arm64 dogfood build"
   exit 1
 fi
@@ -667,7 +667,7 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq 'github.event.inputs.fast == '\''true'\'' && '\''fast'\'' || '\''full'\''' "$WORKFLOW_FILE"; then
+if ! grep -Fq 'inputs.build_mode == '\''fast'\'' && '\''fast'\'' || '\''full'\''' "$WORKFLOW_FILE"; then
   echo "FAIL: fast branch builds must not queue behind a full build on the same branch"
   exit 1
 fi

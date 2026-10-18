@@ -31,3 +31,45 @@ Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/CancellationIgnoringTokenPro
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCSessionPipelinedTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTokenTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCIndependentEventTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)
+
+# Findings already present on nightly-next; remove each entry when its test is determinized.
+Packages/Shared/CmuxAgentCursor/Tests/CmuxAgentCursorTests/GlidePlanAnimationTests.swift	assert-on-duration	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/AttachmentRoundTwoTests.swift	assert-on-duration	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/AttachmentTests.swift	assert-on-duration	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneSafeFetchRebindingTests.swift	live-network-host	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentActivityOneShotCancelTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentChatPullRequestTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentLanesTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentPageStaysInWindowTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserEngineStateRestoreTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClearBrowsingDataTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudBringBackTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudMoveTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/IconPickerMotionTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MenuKeyRoutingTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NewTabPrewarmStallTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NowPlayingCardTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarInsertWhileDisplayAsleepTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarSameTurnTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SwitchToColdTabTypeAheadTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedTooltipTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TooltipSurfaceTests.swift	assert-on-duration	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceRemoteLocalhostTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/OmniboxPhaseABenchmarkTests.swift	assert-on-duration	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/BrowserPageWaitTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/BusyWatchdogTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextControlTests/ControlSocketServerTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/CmuxToastSurfaceTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/DialogFadeTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/PagePopupMotionTests.swift	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests/PaletteSettingsScopeTests.swift	assert-on-duration	pre-existing nightly-next baseline debt; determinize in the owning test
+tests/test_webviews_tests_per_file.py	assert-on-duration	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/agent-pane-seen.test.ts	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/all-chats-live.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/all-chats-projects.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/diff-viewer-freshness.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/effort-slider-keys.test.ts	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/harnesses-page.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/model-picker-live-refresh.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/new-tab-style-switch.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/url-chip-hover.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test

@@ -36,9 +36,7 @@ on:
       - scripts/cmux-next/state-roots-baseline.tsv
       # Local packages CmuxNext depends on and files its tests read
       # (ci-target-graph.json `packages` and `reads`).
-      - Packages/Shared/**
       - Packages/macOS/CmuxUpdater/**
-      - Packages/iOS/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/cmux-next/build-layout-reducer-ffi.sh
       - scripts/cmux-next/build-app-ffi.sh
@@ -194,6 +192,7 @@ on:
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
+      - scripts/cmux-next/state-roots-baseline.tsv
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh

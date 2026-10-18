@@ -75,6 +75,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: cmux-next-batch-trigger-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   debounce:
     if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && vars.CMUX_NEXT_BATCH_ENABLED == '1' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}

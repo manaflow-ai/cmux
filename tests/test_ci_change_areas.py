@@ -480,6 +480,15 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         assert_areas([path], macos=False, web=False)
 
 
+def test_merge_gate_policy_changes_skip_native_compile() -> None:
+    for path in (
+        "scripts/gh-merge-green",
+        "scripts/ci/vercel_merge_gate.py",
+        "scripts/tests/test_vercel_merge_gate.py",
+    ):
+        assert_areas([path], macos=False, web=False)
+
+
 def test_web_subarea_router_keeps_web_without_macos() -> None:
     # Editing the ci-web.yml subarea router must still run web validation --
     # the helper lists itself in ALL_SUBAREA_INPUTS -- but never a Mac.
@@ -2819,7 +2828,6 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 

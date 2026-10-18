@@ -7,6 +7,10 @@ const migration = readFileSync(new URL(
   "../db/migrations/20261017000000_runtime_persistence/migration.sql",
   import.meta.url,
 ), "utf8").replace(/\s+/g, " ");
+const variantRepairMigration = readFileSync(new URL(
+  "../db/migrations/20261018000000_run_attempts_variant_repair/migration.sql",
+  import.meta.url,
+), "utf8").replace(/\s+/g, " ");
 
 describe("Runtime persistence schema", () => {
   test("declares lifecycle, placement, lease and tenant idempotency columns", () => {
@@ -33,6 +37,13 @@ describe("Runtime persistence schema", () => {
     expect(attemptRuntime?.notNull).toBe(false);
     expect(getTableConfig(runAttempts).indexes.map((index) => index.config.name)).toContain("run_attempts_runtime_idx");
     expect(migration).toContain('ADD COLUMN "runtime_id" uuid REFERENCES "cloud_runtimes"("id") ON DELETE SET NULL');
+  });
+
+  test("keeps variant populated for runtime-created attempts", () => {
+    const variant = getTableConfig(runAttempts).columns.find((column) => column.name === "variant");
+    expect(variant?.notNull).toBe(true);
+    expect(variant?.hasDefault).toBe(true);
+    expect(variantRepairMigration).toContain('ALTER COLUMN "variant" SET DEFAULT \'{}\'::jsonb');
   });
 
   test("backfills old VM-created identities before adding lease fences", () => {

@@ -290,7 +290,7 @@ def _is_ghostty_init(words: list[str]) -> bool:
     if (
         len(script_words) == 2
         and script_words[0] in INIT_SUBMODULE_PATHS
-        and script_words[1] == "ghostty"
+        and script_words[1] in GHOSTTY_SUBMODULES
     ):
         return True
     return (
@@ -494,7 +494,15 @@ def _job_events(path: Path, job: Job,) -> tuple[list[tuple[int, RunEvent]], list
                 f"step {step.name!r}: {parse_error}"
             )
             continue
-        events.extend((step_index, event) for event in run_events)
+        for event in run_events:
+            # A single setup step may initialize both Ghostty submodules. It
+            # is one ordered initialization boundary for the resolver guard.
+            if event.kind == "init" and any(
+                index == step_index and existing.kind == "init"
+                for index, existing in events
+            ):
+                continue
+            events.append((step_index, event))
     return events, failures
 
 

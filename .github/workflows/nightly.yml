@@ -33,16 +33,15 @@ on:
     - cron: "47 8 * * *"
   workflow_dispatch:
     inputs:
-      force:
-        description: Rebuild an already published main commit. Manual runs always bypass the push throttle.
+      build_mode:
+        description: Manual build mode. `normal` publishes, `force` rebuilds a published main commit, and `fast` builds one arm64 dogfood DMG without publishing.
         required: false
-        default: false
-        type: boolean
-      fast:
-        description: Build one arm64 dogfood DMG without Intel or Sparkle delta work
-        required: false
-        default: false
-        type: boolean
+        default: normal
+        type: choice
+        options:
+          - normal
+          - force
+          - fast
       build_only:
         description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
         required: false
@@ -68,44 +67,23 @@ on:
           - github
           - warp
           - r2
-      notary_test_without_password_import:
-        description: nightly-next only. One diagnostic notary submission (cx-f58x) of a build with the browser password-import readers compiled out (CMUX_NO_PASSWORD_IMPORT). Notarizes even with NIGHTLY_NEXT_NOTARY_PAUSED=1 and publishes nothing.
-        required: false
-        default: false
-        type: boolean
-      notary_test_without_browser_data_import:
-        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission (plus the Computer Use helper's), nothing published.
-        required: false
-        default: false
-        type: boolean
-      notary_test_import_part:
-        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json). Every other import part stays in. Nothing is published.
+      nightly_next_mode:
+        description: nightly-next mode. Choose `continue`, `without-password`, `without-browser-data`, `import-cookies`, `import-safe-storage`, `import-history`, `import-registry`, or `production-identity`; `none` is a normal build.
         required: false
         default: none
         type: choice
         options:
           - none
-          - cookies
-          - safe-storage
-          - history
-          - registry
-      notary_probe_production_identity:
-        description: nightly-next only. One app notary submission (plus the Computer Use helper's) of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
-        required: false
-        default: false
-        type: boolean
-      nightly_next_continue_only:
-        description: nightly-next only. Build nothing and submit nothing to Apple. Continue the newest earlier nightly-next build whose notarization Apple has since Accepted, and publish it through the normal guarded publication.
-        required: false
-        default: false
-        type: boolean
+          - continue
+          - without-password
+          - without-browser-data
+          - import-cookies
+          - import-safe-storage
+          - import-history
+          - import-registry
+          - production-identity
       nightly_next_unsigned_run:
-        description: nightly-next only. Resume signing and publication from this completed push run's unsigned app, without compiling again.
-        required: false
-        default: ''
-        type: string
-      nightly_next_unsigned_attempt:
-        description: Exact source run attempt that produced the saved unsigned app (required with nightly_next_unsigned_run).
+        description: nightly-next only. Resume signing and publication from a completed push run's unsigned app, without compiling again. Use RUN_ID/ATTEMPT.
         required: false
         default: ''
         type: string
@@ -119,11 +97,6 @@ on:
         required: false
         default: false
         type: boolean
-      probe_target_sha:
-        description: Full SHA that directly changes a workflow file for the scratch-tag probe.
-        required: false
-        default: ''
-        type: string
       probe_mode:
         description: Scratch-tag permission probe. `off` runs the normal workflow; any other value runs only the probe (no build or publish) with that credential path; run github-token first, then app-token.
         required: false
@@ -150,7 +123,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'continue' && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode != 'none' && inputs.nightly_next_mode != 'continue' && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'fast' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -213,6 +186,8 @@ jobs:
       no_publish: ${{ steps.decide.outputs.no_publish }}
       # nightly-next continuation only: no own build, no Apple submission.
       continue_only: ${{ steps.decide.outputs.continue_only }}
+      unsigned_run: ${{ steps.decide.outputs.unsigned_run }}
+      unsigned_attempt: ${{ steps.decide.outputs.unsigned_attempt }}
       # Which browser-import code this build carries (cx-f58x). `full`,
       # `no-passwords`, `no-browser-data`, or `no-<part>` for a bisect build.
       import_variant: ${{ steps.decide.outputs.import_variant }}
@@ -268,8 +243,8 @@ jobs:
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
-          FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
+          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode == 'force' && 'true' || 'false' }}
+          FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode == 'fast' && 'true' || 'false' }}
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
           SEED_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_only && 'true' || 'false' }}
           COLD_CACHE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cold_cache == 'true' && 'true' || 'false' }}
@@ -296,23 +271,31 @@ jobs:
           # run still publishes an earlier build Apple accepted, because it
           # submits nothing.
           NIGHTLY_NEXT_SUBMISSIONS_PAUSED: ${{ vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED || '' }}
-          NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
-          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
-          NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_import_part || 'none' }}
-          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_production_identity && 'true' || 'false' }}
-          UNSIGNED_RUN: ${{ inputs.nightly_next_unsigned_run }}
-          UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
-          CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
+          NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'without-password' && 'true' || 'false' }}
+          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'without-browser-data' && 'true' || 'false' }}
+          NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'import-cookies' && 'cookies' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'import-safe-storage' && 'safe-storage' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'import-history' && 'history' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'import-registry' && 'registry' || 'none' }}
+          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'production-identity' && 'true' || 'false' }}
+          UNSIGNED_RESUME: ${{ inputs.nightly_next_unsigned_run }}
+          CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_mode == 'continue' && 'true' || 'false' }}
         with:
           script: |
-            const unsignedResume = Boolean(process.env.UNSIGNED_RUN || process.env.UNSIGNED_ATTEMPT);
+            const unsignedSpec = (
+              process.env.UNSIGNED_RESUME ||
+              (process.env.UNSIGNED_RUN && process.env.UNSIGNED_ATTEMPT
+                ? `${process.env.UNSIGNED_RUN}/${process.env.UNSIGNED_ATTEMPT}`
+                : '')
+            ).trim();
+            const [unsignedRun = '', unsignedAttempt = ''] = unsignedSpec.split('/');
+            const unsignedResume = Boolean(unsignedSpec);
             if (unsignedResume && (context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/nightly-next' ||
-                !/^[1-9][0-9]*$/.test(process.env.UNSIGNED_RUN || '') || !/^[1-9][0-9]?$/.test(process.env.UNSIGNED_ATTEMPT || '') ||
+                !/^[1-9][0-9]*$/.test(unsignedRun) || !/^[1-9][0-9]?$/.test(unsignedAttempt) ||
                 ['BUILD_ONLY', 'SEED_ONLY', 'FAST_BUILD', 'CONTINUE_ONLY', 'NOTARY_TEST_PASSWORDS', 'NOTARY_TEST_BROWSER_DATA', 'NOTARY_PROBE'].some(key => process.env[key] === 'true') ||
                 (process.env.NOTARY_IMPORT_PART || 'none') !== 'none')) {
-              core.setFailed('unsigned resume requires an exact run/attempt on nightly-next, with no other build or notary mode');
+              core.setFailed('unsigned resume requires RUN_ID/ATTEMPT on nightly-next, with no other build or notary mode');
               return;
             }
+            core.setOutput('unsigned_run', unsignedRun);
+            core.setOutput('unsigned_attempt', unsignedAttempt);
             const forceBuild = unsignedResume || process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned universal app build (cold
@@ -1003,7 +986,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && (inputs.probe_mode || 'off') != 'off'
     uses: ./.github/workflows/nightly-tag-permission-probe.yml
     with:
-      target_sha: ${{ inputs.probe_target_sha || github.sha }}
+      target_sha: ${{ github.sha }}
       mode: ${{ inputs.probe_mode }}
     secrets: inherit
 
@@ -1434,7 +1417,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1571,7 +1554,7 @@ jobs:
     # NEXT retains only its own local Release state, without shared restores.
     # Rescue on main watches both refs; retries and dispatches take Blacksmith.
     # Fast dogfood keeps the dedicated Blacksmith image. Signing stays hosted.
-    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}", "glaeda-trusted-next-nightly"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}", "glaeda-trusted-next-nightly"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -1598,8 +1581,8 @@ jobs:
         id: resume
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ inputs.nightly_next_unsigned_run }}
-          SOURCE_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
+          SOURCE_RUN: ${{ needs.decide.outputs.unsigned_run }}
+          SOURCE_ATTEMPT: ${{ needs.decide.outputs.unsigned_attempt }}
         run: python3 scripts/ci/resume-unsigned-nightly.py restore --run-id "$SOURCE_RUN" --attempt "$SOURCE_ATTEMPT"
 
       - name: Retain resumed cmux-nightly-unsigned-app
@@ -2293,8 +2276,8 @@ jobs:
         id: resume_source
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ inputs.nightly_next_unsigned_run }}
-          SOURCE_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
+          SOURCE_RUN: ${{ needs.decide.outputs.unsigned_run }}
+          SOURCE_ATTEMPT: ${{ needs.decide.outputs.unsigned_attempt }}
         run: python3 scripts/ci/resume-unsigned-nightly.py plan --run-id "$SOURCE_RUN" --attempt "$SOURCE_ATTEMPT"
 
       - name: Resolve the original cmux-tui tree
@@ -2678,8 +2661,8 @@ jobs:
           mkdir -p prepared-app-handoff
           tar -C build-universal/Build/Products/Release -czf prepared-app-handoff/cmux-prepared-app.tar.gz cmux.app
 
-      # nightly-sign.yml (run from main) reads this annotation of this job
-      # through the checks API and refuses a tarball with another sha256.
+      # nightly-sign.yml admits this exact tarball from the check-run notice;
+      # record the digest before the artifact upload can be trusted.
       - name: Record prepared app digest
         env:
           PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -5206,11 +5189,13 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve CMUXCommit $short" >&2; exit 1; }
           for required in $REQUIRED; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
-            case "$status" in
-              ahead|identical) ;;
-              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
-                 : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
-            esac
+            # Keep this as a [[ ]] conditional: the workflow guard analyzes
+            # this protected run step with bashlex before signing is admitted.
+            if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
+              echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
+              : > "$RUNNER_TEMP/legacy-requirement-refused"
+              exit 1
+            fi
           done
           git fetch --no-tags --depth=1 origin "$sha"
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
@@ -6250,6 +6235,8 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
           sparse-checkout: scripts
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Download and mount the published DMG
         env:
           BUILD: ${{ needs.publish-nightly.outputs.build }}

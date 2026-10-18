@@ -172,7 +172,7 @@ test("a stale attach cannot suppress view updates for the newly selected session
     socket.releaseA();
     await staleSelection;
     setVisibility("visible");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await socket.waitForView(SESSION_B, true);
 
     expect(socket.views).toContainEqual({ sessionId: SESSION_B, visible: true });
   } finally {
@@ -204,7 +204,7 @@ test("a stale view acknowledgement cannot suppress updates for the newly selecte
     socket.holdViewA = false;
     socket.releaseViewA();
     setVisibility("visible");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await socket.waitForView(SESSION_B, true);
 
     expect(socket.views).toContainEqual({ sessionId: SESSION_B, visible: true });
   } finally {

@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import tempfile
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -97,6 +98,21 @@ def discover(root: Path) -> list[Path]:
     paths = set((root / "Resources").rglob("*.xcstrings"))
     paths.update((root / "Packages/macOS").glob("*/Sources/**/*.xcstrings"))
     return sorted(paths)
+
+
+def changed_catalogs(root: Path, base: str) -> list[Path]:
+    """Return catalogs changed from ``base`` through the current checkout.
+
+    Pull-request static preflight uses this for catalogs inherited from a base
+    that may have an outstanding translation review backlog. The ordinary
+    local and push checks still discover every catalog.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB", base, "HEAD", "--", "*.xcstrings"],
+        cwd=root, check=True, capture_output=True, text=True,
+    )
+    changed = {line for line in result.stdout.splitlines() if line}
+    return [path for path in discover(root) if path.relative_to(root).as_posix() in changed]
 
 
 def load_metadata(name: str) -> dict:
@@ -478,7 +494,18 @@ def main() -> int:
         rows = json.loads(args.input.read_text(encoding="utf-8"))
         print(f"Updated {merge(args.catalog, args.locale, rows, omissions)} locale entries")
         return 0
-    paths = [args.catalog] if args.catalog else discover(args.root)
+    if args.catalog:
+        paths = [args.catalog]
+    elif os.environ.get("CMUX_LOCALIZATION_CHANGED_ONLY") in ("1", "true", "yes"):
+        base = os.environ.get("CMUX_LOCALIZATION_BASE_REF")
+        if not base:
+            raise ValueError("CMUX_LOCALIZATION_BASE_REF is required for changed-only checks")
+        paths = changed_catalogs(args.root, base)
+    else:
+        paths = discover(args.root)
+    if not paths and os.environ.get("CMUX_LOCALIZATION_CHANGED_ONLY") in ("1", "true", "yes"):
+        print(f"0 catalogs, 0 locales: 0 parity errors")
+        return 0
     if not paths:
         raise ValueError("no macOS catalogs found")
     if args.command == "extract" and not args.locale:

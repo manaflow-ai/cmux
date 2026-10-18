@@ -50,8 +50,8 @@ SOURCE_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 SOURCE_WORKFLOW_FILE = "nightly.yml"
 PUBLISHING_EVENTS = {"push", "schedule", "workflow_dispatch"}
 VARIANTS = ("universal", "arm64", "x86_64")
-PREPARE_JOB = "prepare-nightly-variant"
-PREPARE_JOB_NAME = re.compile(r"^prepare-nightly-variant \(([^()]*)\)$")
+PRODUCER_JOB = "prepare-nightly-variant"
+PRODUCER_JOB_NAME = re.compile(r"^prepare-nightly-variant \(([^()]*)\)$")
 DIGEST_TITLE = "nightly-prepared-app"
 DIGEST_MESSAGE = re.compile(
     r"^variant=(\S+) artifact=(\S+) sha256=([0-9a-f]{64}) publish=(true|false) fast=(true|false)$"
@@ -200,31 +200,31 @@ def prepare_jobs(gh: GitHub, repo: str, run: dict) -> dict[str, dict]:
             fail(f"job {job.get('name')!r} is from attempt {job_attempt}, not attempt {attempt} or before")
     found: dict[str, dict] = {}
     for job in jobs:
-        match = PREPARE_JOB_NAME.match(str(job.get("name", "")))
+        match = PRODUCER_JOB_NAME.match(str(job.get("name", "")))
         if not match:
             continue
         variant = match.group(1)
         if variant not in VARIANTS:
-            fail(f"source run has a {PREPARE_JOB} job for an unknown variant {variant!r}")
+            fail(f"source run has a {PRODUCER_JOB} job for an unknown variant {variant!r}")
         if variant in found:
-            fail(f"source run has two {PREPARE_JOB} jobs for {variant}")
+            fail(f"source run has two {PRODUCER_JOB} jobs for {variant}")
         if str(job.get("run_id")) != str(run["id"]) or job.get("head_sha") != run["head_sha"]:
-            fail(f"{PREPARE_JOB} ({variant}) is not a job of the source run")
+            fail(f"{PRODUCER_JOB} ({variant}) is not a job of the source run")
         if job.get("conclusion") == "success":
             found[variant] = job
         elif job.get("conclusion") != "skipped":
-            fail(f"{PREPARE_JOB} ({variant}) concluded {job.get('conclusion')!r} in a successful run")
+            fail(f"{PRODUCER_JOB} ({variant}) concluded {job.get('conclusion')!r} in a successful run")
     if not found:
-        # A build_only run skips its prepare jobs and is skipped here. A run that
-        # built an app and has no prepare job at all (a nightly.yml without the
+        # A build_only run skips its producer jobs and is skipped here. A run that
+        # built an app and has no producer job at all (a nightly.yml without the
         # producer) is refused, so it shows red instead of passing silently.
         # A matrix job skipped by its `if:` is listed once, by its bare name.
         has_prepare = any(
-            str(job.get("name", "")) == PREPARE_JOB or PREPARE_JOB_NAME.match(str(job.get("name", "")))
+            str(job.get("name", "")) == PRODUCER_JOB or PRODUCER_JOB_NAME.match(str(job.get("name", "")))
             for job in jobs
         )
         if not has_prepare and any(job.get("name") == BUILD_JOB and job.get("conclusion") == "success" for job in jobs):
-            fail(f"source run built an app ({BUILD_JOB} passed) but has no {PREPARE_JOB} job")
+            fail(f"source run built an app ({BUILD_JOB} passed) but has no {PRODUCER_JOB} job")
         raise Skipped("source run prepared no app (no successful prepare-nightly-variant job)")
     return found
 
@@ -233,18 +233,18 @@ def producer_digest(gh: GitHub, repo: str, job: dict, variant: str, channel: str
     annotations = gh.pages(f"/repos/{repo}/check-runs/{job['id']}/annotations", None)
     records = [a for a in annotations if a.get("title") == DIGEST_TITLE]
     if len(records) != 1:
-        fail(f"{PREPARE_JOB} ({variant}) recorded {len(records)} prepared app digests, not 1")
+        fail(f"{PRODUCER_JOB} ({variant}) recorded {len(records)} prepared app digests, not 1")
     record = records[0]
     if record.get("annotation_level") != "notice":
-        fail(f"{PREPARE_JOB} ({variant}) digest record is not a notice")
+        fail(f"{PRODUCER_JOB} ({variant}) digest record is not a notice")
     match = DIGEST_MESSAGE.match(str(record.get("message", "")).strip())
     if not match:
-        fail(f"{PREPARE_JOB} ({variant}) digest record is malformed")
+        fail(f"{PRODUCER_JOB} ({variant}) digest record is malformed")
     recorded_variant, artifact, sha256, publish, fast = match.groups()
     if recorded_variant != variant:
-        fail(f"{PREPARE_JOB} ({variant}) recorded a digest for {recorded_variant}")
+        fail(f"{PRODUCER_JOB} ({variant}) recorded a digest for {recorded_variant}")
     if not re.fullmatch(rf"cmux-{re.escape(channel)}-prepared-app-{re.escape(variant)}-[0-9a-f]{{7,40}}", artifact):
-        fail(f"{PREPARE_JOB} ({variant}) names artifact {artifact!r}, not a {channel} {variant} prepared app")
+        fail(f"{PRODUCER_JOB} ({variant}) names artifact {artifact!r}, not a {channel} {variant} prepared app")
     return artifact, sha256, publish == "true" and fast == "false"
 
 
@@ -320,7 +320,7 @@ def admit(gh: GitHub, repo: str, run_id: str, attempt: str, out: Path) -> dict:
     if publishes != {True}:
         if publishes == {False}:
             raise Skipped("source run does not publish (should_publish is false or it is a fast build)")
-        fail("prepare jobs of one run disagree on whether the run publishes")
+        fail("producer jobs of one run disagree on whether the run publishes")
     variants = []
     for variant, (artifact_name, sha256, _) in records.items():
         artifact = find_artifact(gh, repo, run, artifact_name)

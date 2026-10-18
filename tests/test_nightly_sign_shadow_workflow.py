@@ -17,7 +17,7 @@ nightly-sign.yml runs from main on every completed "Nightly macOS build" run
   change this test on purpose);
 - nightly.yml does not read vars.NIGHTLY_SIGN, so shadow mode cannot change
   the current signing and publication path;
-- nightly.yml's prepare job records the digest the admit tool reads, with the
+- nightly.yml's producer job records the digest the admit tool reads, with the
   same artifact name it uploads.
 """
 

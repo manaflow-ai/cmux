@@ -974,12 +974,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Changed-only localization validation diffs the merge commit against
+          # its first parent; retain that parent in the shallow checkout.
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Run the contributor static preflight
         # The recipe is read-only and each check owns its temporary state, so
         # bounded overlap cuts the Linux gate's wall time without changing
         # which checks run. Keep verify-local's local default serial.
+        env:
+          # A PR must not inherit an unrelated base branch's pending
+          # translation-review backlog. Pushes continue to validate every
+          # catalog; PRs validate catalogs changed by this merge.
+          CMUX_LOCALIZATION_CHANGED_ONLY: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          CMUX_LOCALIZATION_BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
         run: python3 scripts/verify-local.py --jobs 4
 
   guards:

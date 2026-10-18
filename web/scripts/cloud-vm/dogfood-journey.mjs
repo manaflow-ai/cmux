@@ -73,13 +73,13 @@ async function timed(name, work) {
   }
 }
 
-async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS, extraHeaders = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${targetUrl}${route}`, {
       method,
-      headers: { ...authHeaders, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      headers: { ...authHeaders, ...extraHeaders, ...(body === undefined ? {} : { "content-type": "application/json" }) },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
     });
@@ -96,7 +96,7 @@ async function api(method, route, body, timeoutMs = REQUEST_TIMEOUT_MS) {
 
 function expectStatus(response, statuses, what) {
   if (!statuses.includes(response.status)) {
-    throw new Error(`${what} expected ${statuses.join("/")}, got ${response.status}: ${response.text.slice(0, 400)}`);
+    throw new Error(`${what} expected ${statuses.join("/")}, got ${response.status}: ${response.text.slice(0, 2_000)}`);
   }
   return response.json;
 }
@@ -306,6 +306,25 @@ async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
   if (!matched) throw new Error(`/${pattern}/ did not appear on the terminal within ${timeoutMs}ms`);
 }
 
+async function findRestoredTerminal(localSocket, pattern, timeoutMs) {
+  const deadline = performance.now() + timeoutMs;
+  let lastIds = [];
+  while (performance.now() < deadline) {
+    const list = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (list.code === 0) {
+      let terminals = [];
+      try { terminals = JSON.parse(list.stdout || "[]"); } catch {}
+      lastIds = terminals.map((entry) => entry.id).filter(Boolean);
+      for (const entry of terminals) {
+        const screen = await runTui(["--socket", localSocket, "terminal", entry.id, "screen", "read"], 5_000);
+        if (screen.code === 0 && screen.stdout.includes(pattern)) return entry.id;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`restored terminal replay did not contain /${pattern}/ within ${timeoutMs}ms (terminals: ${lastIds.join(",") || "none"})`);
+}
+
 async function sessionHeaders(stackUser, expiresInMillis) {
   const session = await stackUser.createSession({ expiresInMillis, isImpersonation: true });
   const tokens = await session.getTokens();
@@ -444,6 +463,35 @@ try {
     await user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
     authHeaders = await sessionHeaders(user, 45 * 60 * 1000);
   });
+
+  const sourceCommit = process.env.GITHUB_SHA;
+  if (!sourceCommit || !/^[0-9a-f]{40}$/i.test(sourceCommit)) throw new Error("GITHUB_SHA is required for Run dogfood");
+  const runMarker = `cmux-run-dogfood-${suffix}`;
+  const runSpec = {
+    schema: "cmux.run/v1",
+    operationId: runMarker,
+    source: { repository: "manaflow-ai/cmux", commit: sourceCommit },
+    intent: { digest: `sha256:${"1".repeat(64)}` },
+    recipe: { id: "cloud-vm-dogfood", version: 1 },
+    variants: [{ id: "freestyle", label: "Freestyle dogfood", instructionDigest: `sha256:${"2".repeat(64)}` }],
+    workspace: { kind: "ephemeral" },
+    resources: { maxAttempts: 1, maxConcurrent: 1, wallTimeoutMs: 60_000, retainMs: 0 },
+    routing: { executionProvider: "cloud-vm", backend: "freestyle" },
+    capabilities: { secretRefs: [] },
+    checks: ["terminal-receipt", "provider-cleanup"],
+    policy: { mode: "fanout", humanApprovalRequired: false, evidenceKinds: ["patch"] },
+  };
+  const run = await timed("runCreate", async () => {
+    const response = await api("POST", "/api/runs", runSpec, 5 * 60 * 1000, { "idempotency-key": runMarker });
+    const body = expectStatus(response, [201, 200], "POST /api/runs");
+    const attempt = body.attempts?.[0];
+    const stdout = attempt?.result?.commandReceipt?.stdout;
+    if (body.status !== "succeeded" || attempt?.status !== "succeeded" || typeof stdout !== "string" || !stdout.includes(":completed")) {
+      throw new Error(`Run did not complete with a terminal receipt: ${JSON.stringify({ status: body.status, attemptStatus: attempt?.status, stdout })}`);
+    }
+    return { id: body.id, status: body.status, provider: body.provider, attemptId: attempt.id, attemptStatus: attempt.status, stdout };
+  });
+  result.run = run;
 
   const displayName = `dogfood ${suffix.slice(-6)}`;
   const created = await timed("create", async () => expectStatus(await api("POST", "/api/vm", {
@@ -666,11 +714,22 @@ try {
   const relaunched = await timed("relaunchReconnect", async () => {
     return startLink("remote connect (relaunch)");
   });
+  let restoredTerminal = terminal;
   await timed("restoredTerminal", async () => {
-    const anchor = skipSleep ? `${marker}-2` : `${marker}-6`;
-    await waitForScreen(relaunched.local_socket, terminal, anchor, 30_000);
+    // The provider restores the terminal/session identity, but it does not
+    // promise replay of the old screen buffer. Resolve the terminal from the
+    // fresh socket, then prove it is live with a new post-relaunch command.
+    localSocket = relaunched.local_socket;
+    const listed = await runTui(["--socket", localSocket, "--json", "terminal", "list"], 5_000);
+    if (listed.code !== 0) throw new Error(`restored terminal list failed (${listed.code}): ${listed.stderr.slice(-400)}`);
+    const terminals = JSON.parse(listed.stdout || "[]");
+    restoredTerminal = terminals[0]?.id;
+    if (!restoredTerminal) throw new Error("relaunch restored no terminal");
+    const relaunchMarker = `${marker}-relaunch`;
+    await typeLine(restoredTerminal, `echo ${relaunchMarker}`);
+    await waitForScreen(localSocket, restoredTerminal, relaunchMarker, 30_000);
   });
-  await saveScreen(relaunched.local_socket, terminal, "03-after-relaunch");
+  await saveScreen(localSocket, restoredTerminal, "03-after-relaunch");
 
   await link.stop();
   await hub.stop();

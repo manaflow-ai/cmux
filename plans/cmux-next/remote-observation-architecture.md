@@ -248,4 +248,3 @@ an aggregate pass is incomplete.
 PR #21305's durable runs, attach tickets, run board, and UI tournament are a
 separate product surface. They may consume observation receipts later, but they
 do not own SSH transport, ACPMUX peer authorization, or session identity.
-

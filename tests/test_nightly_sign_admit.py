@@ -15,7 +15,7 @@ nightly-next (or main); a fork head; a non-publishing event; an attempt
 record for another attempt; an unknown branch; a missing or malformed digest
 record; an artifact of another channel; a zip with extra members; a head
 SHA that is only on a tag with the branch's name; a run that built an app but
-has no prepare job; prepare jobs that disagree on publishing; a job from a newer
+has no producer job; producer jobs that disagree on publishing; a job from a newer
 attempt; an API redirect (never followed with the token).
 Skipped (exit 0, admitted=false): a failed source run, a superseded attempt
 (before or during the downloads), a run that prepared no app, a run that does
@@ -286,7 +286,7 @@ class AdmitCase(unittest.TestCase):
     def test_tarball_with_another_sha256_than_its_producer_recorded_is_refused(self) -> None:
         data = scenario("main")
         # The artifact the API serves is internally consistent (its zip digest
-        # matches), but its tarball is not the one the prepare job recorded.
+        # matches), but its tarball is not the one the producer job recorded.
         tampered = b"another app" * 1000
         blob = zip_of({"cmux-prepared-app.tar.gz": tampered})
         data["blobs"][300] = blob
