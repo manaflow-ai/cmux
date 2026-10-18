@@ -146,6 +146,13 @@ SECTIONS = [
                   "appearance.colorTransition.reduceMotion": "ColorTransitionReduceMotionSetting"},
     },
     {
+        "source": "schemas/settings/source/sessions.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Sessions.generated.swift",
+        "type": "SessionSettingsSchema",
+        "lists": {"sessions": ("descriptors", "SessionSettings"), "phone": ("phoneDescriptors", "SessionSettings")},
+        "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting", "phone.keepAwake": "PhoneKeepAwakeSetting"},
+    },
+    {
         "source": "schemas/settings/source/feed.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",
