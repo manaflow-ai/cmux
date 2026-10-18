@@ -85,6 +85,7 @@ on:
       - Resources/markdown-viewer/viewer-navigation.js
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
+      - tests/test_build_optchat_inspector_web.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
@@ -269,6 +270,7 @@ on:
       - Resources/markdown-viewer/viewer-navigation.js
       - config/vite-plus/**
       - tests/test_build_web_bundles_from.sh
+      - tests/test_build_optchat_inspector_web.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
@@ -1426,6 +1428,9 @@ jobs:
 
       - name: Prebuilt bundles install and stamp (build-web-bundles.sh --from)
         run: bash tests/test_build_web_bundles_from.sh
+
+      - name: Inspector bundle preserves unchanged mtime
+        run: bash tests/test_build_optchat_inspector_web.sh
 
       - name: Source key covers imports outside webviews/ (web-bundle-key.py)
         run: bash tests/test_web_bundle_key_inputs.sh
