@@ -11,7 +11,7 @@ Example::
 
     motion-receipt.py --frames out/raw-pane --metadata out/pane-event.json \
       --out out/pane-split.mp4 --head 6093928e570f \
-      --before-ms 600 --after-ms 900
+      --before-ms 600 --after-ms 1800
 
 This renderer uses Quick Look only to rasterize the small SVG overlays.  It is
 the same macOS environment used by the tagged app recorder, and fails clearly
@@ -56,17 +56,18 @@ def first_last(frames: list[Path]) -> tuple[Path, Path]:
 
 
 def overlay_svg(path: Path, title: str, detail: str, timing: str) -> None:
-    # A small lower-third badge leaves the UI and its geometry unobscured.
+    # A small top-left pill leaves the UI and its geometry unobscured. This is
+    # deliberately not a full-width card: metadata should attach to the app,
+    # not replace the app as a title slide.
     safe = lambda text: (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                          .replace('"', "&quot;"))
     # qlmanage flattens transparent SVGs onto white.  Use a chroma-key matte
     # so the rasterized overlay cannot replace the real UI with a white card.
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800">
       <rect width="1280" height="800" fill="#ff00ff"/>
-      <rect x="24" y="690" width="850" height="88" rx="14" fill="#0b1020" fill-opacity="0.86" stroke="#94a3b8" stroke-opacity="0.35"/>
-      <text x="48" y="724" font-family="Verdana, sans-serif" font-size="22" font-weight="bold" fill="white">{safe(title)}</text>
-      <text x="48" y="752" font-family="Verdana, sans-serif" font-size="17" fill="#dbeafe">{safe(detail)}</text>
-      <text x="48" y="773" font-family="Verdana, sans-serif" font-size="14" fill="#bfdbfe">{safe(timing)}</text>
+      <rect x="24" y="24" width="360" height="56" rx="12" fill="#0b1020" fill-opacity="0.86" stroke="#94a3b8" stroke-opacity="0.35"/>
+      <text x="42" y="49" font-family="Verdana, sans-serif" font-size="17" font-weight="bold" fill="white">{safe(title)}</text>
+      <text x="42" y="69" font-family="Verdana, sans-serif" font-size="12" fill="#dbeafe">{safe(detail)} · {safe(timing)}</text>
     </svg>'''
     path.write_text(svg, encoding="utf-8")
 
@@ -107,7 +108,8 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--head", required=True)
     parser.add_argument("--before-ms", type=int, default=600)
-    parser.add_argument("--after-ms", type=int, default=900)
+    parser.add_argument("--after-ms", type=int, default=1800,
+                        help="real final-frame hold after the transition (default: 1800)")
     parser.add_argument("--fps", type=int, default=30)
     args = parser.parse_args()
     if shutil.which("ffmpeg") is None:
@@ -129,9 +131,9 @@ def main() -> int:
         before_svg = scratch / "before.svg"
         transition_svg = scratch / "transition.svg"
         after_svg = scratch / "after.svg"
-        overlay_svg(before_svg, "BEFORE  ·  real UI", f"w {short(before.get('windows', [''])[0])}  ws {short(before.get('selected', [''])[0])}  pane {short(before_panes[0])}", "t=0 ms  ·  exact IDs in receipt.json")
-        overlay_svg(transition_svg, "TRANSITION  ·  splitRight", f"w {short(before.get('windows', [''])[0])}  ws {short(before.get('selected', [''])[0])}  {len(before_panes)} → {len(after_panes)} panes", "real recorded frames  ·  exact IDs in receipt.json")
-        overlay_svg(after_svg, "AFTER  ·  real UI", f"w {short(after.get('windows', [''])[0])}  ws {short(after.get('selected', [''])[0])}  panes {short(after_panes[0])}, {short(after_panes[-1])}", "t=3,400 ms  ·  exact IDs in receipt.json")
+        overlay_svg(before_svg, "BEFORE  ·  real UI", f"ws {short(before.get('selected', [''])[0])} · pane {short(before_panes[0])}", "t=0ms")
+        overlay_svg(transition_svg, "TRANSITION  ·  splitRight", f"pane {short(before_panes[0])}→{short(after_panes[-1])} · {len(before_panes)}→{len(after_panes)}", "recorded")
+        overlay_svg(after_svg, "AFTER  ·  real UI", f"pane {short(before_panes[0])}→{short(after_panes[-1])}", "t=3,400ms")
         before_png = rasterize(before_svg, scratch)
         transition_png = rasterize(transition_svg, scratch)
         after_png = rasterize(after_svg, scratch)

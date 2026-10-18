@@ -5,10 +5,10 @@ make the reviewable MP4. The MP4 must show the real UI for the entire clip:
 
 1. A short hold of the first captured frame labeled `BEFORE`.
 2. Every recorded transition frame at the recorder cadence.
-3. A short hold of the last captured frame labeled `AFTER`.
+3. A readable hold of the last captured frame labeled `AFTER` (1.8s by default).
 
-The labels are compact lower thirds. Do not use full-screen title cards or a
-stretched screenshot as a before/after substitute. Full state IDs belong in
+The labels are compact top-left pills. Do not use full-screen title cards, wide
+cards, or a stretched screenshot as a before/after substitute. Full state IDs belong in
 `receipt.json`; the video may show short prefixes so the interaction remains
 visible.
 
