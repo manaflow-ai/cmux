@@ -183,12 +183,7 @@ enum WorkspaceGroupHandlers {
         guard let window = context.activeWindow, let sidebar = try? context.sidebar(),
               !context.roomGroups.isEmpty else { return }
         let groups = context.roomGroups
-        let activeGroup = sidebar.model.activeWorkspaceID.flatMap { active in
-            sidebar.model.sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
-                guard case let .group(group) = node, group.workspaces.contains(where: { $0.id == active }) else { return nil }
-                return group
-            }.first
-        }
+        let activeGroup = sidebar.model.activeWorkspaceID.flatMap(sidebar.model.group(containing:))
         let activeGroupIndex = activeGroup.flatMap { current in
             groups.firstIndex { $0.id.rawValue == current.id.rawValue }
         }

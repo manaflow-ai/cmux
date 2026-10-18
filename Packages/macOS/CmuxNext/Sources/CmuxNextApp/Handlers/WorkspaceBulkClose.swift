@@ -118,10 +118,7 @@ enum WorkspaceBulkClose {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
         let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first, context)
-        let groups = sidebar.model.sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
-            if case .group(let listed) = node { return listed }
-            return nil
-        }
+        let groups = sidebar.model.groups
         guard groups.contains(where: { $0.id.rawValue == group.id.rawValue }) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
         return (sidebar, groups.filter { $0.id.rawValue != group.id.rawValue })
     }

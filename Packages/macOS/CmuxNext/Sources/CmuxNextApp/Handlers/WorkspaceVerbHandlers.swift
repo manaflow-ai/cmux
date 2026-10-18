@@ -156,13 +156,7 @@ enum WorkspaceVerbHandlers {
 
     /// The sidebar group listing `workspace` in its window, if any.
     static func group(of workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarGroup? {
-        let sections = try sidebar(showing: workspace, context).model.sections
-        for section in sections {
-            for case let .group(group) in section.nodes where group.workspaces.contains(where: { $0.id.rawValue == workspace.id }) {
-                return group
-            }
-        }
-        return nil
+        try sidebar(showing: workspace, context).model.group(containing: CmuxNextSidebar.WorkspaceID(workspace.id))
     }
 
     /// The directory of the workspace's focused terminal, else its first one.
@@ -196,11 +190,7 @@ enum WorkspaceVerbHandlers {
             if let model = context.services.workspace(id: id) { directories[id] = directory(of: model, context) }
         }
         for section in before where section.machine != nil {
-            var containers: [(GroupID?, [String])] = [(nil, section.nodes.compactMap { node in
-                if case let .workspace(workspace) = node { return workspace.id.rawValue }
-                return nil
-            })]
-            for case let .group(group) in section.nodes { containers.append((group.id, group.workspaces.map(\.id.rawValue))) }
+            let containers = section.containers.map { ($0.group, $0.workspaces.map(\.rawValue)) }
             for (group, ids) in containers where ids.count > 1 {
                 let sorted = key.sorted(ids, names: names, directories: directories, recency: window.state.workspaceRecency)
                 guard sorted != ids else { continue }
@@ -216,10 +206,8 @@ enum WorkspaceVerbHandlers {
 
     private static func setAllCollapsed(_ collapsed: Bool, _ context: AppActionContext) throws {
         let bridge = try context.sidebar()
-        for section in bridge.model.sections {
-            for case let .group(group) in section.nodes where group.isCollapsed != collapsed {
-                bridge.handle(.toggleCollapse(.group(group.id)))
-            }
+        for group in bridge.model.groups where group.isCollapsed != collapsed {
+            bridge.handle(.toggleCollapse(.group(group.id)))
         }
     }
 }
