@@ -174,7 +174,7 @@ struct AgentHookNotificationPolicyTests {
                 agentName: "codex",
                 displayName: "Codex",
                 surfaceTitle: "Unrelated surface title"
-        ) == "Codex"
+            ) == "Codex"
         )
     }
 
