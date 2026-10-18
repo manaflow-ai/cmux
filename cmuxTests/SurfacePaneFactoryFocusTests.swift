@@ -181,7 +181,7 @@ import SwiftUI
         let hostedView = cloudPanel.surface.hostedView
         hostedView.suppressReparentFocus()
         #expect(hostedView.isSuppressingReparentFocusForLayoutFollowUp())
-        pointerView.otherMouseDown(with: try #require(Self.middleMouseDownEvent()))
+        pointerView.otherMouseDown(with: try Self.middleMouseDownEvent())
         #expect(workspace.focusedPanelId == cloudPanel.id)
         #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
         #expect(!hostedView.isSuppressingReparentFocusForLayoutFollowUp())
