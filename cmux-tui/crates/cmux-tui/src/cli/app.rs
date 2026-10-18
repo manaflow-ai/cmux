@@ -30,6 +30,7 @@ pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod agent_open;
 mod call;
+mod classic;
 mod events;
 mod keybinding;
 mod open;
@@ -44,6 +45,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "app",
     "action",
     "settings",
+    "config",
     "window",
     "events",
     "history",
@@ -106,37 +108,14 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
-}
-
-/// The classic CLI's top-level discovery verbs: `cmux identify`, `cmux ping`
-/// and `cmux capabilities`, with the classic `--id-format <refs|uuids|both>`
-/// before or after the verb (ignored: these answers carry no refs). Skills,
-/// prompts and agent habits written for both apps still run them (cx-4w47
-/// D1); they are this app's `app identify|ping|capabilities`, the same
-/// `system.*` methods the classic CLI sends.
-fn classic_system_method(args: &[String]) -> Option<&'static str> {
-    let words = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let verb = match words.as_slice() {
-        [verb] => *verb,
-        ["--id-format", format, verb] | [verb, "--id-format", format]
-            if matches!(*format, "refs" | "uuids" | "both") =>
-        {
-            *verb
-        }
-        _ => return None,
-    };
-    match verb {
-        "identify" => Some("system.identify"),
-        "ping" => Some("system.ping"),
-        "capabilities" => Some("system.capabilities"),
-        _ => None,
-    }
+    /// `settings list|schema|validate` (app/settings.rs).
+    Settings(settings::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
-    if let Some(method) = classic_system_method(args) {
+    if let Some(method) = classic::classic_system_method(args) {
         return Ok(Some(AppCommand::Call {
             method,
             params: json!({}),
@@ -209,7 +188,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
+        ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
+            settings::parse(rest)?
+        }
         // The app's AI provider accounts, no secrets (`accounts.list`); the
         // other `accounts` verbs are app actions.
         ("accounts", Some("list")) => {
@@ -488,6 +469,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let Some(refusal) = command_refusal(&command) {
         return Ran::Done(super::wire::print_operation_error(&refusal, global.output));
     }
+    if let AppCommand::Settings(command) = command {
+        return Ran::Done(command.run(global));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -576,6 +560,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
         }
+        AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
