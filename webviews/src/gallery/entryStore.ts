@@ -71,15 +71,24 @@ function track<T>(promise: Promise<T>): TrackedPromise<T> {
 
 export type EntryStore = ReturnType<typeof createEntryStore>;
 
-export function createEntryStore(sources: readonly EntrySource[], options: { concurrency?: number } = {}) {
+export function createEntryStore(
+  sources: readonly EntrySource[],
+  options: { concurrency?: number; initial?: number; deferRemainingMs?: number } = {},
+) {
   const listeners = new Set<() => void>();
   const states = new Map<string, EntryState>();
   const concurrency = Math.max(1, Math.floor(options.concurrency ?? (sources.length || 1)));
   let active = 0;
   const waiters: (() => void)[] = [];
+  const initial = Math.max(0, Math.min(sources.length, Math.floor(options.initial ?? sources.length)));
+  const deferred = sources.slice(initial);
+  let deferredStarted = deferred.length === 0;
   let snapshot: readonly EntryState[] = [];
   const publish = () => {
-    snapshot = sources.map((source) => states.get(source.path)!);
+    snapshot = sources.flatMap((source) => {
+      const state = states.get(source.path);
+      return state ? [state] : [];
+    });
     for (const listener of listeners) listener();
   };
 
@@ -125,7 +134,16 @@ export function createEntryStore(sources: readonly EntrySource[], options: { con
     return promise;
   };
 
-  for (const source of sources) void start(source);
+  for (const source of sources.slice(0, initial)) void start(source);
+  if (deferred.length > 0) {
+    const beginDeferred = () => {
+      if (deferredStarted) return;
+      deferredStarted = true;
+      for (const source of deferred) void start(source);
+    };
+    if (options.deferRemainingMs !== undefined) setTimeout(beginDeferred, Math.max(0, options.deferRemainingMs));
+    else beginDeferred();
+  }
   publish();
 
   return {
@@ -137,16 +155,41 @@ export function createEntryStore(sources: readonly EntrySource[], options: { con
     /** Resolves as soon as the requested entry loads; unrelated entries may still be loading. */
     find(id: string): Promise<{ entry?: GalleryEntry; state?: EntryState }> {
       const current = snapshot;
-      if (current.length === 0) return Promise.resolve({});
+        if (current.length === 0 && deferredStarted) return Promise.resolve({});
       return new Promise((resolve) => {
         let remaining = current.length;
         let done = false;
+        const resolveMissing = () => {
+          if (deferredStarted) {
+            const retry = snapshot;
+            let pending = retry.length;
+            const retryDone = () => {
+              pending -= 1;
+              if (pending === 0 && !done) {
+                done = true;
+                resolve({});
+              }
+            };
+            for (const state of retry)
+              void state.promise.then(
+                (entry) => {
+                  if (done) return;
+                  if (entry.id === id) {
+                    done = true;
+                    resolve({ entry, state });
+                  } else retryDone();
+                },
+                retryDone,
+              );
+            return;
+          }
+          // The foreground entry finished before the background queue began. Let the deferred
+          // sources enter the store before declaring an id missing.
+          setTimeout(resolveMissing, 0);
+        };
         const finish = () => {
           remaining -= 1;
-          if (remaining === 0 && !done) {
-            done = true;
-            resolve({});
-          }
+          if (remaining === 0 && !done) resolveMissing();
         };
         for (const state of current) {
           void state.promise.then(
@@ -178,10 +221,10 @@ export function createEntryStore(sources: readonly EntrySource[], options: { con
     async waitFor(id: string): Promise<GalleryEntry | undefined> {
       const found = () => readyEntries(snapshot).find((entry) => entry.id === id);
       const current = found();
-      if (current || snapshot.every((state) => state.status !== "loading")) return current;
+        if (current || (deferredStarted && snapshot.every((state) => state.status !== "loading"))) return current;
       await new Promise<void>((resolve) => {
         const check = () => {
-          if (found() || snapshot.every((state) => state.status !== "loading")) {
+          if (found() || (deferredStarted && snapshot.every((state) => state.status !== "loading"))) {
             unsubscribe();
             resolve();
           }
@@ -197,7 +240,7 @@ export function createEntryStore(sources: readonly EntrySource[], options: { con
       for (;;) {
         const current = snapshot;
         await Promise.allSettled(current.map((state) => state.promise));
-        if (snapshot.every((state) => state.status !== "loading")) return snapshot;
+        if (deferredStarted && snapshot.every((state) => state.status !== "loading")) return snapshot;
       }
     },
   };

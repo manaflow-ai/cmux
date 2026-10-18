@@ -61,3 +61,14 @@ test("find resolves a requested entry while other bounded loads are still runnin
   await expect(found).resolves.toMatchObject({ entry: { id: "test.target" } });
   releaseSibling(entry("test.sibling"));
 });
+
+test("deferred registry loading keeps a foreground entry ahead of the background queue", async () => {
+  const sources: EntrySource[] = Array.from({ length: 3 }, (_, index) => ({
+    path: `src/deferred-${index}.gallery.tsx`,
+    load: async () => entry(`test.deferred-${index}`),
+  }));
+  const store = createEntryStore(sources, { initial: 1, deferRemainingMs: 10 });
+  await expect(store.find("test.deferred-0")).resolves.toMatchObject({ entry: { id: "test.deferred-0" } });
+  await expect(store.find("test.deferred-2")).resolves.toMatchObject({ entry: { id: "test.deferred-2" } });
+  await expect(store.settled()).resolves.toHaveLength(3);
+});

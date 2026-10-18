@@ -28,7 +28,7 @@ export function getEntryStore(): EntryStore {
   // Keep the shell's background registry at one module transform. A focused frame is a real
   // interactive preview and shares Vite's transform pool; six eager entry imports can otherwise
   // leave the visible iframe blank while the registry compiles unrelated entries.
-  return (shellStore ??= createEntryStore(entrySources, { concurrency: 1 }));
+  return (shellStore ??= createEntryStore(entrySources, { concurrency: 1, initial: 1, deferRemainingMs: 750 }));
 }
 
 /** A frame store loads only the source named by the shell; stale source links fail explicitly. */
