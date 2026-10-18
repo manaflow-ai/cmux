@@ -1,23 +1,27 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The Chief pet: a small character floating over every app and every
-/// Space. It never activates cmux and never takes the keys; a drag moves it
-/// (the spot is kept per screen, `ChiefPetPlacement`), and a click runs
-/// `onClick`.
+/// The Chief pet: a small pixel character over a glass rail, floating over every app and every
+/// Space as the references draw it (`cmux-design-references` chief-water-reference: the pet,
+/// then the rail under it). It never activates cmux and never takes the keys; a drag anywhere
+/// but a tool moves it (the spot is kept per screen, `ChiefPetPlacement`), and a click on the
+/// character or the rail's compose runs `onClick`.
 public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public static let accessibilityID = "cmux.chiefPet"
-    /// The bundled Chief (256 x 309) at the size Leo's floating-pet references show it.
-    public static let petSize = CGSize(width: 64, height: 77)
+    /// The character's box and the panel's: the references' pet is about 62 x 80 pt over a
+    /// 40 pt rail, 8 pt apart; the pixel mascots are a little wider than tall.
+    static let characterSize = CGSize(width: 72, height: 66)
+    static let gap: CGFloat = 8
+    public static let petSize = CGSize(width: 96, height: characterSize.height + gap + ChiefPetRail.height)
 
     /// A click that was not a drag.
     public var onClick: (() -> Void)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
 
-    public init(image: NSImage?, defaults: UserDefaults = .standard) {
+    public init(mascot: ChiefPetMascot = .standard, defaults: UserDefaults = .standard) {
         placement = ChiefPetPlacement(defaults: defaults)
-        pet = ChiefPetView(image: image)
+        pet = ChiefPetView(image: mascot.image)
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.petSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -39,6 +43,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.frame = NSRect(origin: .zero, size: Self.petSize)
         pet.autoresizingMask = [.width, .height]
         pet.onClick = { [weak self] in self?.onClick?() }
+        pet.rail.addTool(.actionEdit, label: ChiefPetStrings.compose) { [weak self] in self?.onClick?() }
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
         contentView = pet
         delegate = self
@@ -80,29 +85,33 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     }
 }
 
-/// The pet's character. A press that moves past `ChiefPetPlacement.dragSlop`
-/// drags the panel; one that does not is a click. Clicks work on the first
-/// press: the panel is never key.
+/// The pet's content: the character, and the rail under it. A press that moves past
+/// `ChiefPetPlacement.dragSlop` drags the panel; one on the character that does not is a click.
+/// The rail's tools take their own clicks. Clicks work on the first press: the panel is never key.
 final class ChiefPetView: NSView {
     var onClick: (() -> Void)?
     var onDragEnded: (() -> Void)?
     /// The pointer in screen points; tests drive their own.
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
-    private let imageView = NSImageView()
-    /// Where the press started, in screen points, and the panel's origin then.
-    private var press: (start: CGPoint, origin: CGPoint)?
+    let rail = ChiefPetRail()
+    /// The pixel character, drawn by a layer so it scales up with whole pixels.
+    private let character = NSView()
+    /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
+    private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
 
     init(image: NSImage?) {
         super.init(frame: .zero)
-        imageView.image = image
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.frame = bounds
-        imageView.autoresizingMask = [.width, .height]
-        addSubview(imageView)
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
+        character.wantsLayer = true
+        character.layer?.contentsGravity = .resizeAspect
+        character.layer?.magnificationFilter = .nearest
+        addSubview(character)
+        addSubview(rail)
+        self.image = image
+        character.layer?.contents = image
+        character.setAccessibilityElement(true)
+        character.setAccessibilityRole(.image)
+        character.setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
         toolTip = ChiefPetStrings.accessibilityLabel
     }
 
@@ -110,16 +119,29 @@ final class ChiefPetView: NSView {
     required init?(coder: NSCoder) { nil }
 
     var image: NSImage? {
-        get { imageView.image }
-        set { imageView.image = newValue }
+        didSet { character.layer?.contents = image }
+    }
+
+    override func layout() {
+        super.layout()
+        let size = ChiefPetPanel.characterSize
+        character.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height, width: size.width, height: size.height)
+        let width = rail.width
+        rail.frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: 0, width: width, height: ChiefPetRail.height)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    /// The pet takes every press on it; the image view never sees one.
-    override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
+
+    /// A tool takes its own press; anywhere else the pet takes it (a drag, or a click on the character).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard frame.contains(point) else { return nil }
+        if let hit = super.hitTest(point), hit is NSButton { return hit }
+        return self
+    }
 
     override func mouseDown(with event: NSEvent) {
-        press = (pointer(), window?.frame.origin ?? .zero)
+        let local = convert(event.locationInWindow, from: nil)
+        press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
     }
 
@@ -133,16 +155,14 @@ final class ChiefPetView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         defer { press = nil; dragging = false }
-        guard press != nil else { return }
-        if dragging { onDragEnded?() } else { onClick?() }
+        guard let press else { return }
+        if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
     }
 
-    override func accessibilityPerformPress() -> Bool {
-        onClick?()
-        return true
-    }
+    /// Where the character sits in the view.
+    var characterFrame: CGRect { character.frame }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
+        addCursorRect(character.frame, cursor: .pointingHand)
     }
 }

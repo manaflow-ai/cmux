@@ -5,4 +5,8 @@ enum ChiefPetStrings {
     static var accessibilityLabel: String {
         String(localized: "chiefPet.accessibilityLabel", defaultValue: "Chief", table: "ChiefPet", bundle: .module)
     }
+
+    static var compose: String {
+        String(localized: "chiefPet.compose", defaultValue: "New Message", table: "ChiefPet", bundle: .module)
+    }
 }

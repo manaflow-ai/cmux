@@ -57,7 +57,7 @@ import Testing
     }
 
     @Test func panelFloatsOverEveryAppWithoutTakingFocus() {
-        let panel = ChiefPetPanel(image: nil, defaults: Self.defaults())
+        let panel = ChiefPetPanel(defaults: Self.defaults())
         #expect(panel.styleMask.contains(.nonactivatingPanel))
         #expect(!panel.canBecomeKey)
         #expect(!panel.canBecomeMain)
@@ -71,11 +71,14 @@ import Testing
     }
 
     /// One press through the view: down at `from`, dragged through `path`, up.
-    private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint]) {
+    /// `onCharacter` false presses the rail's background instead.
+    private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint], onCharacter: Bool = true) {
         var pointer = from
         pet.pointer = { pointer }
-        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                       windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        pet.layoutSubtreeIfNeeded()
+        let spot = onCharacter ? CGPoint(x: pet.characterFrame.midX, y: pet.characterFrame.midY) : CGPoint(x: 2, y: 2)
+        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: pet.convert(spot, to: nil), modifierFlags: [], timestamp: 0,
+                                       windowNumber: pet.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         pet.mouseDown(with: event)
         for point in path {
             pointer = point
@@ -85,7 +88,7 @@ import Testing
     }
 
     @Test func clickRunsOnClickAndDoesNotMove() {
-        let panel = ChiefPetPanel(image: nil, defaults: Self.defaults())
+        let panel = ChiefPetPanel(defaults: Self.defaults())
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         var clicks = 0
         var drags = 0
@@ -98,7 +101,7 @@ import Testing
     }
 
     @Test func dragMovesThePanelWithThePointerAndIsNotAClick() {
-        let panel = ChiefPetPanel(image: nil, defaults: Self.defaults())
+        let panel = ChiefPetPanel(defaults: Self.defaults())
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         var clicks = 0
         var drags = 0
@@ -110,11 +113,40 @@ import Testing
         #expect(panel.frame.origin == CGPoint(x: 300, y: 150))
     }
 
+    @Test func everyMascotIsBundled() {
+        for mascot in ChiefPetMascot.allCases {
+            #expect(mascot.image != nil, "\(mascot.rawValue) (\(mascot.resource))")
+        }
+        #expect(ChiefPetMascot.standard == .orb, "the Chief Dock's default")
+        #expect(ChiefPetMascot.orbSpark.resource == "ChiefMascotOrbSpark")
+    }
+
+    @Test func pressOnTheRailBackgroundDragsButIsNoClick() {
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        panel.setFrameOrigin(CGPoint(x: 200, y: 200))
+        var clicks = 0
+        panel.onClick = { clicks += 1 }
+        press(panel.pet, from: CGPoint(x: 210, y: 205), path: [], onCharacter: false)
+        #expect(clicks == 0)
+        press(panel.pet, from: CGPoint(x: 210, y: 205), path: [CGPoint(x: 260, y: 205)], onCharacter: false)
+        #expect(panel.frame.origin == CGPoint(x: 250, y: 200), "the rail's background drags the pet too")
+    }
+
+    @Test func composeOnTheRailOpens() throws {
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        var clicks = 0
+        panel.onClick = { clicks += 1 }
+        panel.pet.layoutSubtreeIfNeeded()
+        let tool = try #require(panel.pet.rail.subviews.flatMap(\.subviews).compactMap { $0 as? ChiefPetTool }.first)
+        tool.performClick(nil)
+        #expect(clicks == 1)
+    }
+
     @Test func controllerShowsThePetOnlyWhileItIsOn() {
         let flag = Flag(false)
         let defaults = Self.defaults()
         var clicks = 0
-        let controller = ChiefPetController(enabled: { flag.on }, makePanel: { ChiefPetPanel(image: nil, defaults: defaults) },
+        let controller = ChiefPetController(enabled: { flag.on }, makePanel: { ChiefPetPanel(defaults: defaults) },
                                             onClick: { clicks += 1 })
         controller.sync(false)
         #expect(controller.panel == nil)
