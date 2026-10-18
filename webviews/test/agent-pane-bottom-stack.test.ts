@@ -211,6 +211,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
           box("ask", ".acpmux-asks-stack"),
           box("dock", ".acpmux-pr-dock"),
           box("queue", ".acpmux-composer-queue"),
+          box("fold", ".acpmux-queue-foldbar"),
           box("strip", ".acpmux-composer-strip"),
           box("card", ".acpmux-composer-box"),
         ].filter((part) => part !== undefined),
@@ -224,9 +225,11 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
   /// Every part drawn, inside the chat column, below the transcript, and over no other part.
   function expectStacked({ main, transcript, parts }: { main: Box; transcript: Box; parts: Box[] }) {
     // The chat has started: no location strip, and nothing left where it stood.
-    expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "card"]);
-    const [queue, card] = parts.slice(-2) as [Box, Box];
-    expect({ queueToCard: Math.abs(card.top - queue.bottom) <= 0.5 }).toEqual({ queueToCard: true });
+    // Six queued prompts fold: the fold's bar closes the queue, right on the card.
+    expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "fold", "card"]);
+    const [queue, fold, card] = parts.slice(-3) as [Box, Box, Box];
+    expect({ queueToFold: Math.abs(fold.top - queue.bottom) <= 0.5 }).toEqual({ queueToFold: true });
+    expect({ foldToCard: Math.abs(card.top - fold.bottom) <= 0.5 }).toEqual({ foldToCard: true });
     for (const part of parts) {
       expect({ part: part.name, clipped: part.top < main.top - 0.5 || part.bottom > main.bottom + 0.5 }).toEqual({
         part: part.name,
@@ -249,6 +252,8 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     await page.goto(url());
     await page.getByText("Three PRs open.").waitFor();
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
+    // Six queued prompts fold behind "4 more queued"; open it so the whole queue draws.
+    await page.locator(".acpmux-queue-fold").click();
     await page.locator(".acpmux-queued", { hasText: "sixth" }).waitFor();
     return page;
   }

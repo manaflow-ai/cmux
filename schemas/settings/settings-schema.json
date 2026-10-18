@@ -540,6 +540,16 @@
               "key" : "settings.group.freeModel",
               "text" : "AI Models"
             }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
+            }
           }
         ],
         "id" : "agents",
@@ -3718,6 +3728,79 @@
       "title" : {
         "key" : "settings.freeModel.enabled",
         "text" : "Free AI Model Without Sign-In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwake.help",
+        "text" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "caffeinate",
+        "battery",
+        "power",
+        "agents"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.keepAwake",
+        "text" : "Keep Mac Awake While Agents Work"
       },
       "validation" : "portable"
     },
@@ -7856,8 +7939,7 @@
         "dore-empyrean",
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
-        "file:/Users/Shared/Harbor.png",
-        "collage:c-2f9a1b7c04de"
+        "file:/Users/Shared/Harbor.png"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -9139,8 +9221,6 @@
         "system:",
         "file:relative.png",
         "file:",
-        "collage:",
-        "collage:../evil",
         "__not_a_backdrop__",
         1,
         true
@@ -25125,7 +25205,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "7e7f5fddb7fdd02f2d79e34f1010a68472a08733e970267547016b9393d8cffb",
+  "schema_hash" : "a74d98bf2720d5abde1e8aff3e83a7ed0d9175328cbbd7ae9bff8b9baa74c46d",
   "sections" : [
     {
       "id" : "general",

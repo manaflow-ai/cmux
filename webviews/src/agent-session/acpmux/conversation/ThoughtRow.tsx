@@ -8,6 +8,9 @@ import { formatDuration } from "./turns";
 /// A done thought folds once it is taller than the transcript's viewport, and never under this
 /// (20 of the tool rows' 20px lines), so a small pane does not fold every thought.
 export const THOUGHT_FOLD_MIN_PX = 400;
+/// A long thought still streaming holds a viewport this tall: seven of its 20px lines, the 8.75rem
+/// Codex gives a live reasoning trace. conversation.css caps `.is-live` at the same.
+export const THOUGHT_LIVE_PX = 140;
 /// How long the reader's open or close takes (AI Elements' Trace: `transition-[height] duration-200`).
 export const THOUGHT_FOLD_MS = 200;
 
@@ -22,7 +25,12 @@ export const thoughtLayout = {
     typeof document !== "undefined" && document.documentElement.dataset.thoughtHeader === "preview"
       ? "preview"
       : "duration",
+  /// The Debug toggle `agentPane.debug.liveThoughtViewport` (on by default): a long thought streams
+  /// in a fixed viewport unless the app sets `data-live-thought-viewport="off"`.
+  liveViewport: () => typeof document === "undefined" || document.documentElement.dataset.liveThoughtViewport !== "off",
   height: (node: HTMLElement) => node.getBoundingClientRect().height,
+  /// The text's whole height, also while the live viewport clips it.
+  contentHeight: (node: HTMLElement) => node.scrollHeight,
   /// The transcript scroller's height (VirtualTranscript's `.acpmux-scroll`).
   viewport: (node: HTMLElement) => node.closest<HTMLElement>(".acpmux-scroll")?.clientHeight ?? 0,
   reducedMotion: () =>
@@ -50,11 +58,14 @@ export function thoughtPreview(text: string): string {
 }
 
 /// A thought (the agent's reasoning) on its row: a muted "Thought", then the text wrapped on the tool
-/// rows' rhythm (Leo 2026-10-13). With the Debug toggle on, a long one shows in full while it
-/// streams and folds to one line once done, as Codex folds work when its next output starts. The
-/// line reads "Thought for 12s" (an undated thought, or one under a second, reads "Thought"), or
-/// with the Debug choice "preview", "Thought" and its first line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's
-/// toggle animates the height, except under Reduce Motion.
+/// rows' rhythm (Leo 2026-10-13). With the Debug toggle on, a long one folds to one line once done,
+/// as Codex folds work when its next output starts. While it streams, one taller than
+/// THOUGHT_LIVE_PX reads "Thinking" and holds a fixed viewport that keeps its newest line in view,
+/// as Codex's reasoning trace does (Debug toggle `liveThoughtViewport`; off, it shows in full). The
+/// folded line reads "Thought for 12s" (an undated thought, or one under a second, reads
+/// "Thought"), or with the Debug choice "preview", "Thought" and its first line. The reader's
+/// toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's toggle
+/// animates the height, except under Reduce Motion.
 export function ThoughtRow({
   item,
   id,
@@ -75,6 +86,9 @@ export function ThoughtRow({
   const toggled = useRef(false);
   const bodyId = useId();
   const folds = enabled && long && !streaming;
+  const liveViewport = enabled && streaming && thoughtLayout.liveViewport();
+  const [tall, setTall] = useState(false);
+  const clipped = liveViewport && tall;
   const open = choice ?? !folds;
   const choose = (next: boolean) => {
     setChoice(next);
@@ -87,12 +101,15 @@ export function ThoughtRow({
       if (folds) choose(true);
     },
   );
-  // Measured as drawn while the text shows in full; a folded thought's text no longer changes.
+  // Measured before paint while the text shows, in full or in the live viewport (its whole height,
+  // not the clip); a folded thought's text no longer changes.
   useLayoutEffect(() => {
     const node = full.current;
     if (!enabled || !node) return;
-    setLong(thoughtLayout.height(node) > Math.max(THOUGHT_FOLD_MIN_PX, thoughtLayout.viewport(node)));
-  }, [enabled, text]);
+    const drawn = Math.max(thoughtLayout.height(node), thoughtLayout.contentHeight(node));
+    setLong(drawn > Math.max(THOUGHT_FOLD_MIN_PX, thoughtLayout.viewport(node)));
+    if (liveViewport) setTall(drawn > THOUGHT_LIVE_PX);
+  }, [enabled, text, liveViewport]);
   useLayoutEffect(() => {
     if (!toggled.current) return;
     toggled.current = false;
@@ -112,9 +129,9 @@ export function ThoughtRow({
   if (!text) return null;
   if (!folds)
     return (
-      <div className="cv-tool cv-thought">
-        <span className="cv-thought__label" data-find-skip>
-          {t("tools.thought")}
+      <div className={clipped ? "cv-tool cv-thought is-live" : "cv-tool cv-thought"}>
+        <span className={clipped ? "cv-thought__label cv-thinking" : "cv-thought__label"} data-find-skip>
+          {clipped ? t("thinking") : t("tools.thought")}
         </span>
         <span ref={full} className="cv-thought__text selectable" dir="auto">
           {text}
