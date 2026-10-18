@@ -162,6 +162,22 @@ export const turnSummaryBlocks: Block[] = [
   { kind: "footer", text: "1432 in · 82 out · 4.2s" },
 ];
 
+// cmux agent messages: one that arrived with a prompt, one that woke the
+// agent after its reply.
+export const agentMessageBlocks: Block[] = [
+  { kind: "user", text: "Cut the 1.4 release branch." },
+  { kind: "message", id: "m-1", from: "coordinator", body: "Hold the v1.4 tag until #15302 merges." },
+  { kind: "assistant", text: "Branch `release/1.4` is ready. I'll hold the tag until #15302 merges.", open: false },
+  { kind: "footer", text: "3.1s" },
+  { kind: "message", id: "m-2", from: "reviewer", body: "#15302 merged. The tag is clear." },
+  { kind: "assistant", text: "Tagged `v1.4.0` and pushed it.", open: false },
+  { kind: "footer", text: "2.4s" },
+];
+
+export const queuedAgentMessages = [
+  { id: "m-3", from: "coordinator", body: "When the build is green, post the release notes in #releases." },
+];
+
 export const stressConversationBlocks: Block[] = Array.from({ length: 250 }, (_, i): Block[] => [
   { kind: "user", text: `Stress turn ${i}: keep virtualization smooth.` },
   { kind: "tool", toolId: `stress-rg-${i}`, name: "rg", detail: `query-${i}`, status: "ok", out: `match ${i}\n`.repeat(3) },

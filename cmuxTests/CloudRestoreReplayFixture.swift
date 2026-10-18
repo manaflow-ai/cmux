@@ -89,7 +89,7 @@ final class CloudRestoreReplayFixture {
     func answerHandshake() async throws -> CloudManualMirrorFixtureCommand {
         let identify = try #require(await socket.nextCommand(timeout: .seconds(5)))
         #expect(identify.cmd == "identify")
-        socket.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-initial-size"]]])
+        socket.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-initial-size", "terminal-pending-sequence-v1"]]])
         let registration = try #require(await socket.nextCommand(timeout: .seconds(5)))
         #expect(registration.cmd == "set-client-info")
         socket.send(["id": registration.id, "ok": true, "data": [:]])

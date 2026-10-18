@@ -7,11 +7,16 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { listVmSessions, openVmSession } from "../../../../../services/vms/workflows";
 import type { CloudVmSessionRow } from "../../../../../services/vms/repository";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import {
   optionalClientIdentifier,
   optionalString,
   parseLenientObjectBody,
 } from "../../../../../services/vms/routeInput";
+
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 960;
 
 export async function GET(
   request: Request,
@@ -78,7 +83,8 @@ export async function POST(
         sessionId,
         attachmentId,
         title,
-      }), { request });
+        modelPlane: vmModelPlaneRevoker(),
+      }), { request, deadline: { operation: "sessionOpen", continuationKey: `sessionOpen:${id}` } });
       if (!run.ok) return run.response;
       const result = run.value;
       return jsonResponse({

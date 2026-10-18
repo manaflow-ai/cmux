@@ -20,7 +20,8 @@ struct CloudTreeAvailabilityTests {
         )
         // The link placeholder leads; Ports stays reachable, and Resources is
         // always the final machine section.
-        #expect(CloudTreeNodeBuilder.flattened(asleep).map(\.id) == ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status", "machine:quiet-owl/resources", "machine:quiet-owl/resources/cpu", "machine:quiet-owl/resources/memory", "machine:quiet-owl/resources/disk", "machine:quiet-owl/resources/usage"])
+        // The Coderouter section always closes the tree (#17233).
+        #expect(CloudTreeNodeBuilder.flattened(asleep).map(\.id) == ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status", "machine:quiet-owl/resources", "machine:quiet-owl/resources/cpu", "machine:quiet-owl/resources/memory", "machine:quiet-owl/resources/disk", "machine:quiet-owl/resources/usage", "coderouter-section", "coderouter-section/codex", "coderouter-section/claude", "coderouter-section/opencode-go"])
         if case .placeholder(_, let placeholder) = asleep[0].children[0].kind { #expect(placeholder.style == .dimmed) } else { Issue.record("Unexpected node kind") }
         if case .placeholder(_, let ports) = asleep[0].children[1].children[0].kind { #expect(ports.style == .dimmed) } else { Issue.record("Unexpected node kind") }
 
@@ -44,7 +45,41 @@ struct CloudTreeAvailabilityTests {
             snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("ghost"))], resources: [], projections: []),
             localWorkspaces: []
         )
-        #expect(catalogOnly.map(\.id) == ["machine:ghost"])
+        #expect(catalogOnly.map(\.id) == ["machine:ghost", "coderouter-section"])
+    }
+
+    @Test
+    func testUnavailableMachineRowsDoNotExposeDiagnosticTokens() {
+        let info = machineInfo(
+            .cloud("unreachable-fox"),
+            linkState: .unavailable,
+            linkError: "cloud_api_unavailable",
+            hasDesktop: false
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: "unreachable-fox")],
+            snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [], projections: []),
+            localWorkspaces: []
+        )
+        let tokenPattern = #"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"#
+        let rowTexts = CloudTreeNodeBuilder.flattened(nodes).compactMap { node -> String? in
+            guard case .placeholder(_, let placeholder) = node.kind else { return nil }
+            return placeholder.text
+        }
+        #expect(rowTexts.allSatisfy { $0.range(of: tokenPattern, options: .regularExpression) == nil })
+
+        let displayInfo = machineInfo(
+            .cloud("unreachable-fox"),
+            linkState: .error,
+            linkError: "cloud_api_unavailable",
+            hasDesktop: false
+        )
+        let displayNode = CloudMachineSurfacePresentation.emptyDisplays(info: displayInfo)
+        if case .placeholder(_, let placeholder) = displayNode.kind {
+            #expect(placeholder.text.range(of: tokenPattern, options: .regularExpression) == nil)
+        } else {
+            Issue.record("Expected a display placeholder")
+        }
     }
 
     @Test

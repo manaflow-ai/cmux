@@ -19,6 +19,7 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             return decodeEvent(event, object: object)
         }
         guard let requestID = Self.uint64(object["id"]),
+              requestID != 0,
               let ok = object["ok"] as? Bool else {
             return nil
         }
@@ -79,7 +80,8 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             return .detached(
                 surfaceID: surfaceID,
                 reason: TerminalDetachReason(wireValue: object["reason"] as? String, by: actor),
-                view: object["view"] as? String
+                view: object["view"] as? String,
+                viewOnly: object["scope"] as? String == "view"
             )
         case "size-state":
             guard let state = Self.decode(TerminalSizingState.self, from: object["state"]) else { return nil }

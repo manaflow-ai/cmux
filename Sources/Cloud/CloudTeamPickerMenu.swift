@@ -15,6 +15,20 @@ enum CloudTeamPickerMenu {
     static let loadingTeamsIdentifier = "CloudTeamPickerLoadingTeams"
     static let pendingTeamIdentifier = "CloudTeamPickerPendingTeam"
     static let createTeamIdentifier = "CloudTeamPickerCreateTeamButton"
+    static let invitedHeaderIdentifier = "CloudTeamPickerInvitedHeader"
+    static let signedInAsIdentifier = "CloudTeamPickerSignedInAs"
+    static let signOutIdentifier = "CloudTeamPickerSignOutButton"
+    static let switchAccountIdentifier = "CloudTeamPickerSwitchAccountButton"
+
+    static func invitationIdentifier(_ invitationID: String) -> String {
+        "CloudTeamPickerInvitation_\(invitationID)"
+    }
+
+    /// One invitation the signed-in user received, as the menu shows it.
+    struct Invitation: Equatable, Sendable {
+        let id: String
+        let teamName: String
+    }
 
     static func teamIdentifier(_ teamID: String) -> String {
         "CloudTeamPickerTeam_\(teamID)"
@@ -26,7 +40,14 @@ enum CloudTeamPickerMenu {
         isSwitching: Bool,
         pendingCreate: PendingTeamCreate?,
         onSelect: @escaping (AccountTeamSummary) -> Void,
-        onCreate: @escaping () -> Void
+        onCreate: @escaping () -> Void,
+        onInvite: (() -> Void)? = nil,
+        onMembers: (() -> Void)? = nil,
+        invitations: [Invitation] = [],
+        onJoin: ((Invitation) -> Void)? = nil,
+        accountEmail: String? = nil,
+        onSwitchAccount: (() -> Void)? = nil,
+        onSignOut: (() -> Void)? = nil
     ) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -69,6 +90,41 @@ enum CloudTeamPickerMenu {
             item.state = .on
             menu.addItem(item)
         }
+        if selectedTeamID != nil, let onInvite, let onMembers {
+            menu.addItem(.separator())
+            let invite = SidebarRowClosureMenuItem(
+                title: String(localized: "sidebar.account.invitePeople", defaultValue: "Invite people…"),
+                handler: onInvite
+            )
+            invite.identifier = NSUserInterfaceItemIdentifier("CloudTeamPickerInviteButton")
+            invite.isEnabled = !isBusy
+            menu.addItem(invite)
+            let members = SidebarRowClosureMenuItem(
+                title: String(localized: "sidebar.account.members", defaultValue: "Members…"),
+                handler: onMembers
+            )
+            members.identifier = NSUserInterfaceItemIdentifier("CloudTeamPickerMembersButton")
+            members.isEnabled = !isBusy
+            menu.addItem(members)
+        }
+        if !invitations.isEmpty, let onJoin {
+            menu.addItem(.separator())
+            menu.addItem(statusItem(
+                String(localized: "cloud.teamPicker.invitedTo", defaultValue: "Invited to"),
+                identifier: invitedHeaderIdentifier
+            ))
+            for invitation in invitations {
+                let item = SidebarRowClosureMenuItem(
+                    title: String(
+                        format: String(localized: "cloud.teamPicker.join", defaultValue: "Join %@"),
+                        invitation.teamName
+                    )
+                ) { onJoin(invitation) }
+                item.identifier = NSUserInterfaceItemIdentifier(invitationIdentifier(invitation.id))
+                item.isEnabled = !isBusy
+                menu.addItem(item)
+            }
+        }
         menu.addItem(.separator())
         let create = SidebarRowClosureMenuItem(
             title: String(localized: "cloud.teamPicker.createTeam", defaultValue: "Create Team…"),
@@ -77,6 +133,36 @@ enum CloudTeamPickerMenu {
         create.identifier = NSUserInterfaceItemIdentifier(createTeamIdentifier)
         create.isEnabled = !isBusy
         menu.addItem(create)
+        // The account closes the menu, like a team switcher: who is signed in,
+        // then the way out. Busy disables it so a sign-out cannot race a switch.
+        if let onSignOut {
+            menu.addItem(.separator())
+            if let accountEmail, !accountEmail.isEmpty {
+                menu.addItem(statusItem(
+                    String(
+                        format: String(localized: "mobile.pairing.signedInAs", defaultValue: "Signed in as %@"),
+                        accountEmail
+                    ),
+                    identifier: signedInAsIdentifier
+                ))
+            }
+            if let onSwitchAccount {
+                let switchAccount = SidebarRowClosureMenuItem(
+                    title: String(localized: "cloud.teamPicker.switchAccount", defaultValue: "Switch Account…"),
+                    handler: onSwitchAccount
+                )
+                switchAccount.identifier = NSUserInterfaceItemIdentifier(switchAccountIdentifier)
+                switchAccount.isEnabled = !isBusy
+                menu.addItem(switchAccount)
+            }
+            let signOut = SidebarRowClosureMenuItem(
+                title: String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+                handler: onSignOut
+            )
+            signOut.identifier = NSUserInterfaceItemIdentifier(signOutIdentifier)
+            signOut.isEnabled = !isBusy
+            menu.addItem(signOut)
+        }
         return menu
     }
 

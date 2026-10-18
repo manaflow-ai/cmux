@@ -15,8 +15,18 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
     /// one side of the boundary.
     public static let current = Self(events: [
         .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
-        .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
-        .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
+        .init(
+            agentEvent: "UserPromptSubmit",
+            cmuxSubcommand: "prompt-submit",
+            timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds,
+            companion: .init(cmuxSubcommand: "inbox-drain", timeoutMs: inboxHookTimeoutMilliseconds)
+        ),
+        .init(
+            agentEvent: "Stop",
+            cmuxSubcommand: "stop",
+            timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds,
+            companion: .init(cmuxSubcommand: "inbox-stop", timeoutMs: inboxHookTimeoutMilliseconds)
+        ),
         .init(agentEvent: "PreToolUse", cmuxSubcommand: "pre-tool-use", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
         .init(agentEvent: "PostToolUse", cmuxSubcommand: "post-tool-use", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
         .init(
@@ -39,12 +49,28 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
         ),
     ])
 
+    /// Timeout for the agent message handlers on UserPromptSubmit and Stop.
+    /// They make one short socket call and fail open to `{}`.
+    static let inboxHookTimeoutMilliseconds = 5_000
+
     /// Exact older shapes accepted by saved-layout and replay sanitization.
     /// These remain explicit because stored commands can outlive the cmux
     /// version that captured them. Never broaden this to unordered events or
     /// arbitrary prefixes: hook config is user-controlled argv.
     static let recognized = [
         current,
+        // The generation before the agent message companions on
+        // UserPromptSubmit and Stop.
+        Self(events: [
+            .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
+            .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
+            .init(agentEvent: "Stop", cmuxSubcommand: "stop", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
+            .init(agentEvent: "PreToolUse", cmuxSubcommand: "pre-tool-use", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
+            .init(agentEvent: "PostToolUse", cmuxSubcommand: "post-tool-use", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds),
+            .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification", timeoutMs: 120000, delivery: .direct),
+            .init(agentEvent: "SubagentStart", cmuxSubcommand: "subagent-start", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds, delivery: .direct),
+            .init(agentEvent: "SubagentStop", cmuxSubcommand: "subagent-stop", timeoutMs: AgentHookDeliveryPolicy.declaredTimeoutMilliseconds, delivery: .direct),
+        ]),
         Self(events: [
             .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start", timeoutMs: 10000),
             .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit", timeoutMs: 10000),

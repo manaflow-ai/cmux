@@ -28,14 +28,60 @@ extension FeedCoordinator {
 }
 
 extension AgentNotificationRegressionTests {
-    private func semanticEvent(_ fixture: Fixture, source: String, sequence: Int64 = 1,
-                               request: String = "approval") -> AgentJournalEvent {
+    @Test(arguments: ["claude", "codex"])
+    func answeringAnUncorrelatedAgentPromptClearsItsRing(source: String) throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        // Same-session prompts are admitted only for the session bound to
+        // the surface (AgentJournalLifecycleCenter.notificationRequestIsCurrent).
+        bindAgentSession(fixture, source: source)
+
+        #expect(
+            AgentNotificationDelivery().enqueue(
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "agent question",
+                subtitle: "",
+                body: "Answer needed",
+                category: .needsPermission,
+                pending: false,
+                agentKind: source,
+                sessionId: "session"
+            )
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.notifications.count == 1)
+        fixture.store.setFocusedReadIndicator(forTabId: fixture.source.id, surfaceId: fixture.panelId)
+
+        // A later same-session hook proves that the prompt was answered even
+        // when the original terminal notification had no producer key.
+        FeedCoordinator.shared.clearSemanticFeedNotification(
+            requestId: "answered",
+            source: source,
+            sessionId: "session",
+            workspaceId: fixture.source.id,
+            surfaceId: fixture.panelId
+        )
+
+        #expect(fixture.store.notifications.isEmpty)
+        #expect(!fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
+    }
+
+    private func bindAgentSession(_ fixture: Fixture, source: String, session: String = "session") {
         fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
-            name: source, kind: source, command: "agent resume", checkpointId: "session", source: "agent-hook", updatedAt: 1)
+            name: source, kind: source, command: "agent resume", checkpointId: session, source: "agent-hook", updatedAt: 1)
+    }
+
+    private func semanticEvent(_ fixture: Fixture, source: String, sequence: Int64 = 1,
+                               request: String = "approval", session: String = "session") -> AgentJournalEvent {
+        bindAgentSession(fixture, source: source, session: session)
         return AgentJournalEvent(sequence: sequence, committedAtMs: sequence,
             draft: AgentJournalEventDraft(kind: .approvalRequested, occurredAtMs: sequence,
                 source: source, agentKey: source == "claude" ? "claude_code" : source,
-                sessionId: "session", workspaceId: fixture.source.id.uuidString,
+                sessionId: session, workspaceId: fixture.source.id.uuidString,
                 surfaceId: fixture.panelId.uuidString,
                 attention: AgentAttentionContext(requestIdentity: request,
                     notification: AgentJournalNotification(title: "Semantic approval", subtitle: "",
@@ -71,6 +117,84 @@ extension AgentNotificationRegressionTests {
         TerminalMutationBus.shared.drainForTesting()
         #expect(deliveries.count == 1)
         #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test func codexProgressHookClearsPromptRingAndWorkspaceCount() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let event = semanticEvent(fixture, source: "codex", session: "session")
+        var reconciler = AgentNotificationReconciler()
+        let decision = reconciler.apply(event)
+        AgentJournalLifecycleCenter.deliverNotification(
+            event,
+            identity: try #require(decision.identity)
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 1)
+        #expect(fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
+
+        #expect(
+            AgentNotificationDelivery().enqueue(
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Codex second question",
+                subtitle: "",
+                body: "Another answer needed",
+                category: .needsPermission,
+                pending: false,
+                agentKind: "codex",
+                correlationKey: "later-question",
+                sessionId: "session"
+            )
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 2)
+
+        let progressed = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .postToolUse,
+            source: "codex",
+            workspaceId: fixture.source.id.uuidString,
+            surfaceId: fixture.panelId.uuidString,
+            toolName: "Bash",
+            extraFieldsJSON: #"{"_hook_sent_at_ms":9999999999999,"_cmux_ordered_hook":true,"tool_use_id":"next-tool"}"#
+        )
+        FeedCoordinator.shared.clearAgentPromptNotificationsSuperseded(by: progressed)
+
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 1)
+        #expect(fixture.store.notifications.map(\.title) == ["Codex second question"])
+        #expect(fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
+    }
+
+    @Test func terminalInputClearsCodexPromptRingAndWorkspaceCount() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        bindAgentSession(fixture, source: "codex")
+        #expect(AgentNotificationDelivery().enqueue(
+            workspaceID: fixture.source.id,
+            surfaceID: fixture.panelId,
+            title: "Codex approval",
+            subtitle: "",
+            body: "Answer needed",
+            category: .needsPermission,
+            pending: false,
+            agentKind: "codex",
+            sessionId: "session"
+        ))
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 1)
+        #expect(fixture.source.clearAgentAttentionNotificationOnTerminalInput(panelId: fixture.panelId))
+        #expect(fixture.store.unreadCount(forTabId: fixture.source.id) == 0)
+        #expect(!fixture.store.hasVisibleNotificationIndicator(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ))
     }
 
     @Test(arguments: ["claude", "codex"])

@@ -1,14 +1,11 @@
 name: Testbox broker guard
 
-# The main CI suite is dispatch-only right now, so the trust-boundary guard for
-# the Blacksmith Testbox lane gets its own always-on workflow. It must run on
-# every pull request, with no path filter: a path filter is exactly the thing a
-# change that moves the guard could slip past.
+# The trust-boundary checks run in ci-guards.yml's `ci` group, which routes
+# workflow changes and runs on every relevant pull request and main commit.
+# Keep this workflow for an explicit diagnostic run without spending a
+# Blacksmith job on every pull request and main push.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch: {}
 
 permissions: {}
 

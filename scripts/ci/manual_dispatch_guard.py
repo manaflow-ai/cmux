@@ -17,12 +17,34 @@ class Decision:
     reason: str
 
 
-def has_covering_ci_run(runs: Sequence[Mapping[str, Any]], sha: str) -> bool:
-    """Whether a successful or active full-suite pull-request run covers this head."""
+LEGACY_FULL_SUITE_MARKER_JOB = "full-suite-coverage"
+CHANGES_JOB = "changes"
+FULL_SUITE_MARKER_STEP = "Mark full-suite coverage"
+
+
+def _completed_successfully(item: Mapping[str, Any]) -> bool:
+    return item.get("status") == "completed" and item.get("conclusion") == "success"
+
+
+def _named_steps(job: Mapping[str, Any], name: str) -> list[Mapping[str, Any]]:
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return []
+    return [
+        step for step in steps
+        if isinstance(step, Mapping) and str(step.get("name", "")) == name
+    ]
+
+
+def has_covering_ci_run(
+    runs: Sequence[Mapping[str, Any]], sha: str, fingerprint: str
+) -> bool:
+    """Whether an active or successful PR run has equivalent coverage."""
     return any(
         item.get("event") == "pull_request"
         and item.get("head_sha") == sha
         and item.get("full_suite") is True
+        and item.get("coverage_fingerprint") == fingerprint
         and (item.get("status") != "completed" or item.get("conclusion") == "success")
         for item in runs
     )
@@ -30,7 +52,8 @@ def has_covering_ci_run(runs: Sequence[Mapping[str, Any]], sha: str) -> bool:
 
 def decide(*, event: str, repository: str, ref_name: str, sha: str,
            pull_requests: Sequence[Mapping[str, Any]],
-           normal_ci_runs: Sequence[Mapping[str, Any]] = ()) -> Decision:
+           normal_ci_runs: Sequence[Mapping[str, Any]] = (),
+           coverage_fingerprint: str = "") -> Decision:
     """Return the cancellation decision without network or environment access."""
     if event != "workflow_dispatch":
         return Decision(False, "not a manual dispatch")
@@ -43,9 +66,11 @@ def decide(*, event: str, repository: str, ref_name: str, sha: str,
     if not matching:
         return Decision(False, "no open pull request for this branch")
     if any((item.get("head") or {}).get("sha") == sha for item in matching):
-        if has_covering_ci_run(normal_ci_runs, sha):
+        if coverage_fingerprint and has_covering_ci_run(
+            normal_ci_runs, sha, coverage_fingerprint
+        ):
             return Decision(True, "pull request run covers this head")
-        return Decision(False, "pull request head matches but its CI run is not present")
+        return Decision(False, "pull request head matches but equivalent CI coverage is not present")
     return Decision(True, "branch moved past the pull request head")
 
 
@@ -87,16 +112,45 @@ class GitHub:
                 jobs = self._request(
                     f"/repos/{self.repository}/actions/runs/{run['id']}/jobs?per_page=100"
                 )
-                run["full_suite"] = any(
-                    job.get("name") == "full-suite-coverage"
-                    and (
-                        job.get("status") != "completed"
-                        or job.get("conclusion") == "success"
-                    )
-                    for job in jobs.get("jobs", [])
-                ) if isinstance(jobs, Mapping) else False
+                jobs_list = jobs.get("jobs", []) if isinstance(jobs, Mapping) else []
+                legacy_marker_jobs = [
+                    job for job in jobs_list
+                    if isinstance(job, Mapping)
+                    and str(job.get("name", "")) == LEGACY_FULL_SUITE_MARKER_JOB
+                ]
+                changes_jobs = [
+                    job for job in jobs_list
+                    if isinstance(job, Mapping)
+                    and str(job.get("name", "")) == CHANGES_JOB
+                ]
+                changes_marker_steps = [
+                    step
+                    for job in changes_jobs
+                    for step in _named_steps(job, FULL_SUITE_MARKER_STEP)
+                ]
+                # The old marker was a downstream job, so it could not exist
+                # until `changes` had completed successfully. Keep that exact
+                # boundary for the in-job marker: a successful step followed
+                # by a later changes failure must not suppress a manual run.
+                changes_full_suite = any(
+                    _completed_successfully(job)
+                    and any(_completed_successfully(step) for step in _named_steps(job, FULL_SUITE_MARKER_STEP))
+                    for job in changes_jobs
+                )
+                legacy_full_suite = any(
+                    job.get("status") != "completed" or job.get("conclusion") == "success"
+                    for job in legacy_marker_jobs
+                )
+                run["full_suite"] = changes_full_suite or legacy_full_suite
+                marker_present = bool(legacy_marker_jobs or changes_marker_steps)
+                run["coverage_fingerprint"] = (
+                    str(run.get("display_title", ""))
+                    if marker_present and str(run.get("display_title", "")).startswith("v1;")
+                    else ""
+                )
             except (KeyError, OSError, ValueError, TypeError):
                 run["full_suite"] = False
+                run["coverage_fingerprint"] = ""
         return runs
 
     def cancel(self, run_id: str) -> None:
@@ -122,13 +176,14 @@ def main(env: Mapping[str, str] | None = None, *, check_only: bool = False) -> i
         ref_name = env.get("SOURCE_REF_NAME", env.get("GITHUB_REF_NAME", ""))
         sha = env.get("SOURCE_SHA", env.get("GITHUB_SHA", ""))
         run_id = env.get("SOURCE_RUN_ID", env.get("GITHUB_RUN_ID", ""))
+        coverage_fingerprint = env.get("SOURCE_COVERAGE_FINGERPRINT", "")
         pull_requests = api.open_pull_requests(ref_name)
         matching_sha = any(
             (item.get("head") or {}).get("sha") == sha
             and item.get("state", "open") == "open"
             and (item.get("head") or {}).get("repo", {}).get("full_name") == repository
             and (item.get("head") or {}).get("ref") == ref_name
-        for item in pull_requests
+            for item in pull_requests
         )
         normal_ci_runs = api.normal_ci_runs(sha) if matching_sha else []
         decision = decide(
@@ -138,12 +193,11 @@ def main(env: Mapping[str, str] | None = None, *, check_only: bool = False) -> i
             sha=sha,
             pull_requests=pull_requests,
             normal_ci_runs=normal_ci_runs,
+            coverage_fingerprint=coverage_fingerprint,
         )
         print(f"manual dispatch: {decision.reason}", file=sys.stderr)
         if decision.cancel:
             if check_only:
-                # Fail changes before any consumer can start expensive work.
-                # The default-branch watcher cancels the run with its own token.
                 return 1
             api.cancel(run_id)
     except Exception as error:  # noqa: BLE001 - fail open keeps CI available

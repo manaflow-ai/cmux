@@ -20,7 +20,7 @@ extension ControlCommandCoordinator {
         case "window.focus":
             return windowFocus(request.params)
         case "window.create":
-            return windowCreate()
+            return windowCreate(request.params)
         case "window.close":
             return windowClose(request.params)
         case "window.displays":
@@ -136,8 +136,8 @@ extension ControlCommandCoordinator {
     }
 
     /// `window.create` — create a window and make it active.
-    func windowCreate() -> ControlCallResult {
-        guard let windowID = context?.controlCreateWindowAndActivate() else {
+    func windowCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let windowID = context?.controlCreateWindowAndActivate(title: string(params, "title")) else {
             return .err(code: "internal_error", message: "Failed to create window", data: nil)
         }
         return .ok(.object([

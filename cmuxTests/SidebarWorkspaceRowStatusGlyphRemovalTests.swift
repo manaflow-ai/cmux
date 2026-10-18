@@ -20,11 +20,11 @@ import Testing
 /// The sidebar row is a SwiftUI shape subtree under a lazy list, so there is
 /// no NSView to walk for a mounted-hierarchy assertion; scanning the row's
 /// rendering sources is the repo's established guard pattern for "this must
-/// not silently return" (see the `#filePath` repo-root scans in
+/// not silently return" (see the source-root scans in
 /// `GhosttyConfigTests` / `RemoteShellCWDRelayTests`).
 struct SidebarWorkspaceRowStatusGlyphRemovalTests {
     private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
+        SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent() // cmuxTests
             .deletingLastPathComponent() // repo root
     }

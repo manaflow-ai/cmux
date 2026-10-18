@@ -20,14 +20,14 @@ Expected layout:
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import resolve_cmux_cli, socket_request_method
+from fake_socket_env import cli_environment, unwrap_capability
 
 INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 INITIAL_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
@@ -59,7 +59,9 @@ class FakeCmuxState:
         self.requests: list[str] = []
         self.split_calls: list[dict] = []
         self.equalize_calls: list[dict] = []
+        self.pane_resize_calls: list[dict] = []
         self.split_counter = 0
+        self.leader_width_fraction = 0.5
         self.workspace = {
             "id": INITIAL_WORKSPACE_ID,
             "ref": "workspace:1",
@@ -138,9 +140,28 @@ class FakeCmuxState:
             if method == "pane.list":
                 return {
                     "panes": [
-                        {"id": p["id"], "ref": p["ref"], "index": p["index"]}
+                        {
+                            "id": p["id"],
+                            "ref": p["ref"],
+                            "index": p["index"],
+                            "columns": 140,
+                            "rows": 40,
+                            "cell_width_points": 10,
+                            "cell_height_points": 20,
+                            "pixel_frame": {
+                                "x": 0 if p["id"] == INITIAL_PANE_ID else 1400 * self.leader_width_fraction,
+                                "y": 0,
+                                "width": (
+                                    1400 * self.leader_width_fraction
+                                    if p["id"] == INITIAL_PANE_ID
+                                    else 1400 * (1 - self.leader_width_fraction)
+                                ),
+                                "height": 800,
+                            },
+                        }
                         for p in self.panes
-                    ]
+                    ],
+                    "container_frame": {"width": 1400, "height": 800},
                 }
             if method == "pane.surfaces":
                 pane_id = str(params.get("pane_id") or "")
@@ -217,6 +238,17 @@ class FakeCmuxState:
                 self.current_pane_id = surface["pane_id"]
                 return {"ok": True}
             if method == "pane.resize":
+                self.pane_resize_calls.append(dict(params))
+                if (
+                    params.get("pane_id") == INITIAL_PANE_ID
+                    and params.get("target_percentage") == 30
+                ):
+                    self.leader_width_fraction = 0.3
+                    # Simulate the user widening the leader before Claude asks
+                    # for the next teammate. The next fixed 30% request should
+                    # preserve this custom width.
+                    if len(self.pane_resize_calls) == 1:
+                        self.leader_width_fraction = 0.8
                 return {"ok": True}
             if method == "workspace.equalize_splits":
                 self.equalize_calls.append(dict(params))
@@ -262,11 +294,17 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
+            method = socket_request_method(request)
+            if method is None:
+                self.wfile.write(b"ERROR: malformed request\n")
+                self.wfile.flush()
+                continue
+
             response = {
                 "ok": True,
                 "result": self.server.state.handle(
-                    request["method"],
+                    method,
                     request.get("params", {}),
                 ),
                 "id": request.get("id"),
@@ -311,8 +349,8 @@ t1="$(tmux split-window -t "${TMUX_PANE}" -h -l 70% -P -F '#{pane_id}')"
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 
-# Teammate 2: horizontal split right (should redirect to vertical)
-t2="$(tmux split-window -t "${TMUX_PANE}" -h -l 70% -P -F '#{pane_id}')"
+# Teammate 2: vertical split (the shim still anchors it to the agent column)
+t2="$(tmux split-window -t "${TMUX_PANE}" -v -P -F '#{pane_id}')"
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 
@@ -328,8 +366,7 @@ printf '%s\\n%s\\n%s\\n' "$t1" "$t2" "$t3" > "$RESULT_LOG"
 
         result_log = tmp / "result.log"
 
-        env = os.environ.copy()
-        env["HOME"] = str(home)
+        env = cli_environment(home=home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         env["CMUX_WORKSPACE_ID"] = INITIAL_WORKSPACE_ID
@@ -413,6 +450,19 @@ printf '%s\\n%s\\n%s\\n' "$t1" "$t2" "$t3" > "$RESULT_LOG"
             if call["focus"] is not True:
                 print(f"FAIL: split[{i}] expected focus=true, got {call['focus']}")
                 return 1
+
+        if len(state.pane_resize_calls) != 1:
+            print(
+                "FAIL: expected only the initial automatic leader resize; "
+                f"got {state.pane_resize_calls}"
+            )
+            return 1
+        if state.leader_width_fraction != 0.8:
+            print(
+                "FAIL: expected the user-selected leader width to survive "
+                f"teammate spawns, got {state.leader_width_fraction:.2f}"
+            )
+            return 1
 
         expected_equalize_call = {
             "workspace_id": INITIAL_WORKSPACE_ID,

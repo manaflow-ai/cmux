@@ -13,6 +13,9 @@ public import Foundation
 public enum DeeplinkWorkspaceNavigationOrigin: Equatable, Sendable {
     case external
     case notificationFeed
+    /// Opened from a Feed row: push inside the Feed tab so Back returns to
+    /// the Feed, as a Notifications row returns to Notifications.
+    case agentFeed
 }
 
 public struct DeeplinkWorkspaceNavigationRequest: Equatable, Sendable {
@@ -157,6 +160,15 @@ extension CMUXMobileShellStore {
                     deviceID: row.macDeviceID,
                     instanceTag: row.macInstanceTag
                 ) && row.terminals.contains { $0.id.rawValue == terminalID }
+            }?.id
+        }
+        // An external host's surfaces resolve to that host's row whichever
+        // Mac is in the foreground. Their ids are namespaced by construction,
+        // so the sibling-build ambiguity the scoping below defends against
+        // cannot arise, and the Mac-scoped lookups never match them.
+        if externalHostOwnsSurface(terminalID) {
+            return workspaces.first { row in
+                row.terminals.contains { $0.id.rawValue == terminalID }
             }?.id
         }
         guard let foregroundMacDeviceID else {

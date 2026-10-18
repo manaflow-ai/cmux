@@ -10,7 +10,11 @@ PRODUCT_NAME = cmux
 PRODUCT_DISPLAY_NAME = cmux
 CMUX_APP_BUNDLE_IDENTIFIER = dev.cmux.ios
 PRODUCT_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
+// The app whose extensions these are. Extension targets derive their ids from
+// it; the app reads the Cloud VPN provider's id from its Info.plist.
+CMUX_HOST_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService
+CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).CloudVPN
 // User-visible versions (CFBundleShortVersionString). Keep beta and production
 // independent: TestFlight can stay on the already-approved beta version while
 // the first production App Store upload starts from its own release version.
@@ -96,6 +100,7 @@ INFOPLIST_KEY_NSCameraUsageDescription = Scan cmux pairing QR codes from your Ma
 // or Release/TestFlight defaults.
 CMUX_APP_CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
 CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements
+CMUX_CLOUD_VPN_CODE_SIGN_ENTITLEMENTS = Config/CloudVPN.entitlements
 CODE_SIGN_ENTITLEMENTS = $(CMUX_APP_CODE_SIGN_ENTITLEMENTS)
 
 // ==========================================

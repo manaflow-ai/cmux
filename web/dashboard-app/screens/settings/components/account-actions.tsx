@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
+import { signOutOfDashboard } from "@/dashboard-app/lib/sign-out";
 import {
   ConfirmDialog,
   InlineError,
@@ -14,7 +15,6 @@ import {
   settingsButtonClass,
   useAsyncAction,
 } from "@/dashboard-app/components/settings-ui";
-import { localeHomeHref } from "@/dashboard-app/lib/locale-href";
 import { settingsOverviewQuery } from "@/dashboard-app/queries/settings";
 
 /** `/dashboard/settings/account`: billing link, sign out, delete account. */
@@ -27,15 +27,8 @@ export function AccountActions() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runSignOut, signOutState] = useAsyncAction(t("signOutError"));
 
-  // Same sequence as the dashboard account menu, so both entrypoints clear
-  // the coderouter organization scope.
-  const signOut = () =>
-    runSignOut(async () => {
-      await app.signOut();
-      clearCoderouterOrganizationScope();
-      // Home is outside the SPA; a document load also drops every cached query.
-      window.location.assign(localeHomeHref(locale));
-    });
+  // The same sign-out as the dashboard account menu.
+  const signOut = () => runSignOut(() => signOutOfDashboard(app, locale));
 
   return (
     <SettingsStack>

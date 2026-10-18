@@ -6,10 +6,13 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -140,6 +143,108 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual([e["id"] for e in result["evidence"]["executions"]], ["xcstrings"])
             self.assertEqual(result["outcome"]["status"], "passed")
             self.assertEqual(verify.receipt.check(result, "tests")["status"], "skipped")
+
+    def test_jobs_overlaps_independent_checks_and_keeps_receipt_order(self):
+        with repo_fixture() as repo:
+            active = 0
+            maximum = 0
+            lock = threading.Lock()
+            overlap = threading.Barrier(2)
+
+            def fake_execute(_repo, item, _timeout):
+                nonlocal active, maximum
+                with lock:
+                    active += 1
+                    maximum = max(maximum, active)
+                overlap.wait(timeout=5)
+                with lock:
+                    active -= 1
+                return ({"id": item[0], "phase": item[1], "argv": item[3],
+                         "status": "passed", "executed": True, "exit_code": 0,
+                         "output_sha256": "fixture", "tests": None, "cancelled": False,
+                         "elapsed_seconds": 0.05}, "")
+
+            with patch.object(verify, "execute", side_effect=fake_execute):
+                result = verify.run(repo, ["xcstrings", "localization"], 5, io.StringIO(), jobs=2)
+            self.assertEqual(maximum, 2)
+            self.assertEqual([item["id"] for item in result["evidence"]["executions"]],
+                             ["xcstrings", "localization"])
+            self.assertEqual(result["recipe"]["argv"][-2:], ["--jobs", "2"])
+
+    def test_parallel_interrupt_settles_all_child_checks(self):
+        with repo_fixture() as repo:
+            for name, marker in (("lint-xcstrings.py", "xcstrings.ready"),
+                                 ("localization_catalog.py", "localization.ready")):
+                (repo / "scripts" / name).write_text(
+                    "from pathlib import Path\n"
+                    f"Path({str(repo / marker)!r}).touch()\n"
+                    "import time; time.sleep(10)\n"
+                )
+            child = subprocess.Popen(
+                ["python3", str(repo / "scripts/verify-local.py"), "--repo", str(repo),
+                 "--only", "xcstrings", "--only", "localization", "--jobs", "2"],
+                cwd=repo.parent, start_new_session=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and not all(
+                        (repo / marker).exists() for marker in ("xcstrings.ready", "localization.ready")):
+                    time.sleep(0.01)
+                self.assertTrue(
+                    all((repo / marker).exists() for marker in ("xcstrings.ready", "localization.ready")),
+                    "both preflight checks must start before the interrupt is sent",
+                )
+                os.killpg(child.pid, signal.SIGINT)
+                output, errors = child.communicate(timeout=5)
+            finally:
+                if child.poll() is None:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    child.wait()
+            self.assertNotEqual(child.returncode, 0)
+            combined = output + errors
+            self.assertIn("INTERRUPTED xcstrings", combined)
+            self.assertIn("INTERRUPTED localization", combined)
+
+    def test_submission_interrupt_keeps_submitted_and_unsent_receipts(self):
+        with repo_fixture() as repo:
+            class Future:
+                def __init__(self, item):
+                    self.item = item
+
+                def cancel(self):
+                    return False
+
+                def cancelled(self):
+                    return False
+
+                def result(self):
+                    return ({"id": self.item[0], "phase": self.item[1], "argv": self.item[3],
+                             "status": "passed", "executed": True, "exit_code": 0,
+                             "output_sha256": "fixture", "tests": None, "cancelled": False,
+                             "elapsed_seconds": 0.01}, "")
+
+            class Pool:
+                def __init__(self, **_kwargs):
+                    self.submissions = 0
+
+                def submit(self, _function, item):
+                    if self.submissions:
+                        raise KeyboardInterrupt
+                    self.submissions += 1
+                    return Future(item)
+
+                def shutdown(self, **_kwargs):
+                    pass
+
+            with patch.object(verify, "ThreadPoolExecutor", Pool):
+                result = verify.run(repo, ["xcstrings", "localization"], 5, io.StringIO(), jobs=2)
+            self.assertEqual(
+                [execution["id"] for execution in result["evidence"]["executions"]],
+                ["xcstrings", "localization"],
+            )
+            self.assertEqual(result["evidence"]["executions"][0]["status"], "passed")
+            self.assertEqual(result["evidence"]["executions"][1]["status"], "interrupted")
 
     def test_ctrl_c_skips_remaining_checks(self):
         with repo_fixture() as repo:
@@ -370,7 +475,7 @@ class AffectedChecksTests(unittest.TestCase):
             (repo / "Resources").mkdir()
             (repo / "Resources" / "odd name\nstrings.xcstrings").write_text("{}")
             selected, evidence = verify.affected_checks(repo, "HEAD")
-            self.assertEqual(selected, ["xcstrings", "localization", "feature-flags"])
+            self.assertEqual(selected, ["xcstrings", "localization", "localization-defaults", "feature-flags"])
             self.assertEqual(evidence["paths"], ["Resources/odd name\nstrings.xcstrings"])
             self.assertIn("time_sensitive", evidence["reasons"]["feature-flags"])
 

@@ -5,11 +5,11 @@
 #
 # Compiles the app-host test product with Xcode's compilation cache on for
 # every target except cmuxTests, and except the app before Xcode 26.6 (see
-# build()). cmuxTests also emits no Swift module. ci.yml
-# `macos-compile-admission` restores that cache read-only and nightly.yml
-# `refresh-test-compilation-cache` writes it. A cache entry is keyed on the
-# whole compiler invocation and on absolute paths, so both jobs must build
-# through this script or they stop sharing hits without anything failing.
+# build()). cmuxTests also emits no Swift module. Owned minis add the deployed
+# fleet-cas node's remote settings; other runners use the local CAS path and
+# the scheduled seed writer. A cache entry is keyed on the whole compiler
+# invocation and on absolute paths, so both jobs must build through this
+# script or they stop sharing hits without anything failing.
 #
 # `fingerprint` keys the cache. A cache entry bakes in the absolute source and
 # derived-data paths, so which paths the build used decides whether a seed can
@@ -18,11 +18,11 @@
 # built on one pool could never hit on another.
 #
 # scripts/ci/canonical-build-root.sh removes that disagreement by building from
-# a fixed location every pool can reproduce. When the build runs there the key
-# drops the paths, because they are now a constant, and one seed serves every
-# pool. A build anywhere else keeps the old path-scoped key and its own private
-# cache, so an unconverted lane degrades to a miss rather than downloading a
-# seed whose entries cannot hit.
+# a stable per-runner location every job on that runner can reproduce. A
+# self-hosted runner derives its root from RUNNER_NAME, so another runner on
+# the same Mac cannot remove its source tree or DerivedData. The root is part
+# of the fingerprint when it is not the historical default, so a build never
+# adopts a cache whose absolute paths belong to another runner.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,8 +38,8 @@ usage() {
 # Same limit as the Release seed in nightly.yml.
 cache_limit_bytes=3221225472
 
-# Keep in sync with scripts/ci/canonical-build-root.sh.
-CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+# Keep root selection in sync with scripts/ci/canonical-build-root.sh.
+CANONICAL_BUILD_ROOT="$("$SCRIPT_DIR/canonical-build-root.sh" --print-root)"
 
 # How Swift Build's llbuild decides a file changed. The default,
 # device-agnostic, compares modification times, which cannot survive a move to
@@ -55,6 +55,20 @@ CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
 # it, so it reaches only these builds. A build database written in one mode
 # reruns every task in the other, so the mode is part of the fingerprint.
 XCBUILD_FILE_SYSTEM_MODE=checksum-only
+# Keep compiler metadata independent of the producer's canonical root. Test
+# fixtures that need source files use cmuxTestSourceURL(), which resolves
+# #fileID against the matching runtime alias because Swift's #filePath literal
+# does not honor -file-prefix-map.
+FILE_PATH_ROOT=/private/tmp/cmux-test-source
+
+# The ghostty pin the checkout builds against (its gitlink, so no submodule
+# checkout is needed). Xcode keeps its processed copy of the prebuilt
+# GhosttyKit.xcframework in DerivedData, so a seed or kept build from another
+# pin compiles against that pin's headers: after #19443's bump every main pull
+# request that adopted an older nightly seed failed with "cannot find
+# ghostty_surface_set_link_filter". Read before `canonical-*` enters the
+# canonical root, which holds no checkout at fingerprint time.
+GHOSTTY_PIN="$(git rev-parse HEAD:ghostty 2>/dev/null || echo none)"
 
 fingerprint() {
   local derived_data="$1"
@@ -66,10 +80,11 @@ fingerprint() {
     && [ "${derived_data%/*}" = "$CANONICAL_BUILD_ROOT" ] \
     && [ "${derived_data##*/}" != "" ]; then
     {
-      echo "canonical-v1"
+      echo "canonical-v2"
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+      printf 'ghostty=%s\n' "$GHOSTTY_PIN"
       # The default root adds nothing, so every existing seed and cache key
       # stays the same. Another root (an owned Mac's second compile slot)
       # compiles different absolute paths into every entry, so it gets keys
@@ -85,6 +100,7 @@ fingerprint() {
     printf 'workspace=%s\n' "$PWD"
     printf 'derived-data=%s\n' "$derived_data"
     printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+    printf 'ghostty=%s\n' "$GHOSTTY_PIN"
   } | shasum -a 256 | cut -c1-32
 }
 
@@ -228,23 +244,78 @@ build() {
   local -a cache_setting=(
     'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
     CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
+    # Keep cache keys stable when a PR runner's checkout and DerivedData live
+    # under a different absolute root than the fleet CAS writer.
+    SWIFT_ENABLE_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PREFIX_MAPPING=YES
+    SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    # Xcode 26.6 emits one bounded remark per cache query. The build metrics
+    # receipt turns those remarks into cacheable-task and hit counters.
+    COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
     CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
-    'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
+    'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -file-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' -Xfrontend -debug-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
     CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately
     # A clean build has no module for Xcode's Copy tasks to install (#14371).
     'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
     CMUX_CI_INSTALL_MODULE_cmuxTests=NO
   )
-  # Before Xcode 26.6 the app target has the same defect: under the cache the
-  # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH
-  # (identical bytes, newer mtime) on every build, so a body-only edit to one
-  # file recompiled all ~5,200 files, 448-495 s on the macOS 15 pool (Xcode
-  # 26.3). With the cache off for `cmux` the same edit compiled 2 tasks in 41 s
-  # (#14351, run 36086596738). On Xcode 26.6 the app compiles incrementally
-  # with the cache on (1 task, run 36081880621), so it keeps the cache there.
-  if xcode_older_than 26 6; then
-    cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  # Xcode's explicit-module dependency graph can survive a clean DerivedData
+  # rebuild when a reused CAS entry is incomplete. Admission recovery sets
+  # this only after seeing that diagnostic, so normal builds keep the faster
+  # explicit-module path while the recovery build avoids the broken graph.
+  if [ "${CMUX_CI_DISABLE_EXPLICIT_MODULES:-}" = 1 ]; then
+    cache_setting+=(SWIFT_ENABLE_EXPLICIT_MODULES=NO)
+  fi
+  # The app target has the same defect: under the cache the driver rewrites
+  # cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH (identical bytes,
+  # newer mtime) on every build, so a body-only edit to one file recompiled
+  # all ~5,200 files, 448-495 s on the macOS 15 pool (Xcode 26.3). With the
+  # cache off for `cmux` the same edit compiled 2 tasks in 41 s (#14351, run
+  # 36086596738). Xcode 26.6 kept the cache for the app after one incremental
+  # run (36081880621), but admission on 26.6 recompiles every app file from a
+  # restored DerivedData whatever the distance to the seed: 1 hit of 2,735
+  # cacheable tasks with 56 changed inputs (run 38232844046), 1 of 2,713 (run
+  # 38318336606) and 76 of 2,856 (run 38201033789), 2,711-2,844 SwiftCompile
+  # tasks each. So the app builds without the cache on every Xcode.
+  cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    cache_setting+=(COMPILATION_CACHE_ENABLE_CACHING=NO)
+  fi
+  # Owned minis carry the fleet-cas node installed by glaeda. Its settings
+  # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
+  # runners simply keep the local CAS path above. The helper is probed once
+  # per build and is advisory, so a down node never refuses a CI job.
+  local -a fleet_cache_setting=()
+  local fleet_cas_root="${CMUX_FLEET_CAS_ROOT:-/Users/Shared/cmux-build-fleet/xcode}"
+  local fleet_cas_settings="${CMUX_FLEET_CAS_SETTINGS:-$fleet_cas_root/bin/fleet-cas-settings.sh}"
+  local fleet_cas_socket="${CMUX_FLEET_CAS_SOCKET:-$fleet_cas_root/fleet-cas.sock}"
+  if [ -x "$fleet_cas_settings" ] && [ -S "$fleet_cas_socket" ]; then
+    local fleet_settings=''
+    fleet_settings="$("$fleet_cas_settings" "$fleet_cas_socket" 2>/dev/null | head -n 8)" || fleet_settings=''
+    local fleet_plugin_ok=0
+    local fleet_remote_ok=0
+    while IFS= read -r setting; do
+      case "$setting" in
+        COMPILATION_CACHE_ENABLE_PLUGIN=YES) fleet_plugin_ok=1 ;;
+        COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*) fleet_remote_ok=1 ;;
+        COMPILATION_CACHE_CAS_PATH=/*) ;;
+      esac
+    done <<< "$fleet_settings"
+    if [ "$fleet_plugin_ok" -eq 1 ] && [ "$fleet_remote_ok" -eq 1 ]; then
+      fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas")
+      while IFS= read -r setting; do
+        case "$setting" in
+          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*)
+            fleet_cache_setting+=("$setting")
+            ;;
+        esac
+      done <<< "$fleet_settings"
+    fi
+  fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    fleet_cache_setting=()
   fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,
@@ -280,6 +351,7 @@ build() {
       "${cache_setting[@]}" \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
+      ${fleet_cache_setting[@]+"${fleet_cache_setting[@]}"} \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
       -showBuildTimingSummary \
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"

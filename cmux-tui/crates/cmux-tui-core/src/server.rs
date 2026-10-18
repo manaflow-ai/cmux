@@ -71,6 +71,7 @@ use crate::sizing_policy::{
     TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, TerminalSizingState,
     detach_reason,
 };
+use crate::stream_interrupt::{InterruptSet, StreamInterrupt};
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
 };
@@ -114,6 +115,12 @@ pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 /// sub-views on `resize-attached-view`, client identity on `set-client-info`,
 /// and `reason`/`by` on `detached`.
 pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
+/// A client that lists this in `set-client-info` survives losing its own
+/// view of a terminal: `detach-client` naming that view's participant
+/// detaches the view only (event `detached` with `scope:"view"`) and keeps
+/// the connection and its relay sub-views; `reattach-view` restores it. The
+/// daemon advertises it in `identify`.
+pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 /// Byte viewers that write their own sequences after a replay advertise this
 /// to receive the replay's incomplete sequence as a separate `pending` field.
@@ -243,6 +250,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         SHARED_SIZING_CAPABILITY,
+        SIZING_VIEW_DETACH_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
@@ -726,6 +734,9 @@ struct ClientIdentityWire {
     device_kind: Option<String>,
     #[serde(default)]
     device_name: Option<String>,
+    /// Stable per-install device id; tells two devices of one user apart.
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 impl ClientIdentityWire {
@@ -734,6 +745,7 @@ impl ClientIdentityWire {
             && self.display_name.is_none()
             && self.device_kind.is_none()
             && self.device_name.is_none()
+            && self.device_id.is_none()
     }
 
     fn into_identity(self) -> ClientSizingIdentity {
@@ -745,6 +757,7 @@ impl ClientIdentityWire {
                 .as_deref()
                 .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
             device_name: self.device_name.map(clamp_client_label),
+            device_id: self.device_id.map(clamp_client_label),
         }
     }
 }
@@ -788,6 +801,24 @@ fn detached_event_json(surface: SurfaceId, notice: &DetachNotice, view: Option<&
         event["view"] = json!(view);
     }
     event
+}
+
+/// The connection's own view that a `detach-client` target names, when that
+/// connection opted into [`SIZING_VIEW_DETACH_CAPABILITY`]: the view leaves
+/// and the connection stays. `None` keeps the whole-client kick.
+fn own_view_detach_target(
+    mux: &Mux,
+    target: &DetachClientTarget,
+    surface: Option<SurfaceId>,
+) -> Option<(u64, SurfaceId)> {
+    let DetachClientTarget::Participant(participant) = target else { return None };
+    let (client, placement, view) = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant)?,
+        None => mux.terminal_participant_member(participant)?,
+    };
+    (view.is_none()
+        && mux.control_clients.supports_capability(client, SIZING_VIEW_DETACH_CAPABILITY))
+    .then_some((client, placement))
 }
 
 fn size_state_event_json(
@@ -880,6 +911,8 @@ enum Command {
         device_kind: Option<String>,
         #[serde(default)]
         device_name: Option<String>,
+        #[serde(default)]
+        device_id: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -924,6 +957,17 @@ enum Command {
         client: DetachClientTarget,
         #[serde(default)]
         by: Option<TerminalDetachActor>,
+        /// Resolves a participant id on this terminal only (participant ids
+        /// are per terminal).
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    /// Restore the caller's own view of a terminal after a view detach.
+    /// `counts:false` reattaches as a viewer.
+    ReattachView {
+        surface: SurfaceId,
+        #[serde(default)]
+        counts: Option<bool>,
     },
     /// Set the shared sizing policy of one terminal (override) or the default
     /// of one workspace. `policy:null` clears it.
@@ -1654,6 +1698,7 @@ impl Command {
             | Self::DetachAttachedView { surface, .. }
             | Self::SetSizeCounts { surface, .. }
             | Self::GetSizeState { surface }
+            | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
@@ -1788,7 +1833,14 @@ impl std::error::Error for DeliveryClassifiedError {
     }
 }
 
-const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
+/// Re-check bound for a writer blocked on a full stream queue. It runs only
+/// while a stream is backpressured (active output), never while idle: the
+/// writer thread notifies after every pop, and this bound covers a stream
+/// closed by another thread while its queue stays full.
+const BACKPRESSURE_RECHECK: Duration = Duration::from_millis(100);
+/// First and longest pause after an accept error that can persist.
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
@@ -2022,11 +2074,34 @@ struct ConnectionSurfaceState {
     closed: bool,
 }
 
+/// Set when a connection's request scheduler closes. Request handlers that
+/// wait (wait-for) register an interrupt instead of polling the flag.
+#[derive(Default)]
+struct ConnectionCancellation {
+    flag: AtomicBool,
+    interrupts: InterruptSet,
+}
+
+impl ConnectionCancellation {
+    fn cancel(&self) {
+        self.flag.store(true, Ordering::Release);
+        self.interrupts.fire();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::Acquire)
+    }
+
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.interrupts.register(interrupt);
+    }
+}
+
 struct ConnectionSurfaceScheduler {
     state: Mutex<ConnectionSurfaceState>,
     changed: Condvar,
     admission: Arc<ServerSurfaceOperationAdmission>,
-    cancelled: AtomicBool,
+    cancelled: ConnectionCancellation,
     dispatcher: Mutex<Option<JoinHandle<()>>>,
     connection_permit: Mutex<Option<ConnectionPermit>>,
 }
@@ -2058,7 +2133,7 @@ impl ConnectionSurfaceScheduler {
             state: Mutex::new(ConnectionSurfaceState::default()),
             changed: Condvar::new(),
             admission,
-            cancelled: AtomicBool::new(false),
+            cancelled: ConnectionCancellation::default(),
             dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
         }
@@ -2539,6 +2614,8 @@ struct OutboundStream {
     open: Arc<AtomicBool>,
     terminal_enqueued: Arc<AtomicBool>,
     overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
+    /// Fired by `close`, so stream loops block instead of polling `is_open`.
+    closed: InterruptSet,
 }
 
 impl OutboundStream {
@@ -2548,7 +2625,12 @@ impl OutboundStream {
             open: Arc::new(AtomicBool::new(true)),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
+            closed: InterruptSet::default(),
         }
+    }
+
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.closed.register(interrupt);
     }
 
     fn is_open(&self) -> bool {
@@ -2557,6 +2639,7 @@ impl OutboundStream {
 
     fn close(&self) {
         self.open.store(false, Ordering::Release);
+        self.closed.fire();
     }
 
     fn update_overflow(&self, text: Arc<BudgetedText>) {
@@ -2610,6 +2693,9 @@ struct MessageWriter {
     next_stream_id: Arc<AtomicU64>,
     render_service: Arc<RenderService>,
     wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
+    /// Fired when the writer closes, so stream loops block instead of
+    /// polling `is_open`.
+    closed: InterruptSet,
 }
 
 impl MessageWriter {
@@ -2634,6 +2720,7 @@ impl MessageWriter {
             next_stream_id: Arc::new(AtomicU64::new(1)),
             render_service,
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
+            closed: InterruptSet::default(),
         }
     }
 
@@ -2828,6 +2915,14 @@ impl MessageWriter {
         result
     }
 
+    /// Fires `interrupt` when this writer closes (at once if it is closed).
+    fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
+        self.closed.register(interrupt);
+        if !self.is_open() {
+            interrupt.fire();
+        }
+    }
+
     fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
         let mut wakeups = self.wait_wakeups.lock().unwrap();
         wakeups.retain(|registered| registered.strong_count() > 0);
@@ -2845,6 +2940,7 @@ impl MessageWriter {
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
+            self.closed.fire();
             if preserve_control {
                 self.sink.close_after_control();
             } else {
@@ -2859,6 +2955,7 @@ impl MessageWriter {
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
+            self.closed.fire();
         }
         self.sink.abort();
     }
@@ -3017,7 +3114,7 @@ impl ConnectionSurfaceScheduler {
     }
 
     fn close(&self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancelled.cancel();
         let mut state = self.state.lock().unwrap();
         state.closed = true;
         state.requests.clear();
@@ -3311,7 +3408,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return result;
             }
-            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
             state = next;
         }
     }
@@ -3490,7 +3587,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return Ok(());
             }
-            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
             state = next;
         }
     }
@@ -4135,6 +4232,9 @@ struct ClientRegistryState {
 }
 
 pub(crate) struct ClientRegistry {
+    /// Called when a surface loses its last attached client (the idle-close
+    /// reaper starts that terminal's unattached period).
+    detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
@@ -4145,6 +4245,7 @@ pub(crate) struct ClientRegistry {
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
+            detach_waker: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
@@ -4383,6 +4484,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
+                    || capability == SIZING_VIEW_DETACH_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
@@ -4409,6 +4511,9 @@ impl ClientRegistry {
         }
         if identity.device_name.is_some() {
             current.device_name = identity.device_name;
+        }
+        if identity.device_id.is_some() {
+            current.device_id = identity.device_id;
         }
     }
 
@@ -5082,6 +5187,7 @@ impl ClientRegistry {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(&surface);
+                    self.notify_detach();
                 }
             }
             return DetachedSurface {
@@ -5185,13 +5291,19 @@ impl ClientRegistry {
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
         }
+        let mut detached = false;
         for surface in record.attached.keys() {
             if let Some(clients) = state.attached_by_surface.get_mut(surface) {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(surface);
+                    detached = true;
                 }
             }
+        }
+        drop(state);
+        if detached {
+            self.notify_detach();
         }
         Some(record)
     }
@@ -5231,6 +5343,16 @@ impl ClientRegistry {
 
     /// Whether any client holds an attach stream on one of `surfaces`, and
     /// the newest attach epoch among them (0 when none was ever attached).
+    pub(crate) fn set_detach_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        *self.detach_waker.lock().unwrap() = Some(Box::new(waker));
+    }
+
+    fn notify_detach(&self) {
+        if let Some(waker) = self.detach_waker.lock().unwrap().as_ref() {
+            waker();
+        }
+    }
+
     pub(crate) fn attach_observation(&self, surfaces: &[SurfaceId]) -> (bool, u64) {
         let state = self.state.lock().unwrap();
         let attached =
@@ -5578,8 +5700,27 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     let server_mux = mux.clone();
 
     let server = std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
+        // accepts, and an immediate retry ran this thread at 100% CPU until
+        // descriptors freed up. Space those retries; per-connection errors
+        // need none because the next accept blocks.
+        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         loop {
-            let Ok(stream) = listener.accept() else { continue };
+            let stream = match listener.accept() {
+                Ok(stream) => {
+                    backoff.reset();
+                    stream
+                }
+                Err(error) => {
+                    if server_shutdown.load(Ordering::Acquire) {
+                        break;
+                    }
+                    if crate::backoff::accept_error_needs_backoff(&error) {
+                        backoff.sleep();
+                    }
+                    continue;
+                }
+            };
             if server_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -5664,16 +5805,21 @@ pub fn serve_websocket(
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
+        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         while !thread_shutdown.load(Ordering::Acquire) {
             let (stream, peer) = match listener.accept() {
-                Ok(connection) => connection,
-                Err(_) => {
+                Ok(connection) => {
+                    backoff.reset();
+                    connection
+                }
+                Err(error) => {
                     if thread_shutdown.load(Ordering::Acquire) {
                         break;
                     }
                     // Accept errors can persist (for example, after resource exhaustion).
-                    // A short backoff prevents a hot retry loop while still recovering promptly.
-                    std::thread::sleep(STREAM_DISCONNECT_POLL);
+                    if crate::backoff::accept_error_needs_backoff(&error) {
+                        backoff.sleep();
+                    }
                     continue;
                 }
             };
@@ -6108,17 +6254,39 @@ fn complete_daemon_shutdown_after_ack(
     requester_notice_sent
 }
 
+/// Detaches `owner`'s own view of `placement` and tells it with
+/// `detached {scope:"view"}`; its connection and relay sub-views stay.
+fn detach_own_view(mux: &Mux, owner: u64, placement: SurfaceId, by: TerminalDetachActor) {
+    mux.detach_terminal_own_view(placement, owner);
+    let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
+    let mut event = detached_event_json(placement, &notice, None);
+    event["scope"] = json!("view");
+    mux.control_clients.send_surface_event(owner, placement, None, &event);
+}
+
 /// Disconnects one shared-sizing participant on behalf of `requester` (the
 /// in-process frontend's `detach-client {client: <participant>}`): a relay
-/// sub-view leaves alone and its relay forwards the notice; any other
-/// participant's whole client is kicked with `disconnected-by`.
+/// sub-view leaves alone and its relay forwards the notice; the own view of
+/// a client with [`SIZING_VIEW_DETACH_CAPABILITY`] leaves alone and that
+/// client stays; any other participant's whole client is kicked with
+/// `disconnected-by`.
 pub fn detach_size_participant(
     mux: &Arc<Mux>,
     requester: u64,
     participant: &str,
+    surface: Option<SurfaceId>,
 ) -> anyhow::Result<()> {
     let by = detach_actor(mux, requester, None);
-    let Some((client, placement, view)) = mux.terminal_participant_member(participant) else {
+    let target = DetachClientTarget::Participant(participant.to_string());
+    if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+        detach_own_view(mux, owner, placement, by);
+        return Ok(());
+    }
+    let member = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant),
+        None => mux.terminal_participant_member(participant),
+    };
+    let Some((client, placement, view)) = member else {
         anyhow::bail!("unknown participant {participant}");
     };
     if let Some(view) = view {
@@ -8000,6 +8168,19 @@ fn send_resource_uncursored_stream_item(
         .is_ok()
 }
 
+/// One interrupt for a resource attach loop: its connection writer, its
+/// outbound stream (closed with `canceled`) and its attach lifecycle.
+fn resource_attach_interrupt(
+    writer: &MessageWriter,
+    start: &ResourceSurfaceAttachStart,
+) -> Arc<StreamInterrupt> {
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    start.outbound.register_interrupt(&interrupt);
+    start.lifecycle.register_interrupt(&interrupt);
+    interrupt
+}
+
 fn finish_resource_surface_attach(
     mux: &Mux,
     client: u64,
@@ -8059,12 +8240,14 @@ fn start_terminal_resource_attach(
             sequence = sequence.saturating_add(1);
             let mut render_state =
                 RenderClientState::new(worker_writer.render_service.clone(), &start.attach.initial);
+            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
+            start.attach.stream.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.common.outbound.is_open()
                 && !start.common.canceled.load(Ordering::Acquire)
                 && !start.common.lifecycle.is_canceled()
             {
-                let item = match start.attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let item = match start.attach.stream.recv_until_interrupted(&interrupt) {
                     Ok(RenderAttachFrame::Frame(frame)) => {
                         terminal_resource_patch(&start.terminal_id, &mut render_state, &frame)
                     }
@@ -8293,12 +8476,14 @@ fn start_browser_resource_attach(
                 }
                 sequence = sequence.saturating_add(1);
             }
+            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
+            start.frames.notify.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.common.outbound.is_open()
                 && !start.common.canceled.load(Ordering::Acquire)
                 && !start.common.lifecycle.is_canceled()
             {
-                match start.frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                match start.frames.notify.recv_until_interrupted(&interrupt) {
                     Ok(()) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -8450,11 +8635,16 @@ fn start_sidebar_resource_attach(
             }
             sequence = sequence.saturating_add(1);
             let mut render_state = SidebarRenderClientState::new(&start.attachment.initial);
+            // `canceled` is only set together with closing `outbound`.
+            let interrupt = StreamInterrupt::new();
+            worker_writer.register_interrupt(&interrupt);
+            start.outbound.register_interrupt(&interrupt);
+            start.attachment.stream.wake_on(&interrupt);
             while worker_writer.is_open()
                 && start.outbound.is_open()
                 && !start.canceled.load(Ordering::Acquire)
             {
-                let item = match start.attachment.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let item = match start.attachment.stream.recv_until_interrupted(&interrupt) {
                     Ok(RenderAttachFrame::Frame(frame)) => {
                         render_state.patch(&start.attachment.sidebar_view_id, &frame)
                     }
@@ -8773,11 +8963,22 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
+    // `canceled` is only set together with closing `outbound`, but the
+    // outbound can also close alone (a victim of a full connection queue):
+    // the loops check all three, or a fired interrupt would spin. The stream
+    // used to wake every second to re-check them.
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    stream.outbound.register_interrupt(&interrupt);
+    mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if stream.canceled.load(Ordering::Acquire)
+            || !writer.is_open()
+            || !stream.outbound.is_open()
+        {
             break;
         }
-        let epoch = mux.wait_for_resource_event(stream.epoch, Duration::from_secs(1));
+        let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
         if epoch == stream.epoch {
             continue;
         }
@@ -9332,6 +9533,11 @@ fn run_session_journal_stream(
     writer: &MessageWriter,
     mut stream: SessionJournalStreamStart,
 ) {
+    // `canceled` is only set together with closing `outbound`.
+    let interrupt = StreamInterrupt::new();
+    writer.register_interrupt(&interrupt);
+    stream.outbound.register_interrupt(&interrupt);
+    mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
         if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
             break;
@@ -9495,13 +9701,16 @@ fn run_session_journal_stream(
             }
         }
         loop {
-            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            if stream.canceled.load(Ordering::Acquire)
+                || !writer.is_open()
+                || !stream.outbound.is_open()
+            {
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {
-                mux.wait_for_shared_journal(stream.epoch, Duration::from_secs(1))
+                mux.wait_for_shared_journal_until_interrupted(stream.epoch, &interrupt)
             } else {
-                mux.wait_for_journal_event(stream.epoch, Duration::from_secs(1))
+                mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt)
             };
             if epoch != stream.epoch {
                 stream.epoch = epoch;
@@ -9675,7 +9884,7 @@ fn handle_request_with_cancellation(
     client: u64,
     request: Request,
     writer: &MessageWriter,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
     if let Command::UrlOpen { terminal_id, url } = cmd {
@@ -9694,7 +9903,10 @@ fn handle_request_with_cancellation(
     }
 
     let detach_self = match &cmd {
-        Command::DetachClient { client: target, by } if target.whole_client() == Some(client) => {
+        Command::DetachClient { client: target, by, surface }
+            if target.whole_client() == Some(client)
+                && own_view_detach_target(mux, target, *surface).is_none() =>
+        {
             Some(detach_actor(mux, client, by.clone()))
         }
         _ => None,
@@ -11439,8 +11651,13 @@ fn spawn_attach_notification_stream(
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
+            let interrupt = StreamInterrupt::new();
+            writer.register_interrupt(&interrupt);
+            outbound_stream.register_interrupt(&interrupt);
+            lifecycle.register_interrupt(&interrupt);
+            events.wake_on(&interrupt);
             while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                let event = match events.recv_until_interrupted(&interrupt) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -11831,6 +12048,7 @@ fn terminal_renderer_grant_json(
         "token": grant.token,
         "rights": grant.rights.bits(),
         "protocol_version": grant.protocol_version,
+        "supports_viewer_size_priority": grant.supports_viewer_size_priority,
         "ttl_ms": ttl_ms,
     })
 }
@@ -11840,7 +12058,7 @@ fn handle_command_with_cancellation(
     client: u64,
     cmd: Command,
     writer: &MessageWriter,
-    cancellation: Option<&AtomicBool>,
+    cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
     match cmd {
         Command::UrlOpenSubscribe { terminal_ids } => {
@@ -11929,8 +12147,10 @@ fn handle_command_with_cancellation(
             display_name,
             device_kind,
             device_name,
+            device_id,
         } => {
-            let identity = ClientIdentityWire { user_id, display_name, device_kind, device_name };
+            let identity =
+                ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
             let identity_changed = !identity.is_empty();
             let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             if identity_changed {
@@ -12063,11 +12283,19 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::DetachClient { client: target, by } => {
+        Command::DetachClient { client: target, by, surface } => {
             let by = detach_actor(mux, client, by);
+            if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+                // The view leaves; the connection, its stream and its relay
+                // sub-views stay (docs/shared-terminal-sizing.md).
+                detach_own_view(mux, owner, placement, by);
+                return Ok(json!({"scope": "view"}));
+            }
             if let DetachClientTarget::Participant(participant) = &target
-                && let Some((relay, placement, Some(view))) =
-                    mux.terminal_participant_member(participant)
+                && let Some((relay, placement, Some(view))) = match surface {
+                    Some(surface) => mux.terminal_participant_member_on(surface, participant),
+                    None => mux.terminal_participant_member(participant),
+                }
             {
                 // A relay sub-view leaves alone; its relay stays attached and
                 // forwards the notice to that leaf only.
@@ -12167,6 +12395,14 @@ fn handle_command_with_cancellation(
                 .note_terminal_activity(surface, client, view.as_deref())
                 .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
             Ok(json!({"participant": participant, "changed": changed}))
+        }
+        Command::ReattachView { surface, counts } => {
+            get_surface(mux, surface)?;
+            let participant = mux.reattach_terminal_own_view(surface, client, counts)?;
+            let state = mux
+                .terminal_size_state(surface)
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
+            Ok(json!({"participant": participant, "state": state}))
         }
         Command::GetSizeState { surface } => {
             get_surface(mux, surface)?;
@@ -12326,7 +12562,7 @@ fn handle_command_with_cancellation(
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            let cancelled = || cancellation.is_some_and(|flag| flag.load(Ordering::Acquire));
+            let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
             if cancelled() {
                 anyhow::bail!("connection closed while waiting for pattern");
             }
@@ -12350,6 +12586,13 @@ fn handle_command_with_cancellation(
             }
             let deadline = start + Duration::from_millis(timeout_ms);
             let attach = surface.attach_stream()?;
+            // The wait ends on output, the deadline, or the connection
+            // closing; it used to wake every 100 ms to check the last.
+            let interrupt = StreamInterrupt::new();
+            if let Some(cancellation) = cancellation {
+                cancellation.register_interrupt(&interrupt);
+            }
+            attach.stream.wake_on(&interrupt);
             if let Some(text) = check()? {
                 return Ok(json!({
                     "matched": true,
@@ -12365,8 +12608,7 @@ fn handle_command_with_cancellation(
                 if now >= deadline {
                     anyhow::bail!("timeout waiting for pattern");
                 }
-                let remaining = deadline.saturating_duration_since(now);
-                match attach.stream.recv_timeout(remaining.min(STREAM_DISCONNECT_POLL)) {
+                match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
                     Ok(_) => {
                         if let Some(text) = check()? {
                             return Ok(json!({
@@ -13552,8 +13794,12 @@ fn handle_command_with_cancellation(
                         break;
                     }
                 }
+                let interrupt = StreamInterrupt::new();
+                writer.register_interrupt(&interrupt);
+                outbound_stream.register_interrupt(&interrupt);
+                events.wake_on(&interrupt);
                 while writer.is_open() && outbound_stream.is_open() {
-                    let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    let event = match events.recv_until_interrupted(&interrupt) {
                         Ok(event) => event,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -13732,30 +13978,35 @@ fn handle_command_with_cancellation(
                         }
                         let mut state =
                             RenderClientState::new(writer.render_service.clone(), &attach.initial);
+                        let interrupt = StreamInterrupt::new();
+                        writer.register_interrupt(&interrupt);
+                        outbound_stream.register_interrupt(&interrupt);
+                        lifecycle.register_interrupt(&interrupt);
+                        attach.stream.wake_on(&interrupt);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
-                            let send_result =
-                                match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
-                                    Ok(RenderAttachFrame::Frame(frame)) => {
-                                        let message = state.delta_message(surface_id, &frame);
-                                        writer.send_stream_backpressured(&message, &outbound_stream)
-                                    }
-                                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                                        writer.send_stream_backpressured(
-                                            &json!({
-                                                "event": "scroll-changed",
-                                                "surface": surface_id,
-                                                "offset": offset,
-                                                "at_bottom": at_bottom,
-                                            }),
-                                            &outbound_stream,
-                                        )
-                                    }
-                                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                                };
+                            let send_result = match attach.stream.recv_until_interrupted(&interrupt)
+                            {
+                                Ok(RenderAttachFrame::Frame(frame)) => {
+                                    let message = state.delta_message(surface_id, &frame);
+                                    writer.send_stream_backpressured(&message, &outbound_stream)
+                                }
+                                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                                    writer.send_stream_backpressured(
+                                        &json!({
+                                            "event": "scroll-changed",
+                                            "surface": surface_id,
+                                            "offset": offset,
+                                            "at_bottom": at_bottom,
+                                        }),
+                                        &outbound_stream,
+                                    )
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                            };
                             if let Err(error) = send_result {
                                 handle_attach_send_error(&lifecycle, &error);
                                 break;
@@ -13887,11 +14138,16 @@ fn handle_command_with_cancellation(
                         if worker_committed.recv().is_err() {
                             return;
                         }
+                        let interrupt = StreamInterrupt::new();
+                        writer.register_interrupt(&interrupt);
+                        outbound_stream.register_interrupt(&interrupt);
+                        lifecycle.register_interrupt(&interrupt);
+                        frames.notify.wake_on(&interrupt);
                         while writer.is_open()
                             && outbound_stream.is_open()
                             && !lifecycle.is_canceled()
                         {
-                            match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
+                            match frames.notify.recv_until_interrupted(&interrupt) {
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -14026,11 +14282,16 @@ fn handle_command_with_cancellation(
                     if worker_committed.recv().is_err() {
                         return;
                     }
+                    let interrupt = StreamInterrupt::new();
+                    writer.register_interrupt(&interrupt);
+                    outbound_stream.register_interrupt(&interrupt);
+                    attach.lifecycle.register_interrupt(&interrupt);
+                    attach.stream.wake_on(&interrupt);
                     while writer.is_open()
                         && outbound_stream.is_open()
                         && !attach.lifecycle.is_canceled()
                     {
-                        let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                        let frame = match attach.stream.recv_interruptible(&interrupt, None) {
                             Ok(frame) => frame,
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -18013,6 +18274,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -20134,7 +20396,11 @@ mod tests {
         handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap();
@@ -20146,7 +20412,11 @@ mod tests {
         let error = handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap_err();
@@ -20397,6 +20667,132 @@ mod tests {
         assert!(error.to_string().contains("unknown participant"));
     }
 
+    /// docs/shared-terminal-sizing.md: disconnecting a relay Mac's own view
+    /// (for example from the phone it relays) detaches that view only. The
+    /// connection, its byte stream and the phones it relays stay; Reattach
+    /// restores the view without reconnecting.
+    #[test]
+    fn detaching_a_relay_macs_own_view_keeps_its_connection_and_phones() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let (writer, outbound) = captured_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "set-client-info", "kind": "mac",
+                "capabilities": [SHARED_SIZING_CAPABILITY, SIZING_VIEW_DETACH_CAPABILITY],
+                "user_id": "u1", "display_name": "Maya", "device_kind": "mac",
+                "device_name": "Maya's MacBook Pro", "device_id": "laptop",
+            })),
+            &writer,
+        )
+        .unwrap();
+        attach_test_view(&mux, relay, surface.id, &writer);
+        mux.resize_surface_for_client(surface.id, relay, 150, 42).unwrap();
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "identity": {"user_id": "u1", "device_kind": "iphone", "device_id": "p1"},
+                "cols": 54, "rows": 26,
+            })),
+            &writer,
+        )
+        .unwrap();
+        let mac = format!("c{relay}");
+        let phone = format!("c{relay}/mobile:p1");
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.participant(&mac).unwrap().priority_key, "u1/mac/laptop");
+        assert_eq!(surface.size(), (150, 42));
+        drain_json(&outbound);
+
+        // The phone asks its own Mac to disconnect the Mac: the Mac forwards
+        // detach-client for its own participant, scoped to this terminal.
+        assert!(handle_message(
+            &mux,
+            relay,
+            &json!({
+                "id": 1, "cmd": "detach-client", "client": mac, "surface": surface.id,
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"},
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(mux.control_clients.contains(relay), "the relay connection stays");
+        let events = drain_json(&outbound);
+        let detached = events.iter().find(|event| event["event"] == "detached").unwrap();
+        assert_eq!(
+            *detached,
+            json!({
+                "event": "detached", "surface": surface.id, "reason": "disconnected-by",
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"}, "scope": "view",
+            })
+        );
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(state.participant(&mac).is_none());
+        assert!(state.participant(&phone).unwrap().counts, "the phone no longer defers");
+        assert_eq!(state.owners, [phone]);
+        assert_eq!(surface.size(), (54, 26));
+
+        // The detached view's own reports and activity do not count.
+        mux.resize_surface_for_client(surface.id, relay, 160, 50).unwrap();
+        assert!(mux.terminal_size_state(surface.id).unwrap().participant(&mac).is_none());
+        assert_eq!(surface.size(), (54, 26));
+
+        // Reattach as a viewer: back without reconnecting, not counting.
+        let reattached = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id, "counts": false})),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(reattached["participant"], mac);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        let row = state.participant(&mac).unwrap();
+        assert_eq!(row.participant.counts_override, Some(false));
+        assert_eq!(
+            row.participant.viewport,
+            Some(crate::sizing_policy::TerminalGridSize::new(160, 50))
+        );
+        assert_eq!(surface.size(), (54, 26));
+        let again = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id})),
+            &writer,
+        )
+        .unwrap_err();
+        assert!(again.to_string().contains("not detached"));
+    }
+
+    /// A client that did not opt into view detach is still kicked whole, the
+    /// tmux `detach-client` behavior older Macs and TUIs expect.
+    #[test]
+    fn detach_client_kicks_a_client_without_view_detach() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let kicker_writer = test_writer();
+        let kicker = mux.control_clients.register(ClientTransport::Unix, kicker_writer.clone());
+        let target_writer = test_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        attach_test_view(&mux, target, surface.id, &target_writer);
+        handle_command(
+            &mux,
+            kicker,
+            json_command(json!({
+                "cmd": "detach-client", "client": format!("c{target}"), "surface": surface.id,
+            })),
+            &kicker_writer,
+        )
+        .unwrap();
+        assert!(!mux.control_clients.contains(target));
+    }
+
     #[test]
     fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
         let mux = test_mux();
@@ -20469,7 +20865,11 @@ mod tests {
         let error = handle_command(
             &mux,
             client,
-            Command::DetachClient { client: DetachClientTarget::Client(0), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(0),
+                by: None,
+                surface: None,
+            },
             &writer,
         )
         .unwrap_err();
@@ -21201,6 +21601,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -21306,6 +21707,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -21397,6 +21799,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -21760,6 +22163,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -21824,6 +22228,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -21864,6 +22269,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &late_writer,
         )
@@ -22090,6 +22496,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -22108,6 +22515,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -22123,6 +22531,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -23341,6 +23750,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -23588,6 +23998,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -23659,6 +24070,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )

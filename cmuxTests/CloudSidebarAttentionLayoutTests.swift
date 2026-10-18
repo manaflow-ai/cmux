@@ -44,6 +44,10 @@ struct CloudSidebarAttentionLayoutTests {
         defer { fixture.close() }
         fixture.coordinator.apply(nodes: fixture.nodes())
         let outline = try #require(fixture.coordinator.outlineView)
+        // Cloud workspaces start collapsed; open ws_1 so a terminal row exists.
+        if let folder = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first(where: { $0.id == fixture.folderID("ws_1") }) {
+            outline.expandItem(folder)
+        }
         let readNode = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.structureTag == kind })
         let unreadNode = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes(unread: ["term_ws_1"]))
             .first { $0.id == readNode.id })
@@ -214,7 +218,9 @@ struct CloudSidebarAttentionLayoutTests {
         let outline = try #require(fixture.coordinator.outlineView)
         let folder = try #require(CloudTreeNodeBuilder.flattened(read).first { $0.id == fixture.folderID("ws_2") })
         outline.collapseItem(folder)
-        let before = CloudTreeNodeBuilder.contentSignature(read)
+        // `apply` presents `read` in place (`CloudTreeMachineDetailLayout`), and
+        // a row update pairs rows by position, so compare equally built trees.
+        let before = CloudTreeNodeBuilder.contentSignature(fixture.nodes())
         let unread = CloudTreeNodeBuilder.contentSignature(fixture.nodes(unread: ["term_ws_2"]))
         let arrival = CloudTreeRowUpdate(previous: before, next: unread)
         #expect(arrival.changedNodeIDs.contains(folder.id))
@@ -222,8 +228,9 @@ struct CloudSidebarAttentionLayoutTests {
         #expect(!arrival.changedNodeIDs.contains(fixture.folderID("ws_1")))
         let clear = CloudTreeRowUpdate(previous: unread, next: before)
         #expect(clear.rowIndexes(in: outline).contains(outline.row(forItem: folder)))
+        let presented = CloudTreeNodeBuilder.contentSignature(read)
         folder.isPinned = true
-        let pinned = CloudTreeRowUpdate(previous: before, next: CloudTreeNodeBuilder.contentSignature(read))
+        let pinned = CloudTreeRowUpdate(previous: presented, next: CloudTreeNodeBuilder.contentSignature(read))
         #expect(pinned.rowIndexes(in: outline).contains(outline.row(forItem: folder)))
     }
 
