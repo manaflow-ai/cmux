@@ -494,7 +494,7 @@ try {
     recipe: { id: "cloud-vm-dogfood", version: 1 },
     variants: [{ id: "freestyle", label: "Freestyle dogfood", instructionDigest: `sha256:${"2".repeat(64)}` }],
     workspace: { kind: "ephemeral" },
-    resources: { maxAttempts: 1, maxConcurrent: 1, wallTimeoutMs: 60_000, retainMs: 20 * 60_000 },
+    resources: { maxAttempts: 1, maxConcurrent: 1, wallTimeoutMs: 60_000, retainMs: 15 * 60_000 },
     routing: { executionProvider: "cloud-vm", backend: "freestyle" },
     capabilities: { secretRefs: [] },
     checks: ["terminal-receipt", "provider-cleanup"],
