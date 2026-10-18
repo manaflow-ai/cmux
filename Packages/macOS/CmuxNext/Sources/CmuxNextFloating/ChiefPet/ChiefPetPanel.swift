@@ -8,14 +8,17 @@ import CmuxNextDesign
 /// character or the rail's compose runs `onClick`.
 public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public static let accessibilityID = "cmux.chiefPet"
-    /// The character's box and the panel's: the references' pet is about 62 x 80 pt over a
-    /// 40 pt rail, 8 pt apart; the pixel mascots are a little wider than tall.
-    static let characterSize = CGSize(width: 72, height: 66)
+    /// The character's box and the panel's: the reference's pet is 60 x 80 pt over a 40 pt rail,
+    /// 8 pt apart (chief-water-reference, a @2x capture); the pixel mascots are about square,
+    /// so their box is wider for the same weight.
+    static let characterSize = CGSize(width: 88, height: 80)
     static let gap: CGFloat = 8
-    public static let petSize = CGSize(width: 96, height: characterSize.height + gap + ChiefPetRail.height)
+    public static let petSize = CGSize(width: 136, height: characterSize.height + gap + ChiefPetRail.height)
 
-    /// A click that was not a drag.
+    /// A click on the character, or the rail's compose.
     public var onClick: (() -> Void)?
+    /// The rail's chevron.
+    public var onExpand: (() -> Void)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
 
@@ -44,6 +47,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.autoresizingMask = [.width, .height]
         pet.onClick = { [weak self] in self?.onClick?() }
         pet.rail.addTool(.actionEdit, label: ChiefPetStrings.compose) { [weak self] in self?.onClick?() }
+        pet.rail.addTool(.disclosureCollapsed, label: ChiefPetStrings.expand, turned: 90) { [weak self] in self?.onExpand?() }
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
         contentView = pet
         delegate = self
@@ -105,6 +109,7 @@ final class ChiefPetView: NSView {
         character.wantsLayer = true
         character.layer?.contentsGravity = .resizeAspect
         character.layer?.magnificationFilter = .nearest
+        character.layer?.minificationFilter = .trilinear
         addSubview(character)
         addSubview(rail)
         self.image = image

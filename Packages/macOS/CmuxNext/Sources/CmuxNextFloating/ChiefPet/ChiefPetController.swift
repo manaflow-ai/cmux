@@ -46,6 +46,7 @@ public final class ChiefPetController {
         if let panel { return panel }
         let made = makePanel()
         made.onClick = { [weak self] in self?.onClick() }
+        made.onExpand = { [weak self] in self?.onClick() }
         panel = made
         return made
     }

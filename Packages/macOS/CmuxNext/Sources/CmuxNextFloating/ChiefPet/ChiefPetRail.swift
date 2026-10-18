@@ -35,8 +35,8 @@ final class ChiefPetRail: NSView {
     var width: CGFloat { Self.slot * CGFloat(max(1, stack.arrangedSubviews.count)) }
 
     @discardableResult
-    func addTool(_ icon: IconName, label: String, action: @escaping () -> Void) -> ChiefPetTool {
-        let tool = ChiefPetTool(icon: icon, label: label, action: action)
+    func addTool(_ icon: IconName, label: String, turned degrees: CGFloat = 0, action: @escaping () -> Void) -> ChiefPetTool {
+        let tool = ChiefPetTool(icon: icon, label: label, turned: degrees, action: action)
         stack.addArrangedSubview(tool)
         return tool
     }
@@ -51,9 +51,12 @@ final class ChiefPetRail: NSView {
 /// One round tool on the rail: an icon in the theme's primary ink, no bezel.
 final class ChiefPetTool: NSButton {
     private let run: () -> Void
+    /// The icon's turn, counterclockwise: the chevron is the disclosure mark pointing up, as the dock draws it.
+    private let degrees: CGFloat
 
-    init(icon: IconName, label: String, action: @escaping () -> Void) {
+    init(icon: IconName, label: String, turned degrees: CGFloat = 0, action: @escaping () -> Void) {
         run = action
+        self.degrees = degrees
         super.init(frame: NSRect(x: 0, y: 0, width: ChiefPetRail.slot, height: ChiefPetRail.height))
         isBordered = false
         imagePosition = .imageOnly
@@ -68,8 +71,25 @@ final class ChiefPetTool: NSButton {
     required init?(coder: NSCoder) { nil }
 
     func setIcon(_ icon: IconName) {
-        image = NSImage.icon(icon, size: 18)
+        image = Self.turned(NSImage.icon(icon, size: 18), by: degrees)
         recolor()
+    }
+
+    /// `image` turned about its center, still a template so it takes the tint.
+    static func turned(_ image: NSImage, by degrees: CGFloat) -> NSImage {
+        guard degrees != 0, let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let context = CGContext(data: nil, width: source.width, height: source.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return image }
+        let width = CGFloat(source.width), height = CGFloat(source.height)
+        context.translateBy(x: width / 2, y: height / 2)
+        context.rotate(by: degrees * .pi / 180)
+        context.translateBy(x: -width / 2, y: -height / 2)
+        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let rotated = context.makeImage() else { return image }
+        let turned = NSImage(cgImage: rotated, size: image.size)
+        turned.isTemplate = image.isTemplate
+        return turned
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
