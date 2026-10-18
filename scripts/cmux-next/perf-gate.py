@@ -597,6 +597,13 @@ class Gate:
         panes, tabs = getattr(self, "grid", None) or self.build_grid()
         if not check(panes >= 16 and tabs >= 48, f"16 panes x 3 tabs shown ({panes} panes, {tabs} tabs)", "tabs"):
             return
+        # Next Tab really moves the selection (outside the measured window: the reads cost nothing there).
+        seen = []
+        for _ in range(3):
+            app.action("nextSurface")
+            seen.append((app.topology().get("focus") or {}).get("tab"))
+        if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", "tabs"):
+            return
         ops = 40
         app.settle()
         app.counters()

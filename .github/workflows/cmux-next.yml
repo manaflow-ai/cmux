@@ -2580,6 +2580,10 @@ jobs:
     # what changed; Blacksmith builds it cold. A change inside the CmuxNext
     # package skips it: the Release compile builds CmuxNextApp and all it links.
     timeout-minutes: 60
+    # The perf gate step's outcome, for the perf-gate job (that job is the red check, so a perf
+    # breach never fails the app-producing job the dogfood and daily publishers read).
+    outputs:
+      perf_gate: ${{ steps.perf-gate.outcome }}
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -2802,9 +2806,12 @@ jobs:
       # depend on the host, so they block on any host load; timing is a warning.
       # A console that draws no frames skips the drag lag and theme blend checks
       # with a warning; lanes run those on the GUI host with --frames required.
+      # The step does not fail this job: the perf-gate job below reads its outcome.
       - name: Perf counter gate
         id: perf-gate
         if: inputs.dev_daily != true
+        # The perf-gate job reports the result.
+        continue-on-error: true
         timeout-minutes: 15
         run: |
           set -euo pipefail
@@ -2864,6 +2871,34 @@ jobs:
           retention-days: 2
           compression-level: 0
 
+  # The perf counter gate (I8, cx-8w027.7) runs in cmux-scheme-compile on the
+  # app that job built (one compile, one launch). This job is its check: red
+  # when a counter budget broke. A scheme compile that failed before the gate
+  # ran is that job's own red, so this job passes then.
+  perf-gate:
+    needs: [cmux-scheme-compile]
+    if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
+    name: cmux-next perf gate
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions: {}
+    steps:
+      - name: Read the perf gate result
+        env:
+          OUTCOME: ${{ needs.cmux-scheme-compile.outputs.perf_gate }}
+          COMPILE: ${{ needs.cmux-scheme-compile.result }}
+          REPORT: cmux-next-perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          case "$OUTCOME" in
+            success) echo "perf gate: every counter budget held (report artifact $REPORT)" ;;
+            failure) echo "::error::perf gate: a counter budget broke; the failures are in the cmux-scheme-compile log, step Perf counter gate, and the artifact $REPORT"; exit 1 ;;
+            *)
+              if [[ "$COMPILE" == success ]]; then
+                echo "::error::perf gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
+              fi
+              echo "perf gate: not run, the scheme compile ended $COMPILE before it" ;;
+          esac
+
   # The post-merge backstop: every feat-cmux-next push runs every tier (a
   # superseded push skips its Mac jobs, so a burst of merges is checked once,
   # at its newest commit). When a check job fails, this comments on each pull
@@ -2891,7 +2926,7 @@ jobs:
             || echo "::warning::could not post the $CONTEXT status"
 
   push-attribution:
-    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
+    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
     # push whose tree was published after its run probed it run there.
     if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
