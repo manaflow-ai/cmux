@@ -1482,8 +1482,49 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
+      # Keep the signed, SHA-verified Zig archive between nightly runs. The
+      # installer still verifies the pinned checksum and minisign signature;
+      # this only avoids downloading the same immutable toolchain on every
+      # helper build (the cold path remains unchanged).
+      - name: Cache the verified Zig tarball
+        if: inputs.nightly_next_unsigned_run == ''
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
+      - name: Compute Ghostty CLI helper cache key
+        if: inputs.nightly_next_unsigned_run == ''
+        id: helper-cache-key
+        env:
+          COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
+        run: |
+          set -euo pipefail
+          ghostty_revision="$(git -C ghostty rev-parse HEAD)"
+          helper_script_sha="$(shasum -a 256 scripts/build-ghostty-cli-helper.sh | awk '{print $1}')"
+          zig_policy_sha="$(shasum -a 256 scripts/ci/zig-tarballs.sha256 | awk '{print $1}')"
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || echo unknown)"
+          macos_version="$(sw_vers -productVersion 2>/dev/null || echo unknown)"
+          host_arch="$(uname -m)"
+          material="${ghostty_revision}\n${helper_script_sha}\n${zig_policy_sha}\n${sdk_version}\n${macos_version}\n${host_arch}\n${COMPILE_ARCHS}"
+          key_hash="$(printf '%b' "$material" | shasum -a 256 | awk '{print $1}')"
+          echo "key=cmux-nightly-ghostty-helper-${RUNNER_OS}-${RUNNER_ARCH}-${key_hash}" >> "$GITHUB_OUTPUT"
+
+      # build-ghostty-cli-helper.sh validates this cache against the exact
+      # Ghostty revision, Zig binary, SDK, host and helper script before use.
+      # Persisting its per-target entries turns unchanged nightly helpers into
+      # a metadata check plus a copy instead of a second Zig build.
+      - name: Cache Ghostty CLI helper builds
+        if: inputs.nightly_next_unsigned_run == ''
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-ghostty-helper-cache
+          key: ${{ steps.helper-cache-key.outputs.key }}
+
       - name: Install Zig
         if: inputs.nightly_next_unsigned_run == ''
+        env:
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
@@ -1496,6 +1537,8 @@ jobs:
 
       - name: Build Ghostty CLI helper
         if: inputs.nightly_next_unsigned_run == ''
+        env:
+          CMUX_GHOSTTY_HELPER_CACHE_DIR: ${{ runner.temp }}/cmux-ghostty-helper-cache
         run: |
           set -euo pipefail
           mkdir -p nightly-helper
@@ -1711,6 +1754,7 @@ jobs:
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
       - name: Prepare persistent Release DerivedData
+        id: persistent-release
         if: inputs.nightly_next_unsigned_run == '' 
         run: |
           set -euo pipefail
@@ -1770,7 +1814,7 @@ jobs:
         id: compilation-cache-restore
         # A cold measurement run skips the restore; every gate below treats the
         # missing output like a cache miss, so the cold build still saves.
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.cold_cache != 'true')
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.cold_cache != 'true') && (steps.persistent-release.outputs.enabled != 'true' || needs.decide.outputs.track != 'nightly-next')
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
@@ -1880,8 +1924,17 @@ jobs:
       # cross-platform R2 artifact matrix. Main and release keep the immutable
       # manifest path below, so their machine and distribution artifacts stay
       # complete.
+      - name: Cache the verified Zig tarball for fast cmux-tui
+        if: inputs.nightly_next_unsigned_run == '' && (env.NIGHTLY_FAST_BUILD == 'true')
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
       - name: Install Zig for fast cmux-tui client
         if: inputs.nightly_next_unsigned_run == '' && (env.NIGHTLY_FAST_BUILD == 'true')
+        env:
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
       - name: Build fast arm64 cmux-tui client
@@ -1917,7 +1970,7 @@ jobs:
           PY
 
       - name: Cache Swift packages
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && (steps.persistent-release.outputs.enabled != 'true' || needs.decide.outputs.track != 'nightly-next')
         id: swift-packages-restore
         uses: ./.github/actions/cache-restore
         with:
@@ -2089,7 +2142,7 @@ jobs:
           echo "save=${save}" >> "$GITHUB_OUTPUT"
 
       - name: Save Xcode compilation cache
-        if: inputs.nightly_next_unsigned_run == '' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        if: inputs.nightly_next_unsigned_run == '' && (steps.persistent-release.outputs.enabled != 'true' || needs.decide.outputs.track != 'nightly-next') && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -2103,7 +2156,7 @@ jobs:
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Save Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: inputs.nightly_next_unsigned_run == '' && (steps.persistent-release.outputs.enabled != 'true' || needs.decide.outputs.track != 'nightly-next') && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -6407,5 +6460,6 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${process.env.CHANNEL_APP_NAME} publish succeeded again on ${process.env.HEAD_SHA}: ${runUrl}` });
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
             }
+
 
 

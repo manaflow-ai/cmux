@@ -85,9 +85,11 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertEqual(select(**changes), 'blacksmith-12vcpu-macos-26')
         self.assertEqual(select(**{'github.repository_owner': 'someone'}), 'macos-26')
 
-    def test_trusted_next_uses_an_isolated_github_cache_without_shared_r2_secrets(self):
+    def test_trusted_next_keeps_persistent_state_and_caches_blacksmith_fallback(self):
         steps = {step.get('name'): step for step in DOC['jobs']['build-nightly-app']['steps']}
-        context = {
+        names = ('Restore Xcode compilation cache', 'Cache Swift packages',
+                 'Save Xcode compilation cache', 'Save Swift packages')
+        persistent = {
             'needs.decide.outputs.track': 'nightly-next',
             'steps.persistent-release.outputs.enabled': 'true',
             'needs.decide.outputs.cold_cache': 'false',
@@ -95,10 +97,14 @@ class NightlyTrustedRouting(unittest.TestCase):
             'steps.compilation-cache-restore.outputs.cache-hit': 'false',
             'steps.swift-packages-restore.outputs.cache-hit': 'false',
         }
-        for name in ('Restore Xcode compilation cache', 'Cache Swift packages',
-                     'Save Xcode compilation cache', 'Save Swift packages'):
-            with self.subTest(step=name):
-                self.assertTrue(evaluate(parse_expression(steps[name]['if']), context))
+        for name in names:
+            with self.subTest(state='persistent', step=name):
+                self.assertFalse(evaluate(parse_expression(steps[name]['if']), persistent))
+        fallback = dict(persistent)
+        fallback['steps.persistent-release.outputs.enabled'] = ''
+        for name in names:
+            with self.subTest(state='blacksmith', step=name):
+                self.assertTrue(evaluate(parse_expression(steps[name]['if']), fallback))
                 self.assertIn("needs.decide.outputs.track == 'nightly-next' && 'github'", steps[name]['with']['backend'])
         for name in ('Save Xcode compilation cache', 'Save Swift packages'):
             for key in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'CI_CACHE_R2_ENDPOINT'):
@@ -140,3 +146,4 @@ class NightlyTrustedRouting(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
