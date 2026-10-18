@@ -239,6 +239,12 @@ impl Hub {
         if let Err(e) = cfg.save() {
             tracing::warn!(harness = %meta.harness, "pick not saved to config.json: {e}");
         }
+        // The pick is now the harness's `start` in `_acpmux/harnesses`: pages already open (a
+        // prewarmed New Tab) read it again instead of drawing the old start model and effort.
+        let names: Vec<&String> = cfg.harnesses.keys().collect();
+        self.send_harness_change(
+            json!({"harnesses": names, "diagnostics": cfg.profile_diagnostics}),
+        );
     }
 
     /// The model and effort a new chat on `agent` starts on when nothing

@@ -91,7 +91,6 @@ class NightlyTrustedRouting(unittest.TestCase):
         steps = {step.get('name'): step for step in DOC['jobs']['build-nightly-app']['steps']}
         context = {
             'needs.decide.outputs.track': 'nightly-next',
-            'steps.persistent-release.outputs.enabled': 'true',
             'needs.decide.outputs.cold_cache': 'false',
             'steps.compilation-cache-bound.outputs.save': 'true',
         }

@@ -14,12 +14,14 @@ import { isMachineInstallKind } from "./machine-installs.ts"
  *    the Authorization header mints the ticket: 32 random bytes, single use, 30 s, 60 per minute
  *    per user. The router entry spends it on any path, before any other check, so a ticket in a
  *    log is always spent.
- * 3. Subprotocol `bearer.<token>`: the legacy path, kept until every client is updated. Each use
- *    logs `wire.legacy_bearer` (no value), so the remaining clients can be counted.
+ *
+ * The legacy `bearer.<token>` subprotocol is retired: it authenticates nothing, and it is still
+ * stripped from the subprotocols forwarded to the owner object, so a token never travels further.
  */
 
 export const TICKET_PREFIX = "ticket."
-const LEGACY_PREFIX = "bearer."
+/** The retired credential subprotocol: never read, always stripped. */
+const RETIRED_PREFIX = "bearer."
 /** A ticket lives 30 s: a client mints it and upgrades at once; 30 s covers slow cellular and TLS. */
 export const WIRE_TICKET_TTL_MS = 30_000
 /** Each 401 from a wire upgrade names this header, so a native client knows the server reads Authorization. */
@@ -128,15 +130,12 @@ export const spendTicketAtEntry = async (request: Request, env: Env): Promise<Sp
  * Resolves the upgrade's principal and returns the subprotocols without any credential, so the
  * request forwarded to the owner object carries none. `spent` is the router entry's ticket result.
  */
-export const wireCredential = async (request: Request, env: Env, scope: string, spent: SpentTicket | undefined): Promise<WireCredential> => {
+export const wireCredential = async (request: Request, env: Env, spent: SpentTicket | undefined): Promise<WireCredential> => {
   const all = subprotocols(request)
-  const protocols = all.filter((p) => !p.startsWith(TICKET_PREFIX) && !p.startsWith(LEGACY_PREFIX))
+  const protocols = all.filter((p) => !p.startsWith(TICKET_PREFIX) && !p.startsWith(RETIRED_PREFIX))
   if (spent !== undefined) return spent.principal ? { ok: true, principal: spent.principal, protocols } : { ok: false, response: unauthenticated("unknown or spent ticket") }
   const header = bearerOf(request)
-  if (header !== undefined) return { ok: true, principal: await authenticate(env, header), protocols }
-  const legacy = all.find((p) => p.startsWith(LEGACY_PREFIX))?.slice(LEGACY_PREFIX.length)
-  if (legacy !== undefined) console.log(JSON.stringify({ msg: "wire.legacy_bearer", scope }))
-  return { ok: true, principal: await authenticate(env, legacy), protocols }
+  return { ok: true, principal: header === undefined ? undefined : await authenticate(env, header), protocols }
 }
 
 /** The forwarded upgrade: the request's headers without Authorization and with credential-free subprotocols. */

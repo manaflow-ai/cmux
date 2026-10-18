@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
+/* cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8. */
 
 
 import type * as T from "./types.js";
@@ -2026,11 +2026,17 @@ export type RenameSurfaceResult = T.EmptyResult;
 export interface RenameWorkspaceRequest extends CmuxRequestBase {
   cmd: "rename-workspace";
   "expected_generation"?: (string) | null;
+  /** The workspace name_revision the caller read; a rename since then fails. */
+  "expected_name_revision"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name": string;
   "origin"?: (string) | null;
+  /** With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed. */
+  "release"?: boolean;
+  /** Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision. */
+  "source"?: (T.NameSource) | null;
   "workspace"?: (T.Id) | null;
 }
 export type RenameWorkspaceResult = T.WorkspaceMutationResult;

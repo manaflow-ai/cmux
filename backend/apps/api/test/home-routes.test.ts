@@ -91,7 +91,7 @@ describe("Home HTTP routes (stage B)", { timeout: 60_000 }, () => {
     expect((await read(dana.token, "conversation.history", { conversation: id })).status).toBe(200)
 
     // The conversation socket admits Dana, refuses an outsider.
-    const wire = (token: string) => worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const wire = (token: string) => worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const ok = await wire(dana.token)
     expect(ok.status).toBe(101)
     const ws = ok.webSocket!
@@ -129,7 +129,7 @@ describe("Home HTTP routes (stage B)", { timeout: 60_000 }, () => {
     const r = await op(eve.token, "mux.configure", { agent: "agent_someone_elses_chief", brain: "cloud" })
     expect(r.status).toBe(200)
     expect(r.json.ok).toBe(false)
-    const ws = await worker.fetch("https://api.test/v1/wire/mux/agent_someone_elses_chief", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${eve.token}` } })
+    const ws = await worker.fetch("https://api.test/v1/wire/mux/agent_someone_elses_chief", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${eve.token}` } })
     expect(ws.status).toBe(403)
   })
 })
