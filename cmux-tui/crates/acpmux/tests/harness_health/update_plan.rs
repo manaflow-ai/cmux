@@ -4,6 +4,7 @@
 use super::*;
 
 const PLAN: &str = "_acpmux/harness/update/plan";
+const PREPARE: &str = "_acpmux/harness/update/prepare";
 
 struct Fixture {
     root: PathBuf,
@@ -304,5 +305,91 @@ async fn cmux_next_harness_update_plan_legacy_inventory_stays_cached_without_com
         client.call(method::MUX_HARNESS_HEALTH, json!({"view":"inventory"})).await.unwrap();
     assert_eq!(row(&result, "work-profile")["version"], "2.0.5");
     assert!(row(&result, "work-profile").get("update").is_none());
+    f.assert_idle();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cmux_next_harness_update_prepare_revalidates_native_without_running_it() {
+    let f = Fixture::new("update-prepare-native");
+    let before = std::fs::read(f.root.join("health.json")).unwrap();
+    let mut client = Client::open(&f.hub, Origin::Local);
+    let result = client.call(PREPARE, json!({"cli":"claude"})).await.unwrap();
+    assert_eq!(result, json!({"cli":"claude","argv":[f.cli,"update"]}));
+    assert_eq!(std::fs::read(f.root.join("health.json")).unwrap(), before);
+    f.assert_idle();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cmux_next_harness_update_prepare_refuses_a_missing_or_retargeted_installation() {
+    let f = Fixture::new("update-prepare-retargeted");
+    let mut client = Client::open(&f.hub, Origin::Local);
+    std::fs::remove_file(&f.cli).unwrap();
+    assert!(client.call(PLAN, json!({"cli":"claude"})).await.is_ok(), "cached advisory");
+    let error = client.call(PREPARE, json!({"cli":"claude"})).await.unwrap_err();
+    assert_eq!(error["data"]["reason"], "harness_update_plan.not_updatable");
+    let foreign = f.root.join("foreign/claude");
+    program(&foreign, &f.cli, "9.9.9");
+    let error = client.call(PREPARE, json!({"cli":"claude"})).await.unwrap_err();
+    assert_eq!(error["data"]["reason"], "harness_update_plan.not_updatable");
+    f.assert_idle();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cmux_next_harness_update_prepare_binds_the_actual_npm_fork_prefix_and_manager() {
+    let f = Fixture::new("update-prepare-npm");
+    let prefix = f.root.join("prefix with 'quotes' and \u{03c0}");
+    let cli = prefix.join("bin/codex");
+    let real = prefix.join("lib/node_modules/@manaflow-ai/codex/bin/codex.js");
+    program(&real, &cli, "1.0.0");
+    let manager = f.root.join("manager with spaces/npm");
+    std::fs::create_dir_all(manager.parent().unwrap()).unwrap();
+    std::fs::copy(&real, &manager).unwrap();
+    let mut row = f.npm("work", &prefix);
+    row["update"]["argv"][0] = json!(manager);
+    let argv = row["update"]["argv"].clone();
+    f.replace(json!([row]));
+    let mut client = Client::open(&f.hub, Origin::Local);
+    assert_eq!(
+        client.call(PREPARE, json!({"cli":"codex"})).await.unwrap(),
+        json!({"cli":"codex","argv":argv})
+    );
+    // The cached argv still names the old prefix, but the executable now
+    // belongs to a different installation. Never update the old target.
+    std::fs::remove_file(&cli).unwrap();
+    let other = f.root.join("other/lib/node_modules/@manaflow-ai/codex/bin/codex.js");
+    program(&other, &cli, "1.0.0");
+    let error = client.call(PREPARE, json!({"cli":"codex"})).await.unwrap_err();
+    assert_eq!(error["data"]["reason"], "harness_update_plan.not_updatable");
+    f.assert_idle();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cmux_next_harness_update_prepare_refuses_nonlocal_origins_and_controls() {
+    let f = Fixture::new("update-prepare-origin");
+    for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
+        let mut client = Client::open(&f.hub, origin);
+        let error = client.call(PREPARE, json!({"cli":"claude","argv":["sh"]})).await.unwrap_err();
+        assert_eq!(error["message"], "harness_update_plan.not_trusted");
+    }
+    let mut client = Client::open(&f.hub, Origin::Local);
+    let error = client.call(PREPARE, json!({"cli":"claude","argv":["sh"]})).await.unwrap_err();
+    assert_eq!(error["code"], -32602);
+    let hello = client.call(method::INITIALIZE, json!({"protocolVersion":1})).await.unwrap();
+    assert!(
+        hello
+            .pointer("/_meta/acpmux/features")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .contains(&json!("harnessUpdatePrepare"))
+    );
+    assert!(
+        hello
+            .pointer("/_meta/acpmux/extensions")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .contains(&json!(PREPARE))
+    );
     f.assert_idle();
 }
