@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
+import { captureReceipt, deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, scenarioFingerprint, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
 
 test("summarizes settled interaction latency and ignores missing samples", () => {
   expect(settleSummary([30, 10, 20, null, "slow", Number.NaN])).toEqual({ count: 3, p50: 20, p95: 30, max: 30 });
@@ -26,6 +26,16 @@ test("parses and validates a manifest", () => {
   expect(parseManifest([{ id: "a", path_or_url: "index.html", params: { width: 10, dark: true } }])).toHaveLength(1);
   expect(() => parseManifest([{ id: "a", path_or_url: "x" }, { id: "a", path_or_url: "y" }])).toThrow("duplicate");
   expect(() => parseManifest({})).toThrow("array");
+});
+
+test("capture receipts bind a run to its scenario and observed revisions", () => {
+  const cases = parseManifest([{ id: "a", path_or_url: "frame.html", params: { entry: "a", width: 760 } }]);
+  const results = [{ id: "a", engine: "chromium", ready: "1", revision: { sha: "head-a", source: "src/a.gallery.tsx" } }];
+  const receipt = captureReceipt(cases, results, "capture-a");
+  expect(receipt.captureId).toBe("capture-a");
+  expect(receipt.scenario).toEqual({ count: 1, fingerprint: scenarioFingerprint(cases) });
+  expect(receipt.results).toEqual({ count: 1, expected: 1, status: "complete" });
+  expect(receipt.revisions).toEqual({ shas: ["head-a"], sources: ["src/a.gallery.tsx"] });
 });
 
 test("shards cases deterministically", () => {

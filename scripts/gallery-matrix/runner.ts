@@ -2,7 +2,7 @@
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
@@ -18,6 +18,50 @@ export type MatrixCase = {
 export type Engine = "chromium" | "webkit";
 export type DiffResult = { differentPixels: number; totalPixels: number; percentage: number; passed: boolean };
 export type Ledger = { runId: string; createdAt: string; vmIds: string[]; pausedVmIds?: string[]; deletedVmIds: string[] };
+
+export type CaptureReceipt = {
+  schemaVersion: 1;
+  captureId: string;
+  capturedAt: string;
+  scenario: { count: number; fingerprint: string };
+  results: { count: number; expected: number; status: "complete" | "partial" };
+  quality: "pass" | "fail";
+  revisions: { shas: string[]; sources: string[] };
+  shard?: { index: number; count: number };
+};
+
+/** Stable manifest identity used by run receipts and PR comparison evidence. */
+export function scenarioFingerprint(cases: readonly MatrixCase[]): string {
+  const input = JSON.stringify(cases.map((item) => ({ id: item.id, path_or_url: item.path_or_url, params: item.params ?? {} })));
+  return createHash("sha256").update(input).digest("hex");
+}
+
+export function captureReceipt(
+  cases: readonly MatrixCase[],
+  results: readonly Record<string, unknown>[],
+  captureId = process.env.CMUX_GALLERY_CAPTURE_ID || randomUUID(),
+  shard?: { index: number; count: number },
+  expectedResults?: number,
+): CaptureReceipt {
+  const expected = expectedResults ?? cases.length * new Set(results.map((result) => result.engine).filter(Boolean)).size;
+  const complete = results.length === expected && expected > 0;
+  const quality = results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
+    ? "fail"
+    : "pass";
+  return {
+    schemaVersion: 1,
+    captureId,
+    capturedAt: new Date().toISOString(),
+    scenario: { count: cases.length, fingerprint: scenarioFingerprint(cases) },
+    results: { count: results.length, expected, status: complete ? "complete" : "partial" },
+    quality,
+    revisions: {
+      shas: [...new Set(results.flatMap((result) => (result.revision as { sha?: unknown } | undefined)?.sha).filter((sha): sha is string => typeof sha === "string" && sha.length > 0))],
+      sources: [...new Set(results.flatMap((result) => (result.revision as { source?: unknown } | undefined)?.source).filter((source): source is string => typeof source === "string" && source.length > 0))],
+    },
+    ...(shard ? { shard } : {}),
+  };
+}
 
 /** The action-to-settled summary shown on each ordinary matrix card. */
 export function settleSummary(samples: readonly unknown[]) {
@@ -339,6 +383,10 @@ export async function runLocal(args: { manifest: string; galleryDir: string; out
         results.push(result);
       }
     await writeFile(join(args.outputDir, "results.json"), `${JSON.stringify(results, null, 2)}\n`);
+    await writeFile(
+      join(args.outputDir, "receipt.json"),
+      `${JSON.stringify(captureReceipt(selected, results, process.env.CMUX_GALLERY_CAPTURE_ID, { index: args.shardIndex, count: args.shardCount }, selected.length * args.engines.length), null, 2)}\n`,
+    );
     await writeFile(join(args.outputDir, "index.html"), renderIndex(results));
     if (results.some((r) => (r.diff as DiffResult | undefined)?.passed === false)) process.exitCode = 1;
     if (results.some((r) => (r.play as { status?: string } | null)?.status === "fail")) process.exitCode = 1;
@@ -418,7 +466,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       const steps = [
         `set -eu; cd ${shellQuote(remoteRoot)}; bun install --no-save; bunx playwright install --with-deps ${args.engines.join(" ")}`,
         // `timeout` ends the step inside the exec cap, so a slow shard still reports its log.
-        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold} --case-timeout-ms ${args.caseTimeoutMs}`,
+        `set -eu; cd ${shellQuote(remoteRoot)}; CMUX_GALLERY_CAPTURE_ID=${shellQuote(runId)} CMUX_BROWSER_TESTS=1 CMUX_GALLERY_IN_VM=1 timeout 280 bun runner.ts --manifest shard.json --gallery-dir gallery --output-dir output --engines ${args.engines.join(",")} --threshold ${args.threshold} --case-timeout-ms ${args.caseTimeoutMs}`,
       ];
       const logPath = join(args.outputDir, `shard-${shard}.log`);
       await mkdir(args.outputDir, { recursive: true });
@@ -458,6 +506,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
       }
     }
     await writeFile(join(args.outputDir, "results.json"), `${JSON.stringify(combined, null, 2)}\n`);
+    await writeFile(join(args.outputDir, "receipt.json"), `${JSON.stringify(captureReceipt(cases, combined, runId, undefined, cases.length * args.engines.length), null, 2)}\n`);
     await writeFile(join(args.outputDir, "index.html"), renderIndex(combined));
     // The run is published with its failures in it; the exit status says it failed.
     for (const failure of [...new Set(failures)]) console.error(failure);

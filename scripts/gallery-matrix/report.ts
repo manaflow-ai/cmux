@@ -17,7 +17,13 @@ export type ReportLinks = {
   /** The branch's live gallery preview (`/wt/<name>/`, liveBase), on the tailnet gallery host. */
   live?: string;
 };
-export type ReportMeta = { pr: number; head: string; base: string; links: ReportLinks };
+export type ReportMeta = {
+  pr: number;
+  head: string;
+  base: string;
+  links: ReportLinks;
+  evidence?: { base?: unknown; head?: unknown; repeat?: unknown };
+};
 
 export const COMMENT_MARKER = "<!-- cmux-gallery-pr -->";
 export const COMMENT_THUMBS = 6;
@@ -87,6 +93,7 @@ export function feedSummary(outcomes: Outcome[], meta: ReportMeta) {
     summary: summaryLine(outcomes),
     counts: { ...counts(outcomes), playFailed: playFailures(outcomes).length },
     links: { diff: meta.links.diff, gallery: meta.links.gallery, matrix: meta.links.matrix, feed: meta.links.feed },
+    evidence: meta.evidence,
     changed: outcomes
       .filter((o) => o.status === "changed")
       .map((o) => ({
