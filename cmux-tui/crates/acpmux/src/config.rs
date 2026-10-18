@@ -480,17 +480,10 @@ pub struct Config {
     /// the cmux app, and for hermetic tests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`: the level of the person's latest mode pick in
-    /// any chat (`fullAccess`, `standard` or `ask`), the start mode of every
-    /// new chat on every harness (`hub/start_mode.rs`). Written only by a
-    /// pick from the app pane; wins over `defaultPermissionMode`, and over
-    /// the cmux setting while that is still what it was at the pick.
+    /// `lastPermissionMode`, `lastPermissionModeSetting`: the level of the latest mode pick
+    /// from the app pane, and the cmux setting then (`hub/start_mode.rs` `start_level`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_permission_mode: Option<String>,
-    /// `lastPermissionModeSetting`: the cmux setting
-    /// `agents.defaultPermissionMode` as it was when `lastPermissionMode` was
-    /// picked (`hub/start_mode.rs` `setting_snapshot`; absent: no setting).
-    /// A setting that differs now was changed after the pick, so it wins.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
