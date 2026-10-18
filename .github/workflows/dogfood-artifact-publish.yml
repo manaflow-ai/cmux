@@ -220,8 +220,8 @@ jobs:
               f"Build time: `{os.environ['BUILD_TIME']}`\n\n"
               "The download URL expires after 15 minutes. "
               # The comment outlives the signed link; the CI artifact it came
-              # from stays downloadable for org members until it expires.
-              f"After that, [the CI run]({os.environ['SOURCE_RUN_URL']}) still has it: "
+              # from stays downloadable until it expires (retention-days: 2).
+              f"For 2 days after the build, [the CI run]({os.environ['SOURCE_RUN_URL']}) still has it: "
               f"`gh run download {os.environ['SOURCE_RUN_ID']} -R {os.environ['GH_REPO']} "
               f"-n dogfood-app-{os.environ['PR']}-{os.environ['HEAD_SHA']}`"
           )
