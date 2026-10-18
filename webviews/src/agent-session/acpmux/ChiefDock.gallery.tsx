@@ -43,6 +43,19 @@ const base = [
   }),
 ];
 
+const WALLPAPER_REFERENCE = new URL("../../gallery/fixtures/assets/chief-wallpaper-reference.png", import.meta.url).href;
+
+const wallpaperGlassPlay = async (ctx: PlayContext) => {
+  const background = `url("${WALLPAPER_REFERENCE}") center / cover fixed`;
+  for (const node of [ctx.document.documentElement, ctx.document.body]) {
+    node.style.setProperty("background", background, "important");
+    node.style.setProperty("background-color", "#121212", "important");
+  }
+  for (const node of ctx.document.querySelectorAll<HTMLElement>("#root, .acpmux-shell, .acpmux-quick, .acpmux-main")) {
+    node.style.setProperty("background", "transparent", "important");
+  }
+};
+
 const toggleStack = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: "Agent Chat" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-chief-dock[data-expanded="false"]'));
@@ -90,6 +103,18 @@ export default componentEntry({
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
       },
+    },
+    "wallpaper-glass": {
+      note: "Reference-backed glass check: the same deterministic stack over a busy wallpaper at the gallery viewport size.",
+      props: {
+        sessions: base,
+        currentId: "chief-working",
+        defaultExpanded: true,
+        onSelect: () => undefined,
+        onNewChat: () => undefined,
+        onMoveToTab: () => undefined,
+      },
+      play: wallpaperGlassPlay,
     },
     "mascot-orb-spark": mascotOption("orb-spark", "Mascot option: a soft star-marked orb with a friendly pixel face."),
     "mascot-orb-hood": mascotOption("orb-hood", "Mascot option: a hooded night orb with a compact silhouette."),
