@@ -296,10 +296,21 @@ impl Mux {
         if own_pane_live {
             return member.clone();
         }
+        // A reopen takes a member's pane only while it sits in the member's
+        // workspace and screen, so the member names the target pane's.
+        let place = self.with_state(|state| {
+            let (workspace, screen) = state.screen_of(pane_by_public_id(state, pane)?)?;
+            let workspace = &state.workspaces[workspace];
+            Some((workspace.public_id.to_string(), workspace.screens[screen].public_id.to_string()))
+        });
         let mut placed = member.clone();
         placed["pane_id"] = json!(pane);
-        placed["workspace_id"] = Value::Null;
+        placed["workspace_id"] = json!(place.as_ref().map(|(workspace, _)| workspace));
+        placed["screen_id"] = json!(place.as_ref().map(|(_, screen)| screen));
         placed["index"] = Value::Null;
+        if let Some(object) = placed.as_object_mut() {
+            object.remove("split");
+        }
         placed
     }
 
