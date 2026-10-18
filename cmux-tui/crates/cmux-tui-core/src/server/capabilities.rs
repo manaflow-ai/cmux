@@ -255,6 +255,7 @@ pub(super) fn advertised_capabilities(
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
+        crate::state::stash_store::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,

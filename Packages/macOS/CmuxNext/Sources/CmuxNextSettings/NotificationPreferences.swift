@@ -13,6 +13,8 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     /// read at once (no ring, banner or sound). 0 turns it off.
     public var suppressWhileTypingSeconds: Double = 0
     public var dockBadge = true
+    /// `notifications.dockBounce`: the Dock icon bounces when an alert arrives while cmux is inactive.
+    public var dockBounce: DockBounceMode = .once
     /// Workspace ids whose notifications post no banner, sound or ring.
     public var mutedWorkspaces: Set<String> = []
     public var sources: [NotificationSource: NotificationSourceOverrides] = [:]
