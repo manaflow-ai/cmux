@@ -198,5 +198,4 @@ export async function GET(request: Request): Promise<Response> {
   );
 }
 
-export const runtime = "nodejs";
 export const maxDuration = 960;
