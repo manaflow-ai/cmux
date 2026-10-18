@@ -5,10 +5,15 @@
 // A chat with summary content shows the inline card when there is room; an empty chat stays quiet
 // until the user explicitly opens the summary button. Any hide choice is stored for this pane.
 import { useCallback, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { chatColumnOf, useChatWidth } from "../chatWidth";
 
 /// The inline summary column is only useful when the chat keeps a readable width beside it.
 export const SUMMARY_COLUMN_WIDTH = 300;
 const CHAT_MIN_WIDTH = 660;
+
+/** Keep a wider mode wider than the preceding mode when the rail is inline. */
+const inlineChatFloor = (chatWidth: Parameters<typeof chatColumnOf>[0]) =>
+  chatWidth === "standard" ? CHAT_MIN_WIDTH : chatColumnOf(chatWidth === "wide" ? "standard" : "wide").max;
 
 const PANEL_KEY = "cmux.acpmux.summaryPanel";
 let panelHidden: boolean | undefined;
@@ -63,6 +68,7 @@ const subscribePanel = (listener: () => void) => {
 /** Whether the pane can keep a readable chat column beside the inline summary. */
 export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): boolean {
   const [room, setRoom] = useState(false);
+  const chatWidth = useChatWidth();
   useLayoutEffect(() => {
     if (!shell || blocked) {
       setRoom(false);
@@ -72,7 +78,11 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       const sidebar = shell.querySelector<HTMLElement>(":scope>.acpmux-sidebar");
       const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-rail");
       const reserved = (sidebar?.offsetWidth ?? 0) + (rail?.offsetWidth ?? 0);
-      setRoom(shell.clientWidth - reserved >= CHAT_MIN_WIDTH + SUMMARY_COLUMN_WIDTH);
+      const available = shell.clientWidth - reserved;
+      // The summary takes 300px from the same flex row as the transcript. At a width where that
+      // would erase the active mode's extra measure, keep it as a popover. The preceding mode's
+      // cap is the floor for each wider mode.
+      setRoom(available >= inlineChatFloor(chatWidth) / chatColumnOf(chatWidth).share + SUMMARY_COLUMN_WIDTH);
     };
     measure();
     const frame = requestAnimationFrame(measure);
@@ -87,7 +97,7 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
       observer.disconnect();
       children.disconnect();
     };
-  }, [shell, blocked]);
+  }, [shell, blocked, chatWidth]);
   return room;
 }
 
