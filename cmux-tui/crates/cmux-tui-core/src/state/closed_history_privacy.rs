@@ -154,11 +154,14 @@ fn without_user_info(base: &str) -> String {
 }
 
 /// A fragment without its secret keys; None when nothing is left. A hash
-/// route (`#/cb?code=abc`) keeps its route and filters what follows its `?`
-/// as a query. Otherwise a fragment part is a key only when it has a value
-/// (`#section` and `#token` stay).
+/// route (`#/cb?code=abc`, `#!/cb?code=abc`: a fragment that starts with
+/// `/` or `!/`) keeps its route and filters what follows its `?` as a
+/// query. Any other fragment is read as keys, `?` and all, as before
+/// (`#access_token=abc&redirect=https://x/?a=b`), and a part is a key only
+/// when it has a value (`#section` and `#token` stay).
 fn kept_fragment(fragment: &str) -> Option<String> {
-    let Some((route, query)) = fragment.split_once('?') else {
+    let route = fragment.starts_with('/') || fragment.starts_with("!/");
+    let Some((route, query)) = fragment.split_once('?').filter(|_| route) else {
         return kept_pairs(fragment, false);
     };
     let kept = match kept_pairs(query, true) {
@@ -246,7 +249,24 @@ const SCRUB_VERSION: i64 = 1;
 /// (`closed_history_scrub`), every `url` in every stored record is
 /// stripped again and every `browser_history` with it. Rows that need
 /// nothing are not written.
+///
+/// The scrub never keeps the store from opening: on any error its writes
+/// roll back (a savepoint inside the open's transaction), the version stays
+/// unrecorded so the next start tries again, and the error is logged.
 pub(super) fn scrub_closed_groups(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch("SAVEPOINT closed_history_scrub")?;
+    match scrub_closed_groups_once(transaction) {
+        Ok(()) => transaction.execute_batch("RELEASE closed_history_scrub")?,
+        Err(error) => {
+            transaction
+                .execute_batch("ROLLBACK TO closed_history_scrub; RELEASE closed_history_scrub")?;
+            eprintln!("cmux-tui: closed history scrub skipped, retried next start: {error:#}");
+        }
+    }
+    Ok(())
+}
+
+fn scrub_closed_groups_once(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS closed_history_scrub (
            version INTEGER PRIMARY KEY NOT NULL
