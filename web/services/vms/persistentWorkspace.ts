@@ -15,7 +15,11 @@ export const PERSISTENT_WORKSPACE_LIFECYCLES = [
 ] as const;
 export type PersistentWorkspaceLifecycle = (typeof PERSISTENT_WORKSPACE_LIFECYCLES)[number];
 
-export type PersistentWorkspaceProviderId = "freestyle";
+export type PersistentWorkspaceProviderId = "freestyle" | "huge-blue";
+
+export function isPersistentWorkspaceProviderId(value: unknown): value is PersistentWorkspaceProviderId {
+  return value === "freestyle" || value === "huge-blue";
+}
 
 /** Provider handles are opaque ids, never bearer tokens or endpoint URLs. */
 export type PersistentWorkspaceProviderHandles = {
@@ -119,6 +123,8 @@ export type PersistentWorkspaceProviderAdoptInput = PersistentWorkspaceProviderL
 };
 
 export type PersistentWorkspaceProvider = {
+  /** Provider identity is checked against every persisted runtime before effects run. */
+  readonly providerId?: PersistentWorkspaceProviderId;
   readonly create: (input: PersistentWorkspaceProviderCreateInput) => Promise<PersistentWorkspaceProviderHandles>;
   readonly resume: (input: PersistentWorkspaceProviderLifecycleInput) => Promise<void>;
   readonly suspend: (input: PersistentWorkspaceProviderLifecycleInput) => Promise<void>;
@@ -128,7 +134,14 @@ export type PersistentWorkspaceProvider = {
   /** Return an attach descriptor; it may contain a short-lived bearer token. */
   readonly attach?: (input: {
     readonly record: PersistentWorkspaceRecord;
+    readonly scope: PersistentWorkspaceAttachScope;
   }) => Promise<unknown>;
+};
+
+export type PersistentWorkspaceAttachScope = {
+  readonly runtimeId: string;
+  readonly ownerId: string;
+  readonly tenantId: string;
 };
 
 /** Provider-independent response. Internal provider handles are deliberately absent. */
@@ -158,6 +171,7 @@ export type PersistentWorkspaceCreateInput = {
   readonly tenantId: string;
   readonly ownerId: string;
   readonly idempotencyKey: string;
+  readonly provider?: PersistentWorkspaceProviderId;
   readonly workspaceName?: string;
   readonly providerInput?: PersistentWorkspaceProviderInput;
 };
@@ -172,6 +186,7 @@ export type PersistentWorkspacePromoteInput = {
   readonly tenantId: string;
   readonly ownerId: string;
   readonly idempotencyKey: string;
+  readonly provider?: PersistentWorkspaceProviderId;
   readonly workspaceName?: string;
   readonly providerVmId: string;
   readonly providerWorkspaceId: string;
@@ -259,6 +274,7 @@ function requestDigest(input: PersistentWorkspaceCreateInput): string {
   const canonical = JSON.stringify({
     tenantId: input.tenantId,
     ownerId: input.ownerId,
+    provider: input.provider ?? "freestyle",
     workspaceName: input.workspaceName?.trim() ?? "",
     // Provider metadata may contain secrets. It participates in the request
     // identity only when it is explicitly supplied by the caller, but is never
@@ -274,6 +290,18 @@ function ownedBy(record: PersistentWorkspaceRecord, input: { readonly tenantId: 
 
 function assertOwned(record: PersistentWorkspaceRecord, input: { readonly tenantId: string; readonly ownerId: string }): void {
   if (!ownedBy(record, input)) throw new PersistentWorkspaceOwnershipError();
+}
+
+function assertProviderCompatible(
+  provider: PersistentWorkspaceProvider,
+  record: Pick<PersistentWorkspaceRecord, "provider">,
+): void {
+  if (provider.providerId !== undefined && provider.providerId !== record.provider) {
+    throw new PersistentWorkspaceError(
+      "workspace_provider_mismatch",
+      `Persistent workspace provider ${record.provider} does not match the configured provider ${provider.providerId}.`,
+    );
+  }
 }
 
 const REDACTED = "[redacted]";
@@ -317,6 +345,15 @@ export function redactedAttachTarget(
   record: Pick<PersistentWorkspaceRecord, "provider" | "runtimeId" | "workspaceId">,
   target: unknown,
 ): PersistentWorkspaceAttachTarget {
+  if (target && typeof target === "object" && !Array.isArray(target)) {
+    const targetProvider = (target as Record<string, unknown>).provider;
+    if (targetProvider !== undefined && targetProvider !== record.provider) {
+      throw new PersistentWorkspaceError(
+        "workspace_provider_mismatch",
+        `Persistent workspace attach returned provider ${String(targetProvider)} for ${record.provider}.`,
+      );
+    }
+  }
   const safeTarget = redactUnknown(target);
   return {
     redacted: true,
@@ -395,13 +432,19 @@ export function createPersistentWorkspaceService(input: {
   }
 
   async function attachTarget(record: PersistentWorkspaceRecord): Promise<PersistentWorkspaceAttachTarget> {
+    assertProviderCompatible(input.provider, record);
     const fallback = {
       provider: record.provider,
       vmId: record.providerVmId,
       workspaceId: record.providerWorkspaceId,
       terminalId: record.providerTerminalId,
     };
-    const raw = input.provider.attach ? await input.provider.attach({ record }) : fallback;
+    const raw = input.provider.attach
+      ? await input.provider.attach({
+        record,
+        scope: { runtimeId: record.runtimeId, ownerId: record.ownerId, tenantId: record.tenantId },
+      })
+      : fallback;
     return redactedAttachTarget(record, raw ?? fallback);
   }
 
@@ -422,6 +465,7 @@ export function createPersistentWorkspaceService(input: {
     const ownerId = requiredText(request.ownerId, "ownerId");
     const idempotencyKey = requiredText(request.idempotencyKey, "idempotencyKey", 128);
     const workspaceName = requiredText(request.workspaceName ?? "Persistent workspace", "workspaceName", 160);
+    const provider = request.provider ?? "freestyle";
     const identity = input.identity?.() ?? defaultIdentity();
     const runtimeId = identity.runtimeId;
     const workspaceId = identity.workspaceId;
@@ -432,7 +476,7 @@ export function createPersistentWorkspaceService(input: {
       workspaceId,
       tenantId,
       ownerId,
-      provider: "freestyle",
+      provider,
       lifecycle: "provisioning",
       providerVmId: null,
       providerWorkspaceId: null,
@@ -459,6 +503,7 @@ export function createPersistentWorkspaceService(input: {
     if (replay) return replay;
 
     try {
+      assertProviderCompatible(input.provider, record);
       const handles = await input.provider.create({
         runtimeId: record.runtimeId,
         workspaceId: record.workspaceId,
@@ -503,6 +548,7 @@ export function createPersistentWorkspaceService(input: {
     const ownerId = requiredText(request.ownerId, "ownerId");
     const idempotencyKey = requiredText(request.idempotencyKey, "idempotencyKey", 128);
     const workspaceName = requiredText(request.workspaceName ?? "Promoted workspace", "workspaceName", 160);
+    const provider = request.provider ?? "freestyle";
     const providerVmId = requiredText(request.providerVmId, "providerVmId", 256);
     const providerWorkspaceId = requiredText(request.providerWorkspaceId, "providerWorkspaceId", 256);
     const providerTerminalId = requiredText(request.providerTerminalId, "providerTerminalId", 256);
@@ -512,6 +558,7 @@ export function createPersistentWorkspaceService(input: {
       ownerId,
       idempotencyKey,
       workspaceName,
+      provider,
       providerInput: { providerMetadata: { providerVmId, providerWorkspaceId, providerTerminalId, sessionId } },
     });
     const timestamp = now().toISOString();
@@ -521,7 +568,7 @@ export function createPersistentWorkspaceService(input: {
       workspaceId: identity.workspaceId,
       tenantId,
       ownerId,
-      provider: "freestyle",
+      provider,
       lifecycle: "provisioning",
       providerVmId,
       providerWorkspaceId,
@@ -549,6 +596,7 @@ export function createPersistentWorkspaceService(input: {
       throw new PersistentWorkspaceProviderError("promote", new Error("persistent workspace provider adoption is not configured"));
     }
     try {
+      assertProviderCompatible(input.provider, record);
       await input.provider.adopt({
         runtimeId: record.runtimeId,
         workspaceId: record.workspaceId,
@@ -588,6 +636,7 @@ export function createPersistentWorkspaceService(input: {
     if (record.lifecycle === "provisioning") throw new PersistentWorkspaceInvalidStateError(record.lifecycle, "resume");
     if (record.lifecycle === "failed" || !record.providerVmId) throw new PersistentWorkspaceInvalidStateError(record.lifecycle, "resume");
     try {
+      assertProviderCompatible(input.provider, record);
       await input.provider.resume({
         runtimeId: record.runtimeId,
         workspaceId: record.workspaceId,
@@ -618,6 +667,7 @@ export function createPersistentWorkspaceService(input: {
       throw new PersistentWorkspaceInvalidStateError(record.lifecycle, "suspend");
     }
     try {
+      assertProviderCompatible(input.provider, record);
       await input.provider.suspend({
         runtimeId: record.runtimeId,
         workspaceId: record.workspaceId,
@@ -645,6 +695,7 @@ export function createPersistentWorkspaceService(input: {
       throw new PersistentWorkspaceInvalidStateError(record.lifecycle, "stop");
     }
     try {
+      assertProviderCompatible(input.provider, record);
       const lifecycleInput = {
         runtimeId: record.runtimeId,
         workspaceId: record.workspaceId,
@@ -696,8 +747,9 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
   readonly effectBroker: PersistentWorkspaceEffectBroker;
   /** Host class selected by the configured provider adapter (for example freestyle). */
   readonly hostLeaseProvider: VmHostLeaseProvider;
+  readonly providerId?: PersistentWorkspaceProviderId;
   readonly hostLeaseTtlMs?: number;
-  readonly attach?: (record: PersistentWorkspaceRecord) => Promise<unknown>;
+  readonly attach?: (input: { readonly record: PersistentWorkspaceRecord; readonly scope: PersistentWorkspaceAttachScope }) => Promise<unknown>;
 }): PersistentWorkspaceProvider {
   function assertHostAdapterConfigured(): void {
     if (!input.hostLeaseTransport.hasConfiguredProvider(input.hostLeaseProvider)) {
@@ -765,6 +817,11 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
   }
 
   return {
+    ...(input.providerId !== undefined
+      ? { providerId: input.providerId }
+      : input.hostLeaseProvider === "freestyle" || input.hostLeaseProvider === "huge-blue"
+        ? { providerId: input.hostLeaseProvider }
+        : {}),
     async create(request) {
       assertHostAdapterConfigured();
       const result = await input.effectBroker.execute({
@@ -901,7 +958,9 @@ export function persistentWorkspaceProviderFromCloudVm(input: {
         },
       });
     },
-    ...(input.attach ? { attach: async ({ record }: { readonly record: PersistentWorkspaceRecord }) => input.attach!(record) } : {}),
+    ...(input.attach ? {
+      attach: async ({ record, scope }: { readonly record: PersistentWorkspaceRecord; readonly scope: PersistentWorkspaceAttachScope }) => input.attach!({ record, scope }),
+    } : {}),
   };
 }
 
@@ -915,10 +974,17 @@ export function createPersistentWorkspacePromotionRuntimePort(input: {
 }): AttemptPromotionRuntimePort {
   return {
     async promote(request: PromotionRuntimeInput) {
+      const provider = request.provider === "huge-blue" || request.provider === "freestyle"
+        ? request.provider
+        : request.provider === "cloud-vm"
+          ? "freestyle"
+          : null;
+      if (!provider) throw new PersistentWorkspaceError("workspace_provider_mismatch", `Unsupported promotion provider ${request.provider}.`);
       const workspace = await input.service.promote({
         tenantId: request.billingTeamId?.trim() || request.userId,
         ownerId: request.userId,
         idempotencyKey: request.requestKey,
+        provider,
         workspaceName: `Promoted ${request.runId}`,
         providerVmId: request.providerVmId,
         providerWorkspaceId: request.providerWorkspaceId,

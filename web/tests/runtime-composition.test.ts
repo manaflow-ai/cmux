@@ -83,6 +83,7 @@ describe("runtime composition", () => {
     const service = createRequestScopedWorkspaceService({
       context: requestContext,
       workspaceStore: store,
+      provider: "huge-blue",
       providerFactory: (context) => {
         receivedContext = context;
         return scopedProvider;
@@ -91,7 +92,24 @@ describe("runtime composition", () => {
 
     expect(service).not.toBeNull();
     expect(receivedContext).toBe(requestContext);
+    // A legacy one-argument factory remains valid; provider selection is passed
+    // as the second argument to factories that need to select an adapter.
     expect(persistentWorkspaceService()).toBeNull();
+  });
+
+  test("passes the authenticated provider selection to request composition", () => {
+    let selected: string | undefined;
+    const service = createRequestScopedWorkspaceService({
+      context: requestContext,
+      workspaceStore: store,
+      provider: "huge-blue",
+      providerFactory: (_context, provider) => {
+        selected = provider;
+        return { create: async () => ({ providerVmId: "vm", providerWorkspaceId: "workspace" }) } as unknown as PersistentWorkspaceProvider;
+      },
+    });
+    expect(service).not.toBeNull();
+    expect(selected).toBe("huge-blue");
   });
 
   test("returns null when no request-scoped provider adapter is installed", () => {
@@ -151,5 +169,29 @@ describe("runtime composition", () => {
       perMachineHome: true,
       idempotencyKey: "runtime-1",
     });
+  });
+
+  test("keeps Huge Blue provider selection inside the authenticated createVm workflow", async () => {
+    let captured: unknown;
+    const provision = createAuthenticatedWorkspaceProvisioner({
+      context: requestContext,
+      provider: "huge-blue",
+      resolveImage: () => ({ image: "huge-blue-host" }),
+      createVm: async (input) => {
+        captured = input;
+        return { providerVmId: "huge-blue-staging" };
+      },
+    });
+    await provision(requestContext, {
+      runtimeId: "runtime-huge-blue",
+      workspaceId: "workspace-huge-blue",
+      tenantId: "team-request-scoped",
+      ownerId: "user-request-scoped",
+      generation: 1,
+      effectKey: "effect-huge-blue",
+      workspaceName: "shared host",
+      workspaceKey: "workspace-key",
+    } as never);
+    expect(captured).toMatchObject({ provider: "huge-blue", billingTeamId: "team-request-scoped", userId: "user-request-scoped" });
   });
 });

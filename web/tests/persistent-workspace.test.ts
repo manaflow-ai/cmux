@@ -82,6 +82,31 @@ describe("persistent workspace lifecycle", () => {
     expect(fake.calls.create).toBe(1);
   });
 
+  test("persists the selected Huge Blue provider and scopes attach to the owned runtime", async () => {
+    let attachScope: unknown;
+    const fake = providerFixture();
+    const provider: PersistentWorkspaceProvider = {
+      ...fake.provider,
+      providerId: "huge-blue",
+      async attach(input) {
+        attachScope = input.scope;
+        return { provider: "huge-blue", token: "short-lived" };
+      },
+    };
+    const service = createPersistentWorkspaceService({ store: storeFixture(), provider });
+    const created = await service.create({ ...request, provider: "huge-blue" });
+    expect(created.provider).toBe("huge-blue");
+    expect(attachScope).toEqual({ runtimeId: created.runtimeId, ownerId: request.ownerId, tenantId: request.tenantId });
+  });
+
+  test("fails closed when the configured provider does not match persisted provider", async () => {
+    const fake = providerFixture();
+    const provider: PersistentWorkspaceProvider = { ...fake.provider, providerId: "freestyle" };
+    const service = createPersistentWorkspaceService({ store: storeFixture(), provider });
+    await expect(service.create({ ...request, provider: "huge-blue" })).rejects.toMatchObject({ code: "workspace_provider_mismatch" });
+    expect(fake.calls.create).toBe(0);
+  });
+
   test("same idempotency key replays the existing runtime without a second provider create", async () => {
     const fake = providerFixture();
     const service = createPersistentWorkspaceService({ store: storeFixture(), provider: fake.provider });

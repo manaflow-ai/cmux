@@ -9,6 +9,8 @@ import {
   createPersistentWorkspacePromotionRuntimePort,
   createPersistentWorkspaceService,
   persistentWorkspaceProviderFromCloudVm,
+  isPersistentWorkspaceProviderId,
+  type PersistentWorkspaceProviderId,
   type PersistentWorkspaceProvider,
   type PersistentWorkspaceRecord,
   type PersistentWorkspaceStore,
@@ -33,13 +35,13 @@ function requireUuid(value: string, label: string): string {
 }
 
 function workspaceRecord(row: PersistentWorkspaceRow): PersistentWorkspaceRecord {
-  if (row.provider !== "freestyle") throw new Error(`unsupported persistent workspace provider ${row.provider}`);
+  if (!isPersistentWorkspaceProviderId(row.provider)) throw new Error(`unsupported persistent workspace provider ${row.provider}`);
   return {
     runtimeId: requireUuid(row.id, "persistent workspace runtime id"),
     workspaceId: requireUuid(row.workspaceId, "persistent workspace id"),
     tenantId: row.tenantId,
     ownerId: row.ownerId,
-    provider: "freestyle",
+    provider: row.provider,
     lifecycle: row.lifecycle as PersistentWorkspaceRecord["lifecycle"],
     providerVmId: row.providerVmId,
     providerWorkspaceId: row.providerWorkspaceId,
@@ -249,7 +251,7 @@ export type AuthenticatedWorkspaceCreateVmInput = {
   readonly billingTeamId: string;
   readonly billingPlanId: string;
   readonly maxActiveVms: number | null;
-  readonly provider: "freestyle";
+  readonly provider: PersistentWorkspaceProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly memoryMb?: number;
@@ -265,7 +267,7 @@ export type AuthenticatedWorkspaceCreateVmInput = {
  */
 export function createAuthenticatedWorkspaceProvisioner(input: {
   readonly context: RequestScopedWorkspaceContext;
-  readonly provider: "freestyle";
+  readonly provider: PersistentWorkspaceProviderId;
   readonly resolveImage: (request: Parameters<typeof persistentWorkspaceProviderFromCloudVm>[0] extends { provisionVm: (request: infer R) => unknown } ? R : never) => {
     readonly image: string;
     readonly imageVersion?: string | null;
@@ -299,6 +301,7 @@ export function createAuthenticatedWorkspaceProvisioner(input: {
  */
 export type RequestScopedWorkspaceProviderFactory = (
   context: RequestScopedWorkspaceContext,
+  provider: PersistentWorkspaceProviderId,
 ) => PersistentWorkspaceProvider | null;
 
 /**
@@ -314,15 +317,23 @@ export type RequestScopedWorkspaceProviderInfrastructure = Omit<
     context: RequestScopedWorkspaceContext,
     request: Parameters<typeof persistentWorkspaceProviderFromCloudVm>[0] extends { provisionVm: (request: infer R) => unknown } ? R : never,
   ) => Promise<{ readonly providerVmId: string }>;
+  /** Provider selected by the authenticated route; mismatches fail closed. */
+  readonly providerId?: PersistentWorkspaceProviderId;
 };
 
 export function createRequestScopedWorkspaceProviderFactory(
   infrastructure: RequestScopedWorkspaceProviderInfrastructure,
 ): RequestScopedWorkspaceProviderFactory {
-  return (context) => persistentWorkspaceProviderFromCloudVm({
-    ...infrastructure,
-    provisionVm: (request) => infrastructure.provisionVm(context, request),
-  });
+  return (context, provider) => {
+    const configuredProvider = infrastructure.providerId
+      ?? (isPersistentWorkspaceProviderId(infrastructure.hostLeaseProvider) ? infrastructure.hostLeaseProvider : null);
+    if (configuredProvider !== null && configuredProvider !== provider) return null;
+    return persistentWorkspaceProviderFromCloudVm({
+      ...infrastructure,
+      providerId: provider,
+      provisionVm: (request) => infrastructure.provisionVm(context, request),
+    });
+  };
 }
 
 /**
@@ -339,6 +350,7 @@ export function createRequestScopedWorkspaceService(input: {
   readonly workspaceStore: PersistentWorkspaceStore;
   readonly providerFactory: RequestScopedWorkspaceProviderFactory;
   readonly identity?: Parameters<typeof createPersistentWorkspaceService>[0]["identity"];
+  readonly provider?: PersistentWorkspaceProviderId;
 }): ReturnType<typeof createPersistentWorkspaceService> | null {
   const userId = input.context.userId.trim();
   const billingTeamId = input.context.entitlements.billingTeamId.trim();
@@ -347,7 +359,8 @@ export function createRequestScopedWorkspaceService(input: {
     throw new Error("request-scoped workspace context is incomplete");
   }
 
-  const provider = input.providerFactory(input.context);
+  const providerId = input.provider ?? "freestyle";
+  const provider = input.providerFactory(input.context, providerId);
   if (!provider) return null;
   return createPersistentWorkspaceService({
     store: input.workspaceStore,
@@ -373,10 +386,12 @@ export function configureRequestScopedWorkspaceInfrastructure(
 /** Build a route-local service from the caller's already-resolved entitlements. */
 export function requestScopedWorkspaceServiceFor(
   context: RequestScopedWorkspaceContext,
+  provider: PersistentWorkspaceProviderId = "freestyle",
 ): ReturnType<typeof createPersistentWorkspaceService> | null {
   if (!requestScopedInfrastructure) return null;
   return createRequestScopedWorkspaceService({
     context,
+    provider,
     workspaceStore: requestScopedInfrastructure.workspaceStore,
     providerFactory: requestScopedInfrastructure.providerFactory,
   });
@@ -410,71 +425,13 @@ export function installRuntimeComposition(input: {
  * seam is explicitly configured. Missing configuration leaves both route
  * seams unset, preserving their existing 503/409 fail-closed behavior.
  */
-type RuntimeCompositionEnv = { readonly leaseUrl: string; readonly leaseToken: string; readonly workerId: string };
-
-function runtimeCompositionEnv(): RuntimeCompositionEnv | null {
-  if (process.env.CMUX_RUNTIME_ENABLE_REQUEST_COMPOSITION !== "1") return null;
-  const leaseUrl = process.env.CMUX_RUNTIME_HOST_LEASE_URL?.trim();
-  const leaseToken = process.env.CMUX_RUNTIME_HOST_LEASE_TOKEN?.trim();
-  const workerId = process.env.CMUX_RUNTIME_WORKER_ID?.trim();
-  const evidenceMode = process.env.CMUX_RUNTIME_EVIDENCE_MODE?.trim();
-  const freestyleConfigured = Boolean(process.env.FREESTYLE_API_KEY?.trim()
-    || (process.env.FREESTYLE_STACK_ACCESS_TOKEN?.trim() && process.env.FREESTYLE_TEAM_ID?.trim()));
-  return leaseUrl && leaseToken && workerId && evidenceMode === "manifest" && freestyleConfigured
-    ? { leaseUrl, leaseToken, workerId }
-    : null;
-}
-
-async function buildRequestScopedInfrastructure(config: RuntimeCompositionEnv): Promise<RequestScopedWorkspaceInfrastructure> {
-  const [{ createVm, runVmWorkflow }, { defaultProviderId, getProvider }, { resolveVmImage }, { CloudVmRunAdapter }, { vmModelPlaneGatewayFor }, { DrizzleVmHostLeaseStore }, { createAgentBrokerLifecycleEffectBroker }, { createConfiguredHostLeaseAdapters, createHugeBlueHostLeaseHttpClient, VmHostLeaseTransport }] = await Promise.all([
-    import("./vms/workflows"), import("./vms/drivers"), import("./vms/images/resolver"), import("./vms/cloudVmRunAdapter"),
-    import("./vms/modelPlaneGateway"), import("./vms/hostLeaseStore"), import("./vms/lifecycleEffectBroker"), import("./vms/hostLeaseTransport"),
-  ]);
-  const providerId = defaultProviderId();
-  const provider = getProvider(providerId);
-  if (!provider.resume || !provider.pause) throw new Error(`provider ${providerId} does not support persistent workspace lifecycle`);
-  const hostClass = process.env.CMUX_RUNTIME_HOST_CLASS?.trim() || "freestyle";
-  const hostLeaseTransport = new VmHostLeaseTransport(new DrizzleVmHostLeaseStore(), createConfiguredHostLeaseAdapters({
-    additional: [{ provider: hostClass, client: createHugeBlueHostLeaseHttpClient({ baseUrl: config.leaseUrl, token: () => config.leaseToken }) }],
-  }));
-  const effectBroker = createAgentBrokerLifecycleEffectBroker({
-    workerId: config.workerId,
-    sourceSha: process.env.VERCEL_GIT_COMMIT_SHA?.trim() || "cmux-runtime-composition",
-    scopeRevision: process.env.CMUX_RUNTIME_SCOPE_REVISION?.trim() || "runtime-composition-v1",
-  });
-  const providerFactory = createRequestScopedWorkspaceProviderFactory({
-    provisionVm: async (context, request) => createAuthenticatedWorkspaceProvisioner({
-      context,
-      provider: providerId,
-      resolveImage: (workspaceRequest) => {
-        const selection = resolveVmImage(providerId, workspaceRequest.providerInput?.image, process.env, { kind: "base", memoryMb: workspaceRequest.providerInput?.memoryMb });
-        return { image: selection.image, imageVersion: selection.imageVersion };
-      },
-      createVm: (createInput) => runVmWorkflow(createVm({
-        ...createInput,
-        modelPlane: vmModelPlaneGatewayFor({ teamId: context.entitlements.billingTeamId, stackUserId: context.userId }),
-      })),
-    })(context, request),
-    vm: { resume: (providerVmId) => provider.resume!(providerVmId), pause: (providerVmId) => provider.pause!(providerVmId) },
-    runAdapter: new CloudVmRunAdapter(provider),
-    hostLeaseTransport,
-    effectBroker,
-    hostLeaseProvider: hostClass,
-    attach: async (record) => ({ provider: record.provider, vmId: record.providerVmId, workspaceId: record.providerWorkspaceId, terminalId: record.providerTerminalId }),
-  });
-  return { workspaceStore: new DrizzlePersistentWorkspaceStore(), providerFactory };
-}
-
-export async function configureRuntimeCompositionFromEnv(): Promise<{ readonly configured: boolean; readonly reason?: string }> {
+export function configureRuntimeCompositionFromEnv(): { readonly configured: boolean; readonly reason?: string } {
+  // The authenticated createVm workflow is not available from Next startup:
+  // it needs the request's entitlement/admission context. Never synthesize a
+  // direct provider.create callback here, because that would bypass billing,
+  // admission, and model-plane ownership checks. Route/workflow composition
+  // must call installRuntimeComposition with that callback explicitly.
   configurePersistentWorkspaceService(null);
   installRunAttemptPromotionDependencies(null);
-  configureRequestScopedWorkspaceInfrastructure(null);
-  const config = runtimeCompositionEnv();
-  if (!config) return { configured: false, reason: "request composition is disabled or incomplete" };
-  try {
-    configureRequestScopedWorkspaceInfrastructure(await buildRequestScopedInfrastructure(config));
-    return { configured: true };
-  } catch (error) {
-    return { configured: false, reason: error instanceof Error ? error.message : "request composition could not be configured" };
-  }
+  return { configured: false, reason: "authenticated createVm workflow composition is required" };
 }
