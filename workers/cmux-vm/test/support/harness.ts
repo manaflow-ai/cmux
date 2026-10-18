@@ -18,6 +18,7 @@ import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
@@ -197,6 +198,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstreamFetch = async (request: Request): Promise<Response> =>
     (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
+  let configuredImages = parseVmImages(options.bootImages).images;
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
@@ -215,6 +217,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     }),
     auditStore,
     policy,
+    Layer.succeed(VmImages, { get images() { return configuredImages; } }),
     entitlements,
     memoryLimitsLayer(),
     Layer.succeed(
@@ -299,6 +302,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),
     audit,
     /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
+    /** Simulates a redeployed operator catalog while retaining the tenant ledger. */
+    setBootImages(raw: string) { configuredImages = parseVmImages(raw).images; },
     setBilling(tenant: string, allowed: boolean) {
       if (allowed) billed.add(tenant);
       else billed.delete(tenant);

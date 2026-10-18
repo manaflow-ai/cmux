@@ -15,6 +15,7 @@ import type { Named } from "@gdp-ts/core";
 import { Context, Data, Effect, Schema } from "effect";
 import type { Principal } from "../domain/principal.ts";
 import type { VmNetworkAllowed } from "../proofs/vm-network.ts";
+import type { VmImageAllowed } from "../proofs/vm-image.ts";
 import type { SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
@@ -113,6 +114,7 @@ export interface UpstreamClientService {
       readonly mayCreate: TenantMayCreate<C, "vm">;
       readonly scope: Write<C>;
       readonly network?: VmNetworkAllowed<C>;
+      readonly image?: VmImageAllowed<C>;
       readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: Owns<C, S> };
     },
   ) => Effect.Effect<

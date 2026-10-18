@@ -99,6 +99,9 @@ enum Command {
     /// Create, list, show and delete snapshots
     #[command(subcommand)]
     Snapshot(SnapshotCommand),
+    /// List approved service boot images
+    #[command(subcommand)]
+    Image(ImageCommand),
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
@@ -114,6 +117,12 @@ enum SnapshotCommand {
     List(SnapshotListArgs),
     /// Delete a snapshot permanently (asks to type the snapshot id, or needs --yes without a terminal)
     Delete(SnapshotDeleteArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum ImageCommand {
+    /// List images available to this service and team
+    List,
 }
 
 #[derive(Args, Debug)]
@@ -221,6 +230,20 @@ struct CreateArgs {
     /// Boot from this snapshot (snap_...)
     #[arg(long, value_name = "SNAPSHOT_ID")]
     snapshot: Option<String>,
+    /// Approved image id; requires --image-revision
+    #[arg(
+        long,
+        value_name = "IMAGE_ID",
+        requires = "image_revision",
+        conflicts_with = "snapshot"
+    )]
+    image: Option<String>,
+    /// Exact approved image revision
+    #[arg(long, value_name = "REVISION", requires = "image")]
+    image_revision: Option<String>,
+    /// Allow public outbound traffic; requires vm:network
+    #[arg(long)]
+    public_egress: bool,
     /// Seconds without network activity before the VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
@@ -343,17 +366,54 @@ async fn dispatch(
 ) -> Result<(), CliError> {
     match command {
         Command::Create(args) => {
+            let image = args
+                .image
+                .as_ref()
+                .zip(args.image_revision.as_ref())
+                .map(|(id, revision)| json!({ "id": id, "revision": revision }));
             let body: types::CreateVmRequest = request_body(json!({
                 "displayName": args.name,
                 "snapshotId": args.snapshot,
                 "idleTimeoutSeconds": args.idle_timeout,
+                "image": image,
+                "initialNetwork": args.public_egress.then(|| json!({ "publicEgress": true })),
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
             let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
+            if args.image.is_some() || args.public_egress {
+                let response: Option<Value> = serde_json::from_slice(&vm).ok();
+                let confirmed = response.as_ref().is_some_and(|value| {
+                    let image_confirmed = args.image.as_deref().is_none_or(|expected| {
+                        value.pointer("/bootImage/id").and_then(Value::as_str) == Some(expected)
+                            && value.pointer("/bootImage/revision").and_then(Value::as_str)
+                                == args.image_revision.as_deref()
+                    });
+                    let network_confirmed = !args.public_egress
+                        || value
+                            .pointer("/initialNetwork/publicEgress")
+                            .and_then(Value::as_bool)
+                            == Some(true);
+                    image_confirmed && network_confirmed
+                });
+                if !confirmed {
+                    let public_id = serde_json::from_slice::<types::Vm>(&vm)
+                        .ok()
+                        .map(|value| value.id.to_string());
+                    let message = match public_id {
+                        Some(id) => format!("The API did not confirm the requested VM creation policy; inspect VM {id}. Creation may have succeeded"),
+                        None => "The API did not confirm the requested VM creation policy; creation may have succeeded".to_owned(),
+                    };
+                    return Err(CliError::unexpected(message).with_idempotency_hint(&key_text));
+                }
+            }
             out.vm(&vm)
+        }
+        Command::Image(ImageCommand::List) => {
+            let images = fetch_body(client.vms_list_vm_images(None)).await?;
+            out.image_list(&images)
         }
         Command::Get(VmArg { vm_id }) => {
             let vm = fetch_body(client.vms_get_vm(&vm_id, None)).await?;

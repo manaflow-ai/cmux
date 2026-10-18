@@ -15,6 +15,7 @@ import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } f
 import { parseHttpsProxyOrigins } from "./network-origin.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
+import { vmImagesLayer } from "./upstream/live-images.ts";
 import { sqlSnapshotStoreLayer } from "./db/snapshots.ts";
 import { sqlApiKeyAdminStoreLayer } from "./db/api-keys.ts";
 import { stackTeamAdminLayer } from "./auth/team-admin.ts";
@@ -29,6 +30,8 @@ import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/iden
 export { TenantLimitsObject } from "./limits/durable-object.ts";
 
 export interface Env {
+  /** Approved service boot images; provider snapshot ids stay server-side. Default: none. */
+  readonly VM_BOOT_IMAGES?: string;
   /** JSON array of exact HTTPS origins approved for creation-time proxies. Default: none. */
   readonly VM_HTTPS_PROXY_ORIGINS?: string;
   readonly HYPERDRIVE: Hyperdrive;
@@ -71,6 +74,7 @@ const liveServices = (env: Env) => {
       Layer.provide(sql),
     ),
     policy,
+    vmImagesLayer(env.VM_BOOT_IMAGES),
     serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS),
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),

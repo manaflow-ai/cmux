@@ -26,6 +26,7 @@ import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
 import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
+import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -94,6 +95,7 @@ export class Vm extends Schema.Class<Vm>("Vm")({
 
 export class CreatedVm extends Vm.extend<CreatedVm>("CreatedVm")({
   initialNetwork: Schema.optional(InitialVmNetworkReceipt),
+  bootImage: Schema.optional(VmImage),
 }) {}
 
 export class VmList extends Schema.Class<VmList>("VmList")({
@@ -114,7 +116,7 @@ const AutoDeleteSeconds = Schema.Int.pipe(Schema.between(-1, 365 * 24 * 60 * 60)
 });
 
 export const BASE_IMAGE_DESCRIPTION =
-  "Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise.";
+  "Without snapshotId or image the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise.";
 
 export const RequestedResources = Schema.Struct({
   vcpus: Schema.optional(Schema.Int.pipe(Schema.between(2, 32))),
@@ -128,10 +130,11 @@ export const RequestedResources = Schema.Struct({
 
 export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequest")(
   {
+    image: Schema.optionalWith(VmImageSelection, { exact: true }),
     // An undefined union branch would echo invalid proxy credentials in decode errors.
     initialNetwork: Schema.optionalWith(InitialVmNetwork, { exact: true }),
     displayName: Schema.optional(DisplayName),
-    snapshotId: Schema.optional(SnapshotId.annotations({ description: "Boot from one of the tenant's snapshots; omit for the base image." })),
+    snapshotId: Schema.optional(SnapshotId.annotations({ description: "Boot from one of the tenant's snapshots; mutually exclusive with image. Omit both for the base image." })),
     resources: Schema.optional(RequestedResources),
     idleTimeoutSeconds: Schema.optional(IdleTimeoutSeconds),
     maxRunSeconds: Schema.optional(MaxRunSeconds),
@@ -281,6 +284,11 @@ const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/
     .annotateContext(describe(summary, "vm:write", details));
 
 export class VmsGroup extends HttpApiGroup.make("vms")
+  .add(
+    HttpApiEndpoint.get("listVmImages", "/v1/vm-images").setHeaders(TeamHeaders).addSuccess(VmImageList)
+      .addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("List approved VM images", "vm:read", "Returns only image descriptors approved for the authenticated service. Provider snapshot references are not exposed. An ordinary tenant credential sees an empty catalog.")),
+  )
   .add(
     HttpApiEndpoint.post("createVm", "/v1/vms")
       .setPayload(CreateVmRequest)

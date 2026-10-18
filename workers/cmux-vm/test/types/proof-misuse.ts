@@ -10,6 +10,7 @@ import type { Principal } from "../../src/domain/principal.ts";
 import type { VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantMayCreate } from "../../src/proofs/tenant-may-create.ts";
+import { vmImageAllowed } from "../../src/proofs/vm-image.ts";
 import { vmNetworkAllowed } from "../../src/proofs/vm-network.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
@@ -113,4 +114,21 @@ export const proxyMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effec
       yield* upstream.replaceVmHttpsProxy(a, { owns, scope, network: otherNetwork });
     }));
   }));
+});
+
+export const imageMisuse = (principal: Principal, vmId: VmId) => Effect.gen(function* () {
+  const upstream = yield* UpstreamClient;
+  yield* name(principal, (caller) => name(principal, (other) => Effect.gen(function* () {
+    const scope = keyHasScope(caller, "vm:write");
+    const decision = yield* tenantMayCreate(caller, "vm");
+    if (scope === null || decision._tag !== "granted") return;
+    const spec = { cmuxId: vmId, idleTimeoutSeconds: 300, environment: "local" };
+    const image = yield* vmImageAllowed(caller, { id: "cloud-standard", revision: "r1" });
+    const otherImage = yield* vmImageAllowed(other, { id: "cloud-standard", revision: "r1" });
+    yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, image });
+    // @ts-expect-error another caller's image authority cannot authorize this create
+    yield* upstream.createVm(caller, spec, { scope, mayCreate: decision.proof, image: otherImage });
+    // @ts-expect-error raw image input cannot bypass the proof argument
+    yield* upstream.createVm(caller, { ...spec, image: { id: "cloud-standard", revision: "r1" } }, { scope, mayCreate: decision.proof });
+  })));
 });

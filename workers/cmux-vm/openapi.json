@@ -39,6 +39,98 @@
         "summary": "Liveness check; no credentials needed"
       }
     },
+    "/v1/vm-images": {
+      "get": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.listVmImages",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmImageList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmImageList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List approved VM images. Requires the vm:read scope. Returns only image descriptors approved for the authenticated service. Provider snapshot references are not exposed. An ordinary tenant credential sees an empty catalog. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "List approved VM images"
+      }
+    },
     "/v1/vms": {
       "post": {
         "tags": [
@@ -5964,10 +6056,183 @@
           }
         ]
       },
+      "VmImageList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmImage"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmImage": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision",
+          "displayName"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^[a-z][a-z0-9-]*$",
+            "title": "maxLength(63)",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "revision": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "maxLength(64)",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Public image identity; provider snapshot references are never returned."
+      },
+      "Unauthorized": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "Unauthorized"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Forbidden": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "missingScope": {
+            "type": "string",
+            "x-extensible-enum": [
+              "vm:read",
+              "vm:write",
+              "vm:network",
+              "vm:exec",
+              "vm:files",
+              "vm:terminal",
+              "snapshot:*",
+              "snapshot:read",
+              "snapshot:write",
+              "domain:*",
+              "deploy:*",
+              "git:*",
+              "mesh:read",
+              "mesh:write",
+              "mesh:join",
+              "acl:read",
+              "acl:write",
+              "admin"
+            ]
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "Forbidden"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServiceUnavailable": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "ServiceUnavailable"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotaExceeded": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "retryAfterSeconds": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "budget": {
+            "type": "string",
+            "enum": [
+              "snapshots",
+              "vms",
+              "rate",
+              "capacity",
+              "mesh.perTenant",
+              "device.perMesh",
+              "firewallRule.perMesh",
+              "firewallRule.perResource",
+              "firewallRule.account",
+              "aclApply.perMeshPerMinute",
+              "enrollmentCode.perMeshPerHour",
+              "address.perDevice"
+            ]
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "QuotaExceeded"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Int": {
+        "type": "integer",
+        "description": "an integer",
+        "title": "int"
+      },
       "CreateVmRequest": {
         "type": "object",
         "required": [],
         "properties": {
+          "image": {
+            "$ref": "#/components/schemas/VmImageSelection"
+          },
           "initialNetwork": {
             "$ref": "#/components/schemas/InitialVmNetwork"
           },
@@ -5980,7 +6245,7 @@
           },
           "snapshotId": {
             "type": "string",
-            "description": "Boot from one of the tenant's snapshots; omit for the base image.",
+            "description": "Boot from one of the tenant's snapshots; mutually exclusive with image. Omit both for the base image.",
             "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "resources": {
@@ -6012,7 +6277,34 @@
           }
         },
         "additionalProperties": false,
-        "description": "Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise."
+        "description": "Without snapshotId or image the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise."
+      },
+      "VmImageSelection": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^[a-z][a-z0-9-]*$",
+            "title": "maxLength(63)",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "revision": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "maxLength(64)",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "An operator-approved service image at an exact revision. Mutually exclusive with snapshotId."
       },
       "InitialVmNetwork": {
         "type": "object",
@@ -6102,11 +6394,6 @@
         },
         "additionalProperties": false,
         "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
-      },
-      "Int": {
-        "type": "integer",
-        "description": "an integer",
-        "title": "int"
       },
       "Labels": {
         "type": "object",
@@ -6208,6 +6495,9 @@
           },
           "initialNetwork": {
             "$ref": "#/components/schemas/InitialVmNetworkReceipt"
+          },
+          "bootImage": {
+            "$ref": "#/components/schemas/VmImage"
           }
         },
         "additionalProperties": false
@@ -6271,86 +6561,6 @@
         },
         "additionalProperties": false
       },
-      "Unauthorized": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "Unauthorized"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "Forbidden": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "missingScope": {
-            "type": "string",
-            "x-extensible-enum": [
-              "vm:read",
-              "vm:write",
-              "vm:network",
-              "vm:exec",
-              "vm:files",
-              "vm:terminal",
-              "snapshot:*",
-              "snapshot:read",
-              "snapshot:write",
-              "domain:*",
-              "deploy:*",
-              "git:*",
-              "mesh:read",
-              "mesh:write",
-              "mesh:join",
-              "acl:read",
-              "acl:write",
-              "admin"
-            ]
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "Forbidden"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "ServiceUnavailable": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "ServiceUnavailable"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
       "NotFound": {
         "type": "object",
         "required": [
@@ -6403,45 +6613,6 @@
             "type": "string",
             "enum": [
               "PaymentRequired"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "QuotaExceeded": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "retryAfterSeconds": {
-            "$ref": "#/components/schemas/Int"
-          },
-          "budget": {
-            "type": "string",
-            "enum": [
-              "snapshots",
-              "vms",
-              "rate",
-              "capacity",
-              "mesh.perTenant",
-              "device.perMesh",
-              "firewallRule.perMesh",
-              "firewallRule.perResource",
-              "firewallRule.account",
-              "aclApply.perMeshPerMinute",
-              "enrollmentCode.perMeshPerHour",
-              "address.perDevice"
-            ]
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "QuotaExceeded"
             ]
           }
         },

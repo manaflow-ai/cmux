@@ -16,6 +16,8 @@ import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { idempotent } from "./idempotency.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
+import { VmImageList } from "../api/images.ts";
+import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
@@ -165,6 +167,7 @@ const createRecorded = <C, S>(
     readonly mayCreate: TenantMayCreate<C, "vm">;
     readonly scope: KeyHasScope<C, "vm:write">;
     readonly network?: VmNetworkAllowed<C>;
+    readonly image?: VmImageAllowed<C>;
     readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: TenantOwnsResource<C, S> };
   },
 ) =>
@@ -186,7 +189,7 @@ const createRecorded = <C, S>(
         },
         proofs,
       )
-      .pipe(Effect.mapError(onCreate));
+      .pipe(Effect.mapError((error) => proofs.image !== undefined && (error.status === 400 || error.status === 404) ? unavailable() : onCreate(error)));
     const vm =
       spec.size === undefined
         ? created.vm
@@ -241,6 +244,9 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
       yield* requireServiceLabels(principal, payload.labels ?? {});
+      if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
+      const image = payload.image === undefined ? undefined : yield* vmImageAllowed(caller, payload.image);
+      const imageIntent = image === undefined ? undefined : vmImageEvidenceOf(image);
       const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
       const networkIntent = network === undefined ? undefined : vmNetworkEvidenceOf(network);
       const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
@@ -264,6 +270,7 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
       ];
       // Omitted network must keep the exact fingerprint of pre-feature creates.
       if (networkIntent !== undefined) request.push(networkIntent.fingerprint);
+      if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
       return yield* idempotent(
         principal,
         idempotencyKey,
@@ -271,7 +278,7 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
         () =>
           Effect.gen(function* () {
             if (payload.snapshotId === undefined) {
-              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }) }));
+              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }));
             }
             return yield* name(payload.snapshotId, (snapshot) =>
               Effect.gen(function* () {
@@ -284,7 +291,7 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
             );
           }),
         (vmId) => replayVm(caller, scope, vmId),
-      ).pipe(Effect.map((vm) => new CreatedVm({ ...vm, ...(networkIntent === undefined ? {} : { initialNetwork: networkIntent.receipt }) })));
+      ).pipe(Effect.map((vm) => new CreatedVm({ ...vm, ...(networkIntent === undefined ? {} : { initialNetwork: networkIntent.receipt }), ...(imageIntent === undefined ? {} : { bootImage: imageIntent.receipt }) })));
     }),
   );
 
@@ -486,6 +493,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       audited("vm.create", null, createVm(payload, headers["idempotency-key"]), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
+    .handle("listVmImages", () => withCaller("vm:read", "read", (caller) => visibleVmImages(caller).pipe(Effect.map((items) => new VmImageList({ items })))))
     .handle("replaceVmHttpsProxy", ({ path, payload, headers }) =>
       audited("vm.https_proxy.replace", auditableVmId(path.vmId), replaceVmHttpsProxy(path.vmId, path.hostname, payload, headers["idempotency-key"]), (receipt) => receipt.id),
     )

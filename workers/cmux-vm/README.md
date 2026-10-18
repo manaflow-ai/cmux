@@ -35,9 +35,9 @@ a VM `role=chief` to hand it to the service.
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,
 `TenantOwnsResource` (carries the provider id as evidence),
-`TenantMayCreate`, `VmNetworkAllowed` and `ServiceMayActFor`. Every method of the upstream client demands proofs about its
-exact named arguments, and the provider id is reachable only through a
-`TenantOwnsResource` proof. `test/types/proof-misuse.ts` lists calls that must
+`TenantMayCreate`, `VmNetworkAllowed`, `VmImageAllowed` and `ServiceMayActFor`. Every method of the upstream client demands proofs about its
+exact named arguments, and tenant provider ids are reachable only through a
+`TenantOwnsResource` proof. Operator image references require `VmImageAllowed`. `test/types/proof-misuse.ts` lists calls that must
 not compile; Oxlint's gdp-ts preset (strict) bans forging proofs.
 
 ## VM lifecycle (S2)
@@ -67,6 +67,43 @@ pauses them. Until the billing source is wired (TODO in
 
 `bun scripts/smoke.ts` (CI job `smoke-staging`, after each staging deploy)
 creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
+
+## Approved service boot images
+
+A configured service can list `GET /v1/vm-images` with `vm:read` and create
+with `image: { "id": "cloud-standard", "revision": "r1" }` and `vm:write`.
+The exact revision is required; `image` and `snapshotId` are mutually exclusive.
+Ordinary tenant credentials see an empty catalog and cannot select these images.
+Service team restrictions, required labels, billing, quota and dev/test idle caps
+still apply. Image approval grants no network access.
+
+Operators configure `VM_BOOT_IMAGES` as a JSON array (at most 32 entries):
+
+```json
+[{ "id": "cloud-standard", "revision": "r1", "displayName": "Cloud standard",
+   "snapshotId": "<immutable operator snapshot id>", "services": ["cloud-driver"] }]
+```
+
+Missing configuration gives an empty catalog. Invalid configuration disables
+approved images while ordinary creation remains available. Each entry requires
+at least one service. Before creating, the API resolves the configured snapshot
+and requires its canonical ID to match exactly; mutable aliases or unavailable
+images produce 503 without falling back to a base image. Prepare images without
+embedded credentials. Snapshot references and service approvals stay private;
+the catalog exposes only `id`, `revision` and `displayName`.
+
+An image create returns `bootImage: { id, revision, displayName }`. Callers must
+check that receipt because an older API may ignore `image`. With the same retry
+key, a changed revision or backing snapshot produces 409 within the existing
+24-hour idempotency window. Omitted image keeps ordinary creation unchanged.
+
+The operator CLI supports `cmux-vm image list --json` and
+`cmux-vm create --image cloud-standard --image-revision r1 --json`.
+`--public-egress` separately requests outbound access and requires `vm:network`.
+The CLI fails if a requested image or egress receipt is missing or mismatched,
+retaining the retry key and a validated public VM ID when available. Creation
+may have succeeded; inspect that VM or retry the same intent with the same key.
+The CLI never automatically deletes a VM after an unconfirmed receipt.
 
 ## Creation-time networking
 

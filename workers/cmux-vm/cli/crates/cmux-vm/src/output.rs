@@ -4,7 +4,9 @@
 
 use std::io::Write;
 
-use cmux_vm_client::types::{ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmList};
+use cmux_vm_client::types::{
+    ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmImageList, VmList,
+};
 use serde::Serialize;
 use serde_json::json;
 
@@ -71,6 +73,25 @@ impl<'a> Printer<'a> {
         }
         if let Some(cursor) = &page.next_cursor {
             self.line(&format!("more: cmux-vm list --cursor {cursor}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn image_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let images: VmImageList = decode(body)?;
+        if images.items.is_empty() {
+            self.line("no approved images")?;
+        } else {
+            self.line(&format!("{:<24} {:<20} NAME", "ID", "REVISION"))?;
+            for image in &images.items {
+                self.line(&format!(
+                    "{:<24} {:<20} {}",
+                    image.id, image.revision, image.display_name
+                ))?;
+            }
         }
         Ok(())
     }

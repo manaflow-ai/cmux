@@ -1106,3 +1106,126 @@ async fn list_approved_images_as_json() {
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert_eq!(json_stdout(&out), response);
 }
+
+#[tokio::test]
+async fn image_flags_are_paired_and_exclude_snapshot_without_http() {
+    let server = MockServer::start().await;
+    for args in [
+        vec!["create", "--image", "cloud-standard"],
+        vec!["create", "--image-revision", "r1"],
+        vec![
+            "create",
+            "--image",
+            "cloud-standard",
+            "--image-revision",
+            "r1",
+            "--snapshot",
+            "snap_fixture",
+        ],
+    ] {
+        let out = cli(&server, &args).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn image_create_requires_the_requested_receipt_without_deleting_or_retrying() {
+    for receipt in [
+        json!(null),
+        json!({"id": "other", "revision": "r1"}),
+        json!({"id": "cloud-standard", "revision": "r0"}),
+    ] {
+        let server = MockServer::start().await;
+        let mut response = vm("starting");
+        response["bootImage"] = receipt;
+        Mock::given(method("POST"))
+            .and(path("/v1/vms"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "create",
+                "--image",
+                "cloud-standard",
+                "--image-revision",
+                "r1",
+                "--idempotency-key",
+                "image-retry-key",
+            ],
+        )
+        .await;
+        assert_ne!(out.code, exit::OK);
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.contains(VM_ID), "{}", out.stderr);
+        assert!(out.stderr.contains("image-retry-key"), "{}", out.stderr);
+        assert!(out.stderr.contains("may have succeeded"), "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn an_unvalidated_vm_id_is_not_reflected_in_a_missing_image_receipt_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({"id": "private-provider-reference"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "create",
+            "--image",
+            "cloud-standard",
+            "--image-revision",
+            "r1",
+        ],
+    )
+    .await;
+    assert_ne!(out.code, exit::OK);
+    assert!(out.stdout.is_empty());
+    assert!(!out.stderr.contains("private-provider-reference"));
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn explicit_public_egress_is_sent_and_requires_confirmation() {
+    for confirmed in [true, false] {
+        let server = MockServer::start().await;
+        let mut response = vm("starting");
+        if confirmed {
+            response["initialNetwork"] = json!({"publicEgress": true, "httpsProxyHosts": []});
+        }
+        Mock::given(method("POST"))
+            .and(path("/v1/vms"))
+            .and(body_json(json!({"initialNetwork": {"publicEgress": true}})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "create", "--public-egress"]).await;
+        assert_eq!(out.code == exit::OK, confirmed, "{}", out.stderr);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn image_list_human_output_includes_revision() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/v1/vm-images"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [{"id": "cloud-standard", "revision": "r1", "displayName": "Cloud standard"}]})))
+        .expect(1).mount(&server).await;
+    let out = cli(&server, &["image", "list"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("cloud-standard"));
+    assert!(out.stdout.contains("r1"));
+}

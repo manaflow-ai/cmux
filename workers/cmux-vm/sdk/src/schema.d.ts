@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vm-images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List approved VM images
+         * @description List approved VM images. Requires the vm:read scope. Returns only image descriptors approved for the authenticated service. Provider snapshot references are not exposed. An ordinary tenant credential sees an empty catalog. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        get: operations["vms.listVmImages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms": {
         parameters: {
             query?: never;
@@ -781,15 +801,62 @@ export interface components {
             _tag: "symbol";
             key: string;
         };
-        /** @description Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise. */
+        VmImageList: {
+            items: components["schemas"]["VmImage"][];
+        };
+        /** @description Public image identity; provider snapshot references are never returned. */
+        VmImage: {
+            /**
+             * maxLength(63)
+             * @description a string matching the pattern ^[a-z][a-z0-9-]*$
+             */
+            id: string;
+            /**
+             * maxLength(64)
+             * @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
+             */
+            revision: string;
+            displayName: string;
+        };
+        Unauthorized: {
+            message: string;
+            /** @enum {string} */
+            _tag: "Unauthorized";
+        };
+        Forbidden: {
+            message: string;
+            missingScope?: string;
+            /** @enum {string} */
+            _tag: "Forbidden";
+        };
+        ServiceUnavailable: {
+            message: string;
+            /** @enum {string} */
+            _tag: "ServiceUnavailable";
+        };
+        QuotaExceeded: {
+            message: string;
+            retryAfterSeconds?: components["schemas"]["Int"];
+            /** @enum {string} */
+            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
+            /** @enum {string} */
+            _tag: "QuotaExceeded";
+        };
+        /**
+         * int
+         * @description an integer
+         */
+        Int: number;
+        /** @description Without snapshotId or image the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise. */
         CreateVmRequest: {
+            image?: components["schemas"]["VmImageSelection"];
             initialNetwork?: components["schemas"]["InitialVmNetwork"];
             /**
              * maxLength(100)
              * @description a string at most 100 character(s) long
              */
             displayName?: string;
-            /** @description Boot from one of the tenant's snapshots; omit for the base image. */
+            /** @description Boot from one of the tenant's snapshots; mutually exclusive with image. Omit both for the base image. */
             snapshotId?: string;
             resources?: components["schemas"]["RequestedResources"];
             /**
@@ -808,6 +875,19 @@ export interface components {
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
             labels?: components["schemas"]["Labels"];
+        };
+        /** @description An operator-approved service image at an exact revision. Mutually exclusive with snapshotId. */
+        VmImageSelection: {
+            /**
+             * maxLength(63)
+             * @description a string matching the pattern ^[a-z][a-z0-9-]*$
+             */
+            id: string;
+            /**
+             * maxLength(64)
+             * @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
+             */
+            revision: string;
         };
         /** @description Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default. */
         InitialVmNetwork: {
@@ -853,11 +933,6 @@ export interface components {
              */
             diskMib?: components["schemas"]["Int"];
         };
-        /**
-         * int
-         * @description an integer
-         */
-        Int: number;
         Labels: {
             [key: string]: string;
         };
@@ -882,6 +957,7 @@ export interface components {
             createdAt: string;
             updatedAt: string;
             initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
+            bootImage?: components["schemas"]["VmImage"];
         };
         VmResources: {
             vcpus: number;
@@ -898,22 +974,6 @@ export interface components {
             /** @enum {string} */
             _tag: "BadRequest";
         };
-        Unauthorized: {
-            message: string;
-            /** @enum {string} */
-            _tag: "Unauthorized";
-        };
-        Forbidden: {
-            message: string;
-            missingScope?: string;
-            /** @enum {string} */
-            _tag: "Forbidden";
-        };
-        ServiceUnavailable: {
-            message: string;
-            /** @enum {string} */
-            _tag: "ServiceUnavailable";
-        };
         NotFound: {
             message: string;
             /** @enum {string} */
@@ -928,14 +988,6 @@ export interface components {
             message: string;
             /** @enum {string} */
             _tag: "PaymentRequired";
-        };
-        QuotaExceeded: {
-            message: string;
-            retryAfterSeconds?: components["schemas"]["Int"];
-            /** @enum {string} */
-            budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
-            /** @enum {string} */
-            _tag: "QuotaExceeded";
         };
         VmList: {
             items: components["schemas"]["Vm"][];
@@ -1452,6 +1504,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+        };
+    };
+    "vms.listVmImages": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmImageList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmImageList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
                 };
             };
         };
