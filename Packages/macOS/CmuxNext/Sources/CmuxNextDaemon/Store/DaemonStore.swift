@@ -113,6 +113,9 @@ public final class DaemonStore: StateResourceQueries {
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
     @ObservationIgnored var intentLog = IntentLog()
+    /// The one model of each pending split's provisional pane, by public pane id: every overlay
+    /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
+    @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
     /// This app's own live divider and column drags and their held echoes (DaemonStore+LayoutEchoes.swift).
     @ObservationIgnored var layoutEchoes = LayoutEchoes()
     /// True while daemon state applies to the confirmed records (the

@@ -23,6 +23,9 @@ public struct ProvisionalPane: Sendable, Hashable {
     /// (`conversation-tab-split-v1`), which the daemon's tab replaces when its pane arrives
     /// (`ProvisionalTab.echoed`). Nil: a terminal tab under `tabID` and `terminalID`.
     public let tab: TabSnapshot?
+    /// The split it shows under. The daemon's split takes this id in the layout once it places
+    /// the pane (`ScreenModel.splitNames`), so the daemon's layout maps to the shown one.
+    public let split: SplitID
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {
@@ -38,6 +41,7 @@ public struct ProvisionalPane: Sendable, Hashable {
     @MainActor private init(tab: TabSnapshot?) {
         Self.next += 1
         handle = PaneID(rawValue: Self.handleBase + Self.next)
+        split = SplitID(rawValue: Self.handleBase + Self.next)
         surface = tab?.surface ?? ProvisionalTab().surface
         let hex = { UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
         paneID = "pane_" + hex()
@@ -45,4 +49,7 @@ public struct ProvisionalPane: Sendable, Hashable {
         terminalID = hex()
         self.tab = tab
     }
+
+    /// Whether `split` is a provisional split's id: no daemon command may name it.
+    public static func isProvisional(split: SplitID) -> Bool { split.rawValue > handleBase }
 }
