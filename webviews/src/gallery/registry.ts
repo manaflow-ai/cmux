@@ -10,7 +10,7 @@ const loaders = import.meta.glob("../**/*.gallery.{ts,tsx}", { import: "default"
 export const entryPath = (key: string): string => `src/${key.replace(/^\.\.\//, "")}`;
 
 /** The entry files, by path. A reload (`bust`) imports a fresh copy under a new URL. */
-export const entrySources: EntrySource[] = Object.entries(loaders)
+const allEntrySources: EntrySource[] = Object.entries(loaders)
   .sort(([a], [b]) => a.localeCompare(b))
   .map(([key, load]) => ({
     path: entryPath(key),
@@ -21,6 +21,15 @@ export const entrySources: EntrySource[] = Object.entries(loaders)
             (module: { default?: unknown }) => module.default,
           ),
   }));
+
+// Stage frames can opt into one entry path so browser tests do not cold-load the entire
+// gallery registry before exercising a single page. The shell omits this query and retains
+// the complete registry.
+const requestedEntryPath =
+  typeof location === "undefined" ? undefined : new URLSearchParams(location.search).get("entryPath");
+export const entrySources = requestedEntryPath
+  ? allEntrySources.filter((source) => source.path === requestedEntryPath)
+  : allEntrySources;
 
 /** The shell's store: every entry loads on its own. Created only when the shell mounts. */
 let shellStore: EntryStore | undefined;

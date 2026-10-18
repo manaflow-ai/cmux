@@ -191,6 +191,8 @@ export type AppsPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
   action?: "install";
   error?: { code: string; message: string };
+  /** One transient detail failure after the catalog has loaded, for recovery-state coverage. */
+  detailError?: { code: string; message: string };
   data: {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;

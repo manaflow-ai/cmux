@@ -25,7 +25,51 @@ export function AppDetailView({
       ‹ {t("store.tab.discover")}
     </button>
   );
-  if (!detail) return <div className="apps-detail">{back}</div>;
+  const backAction = back ?? (
+    <button type="button" className="apps-back" onClick={() => void store.select(undefined)}>
+      ‹ {t("store.tab.discover")}
+    </button>
+  );
+  if (!detail) {
+    const state = snap.detailStatus;
+    if (state === "loading") {
+      return (
+        <div className="apps-detail apps-detail-state" data-detail-state="loading">
+          <div className="apps-detail-body">
+            {backAction}
+            <output className="apps-state" aria-busy="true">
+              <span className="apps-state-mark" aria-hidden="true">
+                …
+              </span>
+              <strong>{t("store.updates.loading")}</strong>
+            </output>
+          </div>
+        </div>
+      );
+    }
+    if (state === "not-found" || state === "error") {
+      return (
+        <div className="apps-detail apps-detail-state" data-detail-state={state}>
+          <div className="apps-detail-body">
+            {backAction}
+            <output className="apps-state apps-state-error" role="alert">
+              <span className="apps-state-mark" aria-hidden="true">
+                !
+              </span>
+              <strong>{state === "not-found" ? t("store.empty.noMatches") : t("store.error.load")}</strong>
+              {snap.detailError && <span className="selectable">{snap.detailError}</span>}
+              <span className="apps-detail-state-actions">
+                <button type="button" className="apps-button" onClick={() => void store.retryDetail()}>
+                  {t("store.action.reload")}
+                </button>
+              </span>
+            </output>
+          </div>
+        </div>
+      );
+    }
+    return <div className="apps-detail">{back}</div>;
+  }
   const grants = snap.grants[detail.id];
   return (
     <div className="apps-detail">

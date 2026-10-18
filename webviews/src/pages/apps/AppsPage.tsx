@@ -46,6 +46,17 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           }}
         />
       </header>
+      {snap.catalogError && snap.connection !== "disconnected" && (
+        <div className="apps-error" role="alert">
+          <span className="apps-error-copy">
+            <strong>{t("store.error.load")}</strong>
+            <span className="selectable">{snap.catalogError}</span>
+          </span>
+          <button type="button" className="apps-button" onClick={() => void store.reload()}>
+            {t("store.action.reload")}
+          </button>
+        </div>
+      )}
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
@@ -57,6 +68,17 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
         <Discover snap={snap} store={store} strings={strings} />
       )}
     </div>
+  );
+}
+
+function LoadingGrid({ strings }: { strings: Strings }) {
+  return (
+    <output className="apps-state" aria-busy="true">
+      <span className="apps-state-mark" aria-hidden="true">
+        …
+      </span>
+      <strong>{strings.t("store.updates.loading")}</strong>
+    </output>
   );
 }
 
@@ -87,8 +109,16 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
           </button>
         ))}
       </div>
-      {snap.visible.length === 0 ? (
-        <div className="apps-empty">{snap.loading ? "" : t("store.empty.noMatches")}</div>
+      {snap.loading && snap.visible.length === 0 ? (
+        <LoadingGrid strings={strings} />
+      ) : snap.visible.length === 0 ? (
+        <output className="apps-state apps-state-empty">
+          <span className="apps-state-mark" aria-hidden="true">
+            ⌕
+          </span>
+          <strong>{t("store.empty.noMatches")}</strong>
+          <span>{t("store.search")}</span>
+        </output>
       ) : (
         <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
           {snap.visible.map((app) =>

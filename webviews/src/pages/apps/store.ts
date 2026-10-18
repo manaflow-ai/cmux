@@ -24,6 +24,9 @@ import {
 
 export type Connection = "connecting" | "connected" | "disconnected";
 
+export type CatalogStatus = "loading" | "ready" | "error";
+export type DetailStatus = "idle" | "loading" | "ready" | "not-found" | "error";
+
 export interface AppsSnapshot {
   tab: StoreTab;
   layout: StoreLayout;
@@ -48,6 +51,12 @@ export interface AppsSnapshot {
   logsShown?: string;
   logs: Record<string, LogLine[]>;
   loading: boolean;
+  /** The catalog request state; stale rows remain visible while a retry is in flight. */
+  catalogStatus: CatalogStatus;
+  catalogError?: string;
+  /** The selected detail request state; selection is retained across failures and retries. */
+  detailStatus: DetailStatus;
+  detailError?: string;
   connection: Connection;
   error?: string;
 }
@@ -93,6 +102,8 @@ export class AppsStore {
       updatesLoading: client !== null,
       updatesStale: false,
       selection: route.app && listedInStore({ id: route.app }) ? route.app : undefined,
+      catalogStatus: client ? "loading" : "ready",
+      detailStatus: route.app && listedInStore({ id: route.app }) ? "loading" : "idle",
       grants: {},
       logs: {},
       loading: client !== null,
@@ -163,6 +174,7 @@ export class AppsStore {
     if (!this.client) return;
     const generation = ++this.generation;
     const updatesGeneration = ++this.updatesGeneration;
+    this.set({ loading: true, catalogStatus: "loading", catalogError: undefined });
     try {
       const [catalog, installed, updateResponse] = await Promise.all([
         listCatalog(this.client),
@@ -212,6 +224,8 @@ export class AppsStore {
           ? (updateResponse.result?.revision ?? installed.revision)
           : this.snapshot.updatesRevision,
         loading: false,
+        catalogStatus: "ready",
+        catalogError: undefined,
         connection: "connected",
         error: undefined,
       });
@@ -222,7 +236,15 @@ export class AppsStore {
       void this.loadIcons(generation);
     } catch (error) {
       if (generation !== this.generation) return;
-      this.set({ loading: false, updatesLoading: false, ...failure(error) });
+      const failed = failure(error);
+      this.set({
+        loading: false,
+        updatesLoading: false,
+        catalogStatus: "error",
+        catalogError: failed.error,
+        ...failed,
+        error: undefined,
+      });
     }
   }
 
@@ -279,21 +301,46 @@ export class AppsStore {
 
   async select(app: string | undefined): Promise<void> {
     if (app && !listedInStore({ id: app })) app = undefined;
-    this.set({ selection: app, detail: app === this.snapshot.detail?.id ? this.snapshot.detail : undefined });
+    this.set({
+      selection: app,
+      detail: app === this.snapshot.detail?.id ? this.snapshot.detail : undefined,
+      detailStatus: app ? "loading" : "idle",
+      detailError: undefined,
+    });
     if (app) await this.loadDetail(app);
   }
 
   private async loadDetail(app: string): Promise<void> {
     if (!this.client) return;
     const generation = ++this.detailGeneration;
+    if (this.snapshot.selection === app) this.set({ detailStatus: "loading", detailError: undefined });
     try {
       const detail = fromDetail(await this.client.call<WireDetail>(AppsOps.catalogGet, { app }));
       if (generation === this.detailGeneration && this.snapshot.selection === app)
-        this.set({ detail: { ...detail, icon: this.withIcon(app, detail.icon) } });
+        this.set({
+          detail: { ...detail, icon: this.withIcon(app, detail.icon) },
+          detailStatus: "ready",
+          detailError: undefined,
+        });
       if (detail.installed) await this.loadGrants(app);
     } catch (error) {
-      if (generation === this.detailGeneration) this.set(failure(error));
+      if (generation === this.detailGeneration && this.snapshot.selection === app) {
+        const failed = failure(error);
+        const notFound = isPageError(error) && error.code === "cmux.apps.not_found";
+        this.set({
+          detailStatus: notFound ? "not-found" : "error",
+          detailError: failed.error,
+          ...failed,
+          error: undefined,
+        });
+      }
     }
+  }
+
+  /** Retries the selected app without dropping its route or list selection. */
+  retryDetail(): Promise<void> {
+    const app = this.snapshot.selection;
+    return app ? this.loadDetail(app) : Promise.resolve();
   }
 
   private async loadGrants(app: string): Promise<void> {
