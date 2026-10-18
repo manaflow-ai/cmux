@@ -86,4 +86,24 @@ SC_ARG="$outside" run || fail "a new kept path outside /tmp exited $?"
 [[ $(sort -u "$TMP/paths") == "$outside" ]] || fail "the new kept DerivedData was not used"
 [[ -s "$outside/.cmux-binary-module-inputs" ]] || fail "the guard wrote no header digest"
 
+# 5. A kept path under RUNNER_TEMP that holds build outputs (Blacksmith macOS
+#    keeps _work/_temp between jobs: run 39136941993 refused
+#    /Users/runner/_work/_temp/cmux-scheme-compile) is cleared and retried
+#    like the glaeda cache. A path with outputs outside every accepted root is
+#    still refused.
+reset
+runner_temp="$ROOT/.scheme-rt-test.$$"
+trap 'rm -rf "$TMP" "$outside" "$runner_temp"' EXIT
+mkdir -p "$runner_temp/cmux-scheme-compile/Build/Products"
+SC_ARG="$runner_temp/cmux-scheme-compile" run RUNNER_TEMP="$runner_temp" STUB_STALE_ONCE=1 \
+  || fail "a RUNNER_TEMP kept path with outputs exited $?"
+[[ $(wc -l < "$TMP/paths") -eq 2 ]] || fail "RUNNER_TEMP kept path built $(wc -l < "$TMP/paths") times (want 2: build + retry)"
+[[ ! -e "$runner_temp/cmux-scheme-compile/Build/Products" ]] || fail "the earlier outputs under RUNNER_TEMP were not cleared"
+reset
+mkdir -p "$outside/Build/Products"
+rm -f "$outside/.cmux-binary-module-inputs"
+status=0; SC_ARG="$outside" run RUNNER_TEMP="$runner_temp" || status=$?
+[[ $status -ne 0 ]] || fail "a kept path with outputs outside RUNNER_TEMP was cleared"
+grep -q "refusing unexpected DerivedData path" "$TMP/out" || fail "the outside path was not refused"
+
 printf 'scheme compile DerivedData tests: ok\n'
