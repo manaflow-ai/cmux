@@ -9,6 +9,13 @@ import CmuxHomeCoreTestSupport
 import UniformTypeIdentifiers
 @testable import CmuxHomeCore
 
+/// Whether the tests run in a virtual machine (`kern.hv_vmm_present`).
+var isVirtualMachine: Bool {
+    var present: Int32 = 0
+    var size = MemoryLayout<Int32>.size
+    return sysctlbyname("kern.hv_vmm_present", &present, &size, nil, 0) == 0 && present == 1
+}
+
 func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-attach-tests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -397,10 +404,13 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(dropped.ref.name == "Screen Shot.jpg")
         #expect(dropped.ref.width == 12 && dropped.ref.height == 8)
 
-        // HEIF only where ImageIO can write it (to make the test input).
+        // HEIF only where ImageIO can write it (to make the test input), and
+        // not in a virtual machine: there ImageIO lists HEIF as writable, but
+        // encoding it without the hardware HEVC encoder crashed the test
+        // process (signal 11) shortly after on CI's macOS 15 VMs.
         let heifType = try #require(UTType("public.heif"))
         let writable = (CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? []
-        if writable.contains(heifType.identifier) {
+        if writable.contains(heifType.identifier), !isVirtualMachine {
             let heif = try makeImage(type: heifType, width: 16, height: 16, alpha: false)
             let photo = try await store.prepareAttachment(data: heif, typeIdentifier: heifType.identifier)
             #expect(photo.ref.mimeType == "image/jpeg")
