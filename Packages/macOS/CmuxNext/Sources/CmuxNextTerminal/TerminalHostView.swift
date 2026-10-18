@@ -251,15 +251,16 @@ public final class TerminalHostView: NSView {
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {
+        let (scope, tokens) = (themeScope, themeTokens)
+        // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
+        let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
+                                      selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
+        GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
         if let fill {
             layer?.backgroundColor = fill.cgColor
             return
         }
-        let (scope, tokens) = (themeScope, themeTokens)
-        // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
-        let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
-                                      selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         guard !backdrop.panesPaintBackground else {
             guard let rgb = theme?.colors?.background else {
                 layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor

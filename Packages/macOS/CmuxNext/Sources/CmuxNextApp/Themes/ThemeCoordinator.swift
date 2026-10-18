@@ -234,7 +234,6 @@ final class ThemeCoordinator {
             setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
             if forceSurfaces { entry.themeBinding.syncSurface(force: true) }
         }
-        syncWorkspaceBackdropArt()
     }
 
     private func setTheme(of scope: ThemeScope, to text: String?) {
