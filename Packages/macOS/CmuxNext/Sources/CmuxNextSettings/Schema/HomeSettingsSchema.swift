@@ -22,6 +22,13 @@ nonisolated enum HomeSettingsSchema {
                                          "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."),
                 kind: .toggle, default: .bool(false), keywords: ["home", "channels", "slack", "threads", "sidebar", "messages"]
             ),
+            SettingDescriptor(
+                HomeChiefPetSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
+                title: SettingsText.keyed("settings.home.chiefPetEnabled", "Show Chief Pet"),
+                help: SettingsText.keyed("settings.home.chiefPetEnabled.help",
+                                         "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."),
+                kind: .toggle, default: .bool(false), keywords: ["chief", "pet", "mascot", "floating", "notifications", "reply", "dock"]
+            ),
         ]
     }
 }

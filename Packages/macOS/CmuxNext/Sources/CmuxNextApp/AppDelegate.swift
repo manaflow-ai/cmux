@@ -269,6 +269,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
+        // The Chief pet shows while `home.chiefPetEnabled` is on, fed by the notification service; showcase captures draw the app's own windows only.
+        if !environment.showcase { services.notifications.chiefPet = services.chiefPet.hooks; services.chiefPet.start { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false } }
         services.updater.follow(settings)
         ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
             services?.registry.disabledFeatures.contains(.computerUse) ?? true

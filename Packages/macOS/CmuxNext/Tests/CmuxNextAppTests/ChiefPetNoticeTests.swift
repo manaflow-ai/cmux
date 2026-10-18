@@ -32,7 +32,7 @@ import Testing
             service.desktopPostingEnabled = false
             service.terminalNotificationsEnabled = { true }
             var opened: (ChiefPetReplyTarget) -> Void = { _ in }
-            controller = ChiefPetController(enabled: { false }, makePanel: { [defaults] in ChiefPetPanel(image: nil, defaults: defaults) },
+            controller = ChiefPetController(makePanel: { [defaults] in ChiefPetPanel(image: nil, defaults: defaults) },
                                             actions: ChiefPetActions(open: { opened($0) }, send: { _, _ in false }), clock: clock)
             opened = { [weak self] target in
                 if case .notice(let notice) = target { self?.opened.append(notice.id) }

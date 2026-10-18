@@ -13,7 +13,6 @@ public final class ChiefPetController {
     /// How long a finished notice stays up.
     static let doneSeconds: Double = 8
 
-    private let enabled: @MainActor @Sendable () -> Bool
     private let makePanel: () -> ChiefPetPanel
     /// Opening and sending, the App's (a bubble click opens the front notice's tab).
     let actions: ChiefPetActions
@@ -32,12 +31,9 @@ public final class ChiefPetController {
     private var watch: Task<Void, Never>?
     private var isOn = false
 
-    /// `enabled`: whether the pet shows, read under observation; nil reads `ChiefPetTunables.enabled`.
-    public init(enabled: (@MainActor @Sendable () -> Bool)? = nil,
-         makePanel: @escaping () -> ChiefPetPanel,
+    public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
          clock: any Clock<Duration> = ContinuousClock()) {
-        self.enabled = enabled ?? { ChiefPetTunables.enabled.value }
         self.makePanel = makePanel
         self.actions = actions
         self.clock = clock
@@ -50,10 +46,11 @@ public final class ChiefPetController {
         ChiefPetHooks(alerted: { [weak self] in self?.arrive($0) }, read: { [weak self] in self?.read(tab: $0) })
     }
 
-    /// Follows the switch: shows the pet when it turns on, hides it when it turns off.
-    public func start() {
+    /// Follows `enabled` (`home.chiefPetEnabled`), read under observation: shows the pet when it
+    /// turns on, hides it when it turns off.
+    public func start(enabled: @escaping @MainActor @Sendable () -> Bool) {
         // task-owner: lives as long as the app services; event-driven (Observation)
-        watch = Task { [weak self, enabled] in
+        watch = Task { [weak self] in
             for await on in ObservationStream({ enabled() }) {
                 self?.sync(on)
             }

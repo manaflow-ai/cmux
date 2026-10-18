@@ -175,6 +175,8 @@ extension SettingsSchema {
         "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
+        // The floating Chief pet (looks only).
+        "home.chiefPetEnabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",

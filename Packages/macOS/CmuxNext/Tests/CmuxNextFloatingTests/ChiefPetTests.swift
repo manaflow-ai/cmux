@@ -110,21 +110,26 @@ import Testing
         #expect(panel.frame.origin == CGPoint(x: 300, y: 150))
     }
 
-    @Test func controllerShowsThePetOnlyWhileItIsOn() {
+    @Test func controllerShowsThePetOnlyWhileItIsOn() async {
         let flag = Flag(false)
         let defaults = Self.defaults()
-        let controller = ChiefPetController(enabled: { flag.on }, makePanel: { ChiefPetPanel(image: nil, defaults: defaults) },
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(image: nil, defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
-        controller.sync(false)
-        #expect(controller.panel == nil)
-        controller.sync(true)
-        #expect(controller.isShown)
+        controller.start(enabled: { flag.on })
+        for _ in 0..<100 { await Task.yield() }
+        #expect(controller.panel == nil, "off: no panel is made")
+        flag.on = true
+        for _ in 0..<1000 where !controller.isShown { await Task.yield() }
+        #expect(controller.isShown, "the setting turning on shows it")
         controller.panel?.onClick?()
         #expect(controller.replyPanel?.isVisible == true, "a click opens the reply box")
         let made = controller.panel
-        controller.sync(false)
+        flag.on = false
+        for _ in 0..<1000 where controller.isShown { await Task.yield() }
         #expect(!controller.isShown)
-        controller.sync(true)
+        #expect(controller.replyPanel?.isVisible == false)
+        flag.on = true
+        for _ in 0..<1000 where !controller.isShown { await Task.yield() }
         // Made once: its spot and state are kept while it is hidden.
         #expect(controller.panel === made)
         controller.sync(false)
