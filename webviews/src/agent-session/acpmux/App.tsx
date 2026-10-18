@@ -5242,14 +5242,20 @@ function AcpmuxPane() {
         onClose={() => setRunBoardOpen(false)}
         onAttachTarget={async (target: RunAttachTarget) => {
           const route = target.route ?? target.endpoint?.route;
+          const token = target.token ?? target.endpoint?.token;
+          const session = target.session ?? target.endpoint?.session;
+          const expiresAtUnix = target.expiresAtUnix ?? target.endpoint?.expiresAtUnix ?? (target.expiresAt ? Date.parse(target.expiresAt) / 1000 : undefined);
           if (!route) throw new Error("The attach response did not include a cmux remote route.");
+          if (!token) throw new Error("The attach response did not include a remote attach token.");
+          if (!session) throw new Error("The attach response did not include the provider session identity.");
+          if (!expiresAtUnix || !Number.isFinite(expiresAtUnix) || expiresAtUnix <= Date.now() / 1000) throw new Error("The attach response did not include a live expiry.");
           await callNative("run.attach", {
             runId: target.runId,
             attemptId: target.attemptId,
             route,
-            ...(target.token ?? target.endpoint?.token ? { token: target.token ?? target.endpoint?.token } : {}),
-            session: target.session ?? target.endpoint?.session ?? target.attemptId,
-            expiresAtUnix: target.expiresAtUnix ?? target.endpoint?.expiresAtUnix ?? Math.floor(Date.now() / 1000) + 120,
+            token,
+            session,
+            expiresAtUnix,
           });
         }}
       />
