@@ -43,6 +43,27 @@ test("PR reports reject a matrix captured with different scenario controls", () 
   }
 });
 
+test("PR reports reject failed or partial capture receipts", () => {
+  const root = mkdtempSync(join(tmpdir(), "gallery-pr-receipt-quality-"));
+  const manifest = join(root, "manifest.json");
+  const results = join(root, "results");
+  try {
+    writeFileSync(manifest, JSON.stringify([{ id: "head", path_or_url: "frame.html", params: { entry: "head" } }]));
+    mkdirSync(results);
+    writeFileSync(
+      join(results, "results.json"),
+      JSON.stringify([{ id: "head", params: { entry: "head" }, revision: { sha: "head-a", source: "src/head.gallery.tsx" } }]),
+    );
+    writeFileSync(
+      join(results, "receipt.json"),
+      JSON.stringify({ captureId: "failed", capturedAt: "2026-10-18T00:00:00Z", scenario: { count: 1, fingerprint: "0".repeat(64) }, results: { count: 0, expected: 1, status: "partial" }, quality: "fail" }),
+    );
+    expect(() => assertRunRevision(results, "head-a", "head", manifest)).toThrow(/not complete quality evidence/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("PR reports allow union captures to include cases outside a side manifest", () => {
   const root = mkdtempSync(join(tmpdir(), "gallery-pr-union-"));
   const manifest = join(root, "manifest.json");

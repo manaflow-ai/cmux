@@ -76,6 +76,8 @@ type EvidenceReceipt = { captureId: string; capturedAt?: string; scenarioFingerp
 const evidenceReceipt = (dir: string, label: string, manifest?: string, captureManifest?: string): EvidenceReceipt | undefined => {
   const receipt = readReceipt(dir);
   if (!receipt?.captureId || !receipt.scenario?.fingerprint) return undefined;
+  if (receipt.quality !== "pass" || receipt.results?.status !== "complete")
+    throw new Error(`${label} capture receipt is not complete quality evidence`);
   const manifestForReceipt = captureManifest ?? manifest;
   const manifestCount = manifestForReceipt ? (JSON.parse(readFileSync(manifestForReceipt, "utf8")) as ManifestCase[]).length : 0;
   // PR workflows render a union manifest (head plus base-only cases), while the report receives
