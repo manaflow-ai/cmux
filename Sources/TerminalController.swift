@@ -16330,7 +16330,14 @@ class TerminalController {
                     maxRows: max(Int(size.rows), 1),
                     maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4
                 )
-            }?.data(using: .utf8) ?? Data()
+            }?.data(using: .utf8)
+                ?? readTerminalTextFromVTExportForSnapshot(
+                    terminalTarget: terminalTarget,
+                    bindingAction: "write_active_file:copy,vt",
+                    lineLimit: nil,
+                    normalizeLineEndings: false
+                )?.data(using: .utf8)
+                ?? Data()
             let data = state?.data ?? Data()
             if let size = snapshotSize {
                 payload["columns"] = max(Int(size.columns), 1)
