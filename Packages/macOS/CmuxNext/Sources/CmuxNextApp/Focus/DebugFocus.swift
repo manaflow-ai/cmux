@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextSettings
+import CmuxNextFocus
 
 /// `debug.focus`: per window, the coordinator state next to what AppKit,
 /// Ghostty and the layout actually show, and whether they agree

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextFocus
 
 /// One record of the input journal (plans/cmux-next/input-spec.md section 3):
 /// an input event, a focus or attach transition, or a diagnostic marker,

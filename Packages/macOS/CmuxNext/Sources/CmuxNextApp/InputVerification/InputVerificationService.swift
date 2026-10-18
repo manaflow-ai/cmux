@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextFocus
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,
 /// the app-wide event tap into the journal, the invariant monitor and its

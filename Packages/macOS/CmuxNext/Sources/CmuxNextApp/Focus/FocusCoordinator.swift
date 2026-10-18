@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextFocus
 
 /// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
 /// registry context). `FocusEffectApplier` in the app; a recorder in tests.
@@ -74,7 +75,7 @@ final class FocusCoordinator {
             let policy = closeFocus()
             if appliedCloseFocus != policy {
                 appliedCloseFocus = policy
-                machine.setCloseFocus(policy)
+                machine.setCloseFocus(mostRecent: policy == .mostRecent)
             }
             let previous = state
             guard let result = machine.send(event, into: &state) else {

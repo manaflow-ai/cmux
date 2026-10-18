@@ -8,6 +8,7 @@ import CmuxNextHistory
 import CmuxNextSettings
 import Foundation
 import Observation
+import CmuxNextFocus
 
 /// Where the user is, as a trail location, and whether a location can be focused now.
 extension LocationTrailService {

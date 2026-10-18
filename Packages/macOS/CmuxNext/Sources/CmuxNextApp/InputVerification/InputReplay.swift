@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
+import CmuxNextFocus
 
 /// Deterministic replay of an input journal against the pure reducers
 /// (plans/cmux-next/input-spec.md section 5). Each window's focus machine

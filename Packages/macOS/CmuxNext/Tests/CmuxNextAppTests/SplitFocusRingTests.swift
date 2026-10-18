@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
+import CmuxNextFocus
 
 /// Leo 2026-10-14: "after splitting there's some weird focus-ish rings, not the colored ones,
 /// just some gray stuff that kinda straggles behind". The split's daemon tree mounted the new

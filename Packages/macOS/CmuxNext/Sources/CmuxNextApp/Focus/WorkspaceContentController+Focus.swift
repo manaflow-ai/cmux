@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextFocus
 
 // The focus topology of the shown workspace and the helpers creation paths
 // use to ask for focus on something that lands later.

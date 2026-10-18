@@ -7,6 +7,7 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
+import CmuxNextFocus
 
 /// Notifications in the app (plans/cmux-next/notifications.md). The daemon
 /// owns every notification and its unread marker; this service reacts to
