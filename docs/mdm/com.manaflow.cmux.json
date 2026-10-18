@@ -2245,7 +2245,7 @@
     },
     "sessions.allowFullAccess" : {
       "default" : true,
-      "description" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them.",
+      "description" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default.",
       "title" : "Allow Full-Access Modes",
       "type" : "boolean"
     },
