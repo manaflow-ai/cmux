@@ -1564,6 +1564,8 @@ final class RowCell: UICollectionViewCell {
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
+            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
+            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
             hi.add(a, forKey: "dots")
         }
     }
@@ -1574,6 +1576,8 @@ final class RowCell: UICollectionViewCell {
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard Springs.typingStillPhase == nil else { return }
+        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
@@ -1672,7 +1676,8 @@ final class RowCell: UICollectionViewCell {
     /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        Springs.typingStillPhase == nil && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        // cmux: no breathing under Reduce Motion (cx-sya4n).
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif

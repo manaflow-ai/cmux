@@ -373,7 +373,7 @@ final class WindowOverlayLayer {
     private func recordRingLag(_ plane: OverlayPlane) {
         guard let root = plane.home as? LayoutRootView else { return }
         ringLayoutPasses += 1
-        guard let lag = root.overlayRings.first(where: { $0.showsRing && !$0.ringInSync }) else { return }
+        guard let lag = root.laggingRing else { return }
         ringLagPasses += 1
         lastRingLag = "\(lag.pane): ring \(lag.ringInWindow), content \(lag.contentInWindow), placement \(placement.rawValue)"
     }
