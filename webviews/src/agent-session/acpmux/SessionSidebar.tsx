@@ -627,6 +627,7 @@ const SessionRow = memo(function SessionRow({
       onPointerDown={dismissPreviewNow}
       onFocus={(event) => previewText && hoverPreview(event.currentTarget, 0)}
       onBlur={leavePreviewCard}
+      // ui-allow: Escape dismisses this row's anchored preview; arrow/Home/End navigation stays in the shared helper.
       onKeyDown={(event) => {
         keyboard.onKeyDown?.(event);
         if (event.key === "Escape") dismissPreviewNow();
