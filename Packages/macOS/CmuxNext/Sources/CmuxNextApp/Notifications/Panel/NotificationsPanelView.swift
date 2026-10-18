@@ -62,7 +62,7 @@ final class NotificationsPanelView: NSView {
     private let empty = NSStackView()
     private let emptyIcon = NSImageView()
     private var listHeight: NSLayoutConstraint?
-    private var tinted: [(NSTextField, NotificationRowView.Tone)] = []
+    private var tinted: [(ChromeLabel, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
     private var scrollerStyleObserver: (any NSObjectProtocol)?
 
