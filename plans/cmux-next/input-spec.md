@@ -135,17 +135,19 @@ that launch only, and nothing persists it. `InputPrivacyTests` checks the redact
 
 ## 4. Invariant monitor and desync reports
 
-`InputInvariantMonitor` runs after any focus reduction, key-down, mouse down/up, content
-presentation, or cmux window move, resize, screen change or deminiaturize, once 12 display frames
-pass without another. It checks sections 2.5 and 2.6 (which include 2.1) on
-`InputObservationBuilder.observe`. A violation seen once is checked again one settle later;
-only a violation present in both checks is reported, once until it clears. An idle app runs no
-display link.
+`InputInvariantMonitor` runs after any focus reduction that changed the focus or had effects,
+key-down, mouse down/up, content presentation, or cmux window move, resize, screen change or
+deminiaturize, at one deadline 200 ms after the last of them (no display link, no per-frame
+step). It checks sections 2.5 and 2.6 (which include 2.1) on `InputObservationBuilder.observe`.
+A violation seen once is checked again one settle later; only a violation present in both
+checks is reported, once until it clears. The check walks every window and pane, so it runs by
+itself only in debug builds; in any build `debug.desync` (`check`, `report: true`) runs it on
+demand.
 
 A report is written to `~/Library/Logs/cmux-next/<tag or release>/desync/desync-<UTC>-<n>.json`
 (newest 50 kept, written off the main thread): the violations, the observation, the last 512
 journal entries, journal stats, and `debug.focus` and `debug.surfaces` at capture time. Debug
-builds log a fault per violation, release builds an error.
+builds log a fault per violation, release builds (on demand only) an error.
 
 Control socket:
 
