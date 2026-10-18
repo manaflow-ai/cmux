@@ -355,17 +355,6 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
       if (Option.isNone(parsedSource)) return yield* Effect.fail(vmNotFound());
       return yield* name(parsedSource.value, (source) => Effect.gen(function* () {
         const principal = caller.value;
-        yield* forbidAllowlisted(principal);
-        yield* requireServiceLabels(principal, payload.labels ?? {});
-        const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
-        const spec: NewVm = {
-          displayName: payload.displayName ?? null,
-          labels: payload.labels ?? {},
-          idleTimeoutSeconds,
-          maxRunSeconds: payload.maxRunSeconds,
-          autoDeleteSeconds: payload.autoDeleteSeconds,
-          size: undefined,
-        };
         const request = [
           "forkVm",
           source.value,
@@ -383,16 +372,27 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
           idempotencyKey,
           request,
           (resumeFrom, keyed) => Effect.gen(function* () {
-            const existing = yield* replayRecordedAttempt(caller, scope, resumeFrom, keyed);
-            if (existing !== null) {
-              if (resumeFrom?.phase === "creating" && resumeFrom.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, resumeFrom.snapshotId);
-              return existing;
-            }
             // Once a snapshot is retained, the source is no longer an input to this attempt.
             // Completed retries authorize the destination above; fresh forks still prove the source.
             const retainedSnapshot = resumeFrom?.phase === "snapshotted" || resumeFrom?.phase === "creating";
             const sourceOwns = retainedSnapshot ? null : yield* tenantOwnsVm(caller, source).pipe(Effect.mapError(() => unavailable()));
             if (!retainedSnapshot && sourceOwns === null) return yield* Effect.fail(vmNotFound());
+            yield* forbidAllowlisted(principal);
+            yield* requireServiceLabels(principal, payload.labels ?? {});
+            const existing = yield* replayRecordedAttempt(caller, scope, resumeFrom, keyed);
+            if (existing !== null) {
+              if (resumeFrom?.phase === "creating" && resumeFrom.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, resumeFrom.snapshotId);
+              return existing;
+            }
+            const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
+            const spec: NewVm = {
+              displayName: payload.displayName ?? null,
+              labels: payload.labels ?? {},
+              idleTimeoutSeconds,
+              maxRunSeconds: payload.maxRunSeconds,
+              autoDeleteSeconds: payload.autoDeleteSeconds,
+              size: undefined,
+            };
             return yield* withCreateSlot(caller, (mayCreate) =>
               Effect.gen(function* () {
                 let snapshotId: string;
@@ -451,7 +451,10 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
               resumeSlot(keyed, resumeFrom),
             );
           }),
-          (vmId) => replayVm(caller, scope, vmId),
+          (vmId) => forbidAllowlisted(principal).pipe(
+            Effect.zipRight(requireServiceLabels(principal, payload.labels ?? {})),
+            Effect.zipRight(replayVm(caller, scope, vmId)),
+          ),
         );
       }));
     }),
