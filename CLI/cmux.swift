@@ -6699,6 +6699,11 @@ struct CMUXCLI {
             return
         }
 
+        if command == "left-sidebar" {
+            let parsed = try parseSidebarCLIArguments(commandArgs, for: .left)
+            _ = try leftSidebarSocketArguments(from: parsed)
+        }
+
         if command == "right-sidebar" {
             let parsed = try parseSidebarCLIArguments(commandArgs, for: .right)
             _ = try rightSidebarSocketArguments(from: parsed)
@@ -9732,6 +9737,14 @@ struct CMUXCLI {
                 client: client,
                 windowOverride: windowId,
                 jsonOutput: jsonOutput
+            )
+        case "left-sidebar":
+            try forwardSidebarCommand(
+                .left,
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId,
+                socketArguments: leftSidebarSocketArguments(from:)
             )
         case "right-sidebar":
             try forwardSidebarCommand(
@@ -23093,6 +23106,30 @@ struct CMUXCLI {
             """
         case "pr":
             return Self.pullRequestUsage
+        case "left-sidebar":
+            return String(localized: "cli.leftSidebar.usage", defaultValue: """
+            Usage: cmux left-sidebar <command> [flags]
+
+            Control the left (workspace) sidebar from the CLI.
+
+            Commands:
+              toggle                         Toggle left sidebar visibility
+              show                           Show the left sidebar
+              hide                           Hide the left sidebar
+              focus                          Show the left sidebar and focus its workspace list
+              mode                           Print {"visible":bool}
+
+            Flags:
+              --workspace <id|ref|index>     Target the window containing a workspace
+              --window <id|ref|index>        Target a window
+
+            Only focus moves keyboard focus or brings the window forward.
+
+            Examples:
+              cmux left-sidebar hide
+              cmux left-sidebar show --window window:2
+              cmux left-sidebar mode
+            """)
         case "right-sidebar":
             return String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
@@ -23704,6 +23741,18 @@ struct CMUXCLI {
         let windowRequiresValue: String
         let unknownFlag: (String) -> String
 
+        static var left: SidebarCLICommand {
+            SidebarCLICommand(
+                socketCommand: "left_sidebar",
+                acceptsNoFocus: false,
+                workspaceRequiresValue: String(localized: "cli.leftSidebar.error.workspaceRequiresValue", defaultValue: "left-sidebar: --workspace requires an id"),
+                windowRequiresValue: String(localized: "cli.leftSidebar.error.windowRequiresValue", defaultValue: "left-sidebar: --window requires an id"),
+                unknownFlag: { flag in
+                    String(localized: "cli.leftSidebar.error.unknownFlag", defaultValue: "left-sidebar: unknown flag '\(flag)'")
+                }
+            )
+        }
+
         static var right: SidebarCLICommand {
             SidebarCLICommand(
                 socketCommand: "right_sidebar",
@@ -24098,6 +24147,20 @@ struct CMUXCLI {
             noFocus: noFocus
         )
     }
+    /// The left sidebar has no modes, so the socket command is just the action.
+    private func leftSidebarSocketArguments(from parsed: SidebarCLIArguments) throws -> [String] {
+        guard let action = parsed.positional.first?.lowercased() else {
+            throw CLIError(message: String(localized: "cli.leftSidebar.error.missingCommand", defaultValue: "left-sidebar requires a subcommand: toggle, show, hide, focus, or mode"))
+        }
+        guard ["toggle", "show", "hide", "focus", "mode"].contains(action) else {
+            throw CLIError(message: String(localized: "cli.leftSidebar.error.unknownCommand", defaultValue: "Unknown left-sidebar command '\(action)'"))
+        }
+        guard parsed.positional.count == 1 else {
+            throw CLIError(message: String(localized: "cli.leftSidebar.error.unexpectedArguments", defaultValue: "left-sidebar \(action) received unexpected arguments"))
+        }
+        return [action]
+    }
+
     private func rightSidebarSocketArguments(from parsed: SidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))

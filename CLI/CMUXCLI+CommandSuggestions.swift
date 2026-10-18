@@ -123,6 +123,7 @@ extension CMUXCLI {
         "jump-to-unread",
         "last-pane",
         "last-window",
+        "left-sidebar",
         "list-buffers",
         "list-log",
         "list-notifications",

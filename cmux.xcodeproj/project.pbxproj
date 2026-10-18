@@ -289,6 +289,7 @@
 		C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */; };
 		3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */; };
 		B0A4409A67B09CB7C7F3EFCE /* AppDelegate+JumpToLastPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DB6F279BB5D3AA597A01B35 /* AppDelegate+JumpToLastPrompt.swift */; };
+		6CFEED42750375B828AB751E /* AppDelegate+LeftSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F7CB7C135F0DC2ADDD4ACA2 /* AppDelegate+LeftSidebarRemoteCommand.swift */; };
 		8F82B1ABAF204BDE88A7ED7D /* AppDelegate+ManagedPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0728FF0C3B4FF2925CA071 /* AppDelegate+ManagedPolicy.swift */; };
 		A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */; };
 		3D79A1101A274F56BDC6D98A /* AppDelegate+MoveBonsplitTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B83D7EBDE294F62B0641D58 /* AppDelegate+MoveBonsplitTab.swift */; };
@@ -2464,6 +2465,7 @@
 		8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */; };
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */; };
+		669DF75DA9A9407B21E0AE5C /* LeftSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB13484A4C43BDBBA0D7A9C /* LeftSidebarRemoteCommand.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		272A62278FCC175ADA154567 /* LinkHoverIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */; };
 		B79500310000000000000101 /* ListeningPortLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000102 /* ListeningPortLookup.swift */; };
@@ -5047,6 +5049,7 @@
 		C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusHistoryContextMenu.swift"; sourceTree = "<group>"; };
 		3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/AppDelegate+GlobalSearch.swift"; sourceTree = "<group>"; };
 		0DB6F279BB5D3AA597A01B35 /* AppDelegate+JumpToLastPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+JumpToLastPrompt.swift"; sourceTree = "<group>"; };
+		6F7CB7C135F0DC2ADDD4ACA2 /* AppDelegate+LeftSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+LeftSidebarRemoteCommand.swift"; sourceTree = "<group>"; };
 		5C0728FF0C3B4FF2925CA071 /* AppDelegate+ManagedPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ManagedPolicy.swift"; sourceTree = "<group>"; };
 		A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MonitorMemory.swift"; sourceTree = "<group>"; };
 		7B83D7EBDE294F62B0641D58 /* AppDelegate+MoveBonsplitTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveBonsplitTab.swift"; sourceTree = "<group>"; };
@@ -7053,6 +7056,7 @@
 		8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiResumeReviewRegressionTests.swift; sourceTree = "<group>"; };
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastTerminalChildExitRecoveryTests.swift; sourceTree = "<group>"; };
+		DAB13484A4C43BDBBA0D7A9C /* LeftSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftSidebarRemoteCommand.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
 		9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkHoverIndicatorView.swift; sourceTree = "<group>"; };
 		B79500310000000000000102 /* ListeningPortLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningPortLookup.swift; sourceTree = "<group>"; };
@@ -12391,6 +12395,8 @@
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 				E44EFC5A284A1280B4473637 /* SidebarRemoteArguments.swift */,
+				6F7CB7C135F0DC2ADDD4ACA2 /* AppDelegate+LeftSidebarRemoteCommand.swift */,
+				DAB13484A4C43BDBBA0D7A9C /* LeftSidebarRemoteCommand.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15005,6 +15011,7 @@
 				C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */,
 				3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */,
 				B0A4409A67B09CB7C7F3EFCE /* AppDelegate+JumpToLastPrompt.swift in Sources */,
+				6CFEED42750375B828AB751E /* AppDelegate+LeftSidebarRemoteCommand.swift in Sources */,
 				8F82B1ABAF204BDE88A7ED7D /* AppDelegate+ManagedPolicy.swift in Sources */,
 				A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */,
 				3D79A1101A274F56BDC6D98A /* AppDelegate+MoveBonsplitTab.swift in Sources */,
@@ -16037,6 +16044,7 @@
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				8561C0128561C0128561C012 /* KeyboardShortcutSettingsObserver.swift in Sources */,
+				669DF75DA9A9407B21E0AE5C /* LeftSidebarRemoteCommand.swift in Sources */,
 				272A62278FCC175ADA154567 /* LinkHoverIndicatorView.swift in Sources */,
 				B79500310000000000000101 /* ListeningPortLookup.swift in Sources */,
 				110436021104360211043602 /* LiveAgentSessionOwner.swift in Sources */,

@@ -7954,7 +7954,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
-    private func sidebarRemoteContext(target: SidebarRemoteTarget) -> MainWindowContext? {
+    func sidebarRemoteContext(target: SidebarRemoteTarget) -> MainWindowContext? {
         if let windowId = target.windowId {
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }
