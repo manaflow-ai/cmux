@@ -83,8 +83,10 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
-  Add `full-ci` only for a user-requested or agreed broad validation plan,
-  naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
+  Ordinary PRs use the normal fast, path-routed coverage by default. Add `full-ci` only for a
+  user-requested or agreed broad validation plan, naming the extra lanes and why
+  ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)); never add it merely for a fresh
+  rerun, queue movement, cache warming, or extra confidence.
 - Keep branches current locally with `scripts/merge-main.sh`; follow
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - A first implementation pass ends with passed scoped verification and an open PR;

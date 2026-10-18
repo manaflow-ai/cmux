@@ -302,7 +302,6 @@ if [[ -n "$base_ref" ]] && grep -q '^FAIL' <<<"$report"; then
     fi
     git -C "$repo" archive "$base_commit" -- "${archive_paths[@]}" 2>/dev/null |
       tar -x -C "$base_tree" 2>/dev/null || true
-    git -C "$repo" archive "$base_commit" -- "$package_rel" cmux-tui 2>/dev/null | tar -x -C "$base_tree" 2>/dev/null || true
     measure "$base_tree/$package_rel" "$base_tree" "$base_commit" > "$base_measurements"
     report="$(evaluate 1)"
   else
