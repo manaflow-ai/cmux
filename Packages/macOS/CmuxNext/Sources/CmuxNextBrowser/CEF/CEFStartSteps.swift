@@ -29,7 +29,10 @@ final class CEFStartSteps {
         let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         defer {
             let ms = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / 1_000_000
-            if ms >= keepUnder, marks.count < 64 { marks.append(CEFStartMark(name: name, startUptimeNanos: start, milliseconds: ms)) }
+            // Pump runs keep 8 slots free for the steps after them (first_window).
+            if ms >= keepUnder, marks.count < (keepUnder > 0 ? 56 : 64) {
+                marks.append(CEFStartMark(name: name, startUptimeNanos: start, milliseconds: ms))
+            }
         }
         return try body()
     }

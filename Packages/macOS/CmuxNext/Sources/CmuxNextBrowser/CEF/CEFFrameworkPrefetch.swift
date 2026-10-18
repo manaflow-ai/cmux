@@ -47,6 +47,20 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
     /// Reads every file of `layout` once (call off the main thread), then
     /// primes ImageIO (`CEFRuntime.primeImageIO`).
     static func warm(_ layout: CEFRuntimeLayout) {
+        // The service asks run beside the read and the start, never in its
+        // way: a slow or hung daemon must not hold Chromium's start.
+        // task-owner: one pair of system asks per process; nothing waits for them
+        Task.detached(priority: .utility) {
+            let clock = ContinuousClock()
+            let started = clock.now
+            _ = CLLocationManager.locationServicesEnabled()
+            _ = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+            let services = clock.now - started
+            lastReport.withLock { report in
+                if report == nil { report = Report() }
+                report?.services = services
+            }
+        }
         let clock = ContinuousClock()
         let started = clock.now
         var report = Report()
@@ -60,16 +74,15 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
             defer { close(descriptor) }
             report.files += 1
             // concurrency-allow: the library-load thread, never the main thread
-            while case let count = read(descriptor, buffer, size), count > 0 {
-                report.bytes += count
+            while case let count = read(descriptor, buffer, size), count > 0 || (count < 0 && errno == EINTR) {
+                report.bytes += max(count, 0)
             }
         }
         report.duration = clock.now - started
-        let servicesStarted = clock.now
-        _ = CLLocationManager.locationServicesEnabled()
-        _ = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
-        report.services = clock.now - servicesStarted
-        lastReport.withLock { $0 = report }
+        lastReport.withLock { stored in
+            report.services = stored?.services ?? .zero
+            stored = report
+        }
         CEFRuntime.primeImageIO()
     }
 }
