@@ -107,6 +107,8 @@ struct RemoteRelayNarrowingPolicyTests {
         guard let request = try? JSONSerialization.data(withJSONObject: ["method": method, "params": parameters]) else {
             return .deny(reason: "unencodable test request")
         }
-        return RemoteRelayCommandPolicy().evaluate(commandLine: request, workspaceAliases: [:], surfaceAliases: [:])
+        return RemoteRelayCommandPolicy().evaluate(
+            commandLine: request, workspaceAliases: [owner: owner], surfaceAliases: [surface: surface]
+        )
     }
 }

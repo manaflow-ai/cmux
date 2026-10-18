@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import Foundation
 
 extension CloudWireGuardHub {
@@ -6,10 +7,18 @@ extension CloudWireGuardHub {
     #else
     @Sendable
     #endif
-    private static func freshEnrollment(manager: VMTunnelManager) async throws -> Enrollment {
+    private static func freshEnrollment(
+        manager: VMTunnelManager,
+        allowWhenCloudDisabled: Bool = false,
+        expectedTeamScope: AuthenticatedTeamScope? = nil
+    ) async throws -> Enrollment {
         let client = await MainActor.run { VMClient.shared }
         guard let client else { throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).") }
-        let state = try await manager.enroll(client: client)
+        let state = try await manager.enroll(
+            client: client,
+            allowWhenCloudDisabled: allowWhenCloudDisabled,
+            expectedTeamScope: expectedTeamScope
+        )
         return Enrollment(configPath: state.configPath, routes: VMTunnelManager.allowedIPs(in: state.completedConfig))
     }
 
@@ -23,7 +32,21 @@ extension CloudWireGuardHub {
                 }
                 return try await CloudWireGuardHub.freshEnrollment(manager: manager)
             },
+            enrollWhenCloudDisabled: { expectedTeamScope in
+                try await CloudWireGuardHub.freshEnrollment(
+                    manager: manager,
+                    allowWhenCloudDisabled: true,
+                    expectedTeamScope: expectedTeamScope
+                )
+            },
             refreshEnrollment: { try await CloudWireGuardHub.freshEnrollment(manager: manager) },
+            refreshEnrollmentWhenCloudDisabled: { expectedTeamScope in
+                try await CloudWireGuardHub.freshEnrollment(
+                    manager: manager,
+                    allowWhenCloudDisabled: true,
+                    expectedTeamScope: expectedTeamScope
+                )
+            },
             clientURL: clientURL,
             socketURL: manager.stateDir.appendingPathComponent("hub-\(getpid()).sock", isDirectory: false),
             spawner: CloudWireGuardHubProcessSpawner(),

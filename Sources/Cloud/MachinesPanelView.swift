@@ -4,6 +4,8 @@ import AppKit
 import CmuxCloudMachines
 import CmuxSettings
 import CmuxSurfaceCatalogModel
+import Combine
+import OSLog
 import SwiftUI
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
@@ -13,45 +15,57 @@ import SwiftUI
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
+    private static let coderouterLogger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
     @StateObject var viewModel: MachinesPanelViewModel
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
-    /// The main workspace selection is the authority for the tree projection.
-    /// Keep this request window-local so another window cannot move this tree.
-    @State private var selectionReveal: CloudTreeRevealRequest?
+    @State var billingPlanLoaded = false
+    /// The owner outlives this view when SwiftUI remounts the sidebar mode.
+    let coderouterStore: CoderouterAccountStore
     @State private var bannerDismissals: CloudBannerDismissalStore
+    /// The owning window's selection stream lets the Cloud tree update before
+    /// the next machine/catalog refresh arrives.
+    @State private var selectedWorkspacePublisher: AnyPublisher<UUID?, Never>
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
     let teamPickerPresentation: CloudTeamPickerPresentation?
+    let activationCoordinator: CloudActivationCoordinator
 
     init(
         chromeBackgroundColor: NSColor,
-        viewModel: MachinesPanelViewModel? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
-        teamPickerPresentation: CloudTeamPickerPresentation? = nil
+        teamPickerPresentation: CloudTeamPickerPresentation? = nil,
+        activationCoordinator: CloudActivationCoordinator,
+        viewModel: MachinesPanelViewModel? = nil,
+        coderouterStore: CoderouterAccountStore? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
+        self.activationCoordinator = activationCoordinator
+        self.coderouterStore = coderouterStore ?? CoderouterAccountStore()
+        _selectedWorkspacePublisher = State(initialValue:
+            tabManager?.selectedTabIdPublisher.eraseToAnyPublisher()
+                ?? Just(nil).eraseToAnyPublisher()
+        )
         _bannerDismissals = State(
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
         )
         _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
             machinePinStore: machinePinStore,
+            vmSync: AppDelegate.shared?.auth.map { CloudVMSyncSubscriber(auth: $0.coordinator) },
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
                 return tabManager.tabs.map {
@@ -62,11 +76,11 @@ struct MachinesPanelView: View {
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
-    private var accountFlow: HostAccountFlow? {
+    var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
     }
 
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             // Keep the embedded sign-in screen mounted while the browser is
@@ -81,33 +95,10 @@ struct MachinesPanelView: View {
     }
 
     private var includesCloud: Bool {
-        _ = cloudBetaEnabled
         return CloudMachinesFeature.isEnabled
     }
 
-    /// The panel replaces its cached tree as soon as a team mutation starts;
-    /// waiting for the scope observer would leave the previous team's rows
-    /// visible while the create or switch is still in flight.
-    private var isTeamChangePending: Bool {
-        accountFlow?.isSelectingTeam == true
-            || accountFlow?.isCreatingTeam == true
-            || viewModel.awaitingCatalogScope
-    }
-
-    private var teamScopeLoadingLabel: String {
-        if accountFlow?.isCreatingTeam == true {
-            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
-        }
-        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
-    }
-
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
-
-    private var selectedCloudIdentity: String? {
-        guard let workspace = tabManager?.selectedWorkspace,
-              let machineID = workspace.cloudVMID else { return nil }
-        return [machineID, workspace.cloudVMBinding?.remoteWorkspaceID ?? ""].joined(separator: "\u{1f}")
-    }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
@@ -123,21 +114,14 @@ struct MachinesPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            switch authState {
-            case .checking:
-                authCheckingState
-            case .signedOut:
-                authGate
-            case .signedIn:
-                authenticatedContent
-            }
+        activationContent
+        .onAppear {
+            activationCoordinator.reconcile()
+            syncPolling(for: authState)
         }
-        .onAppear { syncPolling(for: authState) }
-        .onAppear { refreshSelectionReveal() }
-        .onChange(of: selectedCloudIdentity) { _, _ in refreshSelectionReveal() }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
-        .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
+        .onChange(of: activationCoordinator.state) { _, _ in syncPolling(for: authState) }
+        .onChange(of: activationCoordinator.isPreparing) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
             devicesModel.consumePendingReveal()
         }
@@ -148,13 +132,31 @@ struct MachinesPanelView: View {
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
         .onChange(of: accountFlow?.confirmedTeamID) { _, _ in
+            coderouterStore.state.select(currentCoderouterScope)
             viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            coderouterStore.state.select(currentCoderouterScope)
             viewModel.refreshAccountScope()
+        }
+        .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
+            viewModel.refreshLocalWorkspaces(selectedWorkspaceID: selectedWorkspaceID)
         }
         .onDisappear {
             viewModel.stopPolling()
+            viewModel.cancelCloudAgentTask()
+        }
+        .task(id: CoderouterRefreshKey(teamID: accountFlow?.confirmedTeamID, identityID: accountFlow?.currentIdentity?.id, request: coderouterStore.refreshRequest)) {
+            while !Task.isCancelled {
+                await coderouterStore.lane.run { await refreshCoderouterAccounts() }
+                guard !Task.isCancelled else { return }
+                coderouterStore.isRefreshing = false
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
+            }
         }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
@@ -166,36 +168,43 @@ struct MachinesPanelView: View {
         .task {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
         }
+        .task(id: accountFlow?.currentIdentity?.id) {
+            guard let accountFlow, accountFlow.isAuthenticated,
+                  let requestedIdentityID = accountFlow.currentIdentity?.id else {
+                billingPlanLoaded = false
+                return
+            }
+            // The panel is rebuilt whenever the sidebar switches modes. Start
+            // from the account's last answer so Enable Cloud / Upgrade stays
+            // on screen while it refreshes, instead of flashing "Checking…".
+            billingPlanLoaded = accountFlow.hasLoadedBillingPlan
+            // The enable action is available while the entitlement is unknown.
+            // The response itself is the synchronization event.
+            billingPlanLoaded = true
+            await accountFlow.refreshBillingPlan()
+            guard !Task.isCancelled,
+                  accountFlow.isAuthenticated,
+                  accountFlow.currentIdentity?.id == requestedIdentityID else { return }
+            billingPlanLoaded = true
+        }
         .task(id: devBackend.attempt) {
             await devBackend.observe()
-            if devBackend.status?.isReady == true { viewModel.refresh() }
+            if devBackend.status?.isReady == true, !activationCoordinator.isPreparing { viewModel.refresh() }
         }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
-    /// Project the selected workspace by stable machine/workspace identity.
-    /// Names are intentionally absent: duplicate workspace names are valid.
-    private func refreshSelectionReveal() {
-        guard let workspace = tabManager?.selectedWorkspace,
-              let machineID = workspace.cloudVMID else {
-            selectionReveal = nil
-            return
-        }
-        let machine = SurfaceMachineID.cloud(machineID)
-        let nodeID: String
-        if let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
-           !remoteWorkspaceID.isEmpty {
-            nodeID = CloudTreeNodeBuilder.nodeID(workspace: remoteWorkspaceID, machine: machine)
-        } else {
-            nodeID = CloudTreeNodeBuilder.nodeID(machine: machine)
-        }
-        selectionReveal = CloudTreeRevealRequest(token: UUID(), nodeID: nodeID)
-    }
-
     @ViewBuilder
-    private var authenticatedContent: some View {
+    var authenticatedContent: some View {
         if includesCloud {
             controlBar
+            CloudNewMachineButton {
+                _ = AppDelegate.shared?.performNewCloudMachineAction(
+                    tabManager: tabManager,
+                    preferredWindow: tabManager?.window,
+                    debugSource: "cloudTree.newMachineButton"
+                )
+            }
         }
         if includesCloud {
             MachinesPanelBanners(
@@ -228,21 +237,10 @@ struct MachinesPanelView: View {
         }
     }
 
-    private var teamScopeLoading: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text(teamScopeLoadingLabel)
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("CloudMachinesTeamLoading")
-    }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
-            if includesCloud {
+            if includesCloud && !activationCoordinator.isPreparing {
                 viewModel.startPolling()
             } else {
                 viewModel.stopPolling()
@@ -261,6 +259,7 @@ struct MachinesPanelView: View {
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
+            treeHint: viewModel.treeHint,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
             onDismissTreeError: { error in
                 bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
@@ -286,7 +285,7 @@ struct MachinesPanelView: View {
         return status
     }
 
-    /// The panel's complete header, including its persistent recovery status.
+    /// Renders the Cloud team header with its team scope and Invite action.
     var controlBar: some View {
         CloudTeamPickerHeader(
             accountFlow: accountFlow,
@@ -297,6 +296,7 @@ struct MachinesPanelView: View {
             onNewMachine: requestNewMachine,
             status: { cloudStatus }
         )
+        .disabled(activationCoordinator.isPreparing)
     }
 
     @ViewBuilder
@@ -324,7 +324,7 @@ struct MachinesPanelView: View {
         }
     }
 
-    private var authCheckingState: some View {
+    var authCheckingState: some View {
         VStack(spacing: 10) {
             Spacer()
             ProgressView()
@@ -342,7 +342,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var authGate: some View {
+    var authGate: some View {
         if let accountFlow {
             CloudMachinesSignInView(accountFlow: accountFlow)
         } else {
@@ -421,29 +421,45 @@ struct MachinesPanelView: View {
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
+            },
+            onRename: { [weak viewModel] machine, label in
+                viewModel?.beginOptimisticRename(id: machine.id, label: label)
+            },
+            onRenameDidComplete: { [weak viewModel] in
+                viewModel?.finishOptimisticRename()
             }
         )
-        // The list endpoint is authoritative for the caller's plan-sized
-        // memory ladder. Feed it into the menu so Pro users do not select a
-        // Max-only size and wait for a server rejection.
-        let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
-        machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
+        // Keep the standard targets visible and gray out sizes above the
+        // server-advertised plan ceilings. Missing fields use the accepted
+        // ladder and plan ID, so an older response still gates each tier.
+        machineActions.resizeDiskMaximumGiB = viewModel.maxDiskMb.map { max(0, $0 / 1_024) } ?? viewModel.resizeFallbackMaxDiskGiB
+        // Older control planes may send maxMemoryMb before maxVcpus. Derive
+        // the same floor used by the server instead of exposing a Max-only
+        // CPU target while the vCPU field is absent.
+        machineActions.resizeCPUMaximum = viewModel.maxVcpus
+            ?? viewModel.maxMemoryMb.map { max(1, $0 / 2_048) }
+            ?? max(1, viewModel.resizeFallbackMaxMemoryMb / 2_048)
+        machineActions.resizeMemoryMaximumGiB = viewModel.maxMemoryMb.map { max(0, $0 / 1_024) }
+            ?? max(0, viewModel.resizeFallbackMaxMemoryMb / 1_024)
+        machineActions.resizeResourcePool = viewModel.resourcePool
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { tabManager?.selectedTabId },
-            selectLocalWorkspace: { workspaceID in
-                tabManager?.selectedTabId = workspaceID
+            selectLocalWorkspace: { [weak tabManager] workspaceID in
+                AppDelegate.shared?.selectCloudTreeLocalWorkspace(workspaceID, from: tabManager)
             },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            onHint: { [weak viewModel] hint in viewModel?.noteTreeHint(hint) },
             refresh: { refreshMachines() },
             refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
-            workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
+            workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } },
+            recordCloudWorkspaceSelection: { [weak tabManager] machine in
+                tabManager?.recordCloudWorkspaceSelection(machineID: machine)
+            }
         )
         nodeActions.needsDevicePairing = { [weak devicesModel] machine in
             devicesModel?.needsPairing(machine) ?? false
@@ -458,7 +474,7 @@ struct MachinesPanelView: View {
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
-        // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
+        // The header "+" is Cmd-Shift-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
         nodeActions.newMachine = { [weak tabManager] in
             _ = AppDelegate.shared?.performNewCloudMachineAction(
                 tabManager: tabManager,
@@ -467,6 +483,17 @@ struct MachinesPanelView: View {
             )
         }
         nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
+        nodeActions.addCoderouterAccount = { [self] provider in addCoderouterAccount(provider) }
+        nodeActions.removeCoderouterAccount = { [self] account in removeCoderouterAccount(account) }
+        nodeActions.refreshCoderouter = { [self] in requestCoderouterRefresh() }
+        nodeActions.refreshCloudMachines = { [weak viewModel] in viewModel?.refresh(tree: true) }
+        nodeActions.refreshDevices = { [weak devicesModel] in devicesModel?.refresh() }
+        nodeActions.openCoderouterGuidePane = { [weak tabManager] in
+            guard let workspace = tabManager?.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId
+                    ?? workspace.bonsplitController.allPaneIds.first else { return }
+            _ = workspace.openOrFocusCoderouterGuideSurface(inPane: paneId, focus: true)
+        }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -484,16 +511,175 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(), isRefreshing: devicesModel.isRefreshing
             ),
+            coderouter: coderouter,
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
-            cloudFleetListIsCurrent: viewModel.listProblem == nil && !viewModel.isNetworkOffline,
-            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
-            reveal: devicesModel.revealRequest ?? selectionReveal,
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest || viewModel.isRenamingMachine) : nil,
+            reveal: devicesModel.revealRequest,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
+    }
+
+    /// The team and signed-in account whose CodeRouter rows are shown.
+    private var currentCoderouterScope: CoderouterAccountScope? {
+        CoderouterAccountScope(teamID: accountFlow?.confirmedTeamID, identityID: accountFlow?.currentIdentity?.id)
+    }
+
+    private var coderouter: CloudTreeCoderouterSection {
+        CloudTreeCoderouterSection(
+            accounts: coderouterStore.state.accounts,
+            isRefreshing: coderouterStore.isRefreshing || coderouterStore.state.isLoadingScope
+        )
+    }
+
+    @MainActor
+    private func refreshCoderouterAccounts() async {
+        coderouterStore.state.select(currentCoderouterScope)
+        guard let scope = currentCoderouterScope else { return }
+        guard let readRevision = coderouterStore.state.beginRefresh(for: scope) else { return }
+        do {
+            let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
+            Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(scope.teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
+            let snapshot = try await CoderouterCLIAccountReader.snapshot(
+                for: scope.teamID,
+                name: teamName
+            )
+            // A team or identity switch can finish while the CLI is running.
+            guard !Task.isCancelled, currentCoderouterScope == scope else { return }
+            coderouterStore.state.apply(
+                accounts: snapshot.accounts,
+                organizationID: snapshot.organizationID,
+                teamScope: snapshot.scope,
+                for: scope,
+                startedAt: readRevision
+            )
+        } catch {
+            Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
+            // Never let an old scope's failure clear or authorize a replacement.
+            guard !Task.isCancelled, currentCoderouterScope == scope else { return }
+            // Same-team rows remain useful during a transient error, but the
+            // add destination is withdrawn until a fresh read succeeds.
+            coderouterStore.state.fail(for: scope, startedAt: readRevision)
+        }
+    }
+
+    @MainActor
+    private func removeCoderouterAccount(_ account: CloudTreeNode.CoderouterAccount) {
+        // The row may be stale while a team change is settling. Never redirect
+        // its removal to whichever team is selected now.
+        guard let scope = coderouterStore.state.removalScope(selected: currentCoderouterScope) else { return }
+        let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
+        guard CloudTreeNodeActions.confirmDestructive(
+            title: String(format: String(localized: "coderouter.removeAccount.title", defaultValue: "Remove \u{201C}%@\u{201D} from coderouter?"), account.title),
+            message: String(localized: "coderouter.removeAccount.message", defaultValue: "The team stops routing agents through this account. You can add it again later."),
+            verb: String(localized: "coderouter.removeAccount.verb", defaultValue: "Remove")
+        ) else { return }
+        // Confirmation is modal; the selection may have changed while it was
+        // displayed.
+        guard coderouterStore.state.removalScope(selected: currentCoderouterScope) == scope,
+              let previousIndex = coderouterStore.state.removeOptimistically(accountID: account.id, for: scope) else { return }
+        Task { @MainActor in
+            await coderouterStore.lane.run {
+                do {
+                    try await CoderouterCLIAccountReader.remove(
+                        accountID: account.id,
+                        for: scope.teamID,
+                        name: teamName
+                    )
+                    coderouterStore.state.finishRemoval(accountID: account.id, for: scope)
+                } catch {
+                    Self.coderouterLogger.error("CodeRouter account removal failed: \(error.localizedDescription, privacy: .public)")
+                    coderouterStore.state.restore(account, at: previousIndex, for: scope)
+                    viewModel.noteTreeFailure(error.localizedDescription)
+                }
+            }
+            requestCoderouterRefresh()
+        }
+    }
+
+    /// Restarts the refresh loop now; the loop clears the spinner after its read.
+    @MainActor
+    private func requestCoderouterRefresh() {
+        guard !coderouterStore.isRefreshing else { return }
+        if let scope = currentCoderouterScope { coderouterStore.state.invalidateDestination(for: scope) }
+        coderouterStore.isRefreshing = true
+        coderouterStore.refreshRequest += 1
+    }
+
+    @MainActor
+    private func addCoderouterAccount(_ provider: CoderouterProvider) {
+        guard let scope = currentCoderouterScope else {
+            viewModel.noteTreeHint(String(localized: "teamMembers.error.noTeam", defaultValue: "Select a team first."))
+            return
+        }
+        guard let destination = coderouterStore.state.destination(for: scope) else {
+            viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "Account settings are still loading for this team. Try again in a moment."))
+            requestCoderouterRefresh()
+            return
+        }
+        // Use the same app-bundled cmux executable that owns the selected team;
+        // a login shell can otherwise resolve a different installation.
+        let cmuxExecutable = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux").path
+        let command = provider.addCommand(
+            for: destination.organizationID,
+            scope: destination.teamScope,
+            cmuxExecutable: cmuxExecutable
+        )
+
+        Task { @MainActor in
+            let coordinator = CoderouterSetupWorkspaceCoordinator(
+                managerSource: { @MainActor in
+                    if let tabManager, !tabManager.isFinalizedForWindowClose {
+                        return tabManager
+                    }
+                    if let active = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil),
+                       !active.isFinalizedForWindowClose {
+                        return active
+                    }
+                    return AppDelegate.shared?.tabManager.flatMap { manager in
+                        manager.isFinalizedForWindowClose ? nil : manager
+                    }
+                },
+                provider: provider,
+                initialTerminalCommand: command
+            )
+            guard let route = coordinator.resolveDestination() else {
+                viewModel.noteTreeHint(String(
+                    localized: "coderouter.setup.localWorkspaceUnavailable",
+                    defaultValue: "Could not open a local workspace for CodeRouter setup."
+                ))
+                return
+            }
+
+            // A newly-created setup workspace already owns the initial command
+            // in its starter terminal. Reuse adds a fresh terminal in the
+            // persisted workspace so each provider gets its own interactive
+            // setup session.
+            let workspace: Workspace
+            switch route {
+            case .created:
+                return
+            case let .existing(existingWorkspace, _):
+                workspace = existingWorkspace
+            }
+
+            do {
+                _ = try await TerminalController.surfaceNewTerminal(
+                    machine: .local,
+                    command: ["sh", "-lc", command],
+                    cwd: nil,
+                    name: "CodeRouter",
+                    remoteWorkspaceID: nil,
+                    destination: .workspace(id: workspace.id, placement: .split),
+                    focus: true
+                )
+            } catch {
+                viewModel.noteTreeFailure(error.localizedDescription)
+            }
+        }
     }
 
     @ViewBuilder
@@ -504,7 +690,7 @@ struct MachinesPanelView: View {
                 Image(systemName: "desktopcomputer")
                     .font(.system(size: 30, weight: .light))
                     .foregroundStyle(.secondary)
-                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                Text(String(localized: "devices.empty.title", defaultValue: "No other devices yet"))
                     .font(.callout.weight(.medium))
                 Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
                     .font(.callout)
@@ -518,19 +704,8 @@ struct MachinesPanelView: View {
                 // Say the true thing instead of pretending the fleet is empty:
                 // offline, reconnecting, or the failure with its real fix.
                 MachinesListStatusEmptyState(status: status, perform: performListStatusAction)
-            } else if viewModel.awaitingCatalogScope {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(
-                        localized: "cloud.teamPicker.switching",
-                        defaultValue: "Switching teams…"
-                    ))
-                    .cmuxFont(size: 12)
-                    .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("CloudMachinesTeamLoading")
+            } else if isTeamChangePending {
+                teamScopeLoading
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
@@ -552,7 +727,7 @@ struct MachinesPanelView: View {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
                 }
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.small)
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {
@@ -567,6 +742,7 @@ struct MachinesPanelView: View {
                             .underline()
                     }
                     .buttonStyle(.plain)
+                    .upgradePromptImpression(.machinesPanelUpgradeNudge)
                 } else if let plan = viewModel.plan {
                     Text(planIncludesLabel(plan))
                         .cmuxFont(size: 11)
@@ -580,6 +756,7 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
+        .cloudErrorCopyMenu(String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again."))
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
@@ -627,4 +804,11 @@ struct MachinesPanelView: View {
             maxActiveVms
         )
     }
+}
+
+/// Restarts the CodeRouter refresh loop when the team changes or a refresh is requested.
+private struct CoderouterRefreshKey: Equatable {
+    let teamID: String?
+    let identityID: String?
+    let request: Int
 }

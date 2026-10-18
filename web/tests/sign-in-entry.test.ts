@@ -29,8 +29,7 @@ const {
   signInEntry,
   signInIsForApp,
   signUpPendingHref,
-  withContinueMarker,
-  withoutContinueMarker,
+  oauthReturnTo,
 } = await import("../app/handler/sign-in-entry");
 const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
 
@@ -113,16 +112,20 @@ describe("sign-ins for the Mac app", () => {
 describe("OAuth return marker", () => {
   const page = "https://cmux.test/handler/sign-in?after_auth_return_to=%2Fdashboard&prompt=select_account";
 
-  test("round trips on the page URL without touching other params", () => {
-    const marked = new URL(withContinueMarker(page));
+  test("the provider returns to this page with the marker, other params kept", () => {
+    const returnTo = oauthReturnTo(`${page}#top`);
+    expect(returnTo).toBeDefined();
+    const marked = new URL(returnTo!);
     expect(marked.searchParams.get(CONTINUE_PARAM)).toBe("1");
     expect(marked.searchParams.get("after_auth_return_to")).toBe("/dashboard");
     expect(marked.searchParams.get("prompt")).toBe(SELECT_ACCOUNT_PROMPT);
+    expect(marked.hash).toBe("");
     expect(isReturningFromOAuth(marked.searchParams)).toBe(true);
+  });
 
-    const cleared = new URL(withoutContinueMarker(marked.toString()));
-    expect(cleared.searchParams.has(CONTINUE_PARAM)).toBe(false);
-    expect(cleared.toString()).toBe(page);
+  test("a page with no return target leaves the provider's default return", () => {
+    expect(oauthReturnTo("https://cmux.test/handler/sign-in")).toBeUndefined();
+    expect(oauthReturnTo("https://cmux.test/handler/sign-in?prompt=select_account")).toBeUndefined();
   });
 
   test("only the exact marker value counts", () => {

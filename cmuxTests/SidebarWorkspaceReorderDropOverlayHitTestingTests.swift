@@ -93,6 +93,80 @@ import Testing
         ))
     }
 
+    /// AppKit routes a drag to the frontmost view registered for one of its
+    /// types, ignoring `hitTest`. A sidebar row drag also carries the Bonsplit
+    /// pane-merge type (#18837), so the Bonsplit overlay above the reorder
+    /// view receives it and must hand the reorder on instead of rejecting it.
+    @Test @MainActor func workspaceRowDragOverBonsplitOverlayStillReorders() {
+        let container = SidebarWorkspaceTableContainerView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 160)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        container.layoutSubtreeIfNeeded()
+
+        let reorder = container.reorderDropView
+        reorder.registerForDraggedTypes([SidebarWorkspaceReorderDropOverlay.pasteboardType])
+        reorder.isValidDrag = { true }
+        reorder.hasLiveWorkspaceDrag = { true }
+        reorder.targets = [SidebarWorkspaceReorderDropOverlay.Target(
+            workspaceId: UUID(),
+            groupId: nil,
+            isGroupHeader: false,
+            frame: CGRect(x: 0, y: 40, width: 240, height: 24)
+        )]
+        var updatedPoints: [CGPoint] = []
+        var droppedPoints: [CGPoint] = []
+        reorder.updateDrag = { point, _ in
+            updatedPoints.append(point)
+            return true
+        }
+        reorder.performDropAtPoint = { point, _ in
+            droppedPoints.append(point)
+            return true
+        }
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-reorder-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            UUID().uuidString,
+            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        )
+        pasteboard.setString(
+            UUID().uuidString,
+            forType: NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+        )
+        let sender = MockDraggingInfo(
+            window: window,
+            location: NSPoint(x: 32, y: 100),
+            pasteboard: pasteboard
+        )
+
+        // The Bonsplit overlay is the frontmost registered destination for this drag.
+        let frontmost = container.subviews.last { view in
+            view.registeredDraggedTypes.contains { pasteboard.types?.contains($0) == true }
+        }
+        #expect(frontmost === container.bonsplitDropView)
+
+        let bonsplit = container.bonsplitDropView
+        #expect(bonsplit.draggingEntered(sender) == .move)
+        #expect(bonsplit.draggingUpdated(sender) == .move)
+        #expect(bonsplit.prepareForDragOperation(sender))
+        #expect(bonsplit.performDragOperation(sender))
+        bonsplit.concludeDragOperation(sender)
+        // AppKit sends this to the overlay, which responds to it; the reorder
+        // view beneath does not, so it must not be forwarded there.
+        bonsplit.draggingEnded(sender)
+
+        #expect(updatedPoints.count == 2)
+        #expect(droppedPoints.count == 1)
+    }
+
     @Test @MainActor func targetBridgeUpdatesEveryAttachedDropView() {
         let bridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
         let firstView = SidebarWorkspaceReorderDropOverlay.DropView()

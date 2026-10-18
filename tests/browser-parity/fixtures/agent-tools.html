@@ -1,0 +1,90 @@
+<!doctype html><html><head><title>Agent Tools Fixture</title><script src="/log.js"></script>
+<style>
+  body { font: 14px sans-serif; margin: 0; }
+  .hidden-note { display: none; }
+  .invisible { visibility: hidden; }
+  #log { height: 120px; overflow: auto; border: 1px solid #999; }
+  #spacer { height: 2400px; }
+</style></head><body>
+<header><nav aria-label="Site"><a href="/index.html">Home</a> <a href="/aria.html">Docs</a></nav></header>
+<aside><h2>Related</h2><a href="/states.html">States</a></aside>
+<main>
+  <h1>Field notes</h1>
+  <p>Plain text with <strong>bold</strong>, <em>emphasis</em>, <code>code()</code> and a <a href="/aria.html?from=notes">relative link</a>.</p>
+  <p class="hidden-note">This note is not rendered.</p>
+  <p class="invisible">Invisible words <span style="visibility: visible">but this span shows</span>.</p>
+  <ul>
+    <li>Alpha</li>
+    <li>Beta
+      <ol><li>Beta one</li><li>Beta two</li></ol>
+    </li>
+  </ul>
+  <table id="scores">
+    <thead><tr><th>Name</th><th>Score</th></tr></thead>
+    <tbody><tr><td>Ada</td><td>9</td></tr><tr><td>Linus | Torvalds</td><td>7</td></tr></tbody>
+  </table>
+  <pre>line one
+  indented line</pre>
+  <blockquote>Quoted words.</blockquote>
+  <details><summary>More</summary><p>Closed details body.</p></details>
+  <div id="shadow-host"></div>
+  <iframe id="peer-frame" title="Peer frame" width="320" height="140"></iframe>
+
+  <section id="products" aria-label="Products">
+    <div class="product" data-sku="A1"><h3>Lamp</h3><span class="price">$19.00</span><a href="/aria.html?p=lamp">View</a><ul class="tags"><li>home</li><li>light</li></ul></div>
+    <div class="product" data-sku="B2"><h3>Desk</h3><span class="price">$120.00</span><a href="/aria.html?p=desk">View</a><ul class="tags"><li>office</li></ul></div>
+    <div class="product" data-sku="C3"><h3>Chair</h3><span class="price">$75.50</span><a href="/aria.html?p=chair">View</a><ul class="tags"></ul></div>
+  </section>
+
+  <form id="login" onsubmit="event.preventDefault(); signIn();">
+    <label>Username <input id="user" name="user" autocomplete="username"></label>
+    <label>Password <input id="pass" type="password" name="pass"></label>
+    <label>API key <input id="apikey" name="apikey"></label>
+    <label>One-time code <input id="otp" name="otp" inputmode="numeric"></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <p id="status">Signed out</p>
+
+  <label>Plan <select id="plan"><option value="free">Free</option><option value="pro" selected>Pro</option><option value="team" disabled>Team</option></select></label>
+  <div>
+    <button id="combo" role="combobox" aria-expanded="false" aria-controls="fruit-list" aria-label="Fruit" onclick="toggleList()">Choose fruit</button>
+    <ul id="fruit-list" role="listbox" aria-label="Fruits" hidden>
+      <li role="option" aria-selected="false" data-value="apple">Apple</li>
+      <li role="option" aria-selected="true" data-value="pear">Pear</li>
+      <li role="option" aria-disabled="true" data-value="plum">Plum</li>
+    </ul>
+  </div>
+
+  <div id="log" tabindex="0"></div>
+  <p><a id="download" href="/download.txt">Download the report</a></p>
+  <p><a id="peer-link">Peer page</a> <button id="js-redirect" onclick="location.href = peer + '/aria.html?redirected'">Go to peer by script</button></p>
+  <div id="spacer"></div>
+  <p id="deep">Deep anchor text at the bottom.</p>
+</main>
+<footer><p>Footer words</p></footer>
+<script>
+const peer = new URLSearchParams(location.search).get("peer") || "";
+document.getElementById("peer-link").href = peer + "/aria.html?linked";
+if (peer) document.getElementById("peer-frame").src = peer + "/agent-frame.html";
+const host = document.getElementById("shadow-host");
+const root = host.attachShadow({ mode: "closed" });
+root.innerHTML = "<h2>Shadow heading</h2><p>Shadow paragraph with <slot></slot>.</p>";
+host.textContent = "slotted text";
+const log = document.getElementById("log");
+for (let i = 1; i <= 60; i++) { const d = document.createElement("div"); d.textContent = "log line " + i; log.appendChild(d); }
+function signIn() {
+  const user = document.getElementById("user").value;
+  const key = document.getElementById("apikey").value;
+  const pass = document.getElementById("pass").value;
+  document.getElementById("status").textContent = `Signed in as ${user} with key ${key} (password ${pass.length} chars, otp ${document.getElementById("otp").value.length} digits)`;
+  console.log("signing in", user, key, pass);
+  document.title = "Agent Tools " + key;
+  history.replaceState(null, "", location.pathname + "?" + new URLSearchParams({ peer, key }).toString());
+}
+function toggleList() {
+  const list = document.getElementById("fruit-list");
+  list.hidden = !list.hidden;
+  document.getElementById("combo").setAttribute("aria-expanded", String(!list.hidden));
+}
+</script>
+</body></html>

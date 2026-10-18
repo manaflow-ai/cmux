@@ -2,7 +2,7 @@ import CmuxFoundation
 import SwiftUI
 
 /// Native rows for the Ghostty options people change most: font, cursor,
-/// padding, background, Option as Alt, and scrollback.
+/// padding, background, Option as Alt, scrollback, and middle-click paste.
 ///
 /// Each row shows the value in effect, folded from the user's own Ghostty
 /// config and cmux's config, and writes a single key to cmux's config, which
@@ -242,6 +242,21 @@ struct TerminalGhosttyOptionsCard: View {
                 Text(String(localized: "settings.terminal.ghostty.scrollbackLimit.unit", defaultValue: "MB"))
                     .foregroundStyle(.secondary)
             }
+        }
+        SettingsCardDivider()
+        optionRow(
+            "middle-click-paste",
+            String(localized: "settings.terminal.ghostty.middleClickPaste", defaultValue: "Middle-Click Paste"),
+            key: .middleClickAction,
+            detail: String(
+                localized: "settings.terminal.ghostty.middleClickPaste.mouseApps",
+                defaultValue: "Apps that use the mouse still get middle clicks."
+            )
+        ) {
+            Toggle("", isOn: Binding(get: { options.middleClickPaste }, set: { apply(.middleClickPaste($0)) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalGhosttyMiddleClickPasteToggle")
         }
     }
 

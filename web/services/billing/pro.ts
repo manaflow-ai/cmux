@@ -25,10 +25,16 @@ import {
   withFreshAccountMetadataUser,
 } from
   "../account/metadataMutation";
+import { activeApplePlanForUser } from "./apple/entitlement";
+import { hasCompanyPlanGrant } from "./companyPlan";
+import { planTierRank } from "./planTier";
+import { planItem } from "./subscriptionItems";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
+import type { BillingInterval } from "./plans";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
-// Max is Pro plus the 16, 24, and 32 GB machine sizes. It is a personal
+// Max is Pro plus the 24, 32, and 64 GB machine sizes. It is a personal
 // subscription like Pro: same Stripe customer scope, same metadata mirror
 // (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
 export const MAX_PLAN_ID = "max";
@@ -76,8 +82,6 @@ export const PAID_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID
  */
 export const PERSONAL_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID] as const;
 export type PersonalPlanId = (typeof PERSONAL_PLAN_IDS)[number];
-/** Higher index wins when an account has more than one active personal row. */
-const PERSONAL_PLAN_RANK: Record<PersonalPlanId, number> = { go: 1, pro: 2, max: 3 };
 
 export function isPersonalPlanId(planId: string | null | undefined): planId is PersonalPlanId {
   return typeof planId === "string" &&
@@ -92,7 +96,7 @@ export function highestPersonalPlanId(
   for (const candidate of planIds) {
     if (!isPersonalPlanId(candidate)) continue;
     const normalized = candidate.trim().toLowerCase() as PersonalPlanId;
-    if (!best || PERSONAL_PLAN_RANK[normalized] > PERSONAL_PLAN_RANK[best]) best = normalized;
+    if (!best || planTierRank(normalized) > planTierRank(best)) best = normalized;
   }
   return best;
 }
@@ -116,6 +120,8 @@ export type ProMetadataJson =
   | { readonly [key: string]: ProMetadataJson };
 
 export type ProMetadataCustomer = {
+  /** Stack user id; lets the mirror honor the user's Apple subscription. */
+  readonly id?: string;
   readonly clientReadOnlyMetadata?: unknown;
   update(options: {
     clientReadOnlyMetadata: ProMetadataJson;
@@ -127,13 +133,33 @@ export type ProMetadataCustomer = {
  * clientReadOnlyMetadata when a personal subscription is active, and removes
  * it when it lapsed. Returns the normalized metadata snapshot that was
  * written or observed.
+ *
+ * Stripe and Apple share this one mirror, so every write combines both
+ * sources and the higher plan wins: a Stripe lapse keeps an Apple grant, and
+ * a Stripe Go purchase never downgrades an Apple Max. `appleGrant` is the
+ * caller's already-read Apple plan; when omitted it is read here.
  */
 export async function syncProPlanMetadata(
   user: ProMetadataCustomer,
   isPro: boolean,
   lease: AccountDeletionUserMutationLease,
   plan: PersonalPlanId = PRO_PLAN_ID,
+  appleGrant?: PersonalPlanId | null,
 ): Promise<ProMetadataJson> {
+  const applePlan = appleGrant !== undefined
+    ? appleGrant
+    : user.id ? await activeApplePlanForUser(user.id) : null;
+  const effectivePlan = highestPersonalPlanId([isPro ? plan : null, applePlan]);
+  return await writeProPlanMirror(user, effectivePlan, lease);
+}
+
+async function writeProPlanMirror(
+  user: ProMetadataCustomer,
+  effectivePlan: PersonalPlanId | null,
+  lease: AccountDeletionUserMutationLease,
+): Promise<ProMetadataJson> {
+  const isPro = effectivePlan !== null;
+  const plan = effectivePlan ?? PRO_PLAN_ID;
   const raw = user.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw)
@@ -162,6 +188,8 @@ export async function syncProPlanMetadata(
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
   readonly isAnonymous?: boolean;
+  readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
@@ -187,6 +215,20 @@ export type StripeBillingStatus = {
   readonly hasCustomer: boolean;
   /** Whether the newest subscription grants current Pro access. */
   readonly hasActiveSubscription: boolean;
+  /**
+   * The lookup key of the plan price behind `subscriptionId`, or null when
+   * it has none (or it is unknown). Decides whether the hosted portal can
+   * switch the subscription's plan.
+   */
+  readonly planLookupKey?: string | null;
+  /** The recurring interval of the subscription behind `subscriptionId`. */
+  readonly subscriptionInterval?: BillingInterval | null;
+  /**
+   * The account owns Founder's Edition, a one-time purchase of Pro for life.
+   * It is never a recurring subscription, so leaving Max returns the account
+   * to Pro without paying for it.
+   */
+  readonly hasFoundersEdition?: boolean;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -198,16 +240,37 @@ export type FreshProMetadataUserMutation = <Result>(
     lease: AccountDeletionUserMutationLease,
   ) => Promise<Result>,
 ) => Promise<Result>;
-export type BillingManagementKind = "stripe" | "none";
+/**
+ * `external`: the plan is billed by the App Store, so the Stripe portal has
+ * nothing to manage. Installed clients already decode all three values.
+ */
+export type BillingManagementKind = "stripe" | "external" | "none";
+/** Who bills the plan in force; `none` for free and operator grants. */
+export type PersonalBillingSource = "stripe" | "apple" | "none";
+/** Seam for the user's granting Apple plan; defaults to the database. */
+export type ActiveApplePlanQuery = (stackUserId: string) => Promise<PersonalPlanId | null>;
 
 export type ProPlanStatus = {
   /** The personal plan in force: free, pro, or max (max satisfies isPro). */
   readonly planId: typeof FREE_PLAN_ID | PersonalPlanId;
   readonly isPro: boolean;
   readonly billingManagement: BillingManagementKind;
+  readonly billingSource: PersonalBillingSource;
+  /** Where the subscriber manages billing outside cmux (the App Store), or null. */
+  readonly manageUrl: string | null;
   readonly metadataPlanId: string | null;
   readonly hasManualVmPlanOverride: boolean;
   readonly metadataChanged: boolean;
+  /**
+   * The Stripe subscription that grants the plan is set to end at period
+   * end, so pricing offers Resume instead of a new purchase.
+   */
+  readonly cancelScheduled?: boolean;
+  /**
+   * The Stripe subscription that grants the plan has a failed payment, so
+   * pricing sends the subscriber to fix it before offering a plan switch.
+   */
+  readonly paymentPastDue?: boolean;
 };
 
 /**
@@ -221,6 +284,7 @@ export async function reconcileProPlanMetadata(
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
     activePersonalPlan?: ActivePersonalPlanQuery;
+    activeApplePlan?: ActiveApplePlanQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
   } = {},
 ): Promise<boolean> {
@@ -233,7 +297,10 @@ export async function reconcileProPlanMetadata(
   if (typeof override === "string" && override.trim()) return false;
 
   const activePlan = user.id
-    ? await resolveActivePersonalPlan(user.id, options)
+    ? highestPersonalPlanId([
+        await resolveActivePersonalPlan(user.id, options),
+        await (options.activeApplePlan ?? activeApplePlanForUser)(user.id),
+      ])
     : null;
   if (!proMirrorNeedsReconcile(activePlan, planIdFromMetadata(metadata))) return false;
   if (!user.id) return false;
@@ -271,6 +338,7 @@ export async function resolveProPlanStatus(
     hasStripeCustomer?: StripeCustomerQuery;
     /** Optional state snapshot used by checkout and deterministic callers. */
     stripeBillingStatus?: StripeBillingStatus | StripeBillingStatusQuery;
+    activeApplePlan?: ActiveApplePlanQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
     /** Runtime environment override used by deterministic callers and tests. */
     environment?: Record<string, string | undefined>;
@@ -284,6 +352,8 @@ export async function resolveProPlanStatus(
       planId: PRO_PLAN_ID,
       isPro: true,
       billingManagement: "none",
+      billingSource: "none",
+      manageUrl: null,
       metadataPlanId,
       hasManualVmPlanOverride,
       metadataChanged: false,
@@ -291,24 +361,36 @@ export async function resolveProPlanStatus(
   }
   const { stripeBillingStatus, activeStripePlan, hasStripeCustomer } =
     await stripeStateForStatus(user.id, options);
+  const activeApplePlan = user.id
+    ? await (options.activeApplePlan ?? activeApplePlanForUser)(user.id)
+    : null;
+  // Stripe and Apple grant through the same mirror; the higher plan wins.
+  const activeSubscriptionPlan = highestPersonalPlanId([activeStripePlan, activeApplePlan]);
   const hasActiveStripePro = activeStripePlan !== null;
-  const planId = personalPlanIdForStatus(activeStripePlan, manualVmPlanOverride(metadata));
+  const subscribedPlanId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
+  // Staff accounts are Pro without a subscription (see hasCompanyPlanGrant).
+  const planId = subscribedPlanId === FREE_PLAN_ID && hasCompanyPlanGrant(user) ? PRO_PLAN_ID : subscribedPlanId;
   const isPro = planId !== FREE_PLAN_ID;
-  const billingManagement = billingManagementForStatus(
+  const stripeManagement = billingManagementForStatus(
     stripeBillingStatus,
     hasActiveStripePro,
     hasStripeCustomer,
   );
+  const billingSource = billingSourceForStatus(activeStripePlan, activeApplePlan);
+  // A recoverable Stripe subscription still needs the portal; otherwise an
+  // Apple subscriber manages billing in the App Store.
+  const billingManagement: BillingManagementKind =
+    stripeManagement === "none" && activeApplePlan ? "external" : stripeManagement;
   let metadataChanged = false;
 
   if (
     user.id &&
     !hasManualVmPlanOverride &&
-    proMirrorNeedsReconcile(activeStripePlan, metadataPlanId)
+    proMirrorNeedsReconcile(activeSubscriptionPlan, metadataPlanId)
   ) {
     metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
-      activeStripePlan,
+      activeSubscriptionPlan,
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
@@ -317,9 +399,22 @@ export async function resolveProPlanStatus(
     planId,
     isPro,
     billingManagement,
+    billingSource,
+    manageUrl: billingSource === "apple" ? APPLE_MANAGE_SUBSCRIPTIONS_URL : null,
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
+    ...(billingSource === "stripe" && hasActiveStripePro ? stripeSubscriptionFlags(stripeBillingStatus) : {}),
+  };
+}
+
+/** Pricing states of the Stripe subscription that grants the plan. */
+function stripeSubscriptionFlags(
+  status: StripeBillingStatus | null,
+): Pick<ProPlanStatus, "cancelScheduled" | "paymentPastDue"> {
+  return {
+    ...(status?.cancelAtPeriodEnd ? { cancelScheduled: true } : {}),
+    ...(status?.subscriptionStatus === "past_due" ? { paymentPastDue: true } : {}),
   };
 }
 
@@ -377,6 +472,20 @@ function personalPlanIdForStatus(
   if (activeStripePlan) return activeStripePlan;
   if (!isPaidPlanId(manualOverride)) return FREE_PLAN_ID;
   return manualOverride === MAX_PLAN_ID ? MAX_PLAN_ID : PRO_PLAN_ID;
+}
+
+/**
+ * The source of the plan in force. Apple wins only with a strictly higher
+ * plan, so a tie keeps Stripe (the source cmux can manage).
+ */
+function billingSourceForStatus(
+  activeStripePlan: PersonalPlanId | null,
+  activeApplePlan: PersonalPlanId | null,
+): PersonalBillingSource {
+  if (activeApplePlan && highestPersonalPlanId([activeStripePlan, activeApplePlan]) !== activeStripePlan) {
+    return "apple";
+  }
+  return activeStripePlan ? "stripe" : "none";
 }
 
 /** Whether the Stripe portal has something to manage for this person. */
@@ -484,7 +593,8 @@ async function reconcileFreshProMetadata(
   ) {
     return false;
   }
-  await syncProPlanMetadata(user, activePlan !== null, lease, activePlan ?? PRO_PLAN_ID);
+  // activePlan already combines Stripe and Apple.
+  await writeProPlanMirror(user, activePlan, lease);
   return true;
 }
 
@@ -618,7 +728,6 @@ export async function stripeBillingStatusForUser(
           isNull(stripeSubscriptions.stackTeamId),
           eq(stripeSubscriptions.scope, "user"),
           inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
-          sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         ),
       );
     // Keep the ordering in the real Drizzle query, while allowing lightweight
@@ -640,7 +749,12 @@ export async function stripeBillingStatusForUser(
       orderedSubscriptionQuery.limit(10),
       activePersonalPlanForUser(stackUserId),
     ]);
+    // Founder rows are read only to report the lifetime purchase; every
+    // subscription decision below uses the recurring rows.
     const recurringRows = subscriptionRows.filter((row) => !isFounderSubscriptionRow(row));
+    const hasFoundersEdition = subscriptionRows.some((row) =>
+      isFounderSubscriptionRow(row) && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
+    );
     const subscription = recurringRows.find((row) =>
       row.plan === activePlanId && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) ?? pickPortalMetadataRow(recurringRows);
@@ -650,6 +764,9 @@ export async function stripeBillingStatusForUser(
       activePlanId !== null,
       activePlanId,
     ), subscriptionStatus: subscription?.status ?? null,
+    planLookupKey: planLookupKeyFromRaw(subscription?.raw),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
+    hasFoundersEdition,
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) };
@@ -857,6 +974,7 @@ function stripeBillingStatusFromRows(
     readonly id?: string | null;
     readonly status?: string | null;
     readonly cancelAtPeriodEnd?: boolean | null;
+    readonly raw?: unknown;
   } | undefined,
   activeSubscriptionOverride?: boolean,
   activePlanId: PersonalPlanId | null = null,
@@ -874,7 +992,21 @@ function stripeBillingStatusFromRows(
       subscriptionStatus !== null &&
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
   };
+}
+
+function planLookupKeyFromRaw(raw: unknown): string | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const lookupKey = (item as { price?: { lookup_key?: unknown } | null } | undefined)?.price?.lookup_key;
+  return typeof lookupKey === "string" && lookupKey ? lookupKey : null;
+}
+
+function subscriptionIntervalFromRaw(raw: unknown): BillingInterval | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const interval = (item as { price?: { recurring?: { interval?: unknown } | null } | null } | undefined)
+    ?.price?.recurring?.interval;
+  return interval === "year" || interval === "month" ? interval : null;
 }
 
 function emptyStripeBillingStatus(): StripeBillingStatus {
@@ -886,5 +1018,6 @@ function emptyStripeBillingStatus(): StripeBillingStatus {
     cancelAtPeriodEnd: false,
     hasCustomer: false,
     hasActiveSubscription: false,
+    subscriptionInterval: null,
   };
 }
