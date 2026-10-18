@@ -1,6 +1,5 @@
 import Foundation
 import XCTest
-import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -25,17 +24,10 @@ final class OpenCodeDatabaseSnapshotTests: XCTestCase {
         try Data("write-ahead-log".utf8).write(to: walURL)
         try Data("shared-memory".utf8).write(to: shmURL)
 
-        let previousOverride = getenv("OPENCODE_DB").map { String(cString: $0) }
-        setenv("OPENCODE_DB", sourceDB.path, 1)
-        defer {
-            if let previousOverride {
-                setenv("OPENCODE_DB", previousOverride, 1)
-            } else {
-                unsetenv("OPENCODE_DB")
-            }
-        }
-
-        let snapshot = try XCTUnwrap(OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-test"))
+        let snapshot = try XCTUnwrap(OpenCodeDatabaseSnapshot.make(
+            prefix: "cmux-opencode-test",
+            environment: ["HOME": root.path, "OPENCODE_DB": sourceDB.path]
+        ))
         defer { snapshot.remove() }
 
         XCTAssertEqual(try Data(contentsOf: snapshot.databaseURL), Data("database".utf8))
@@ -50,18 +42,12 @@ final class OpenCodeDatabaseSnapshotTests: XCTestCase {
     }
 
     func testSnapshotReturnsNilWhenConfiguredDatabaseDoesNotExist() throws {
-        let previousOverride = getenv("OPENCODE_DB").map { String(cString: $0) }
         let missingDB = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-opencode-missing-\(UUID().uuidString).sqlite")
-        setenv("OPENCODE_DB", missingDB.path, 1)
-        defer {
-            if let previousOverride {
-                setenv("OPENCODE_DB", previousOverride, 1)
-            } else {
-                unsetenv("OPENCODE_DB")
-            }
-        }
 
-        XCTAssertNil(try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-test"))
+        XCTAssertNil(try OpenCodeDatabaseSnapshot.make(
+            prefix: "cmux-opencode-test",
+            environment: ["HOME": FileManager.default.homeDirectoryForCurrentUser.path, "OPENCODE_DB": missingDB.path]
+        ))
     }
 }
