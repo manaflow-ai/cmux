@@ -59642,13 +59642,13 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mettre une suite en file"
+            "value": "Ajouter une demande à la file"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Metti in coda un seguito"
+            "value": "Metti in coda la prossima richiesta"
           }
         },
         "ja": {
@@ -59684,7 +59684,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enfileirar um acompanhamento"
+            "value": "Enfileirar a próxima mensagem"
           }
         },
         "ru": {

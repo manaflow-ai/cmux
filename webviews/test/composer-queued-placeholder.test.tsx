@@ -1,6 +1,6 @@
 // While a turn runs, a prompt sent from the composer waits behind it (⌘Return steers instead), so
-// the empty prompt says "Queue a follow-up" rather than the idle "Do anything". Idle chats, a new
-// chat and the shell prompt keep their own placeholders.
+// the empty prompt says "Queue a follow-up" rather than the idle "Do anything". An idle chat, and a
+// running one whose composer cannot send (blocked), keep the usual placeholder.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -72,7 +72,7 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot) {
+async function render(snapshot: AcpmuxSnapshot, blocked?: { reason?: never }) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -88,6 +88,7 @@ async function render(snapshot: AcpmuxSnapshot) {
         onNewChat={() => {}}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
+        blocked={blocked}
       />,
     ),
   );
@@ -117,5 +118,10 @@ test("an idle chat keeps the usual placeholder", async () => {
   expect(shown()).toBe("Queue a follow-up");
   // The turn ended: back to the idle placeholder.
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
+  expect(shown()).toBe("Do anything");
+});
+
+test("a running turn whose composer cannot send keeps the usual placeholder", async () => {
+  await render(started({ isWorking: true }), {});
   expect(shown()).toBe("Do anything");
 });
