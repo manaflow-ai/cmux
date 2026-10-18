@@ -203,6 +203,9 @@ extension Workspace {
             return .routedToRemote
         }
 
+        #if DEBUG
+        cmuxDebugLog("cloud.split.reserved request=\(requestID.uuidString.prefix(8)) panel=\(reservation.panelID.uuidString.prefix(8)) layout=\(source.remoteTabID != nil ? 1 : 0)")
+        #endif
         var token: UUID?
         let beginProjectionMutation: @MainActor () -> Void = {
             if token == nil { token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine) }
@@ -242,6 +245,9 @@ extension Workspace {
                 }
                 guard catalog.provider(for: machine) === provider else { throw SurfaceCatalogError.noProvider(machine) }
                 try resolvedSource.validate(created: created)
+                #if DEBUG
+                cmuxDebugLog("cloud.split.created request=\(requestID.uuidString.prefix(8)) terminal=\(created.id.key) attachment=\(created.creationAttachment != nil ? 1 : 0)")
+                #endif
                 return created
             } catch {
                 endProjectionMutation()
@@ -366,6 +372,9 @@ extension Workspace {
                 self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: existing.panelID)
                 return (existing, true)
             }
+            #if DEBUG
+            cmuxDebugLog("cloud.split.project terminal=\(created.id.key)")
+            #endif
             // Focus was granted when the pane appeared; adoption must not steal it
             // back from wherever the user has typed since.
             let result = try await CloudOperationContext.phase(.materialize) {
@@ -379,6 +388,9 @@ extension Workspace {
                 )
             }
             self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: result.projection.panelID)
+            #if DEBUG
+            cmuxDebugLog("cloud.split.projected terminal=\(created.id.key)")
+            #endif
             return result
         }
         reservation.retry = { [weak store] in store?.retry(requestID: requestID) }
@@ -404,6 +416,8 @@ extension Workspace {
                 reservation.creationReceipt.beginAttempt()
                 onStart()
                 self?.restartReservedCloudTerminalPane(reservation)
+                (catalog.provider(for: reservation.machine) as? CmuxTuiSurfaceProvider)?
+                    .beginAttachHandshake(for: reservation)
             },
             onFinish: onFinish,
             inlineFailure: { [weak self, reservation] error in

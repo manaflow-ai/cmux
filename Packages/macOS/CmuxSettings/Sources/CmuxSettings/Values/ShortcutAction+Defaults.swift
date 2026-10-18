@@ -77,7 +77,7 @@ extension ShortcutAction {
         case .toggleFullScreen: return ShortcutStroke(key: "f", command: true, control: true)
         case .quit: return ShortcutStroke(key: "q", command: true)
         case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
-        case .focusSidebar: return ShortcutStroke(key: "e", command: true, control: true)
+        case .focusSidebar: return nil
         case .showWindowHints: return ShortcutStroke(key: "j", command: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
         case .newLocalWorkspace: return ShortcutStroke(key: "n", command: true, option: true, control: true)
@@ -136,7 +136,7 @@ extension ShortcutAction {
         case .focusDown: return ShortcutStroke(key: "↓", command: true, option: true)
         case .focusPreviousPane: return nil
         case .focusNextPane: return nil
-        case .focusPaneByNumber: return ShortcutStroke(key: "1", command: true, control: true)
+        case .focusPaneByNumber: return nil
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
         case .newPaneAutoLayout: return ShortcutStroke(key: "n", command: true, control: true)
@@ -189,8 +189,6 @@ extension ShortcutAction {
         case .moveWorkspaceDown: return ShortcutStroke(key: "]", command: true, option: true, control: true)
         case .newSurface: return ShortcutStroke(key: "t", command: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
-        case .previousAgentTurn: return ShortcutStroke(key: "↑", command: true, shift: true)
-        case .nextAgentTurn: return ShortcutStroke(key: "↓", command: true, shift: true)
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .cycleTextBoxSubmitAction: return ShortcutStroke(key: "\t", shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)

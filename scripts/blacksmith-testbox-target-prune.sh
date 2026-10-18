@@ -2,7 +2,8 @@
 # Usage: blacksmith-testbox-target-prune.sh <target-dir> [max-bytes] [stale-days]
 #
 # Bounds the warm cmux-tui target dir before the Testbox commits it as the
-# shared sticky disk `cmux-tui-target-v1`. Every box clones that one snapshot,
+# sticky disk of its branch family (`cmux-tui-target-v2-<family>`). Every box of
+# that family clones that one snapshot,
 # so it must stay small enough to clone fast and must not grow without limit.
 #
 # 1. Remove incremental-compilation dirs not touched for <stale-days> days.

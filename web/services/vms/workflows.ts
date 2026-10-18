@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -64,6 +64,7 @@ import {
   vmResourceResizePendingFromMetadata,
   vmResourceResizeUnconfirmedFromMetadata,
   vmProviderResourceSize,
+  vmDiskMb,
   type VmComputeResources,
   type VmResourceReservation,
   type VmResourceResizePending,
@@ -96,6 +97,7 @@ import {
   VmSnapshotInProgressError,
   VmSnapshotIdempotencyConflictError,
   VmUsageLimitExceededError,
+  VmPlanBudgetExceededError,
   VmGoShapeError,
   VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
@@ -118,6 +120,7 @@ import {
   type VmResourcePoolPolicy,
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
+import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
@@ -131,11 +134,13 @@ import {
   VM_PREVIEW_LEASE_RETENTION_MS,
 } from "./operationTimeouts";
 import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
+import { withVmSyncPublication } from "./presencePublisher";
 import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
   OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  UNEXPECTED_WAKE_CLAIM_METADATA_KEY,
   VmRepository,
   vmRepositoryLiveShape,
   type BeginCreateResult,
@@ -201,6 +206,8 @@ export type VmEntry = {
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
+  /** The row's `updated_at` (epoch ms): the freshness clock for `vms` sync publication. */
+  readonly updatedAt: number;
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
@@ -271,11 +278,13 @@ export type VmModelPlaneRevoker = Pick<VmModelPlaneProvisioner, "revoke">;
 
 /**
  * The Postgres repository wrapped so every usage-ledger write also reaches
- * PostHog as a product event (services/vms/productAnalytics.ts).
+ * PostHog as a product event (services/vms/productAnalytics.ts) and every
+ * list-relevant machine write reaches the presence Worker's `vms` sync
+ * collection (services/vms/presencePublisher.ts).
  */
 export const VmRepositoryWithAnalyticsLive = Layer.succeed(
   VmRepository,
-  withVmProductAnalytics(vmRepositoryLiveShape),
+  withVmProductAnalytics(withVmSyncPublication(vmRepositoryLiveShape)),
 );
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryWithAnalyticsLive, VmProviderGatewayLive, VmBillingGatewayLive);
@@ -306,6 +315,25 @@ const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
 // Provider stats are advisory on request paths. A stalled provider must not
 // keep a snapshot or fork HTTP request open indefinitely.
 const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
+/** A pause retry must not wait on a provider status read that has stopped answering. */
+export const PAUSE_STATE_PROBE_TIMEOUT_MS = 5_000;
+/** A provider pause is an out-of-band lifecycle operation; bound its foreground wait. */
+export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
+/**
+ * How long the status cron waits before pausing a machine it found running
+ * under a paused row. A personal machine's resume writes `running` only after
+ * the provider settles (about a minute at worst), so a wake still present after
+ * this wait had no resume behind it.
+ */
+const UNEXPECTED_WAKE_CONFIRM_MS = 120_000;
+/** Longer than one cron run, so an overlapping run cannot claim the same wake. */
+const UNEXPECTED_WAKE_CLAIM_TTL_MS = 5 * 60 * 1000;
+/**
+ * Woken machines one cron run re-pauses; the rest wait for the next run, ten
+ * minutes later. The 120 s confirmation plus two waves of ten at about 75 s
+ * each stays inside the route's 300 s `maxDuration`.
+ */
+export const UNEXPECTED_WAKE_REPAUSE_LIMIT = 20;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -326,6 +354,8 @@ export type VmProviderStatusReconcileResult = {
   readonly updated: number;
   readonly destroyed: number;
   readonly skipped: number;
+  /** Paused rows whose machine woke without a recorded resume and was paused again. */
+  readonly repaused: number;
   readonly skippedNoGetStatus: boolean;
 };
 
@@ -455,6 +485,8 @@ export function renameVm(input: {
       yield* providers.exec(updated.provider, input.providerVmId, guestPromptInstallCommand(vmPromptIdentity(updated)), {
         timeoutMs: 10_000,
         providerMetadata: updated.providerMetadata,
+        // /etc/cmux is root-owned.
+        asRoot: true,
       }).pipe(
         Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`prompt update exited ${result.exitCode}`))),
         // A saved rename must remain available when a guest is unreachable.
@@ -540,6 +572,8 @@ export function reconcileVmProviderStatuses(input: {
   readonly now?: () => number;
   /** Revokes coderouter tokens for machines the provider reports gone. */
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Wait before re-pausing a machine woken while paused; tests pass 0. */
+  readonly unexpectedWakeConfirmMs?: number;
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
@@ -572,6 +606,7 @@ export function reconcileVmProviderStatuses(input: {
         updated: 0,
         destroyed: 0,
         skipped: 0,
+        repaused: 0,
         skippedNoGetStatus: true,
       };
     }
@@ -579,11 +614,15 @@ export function reconcileVmProviderStatuses(input: {
     const candidates = yield* repo.reconciliationCandidates({
       limit: boundedVmStatusReconcileLimit(input.limit),
     });
-    const outcomes = yield* Effect.forEach(
+    const firstPass = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane),
+      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane, true),
       { concurrency: 10 },
     );
+    const outcomes = yield* settleUnexpectedWakes(repo, providers, getStatus, candidates, firstPass, {
+      confirmMs: input.unexpectedWakeConfirmMs ?? UNEXPECTED_WAKE_CONFIRM_MS,
+      modelPlane: input.modelPlane,
+    });
     // Network heal moved here from the create path: re-create the members
     // rule of every owner network this batch touches if it went missing.
     const ensureNetwork = providers.ensureNetwork;
@@ -604,14 +643,7 @@ export function reconcileVmProviderStatuses(input: {
         { concurrency: 1, discard: true },
       );
     }
-    let updated = 0;
-    let destroyed = 0;
-    let skipped = 0;
-    for (const outcome of outcomes) {
-      if (outcome === "updated") updated += 1;
-      else if (outcome === "destroyed") destroyed += 1;
-      else if (outcome === "skipped") skipped += 1;
-    }
+    const tally = (kind: ProviderStatusReconcileOutcome) => outcomes.filter((outcome) => outcome === kind).length;
     if (
       input.teamDirectory && repo.listActiveTeamVmOwners && repo.findTunnelsByProviderTunnelIds &&
       providers.getNetwork && providers.listNetworkTunnelIds && providers.detachTunnelNetwork
@@ -623,9 +655,10 @@ export function reconcileVmProviderStatuses(input: {
     }
     return {
       checked: candidates.length,
-      updated,
-      destroyed,
-      skipped,
+      updated: tally("updated"),
+      destroyed: tally("destroyed"),
+      skipped: tally("skipped"),
+      repaused: tally("repaused"),
       skippedNoGetStatus: false,
     };
   });
@@ -1068,9 +1101,74 @@ function requireGoShape(planId: string | null | undefined, shape: VmResourceRese
     ? Effect.fail(new VmGoShapeError()) : Effect.void;
 }
 
-/** Read and reserve the caller's remaining Go runtime allowance. */
-function requireGoCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation">) {
+const MB_PER_GB = 1024;
+
+function readPlanBudget(userId: string) {
+  return Effect.tryPromise({
+    try: () => getPlanBudgetUsage(userId),
+    catch: (cause) => new VmBillingError({ operation: "plan_budget", cause }),
+  });
+}
+
+function computeBudgetExceeded(usage: PlanBudgetUsage) {
+  return new VmPlanBudgetExceededError({
+    planId: usage.planId,
+    resource: "compute",
+    included: Math.round(usage.includedComputeSeconds / 3600),
+    used: Math.round(usage.usedComputeSeconds / 3600),
+    requested: 0,
+    resetsAt: usage.periodEnd,
+  });
+}
+
+/**
+ * Refuse a start when the Pro or Max compute allowance is used up, and a new
+ * or grown disk when the saved machines' disk would pass the plan's total.
+ * `addedDiskMb` is the disk the request adds; `replacesVmId` is the machine a
+ * resize grows, whose current disk the new size replaces.
+ */
+function requirePlanBudget(
+  planId: string | null | undefined,
+  userId: string,
+  disk: { readonly addedDiskMb: number; readonly replacesVmId?: string } | null,
+) {
   return Effect.gen(function* () {
+    if (!isBudgetPlanId(planId)) return;
+    const usage = yield* readPlanBudget(userId);
+    if (!usage) return;
+    if (!disk || disk.replacesVmId === undefined) {
+      if (usage.remainingComputeSeconds <= 0) return yield* Effect.fail(computeBudgetExceeded(usage));
+    }
+    if (!disk) return;
+    // A legacy restore or fork reserves the provider's disk ceiling until it
+    // is measured; the plan's per-machine maximum is the most it can hold.
+    const addedDiskMb = Math.min(disk.addedDiskMb, maxDiskMbForPlan(usage.planId));
+    const kept = usage.retainedStorageMb - (disk.replacesVmId ? usage.retainedDiskMb.get(disk.replacesVmId) ?? 0 : 0);
+    if (kept + addedDiskMb > usage.storageBudgetMb) {
+      return yield* Effect.fail(new VmPlanBudgetExceededError({
+        planId: usage.planId,
+        resource: "storage",
+        included: Math.round(usage.storageBudgetMb / MB_PER_GB),
+        used: Math.ceil(kept / MB_PER_GB),
+        requested: Math.ceil(addedDiskMb / MB_PER_GB),
+        resetsAt: usage.periodEnd,
+      }));
+    }
+  });
+}
+
+/** Disk a create will claim, the same value createVmBeginInput reserves. */
+function requestedCreateDiskMb(input: Pick<Parameters<typeof createVm>[0], "imageSize" | "resourceReservation" | "memoryMb">): number {
+  return (input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })).diskMb;
+}
+
+/** Read and reserve the caller's remaining Go runtime allowance; check the Pro and Max allowances. */
+function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation" | "memoryMb">) {
+  return Effect.gen(function* () {
+    if (isBudgetPlanId(input.billingPlanId)) {
+      yield* requirePlanBudget(input.billingPlanId, input.userId, { addedDiskMb: requestedCreateDiskMb(input) });
+      return undefined;
+    }
     if (input.billingPlanId === "go") {
       yield* requireGoShape("go", input.resourceReservation ?? (input.imageSize ? {
         vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
@@ -1195,7 +1293,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     if (existingEntry) return existingEntry;
     let runtimeBudgetSeconds: number | undefined;
     if (!existingRetry || isFailedVmCreate(existingRetry) || existingRetry.status === "destroyed") {
-      runtimeBudgetSeconds = yield* requireGoCreate(input);
+      runtimeBudgetSeconds = yield* requirePlanCreate(input);
       yield* requireMemoryPlan(
         input.billingPlanId,
         requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }),
@@ -1258,7 +1356,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     // A failed row may have become retryable between the preflight lookup and
     // the insert transaction. Re-run create-only checks before provider I/O.
     if (runtimeBudgetSeconds === undefined && input.billingPlanId === "go") {
-      runtimeBudgetSeconds = yield* requireGoCreate(input);
+      runtimeBudgetSeconds = yield* requirePlanCreate(input);
     }
 
     const networkRules = yield* recordCreateNetworkPolicy(repo, providers, input, create.vm.id);
@@ -1442,6 +1540,8 @@ function schedulePromptIdentityPush(
     providers.exec(row.provider, providerVmId, guestPromptInstallCommand(vmPromptIdentity(row)), {
       timeoutMs: 10_000,
       providerMetadata: row.providerMetadata,
+      // /etc/cmux is root-owned.
+      asRoot: true,
     })
   ).pipe(
     Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`prompt push exited ${result.exitCode}`))),
@@ -1579,7 +1679,7 @@ export function openBaseVm(input: {
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
-    const runtimeBudgetSeconds = yield* requireGoCreate(input);
+    const runtimeBudgetSeconds = yield* requirePlanCreate(input);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
@@ -1627,7 +1727,7 @@ export function resetBaseVm(input: {
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
-    const runtimeBudgetSeconds = yield* requireGoCreate(input);
+    const runtimeBudgetSeconds = yield* requirePlanCreate(input);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
@@ -2232,9 +2332,23 @@ export function pauseVm(input: {
     // powered-off machine is recorded as parked without a pause the provider
     // would refuse, and only a running machine is paused now.
     const probed = providers.getPauseState
-      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(Effect.either)
+      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(
+        Effect.timeoutFail({
+          duration: PAUSE_STATE_PROBE_TIMEOUT_MS,
+          onTimeout: () => new VmOperationDeadlineError({
+            operation: "pause",
+            mutating: true,
+            waitedMs: PAUSE_STATE_PROBE_TIMEOUT_MS,
+          }),
+        }),
+        Effect.either,
+      )
       : null;
-    if (probed?._tag === "Left" || (probed?._tag === "Right" && probed.right === "in_progress")) {
+    if (probed?._tag === "Left") {
+      if (probed.left._tag === "VmOperationDeadlineError") return yield* Effect.fail(probed.left);
+      return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
+    }
+    if (probed?._tag === "Right" && probed.right === "in_progress") {
       return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
     }
     const observed = probed?._tag === "Right" ? probed.right : null;
@@ -2243,8 +2357,20 @@ export function pauseVm(input: {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (observed !== "paused" && observed !== "stopped") {
-      if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
-      yield* pause(vm.provider, providerVmId);
+      const pauseOperation = Effect.gen(function* () {
+        if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+        yield* pause(vm.provider, providerVmId);
+      });
+      yield* pauseOperation.pipe(
+        Effect.timeoutFail({
+          duration: PAUSE_OPERATION_TIMEOUT_MS,
+          onTimeout: () => new VmOperationDeadlineError({
+            operation: "pause",
+            mutating: true,
+            waitedMs: PAUSE_OPERATION_TIMEOUT_MS,
+          }),
+        }),
+      );
     }
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
     if (!recorded) {
@@ -2301,6 +2427,64 @@ export function resumeVm(input: {
       { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
+  });
+}
+
+export type VmRestartResult = {
+  readonly id: string;
+  readonly status: "running";
+};
+
+/**
+ * Reboot a VM through the provider control plane. There is deliberately no
+ * status or guest probe before this call: those are the channels a frozen VM
+ * has stopped answering. A successful provider restart is recorded as running
+ * and the normal attach retry observes when the daemon is ready again.
+ */
+export function restartVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+}): Effect.Effect<VmRestartResult, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    // Use the ownership/access read directly. The accessible variant can
+    // refresh legacy resource reservations with getStats; that provider read
+    // is exactly what a frozen VM cannot answer.
+    const vm = yield* requireUserVm(input);
+    const providerVmId = vm.providerVmId ?? input.providerVmId;
+    if (vm.status === "destroyed") {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+    if (!providers.restart || providers.capabilities?.(vm.provider).restart === false) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "restart" }));
+    }
+    yield* providers.restart(vm.provider, providerVmId).pipe(
+      Effect.catchAll((error): Effect.Effect<never, VmWorkflowError> => isProviderNotFoundError(error)
+        ? Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }))
+        : Effect.fail(error)),
+    );
+    const recorded = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "running",
+    });
+    if (!recorded) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.restarted",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { source: "user", hard: true },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return { id: providerVmId, status: "running" } satisfies VmRestartResult;
   });
 }
 
@@ -2631,6 +2815,11 @@ export function forkVm(input: {
       : undefined;
 
     if (nativeFork) {
+      // The snapshot path checks the allowance in createVm; the native fork
+      // allocates its row here.
+      yield* requirePlanBudget(input.billingPlanId, input.userId, {
+        addedDiskMb: nativeForkReservation?.diskMb ?? vmDiskMb(),
+      });
       const sourceReservation = nativeForkReservation ?? DEFAULT_VM_RESOURCE_RESERVATION;
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
         userId: input.userId,
@@ -3321,7 +3510,7 @@ function applyObservedProviderStatus(
   });
 }
 
-type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
+type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped" | "repaused";
 
 function reconcileObservedProviderStatus(
   repo: VmRepositoryShape,
@@ -3330,7 +3519,9 @@ function reconcileObservedProviderStatus(
   vm: CloudVmRow,
   usageEventSource: VmDestroySource,
   modelPlane?: VmModelPlaneRevoker,
-): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  /** Return `unexpected_wake` for a paused row found running instead of relabelling it. */
+  holdUnexpectedWakes = false,
+): Effect.Effect<ProviderStatusReconcileOutcome | "unexpected_wake", never> {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
     if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
@@ -3344,6 +3535,7 @@ function reconcileObservedProviderStatus(
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
     const dbStatus = observedDbStatus(providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
+    if (holdUnexpectedWakes && vm.status === "paused" && dbStatus === "running") return "unexpected_wake" as const;
     const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
       providerVmId,
       providerStatus,
@@ -3352,6 +3544,226 @@ function reconcileObservedProviderStatus(
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
     return dbStatus === "destroyed" ? "destroyed" as const : "updated" as const;
+  });
+}
+
+/**
+ * A paused row whose machine runs at the provider, with no resume recorded,
+ * was woken by traffic: a client heartbeat or a request to the machine wakes
+ * a paused Freestyle VM (cmux#21379). Wait out any resume still settling,
+ * then pause it again if the row is still paused and the machine still runs.
+ * A machine the provider will not pause is recorded as running, so it counts.
+ */
+function settleUnexpectedWakes(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  candidates: readonly CloudVmRow[],
+  firstPass: readonly (ProviderStatusReconcileOutcome | "unexpected_wake")[],
+  options: { readonly confirmMs: number; readonly modelPlane?: VmModelPlaneRevoker },
+): Effect.Effect<ProviderStatusReconcileOutcome[], never> {
+  return Effect.gen(function* () {
+    if (!firstPass.includes("unexpected_wake")) return firstPass as ProviderStatusReconcileOutcome[];
+    if (options.confirmMs > 0) yield* Effect.sleep(options.confirmMs);
+    // Wakes past the cap stay paused rows for the next run to find again. A
+    // row another run claimed is left to it without counting toward the cap.
+    const nowMs = Date.now();
+    let woken = 0;
+    return yield* Effect.forEach(
+      firstPass,
+      (outcome, index) => {
+        if (outcome !== "unexpected_wake") return Effect.succeed(outcome);
+        if (hasFreshRepauseClaim(candidates[index]!, nowMs)) return Effect.succeed("skipped" as const);
+        woken += 1;
+        return woken > UNEXPECTED_WAKE_REPAUSE_LIMIT
+          ? Effect.succeed("skipped" as const)
+          : repauseUnexpectedWake(repo, providers, getStatus, candidates[index]!, options.modelPlane);
+      },
+      { concurrency: 10 },
+    );
+  });
+}
+
+function repauseUnexpectedWake(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  vm: CloudVmRow,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return Effect.gen(function* () {
+    const providerVmId = vm.providerVmId;
+    if (!providerVmId) return "skipped" as const;
+    // When the wake can't be confirmed, record what the first probe saw, as
+    // the cron did before re-pausing existed, so the machine still counts.
+    const relabel = (row: CloudVmRow) => recordWokenMachineRunning(repo, providers, row, providerVmId, modelPlane);
+    const before = yield* readWokenRow(repo, vm, providerVmId);
+    if (before._tag === "Left") return yield* relabel(vm);
+    // A resume, pause or destroy that landed meanwhile owns the row now.
+    const current = before.right;
+    if (current?.status !== "paused") return "skipped" as const;
+    const status = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS),
+      Effect.either,
+    );
+    if (status._tag === "Left") return yield* relabel(current);
+    if (status.right !== "running") return "skipped" as const;
+    // One cron at a time per machine: an overlapping run that loses the claim
+    // leaves the wake to the run that won it.
+    if (repo.claimUnexpectedWakeRepause) {
+      const claimed = yield* repo.claimUnexpectedWakeRepause({
+        id: current.id,
+        providerVmId,
+        ttlMs: UNEXPECTED_WAKE_CLAIM_TTL_MS,
+      }).pipe(Effect.either);
+      if (claimed._tag === "Left") return yield* relabel(current);
+      if (!claimed.right) return "skipped" as const;
+    }
+    const parked = yield* pauseWokenMachine(providers, current, providerVmId);
+    if (parked === "in_progress") return "skipped" as const;
+    if (parked === "running") return yield* relabel(current);
+    // A resume can land while the pause runs (a team resume writes `running`
+    // before it calls the provider); give that machine back.
+    const after = yield* readWokenRow(repo, current, providerVmId);
+    if (after._tag === "Right" && after.right?.status !== "paused") {
+      if (after.right?.status === "running") yield* resumeAfterLostRace(providers, current, providerVmId);
+      return "skipped" as const;
+    }
+    yield* Effect.logWarning("Cloud machine woke while paused; paused it again", { vmId: current.id, providerVmId });
+    yield* repo.recordUsageEvent({
+      userId: current.userId,
+      billingTeamId: current.billingTeamId,
+      billingPlanId: current.billingPlanId,
+      vmId: current.id,
+      eventType: "vm.paused",
+      provider: current.provider,
+      imageId: current.imageId,
+      metadata: { source: "unexpected_wake", automated: true },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return "repaused" as const;
+  });
+}
+
+function readWokenRow(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string) {
+  return repo.findUserVm({
+    userId: vm.userId,
+    billingTeamId: vm.billingTeamId,
+    providerVmId,
+    provider: vm.provider,
+  }).pipe(Effect.either);
+}
+
+function recordWokenMachineRunning(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return applyObservedProviderStatus(repo, providers, vm, {
+    providerVmId,
+    providerStatus: "running",
+    usageEventSource: "provider_status_cron",
+    modelPlane,
+  }).pipe(
+    Effect.map((recorded) => recorded ? "updated" as const : "skipped" as const),
+    Effect.catchAll(() => Effect.succeed("skipped" as const)),
+  );
+}
+
+/**
+ * Pause a woken machine. A pause that errors may still have landed, so read
+ * the raw pause state as `pauseVm` does instead of assuming it still runs:
+ * `paused` or powered off counts as parked, a transition is left for the next
+ * run, and anything else (including an unreadable state) is still running.
+ */
+function pauseWokenMachine(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<"parked" | "in_progress" | "running", never> {
+  return Effect.gen(function* () {
+    const pause = providers.pause;
+    if (!pause) return "running" as const;
+    const paused = yield* Effect.gen(function* () {
+      if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+      yield* pause(vm.provider, providerVmId);
+    }).pipe(Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS), Effect.either);
+    if (paused._tag === "Right") return "parked" as const;
+    const state = providers.getPauseState
+      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(
+        Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS),
+        Effect.catchAll(() => Effect.succeed(null)),
+      )
+      : null;
+    if (state === "paused" || state === "stopped") return "parked" as const;
+    if (state === "in_progress") return "in_progress" as const;
+    return "running" as const;
+  });
+}
+
+function resumeAfterLostRace(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  const resume = providers.resume;
+  if (!resume) return Effect.void;
+  return Effect.gen(function* () {
+    // The re-pause zeroed a Go machine's runtime budget; give it back first.
+    if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
+    yield* resume(vm.provider, providerVmId).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.resume_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
+      Effect.catchAll(() => Effect.void),
+    );
+  });
+}
+
+/** False when the Go allowance is used up, so the machine stays paused. */
+function restoreGoRuntimeBudget(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const usage = yield* Effect.tryPromise(() => getGoVmUsage(vm.userId)).pipe(Effect.either);
+    if (usage._tag === "Left") {
+      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_usage_unreadable",
+        vmId: vm.id,
+        providerVmId,
+        cause: usage.left,
+      });
+      return true;
+    }
+    if (usage.right && usage.right.remainingSeconds <= 0) {
+      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", {
+        event: "cloud_vm.repause_race.go_allowance_exhausted",
+        vmId: vm.id,
+        providerVmId,
+      });
+      return false;
+    }
+    const remainingSeconds = usage.right?.remainingSeconds ?? null;
+    yield* Effect.gen(function* () {
+      yield* setRuntimeBudget(providers, vm, providerVmId, remainingSeconds);
+    }).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError((cause) => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_budget_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
+      Effect.catchAll(() => Effect.void),
+    );
+    return true;
   });
 }
 
@@ -3392,9 +3804,24 @@ function waitForRunningStatus(
   vm: CloudVmRow,
   providerVmId: string,
 ): Effect.Effect<boolean, never> {
+  return waitForRunningOutcome(providers, vm, providerVmId).pipe(Effect.map((outcome) => outcome.settled));
+}
+
+/**
+ * Polls until the machine runs. `observedNotRunning` is true when at least
+ * one probe read a status, so a false `settled` is a confirmed machine state;
+ * otherwise every probe failed and `probeFailure` is the last failure.
+ */
+function waitForRunningOutcome(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<{ readonly settled: boolean; readonly observedNotRunning: boolean; readonly probeFailure: unknown }, never> {
   return Effect.gen(function* () {
     const getStatus = providers.getStatus;
-    if (!getStatus) return true;
+    if (!getStatus) return { settled: true, observedNotRunning: false, probeFailure: undefined };
+    let observedNotRunning = false;
+    let probeFailure: unknown;
     for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
       const status = yield* getStatus(vm.provider, providerVmId).pipe(
         Effect.timeoutFail({
@@ -3406,12 +3833,16 @@ function waitForRunningStatus(
               cause: new Error("status probe timed out"),
             }),
         }),
-        Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+        Effect.catchAll((failure) => Effect.sync(() => {
+          probeFailure = failure;
+          return null as VMStatus | null;
+        })),
       );
-      if (status === "running") return true;
+      if (status === "running") return { settled: true, observedNotRunning, probeFailure };
+      if (status !== null) observedNotRunning = true;
       yield* Effect.sleep(RESUME_SETTLE_INTERVAL);
     }
-    return false;
+    return { settled: false, observedNotRunning, probeFailure };
   });
 }
 
@@ -3445,6 +3876,8 @@ function resumeUntilRunning(
       const usage = yield* Effect.tryPromise({ try: () => getGoVmUsage(vm.userId), catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }) });
       if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: 40, usedHours: 40 }));
       yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
+    } else {
+      yield* requirePlanBudget(vm.billingPlanId, vm.userId, null);
     }
     const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
@@ -3564,9 +3997,10 @@ function recordResumeUsageEvent(
 // Active-limit note: the control-plane-owned paused-row resume path is
 // limit-gated for billing teams by reservePausedResume before the provider
 // resume starts. Freestyle can still resume a VM outside the control plane
-// (for example from the provider console); those already-running observations
-// are reconciled durably here, and beginCreate re-counts provider-running VMs
-// before allocating another active slot.
+// (traffic to a paused machine wakes it, as does the provider console); the
+// status cron pauses those again (settleUnexpectedWakes) and records a
+// machine it cannot pause as running, and beginCreate re-counts
+// provider-running VMs before allocating another active slot.
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -3634,13 +4068,18 @@ function preflightResumeIfSuspended(
     if (status === "creating") {
       // Another caller's resume is in flight; wait for it rather than
       // minting endpoints or running commands against a not-yet-ready VM.
-      const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
-      if (!settled) {
+      const outcome = yield* waitForRunningOutcome(providers, vm, providerVmId);
+      if (!outcome.settled) {
+        // Only a status the provider actually reported is a state conflict;
+        // when every probe failed, the failure is the provider's, not the
+        // machine's state.
         return yield* Effect.fail(
           new VmProviderOperationError({
             provider: vm.provider,
             operation: `getStatus(${providerVmId})`,
-            cause: new Error("VM stayed in a resuming state"),
+            cause: outcome.observedNotRunning
+              ? new ProviderStateConflictError(vm.provider, "VM stayed in a resuming state")
+              : outcome.probeFailure ?? new Error("status probe failed"),
           }),
         );
       }
@@ -3672,6 +4111,7 @@ function preflightResumeIfSuspended(
         if (!recorded) {
           return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
         }
+        yield* resumeIfRepauseClaimed(repo, providers, vm, providerVmId);
       }
       return false;
     }
@@ -3694,6 +4134,35 @@ function preflightResumeIfSuspended(
     if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
     return true;
   });
+}
+
+/**
+ * The status cron may be pausing this woken machine again. Its post-pause
+ * re-read gives the machine back when it sees `running`, but the write above
+ * can land after that read. While a claim is fresh, resume here too; resuming
+ * a running machine is a no-op. The row is re-read after the write so a claim
+ * taken while this open ran counts as well. The machine already ran and is
+ * recorded running, so this skips the budget check, and a failure must not
+ * pause it: `resumeUntilRunning` would, so this is a bare best-effort resume.
+ */
+function resumeIfRepauseClaimed(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const current = yield* readWokenRow(repo, vm, providerVmId);
+    const row = current._tag === "Right" && current.right ? current.right : vm;
+    if (!hasFreshRepauseClaim(row, Date.now())) return;
+    yield* resumeAfterLostRace(providers, row, providerVmId);
+  });
+}
+
+function hasFreshRepauseClaim(vm: CloudVmRow, nowMs: number): boolean {
+  const metadata = vm.providerMetadata as Record<string, unknown> | null;
+  const claimedAtMs = Number(metadata?.[UNEXPECTED_WAKE_CLAIM_METADATA_KEY]);
+  return Number.isFinite(claimedAtMs) && claimedAtMs >= nowMs - UNEXPECTED_WAKE_CLAIM_TTL_MS;
 }
 
 function withResumeOnSuspendedAfterFailure<A>(
@@ -3737,7 +4206,13 @@ function withResumeOnSuspendedAfterFailure<A>(
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
-          Effect.catchAll(() => Effect.fail(originalError)),
+          // An allowance refusal is the answer the caller needs; any other
+          // resume failure reports the operation's own error.
+          Effect.catchAll((resumeError) => Effect.fail(
+            resumeError._tag === "VmPlanBudgetExceededError" || resumeError._tag === "VmUsageLimitExceededError"
+              ? resumeError
+              : originalError,
+          )),
         );
         yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
@@ -4364,6 +4839,10 @@ export function statVmFile(input: VmFileInput, path: string): VmWorkflowProgram<
   });
 }
 
+/**
+ * Read provider stats without waking a sleeping machine and mark an awake VM
+ * unknown until its guest has supplied a recent resource sample.
+ */
 export function getVmStats(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -4389,23 +4868,41 @@ export function getVmStats(input: {
       Effect.flatMap((stats) => {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
+        /** Keep provider lifecycle state honest when the guest reporter is stale or absent. */
+        const withGuestHealth = (value: VMStats): VMStats => {
+          if (value.state !== "awake") return value;
+          const healthNow = Date.now();
+          const sampledAt = value.resourceSampledAt;
+          const guestSampleFresh = sampledAt !== undefined
+            && sampledAt <= healthNow
+            && healthNow - sampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
+          // A provider lifecycle state only says that the allocation exists.
+          // Without a recent guest sample we cannot claim that the guest is
+          // awake; reporting `unknown` prevents the UI and CLI from showing a
+          // healthy machine with empty utilization after the guest wedges.
+          return guestSampleFresh
+            ? { ...value, health: "healthy" }
+            : { ...value, state: "unknown", health: value.health ?? "unknown" };
+        };
         // The private development backend cannot receive production-edge reports.
         // Production keeps the push path. Never probe non-awake machines, and
         // prefer an existing fresh report over another guest round trip.
         const fresh = reported.resourceSampledAt !== undefined
           && reported.resourceSampledAt <= now
           && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
-        if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
-          return Effect.succeed(reported);
-        }
-        return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
-          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
-            [VM_RESOURCE_USAGE_KEY]: {
-              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
-            },
-          }, input.providerVmId, Date.now()) : reported),
-          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
-        );
+        const resourceRead = stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats
+          ? Effect.succeed(reported)
+          : providers.getResourceStats(vm.provider, input.providerVmId).pipe(
+            Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
+              [VM_RESOURCE_USAGE_KEY]: {
+                ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+              },
+            }, input.providerVmId, Date.now()) : { ...reported, health: "unresponsive" as const }),
+            Effect.catchAll((error) => isProviderNotFoundError(error)
+              ? Effect.fail(error)
+              : Effect.succeed({ ...reported, health: "unresponsive" as const })),
+          );
+        return resourceRead.pipe(Effect.map(withGuestHealth));
       }),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
@@ -4561,6 +5058,9 @@ export function resizeVm(input: {
         maxMb: diskMaxMb,
         reason: "above_max",
       }));
+    }
+    if (input.storageMb > currentMb) {
+      yield* requirePlanBudget(planId, vm.userId, { addedDiskMb: input.storageMb, replacesVmId: vm.id });
     }
     // Claim the new disk size under the same billing-team lock used by create.
     // The live repository always provides this method; test doubles from
@@ -5686,6 +6186,8 @@ function createSuccessUsageEvents(input: CreateSuccessEventInput, running: Cloud
       eventType: "vm.created",
       provider: running.provider,
       imageId: running.imageId,
+      // Not persisted; analytics derives `cloud_vm_ready.time_to_ready_ms`.
+      vmCreatedAt: running.createdAt,
       metadata: {
         idempotencyKeySet: !!input.idempotencyKey,
         imageVersion: running.imageVersion,
@@ -5898,6 +6400,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     imageVersion: row.imageVersion,
     status: row.status,
     createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
     createdByUserId: row.userId,

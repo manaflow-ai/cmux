@@ -57,8 +57,10 @@ struct MuseVaultRegistrationTests {
         #expect(entry.cwd == "/work/muse repo")
         #expect(entry.gitBranch == "main")
         let resume = try #require(entry.copyResumeCommand)
-        #expect(resume.contains("muse resume 01a131ce-3556-7142-a0c8-c366cf09cfa5"))
-        #expect(resume.contains("/work/muse repo"))
+        #expect(
+            resume
+                == "cd -- '/work/muse repo' 2>/dev/null || [ ! -d '/work/muse repo' ] && 'muse' 'resume' '01a131ce-3556-7142-a0c8-c366cf09cfa5'"
+        )
     }
 
     private func exec(_ dbURL: URL, _ sql: String) throws {

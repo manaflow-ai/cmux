@@ -19,11 +19,28 @@ private final class SocketPairFixture: @unchecked Sendable {
         }
         readEnd = fds[0]
         writeEnd = fds[1]
+        // Large enough for every fixture payload (the biggest is ~8.1 KB), so
+        // a test can queue a whole frame and EOF before the reader starts and
+        // never needs a second thread to feed the socket.
+        var bufferSize: Int32 = 64 * 1024
+        let size = socklen_t(MemoryLayout<Int32>.size)
+        _ = setsockopt(writeEnd, SOL_SOCKET, SO_SNDBUF, &bufferSize, size)
+        _ = setsockopt(readEnd, SOL_SOCKET, SO_RCVBUF, &bufferSize, size)
     }
 
     func write(_ bytes: [UInt8]) {
-        bytes.withUnsafeBufferPointer { buffer in
-            _ = Darwin.write(writeEnd, buffer.baseAddress, buffer.count)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBufferPointer { buffer in
+                Darwin.write(
+                    writeEnd,
+                    buffer.baseAddress?.advanced(by: offset),
+                    buffer.count - offset
+                )
+            }
+            if written < 0, errno == EINTR { continue }
+            precondition(written > 0, "fixture payload must fit the socket buffer")
+            offset += written
         }
     }
 
@@ -37,23 +54,12 @@ private final class SocketPairFixture: @unchecked Sendable {
         writeEnd = -1
     }
 
-    func writeInBackgroundAndClose(_ text: String) {
-        let bytes = Array(text.utf8)
-        DispatchQueue.global().async { [self] in
-            var offset = 0
-            while offset < bytes.count {
-                let written = bytes.withUnsafeBufferPointer { buffer in
-                    Darwin.write(
-                        writeEnd,
-                        buffer.baseAddress?.advanced(by: offset),
-                        buffer.count - offset
-                    )
-                }
-                guard written > 0 else { break }
-                offset += written
-            }
-            closeWriteEnd()
-        }
+    /// Queues the whole payload and EOF synchronously. Synchronous tests run
+    /// on the fixed-width cooperative pool; blocking one in an untimed
+    /// `poll(2)` on work handed to another thread pool can deadlock the run.
+    func writeAllAndClose(_ text: String) {
+        write(text)
+        closeWriteEnd()
     }
 
     deinit {
@@ -346,7 +352,7 @@ struct ControlClientLineReaderTests {
 
     @Test func codeRouterHandshakeRejectsOversizedUnterminatedLine() throws {
         let pair = try SocketPairFixture()
-        pair.writeInBackgroundAndClose(
+        pair.writeAllAndClose(
             #"{"id":1,"method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
                 + String(repeating: "x", count: 5_000)
         )
@@ -361,7 +367,7 @@ struct ControlClientLineReaderTests {
 
     @Test func defaultReadBufferCannotOvershootCodeRouterCap() throws {
         let pair = try SocketPairFixture()
-        pair.writeInBackgroundAndClose(
+        pair.writeAllAndClose(
             #"{"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
                 + String(repeating: "x", count: 8_000)
         )
@@ -412,11 +418,9 @@ struct ControlClientLineReaderTests {
         #expect(line.utf8.count == 4_095)
 
         let allowedPair = try SocketPairFixture()
-        allowedPair.write(line)
-        DispatchQueue.global().async {
-            allowedPair.write("\n")
-            allowedPair.closeWriteEnd()
-        }
+        // The reader's 4095-byte read and the cap clamp split the trailing
+        // byte into its own read even when it is already queued.
+        allowedPair.writeAllAndClose(line + "\n")
         let allowedReader = ControlClientLineReader(
             socket: allowedPair.readEnd,
             codeRouterHandshakeMaximumBytes: 4_096
@@ -424,11 +428,7 @@ struct ControlClientLineReaderTests {
         #expect(allowedReader.nextLine(shouldContinueReading: { true }) == line)
 
         let rejectedPair = try SocketPairFixture()
-        rejectedPair.write(line)
-        DispatchQueue.global().async {
-            rejectedPair.write("x\n")
-            rejectedPair.closeWriteEnd()
-        }
+        rejectedPair.writeAllAndClose(line + "x\n")
         let rejectedReader = ControlClientLineReader(
             socket: rejectedPair.readEnd,
             codeRouterHandshakeMaximumBytes: 4_096
@@ -490,7 +490,7 @@ struct ControlClientLineReaderTests {
         let begin = #"{"id":"coderouter-handoff-begin","method":"coderouter.handoff.begin","params":{"protocolVersion":2}}"#
         let oversizedComplete = #"{"id":"coderouter-handoff-complete","method":"coderouter.handoff.complete","params":{"protocolVersion":2,"challenge":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI"},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(begin + "\n" + oversizedComplete)
+        pair.writeAllAndClose(begin + "\n" + oversizedComplete)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -525,7 +525,7 @@ struct ControlClientLineReaderTests {
         let login = #"{"id":"login","method":"auth.login","params":{"password":"p"}}"#
         let oversizedArm = #"{"id":"coderouter-handoff-arm","method":"coderouter.handoff.arm","params":{"protocolVersion":2},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(login + "\n" + oversizedArm)
+        pair.writeAllAndClose(login + "\n" + oversizedArm)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -554,7 +554,7 @@ struct ControlClientLineReaderTests {
         let pair = try SocketPairFixture()
         let handoff = #"{"id":"coderouter-handoff","padding":"\"method\":\"feed.push\"","method":"coderouter.handoff","params":{"protocolVersion":2},"tail":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(handoff)
+        pair.writeAllAndClose(handoff)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -569,7 +569,7 @@ struct ControlClientLineReaderTests {
         let ordinary = #"{"id":1,"method":"feed.push","params":{}}"#
         let oversizedHandoff = #"{"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(ordinary + "\n" + oversizedHandoff)
+        pair.writeAllAndClose(ordinary + "\n" + oversizedHandoff)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -584,7 +584,7 @@ struct ControlClientLineReaderTests {
         let pair = try SocketPairFixture()
         let handoff = #"{"id":"coderouter-handoff","meth\u006fd":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(handoff)
+        pair.writeAllAndClose(handoff)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -598,7 +598,7 @@ struct ControlClientLineReaderTests {
         let pair = try SocketPairFixture()
         let ambiguous = #"{"id":"coderouter-handoff","method":"feed.push","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(ambiguous)
+        pair.writeAllAndClose(ambiguous)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -615,7 +615,7 @@ struct ControlClientLineReaderTests {
             + #""},"method":"coderouter.handoff"}"#
         #expect(ambiguous.range(of: "coderouter.handoff")?.lowerBound
             .utf16Offset(in: ambiguous) ?? 0 > 4_096)
-        pair.writeInBackgroundAndClose(ambiguous)
+        pair.writeAllAndClose(ambiguous)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -629,7 +629,7 @@ struct ControlClientLineReaderTests {
         let ambiguous = #"{"id":1,"method":"feed.push","params":{"body":""#
             + String(repeating: "x", count: 4_200)
             + #""},"method":"coderouter\u002ehandoff.complete"}"#
-        pair.writeInBackgroundAndClose(ambiguous)
+        pair.writeAllAndClose(ambiguous)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -643,7 +643,7 @@ struct ControlClientLineReaderTests {
         let ordinary = #"{"id":1,"method":"feed.push","params":{"body":""#
             + String(repeating: "x", count: 4_200)
             + #"\"method\":\"coderouter.handoff.complete\""}}"#
-        pair.writeInBackgroundAndClose(ordinary + "\n")
+        pair.writeAllAndClose(ordinary + "\n")
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -656,7 +656,7 @@ struct ControlClientLineReaderTests {
         let pair = try SocketPairFixture()
         let ambiguous = #"{"id":"coderouter-handoff","method":" coderouter.handoff ","params":{"protocolVersion":2},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(ambiguous)
+        pair.writeAllAndClose(ambiguous)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -674,7 +674,7 @@ struct ControlClientLineReaderTests {
         let handoff = prefix
             + #"{"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(handoff)
+        pair.writeAllAndClose(handoff)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,
@@ -688,7 +688,7 @@ struct ControlClientLineReaderTests {
         let pair = try SocketPairFixture()
         let wrapped = #"  _cmux_capability_v1 opaque-token {"id":"coderouter-handoff","method":"coderouter.handoff","params":{"protocolVersion":2},"padding":""#
             + String(repeating: "x", count: 5_000)
-        pair.writeInBackgroundAndClose(wrapped)
+        pair.writeAllAndClose(wrapped)
 
         let reader = ControlClientLineReader(
             socket: pair.readEnd,

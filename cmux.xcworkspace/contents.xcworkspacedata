@@ -250,6 +250,9 @@
          location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
+         location = "group:CmuxProductAnalytics">
+      </FileRef>
+      <FileRef
          location = "group:CMUXProjectModel">
       </FileRef>
       <FileRef
@@ -281,6 +284,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSimulator">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSSHClipboardTrust">
       </FileRef>
       <FileRef
          location = "group:CmuxSudoBroker">

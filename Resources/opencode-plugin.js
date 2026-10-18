@@ -12,6 +12,17 @@ const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 
+// OpenCode publishes these through session.error without ending the turn: a
+// user interrupt (Esc) then goes idle, and a context overflow compacts and
+// continues. The idle stop that follows is the turn's outcome.
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
+
+const isNonTerminalSessionError = (event) => {
+  if (event?.type !== "session.error") return false;
+  const props = event.properties || event.data || {};
+  return NON_TERMINAL_SESSION_ERRORS.has(props.error?.name);
+};
+
 const createCMUXFeed = async (ctx, options = {}) => {
   const environment = { ...process.env, ...options.environment };
   const socketPath = environment.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
@@ -84,6 +95,52 @@ const createCMUXFeed = async (ctx, options = {}) => {
     return firstString(status.type, status.status, status.state)?.toLowerCase() === "idle";
   };
 
+  const sessionStatusType = (status) => {
+    if (typeof status === "string") return status.trim().toLowerCase();
+    if (!isObject(status)) return null;
+    return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
+  };
+
+  // Mirrors AgentHookNotificationPolicy.redactSensitiveErrorDetail: Feed
+  // receives this text directly, so credentials are redacted here. Paths and
+  // model names stay readable because they are the useful part of the error.
+  const redactErrorDetail = (value) => {
+    if (!value) return value;
+    const redacted = [
+      [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "<email>"],
+      [/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b/gi, "<token>"],
+      [/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer <token>"],
+      [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gi, "<token>"],
+      [/\b(?:x[-_])?(?:api[-_]?key|password|secret|token|authorization|cookie)\s*[:=]\s*(?:Bearer\s+)?(?:'[^']*'|"[^"]*"|[^\s'";&|,]+)/gi, "<credential>:<token>"],
+      [/\b(?:sk|rk|sess)-[A-Za-z0-9._:-]{8,}\b/gi, "<token>"],
+    ].reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value);
+    return redacted.replace(/<[a-z]+>|[\s\p{P}]/gu, "") ? redacted : null;
+  };
+
+  const failureMessage = (event) => redactErrorDetail(rawFailureMessage(event));
+
+  const rawFailureMessage = (event) => {
+    const props = eventProperties(event);
+    const raw = props.error || props.failure || props.reason;
+    if (typeof raw === "string") return normalizeText(raw, 500);
+    if (isObject(raw)) {
+      const nestedData = isObject(raw.data) ? raw.data : {};
+      const nested = firstString(
+        raw.message,
+        raw.error,
+        raw.reason,
+        raw.description,
+        nestedData.message,
+        nestedData.error,
+        nestedData.reason,
+        nestedData.description,
+        raw.name
+      );
+      if (nested) return normalizeText(nested, 500);
+    }
+    return normalizeText(firstString(props.message, props.description), 500);
+  };
+
   const normalizeText = (value, max = 1000) => {
     if (typeof value !== "string") return null;
     const normalized = value.replace(/\s+/g, " ").trim();
@@ -98,10 +155,24 @@ const createCMUXFeed = async (ctx, options = {}) => {
         lastUserMessage: null,
         assistantPreamble: null,
         cwd: null,
+        lastStopKind: null,
       });
     }
     return sessions.get(key);
   };
+
+  // A turn publishes exactly one terminal stop. Only a run signal (session
+  // creation, busy status, a promoted prompt or an execution start) opens the
+  // next turn. Message updates and queued prompts do not: a queued prompt's
+  // message arrives while the previous turn is still running, and a repeated
+  // update after a stop must not reopen a finished turn.
+  const beginTurn = (sessionId) => {
+    sessionState(sessionId).lastStopKind = null;
+  };
+
+  // OpenCode keeps an execution interrupted by shutdown and resumes it.
+  const isResumableInterruption = (event) =>
+    event?.type === "session.execution.interrupted" && eventProperties(event).reason === "shutdown";
 
   const contextForSession = (sessionId) => {
     const state = sessionState(sessionId);
@@ -711,6 +782,15 @@ const createCMUXFeed = async (ctx, options = {}) => {
     return null;
   };
 
+  const shouldEmitStop = (sessionId, kind) => {
+    // The first terminal event settles the turn. A published stop cannot be
+    // reclassified, so a later failure or idle for the same turn is dropped.
+    const state = sessionState(sessionId);
+    if (state.lastStopKind) return false;
+    state.lastStopKind = kind;
+    return true;
+  };
+
   const pushBlocking = (event, requestId) => {
     const reply = new Promise((resolve) => {
       let timeout;
@@ -767,6 +847,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
           const props = eventProperties(event);
           const info = props.info || {};
           const sid = sessionIdFromProperties(props) || "unknown";
+          beginTurn(sid);
           const state = sessionState(sid);
           state.cwd = info.directory || props.location?.directory || event.location?.directory || ctx?.location?.directory || ctx?.directory || state.cwd;
           pushTelemetry(base(sid, {
@@ -777,19 +858,38 @@ const createCMUXFeed = async (ctx, options = {}) => {
         }
         case "session.status": {
           const props = eventProperties(event);
-          if (!sessionStatusIsIdle(props.status)) break;
           const sid = sessionIdFromProperties(props);
-          if (!sid) break;
+          if (sid && sessionStatusType(props.status) === "busy") {
+            beginTurn(sid);
+            break;
+          }
+          if (!sessionStatusIsIdle(props.status)) break;
+          if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));
           break;
         }
         case "session.execution.succeeded":
-        case "session.execution.failed":
         case "session.execution.interrupted": {
           const sid = sessionIdFromEvent(event);
-          if (sid) pushTelemetry(base(sid, { hook_event_name: "Stop" }));
+          if (isResumableInterruption(event)) break;
+          if (sid && shouldEmitStop(sid, "success")) pushTelemetry(base(sid, { hook_event_name: "Stop" }));
+          break;
+        }
+        case "session.execution.failed":
+        case "session.next.step.failed":
+        case "session.error": {
+          if (isNonTerminalSessionError(event)) break;
+          const sid = sessionIdFromEvent(event);
+          if (sid && shouldEmitStop(sid, "failure")) {
+            const error = failureMessage(event);
+            pushTelemetry(base(sid, {
+              hook_event_name: "Stop",
+              is_error: true,
+              ...(error ? { error } : {}),
+            }));
+          }
           break;
         }
         case "session.updated": {
@@ -798,17 +898,23 @@ const createCMUXFeed = async (ctx, options = {}) => {
           if (eventProperties(event).info?.time?.archived) {
             pushTelemetry(base(sid, { hook_event_name: "SessionEnd" }));
             sessions.delete(sid);
-          } else {
-            pushTelemetry(base(sid, { hook_event_name: "SessionStart" }));
           }
           break;
         }
         case "session.idle": {
           const sid = sessionIdFromProperties(eventProperties(event));
-          if (!sid) break;
+          if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));
+          break;
+        }
+        // Admission queues a prompt behind the running turn; promotion and
+        // execution start are when it actually runs.
+        case "session.next.prompted":
+        case "session.execution.started": {
+          const sid = sessionIdFromEvent(event);
+          if (sid) beginTurn(sid);
           break;
         }
         case "session.deleted": {
@@ -999,10 +1105,23 @@ const createCMUXFeed = async (ctx, options = {}) => {
 
 export const CMUXFeed = createCMUXFeed;
 
+const CMUX_FEED_SERVER_SCOPES_KEY = Symbol.for("cmux.feed.server.scopes");
+
+const isTUIProcessServerContext = (ctx) =>
+  Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
+
 export default {
-  id: "cmux.server",
-  // V2 uses the package's ./tui export; never subscribe in the shared service.
-  server() { return {}; },
+  id: "cmux.feed",
+  async server(ctx) {
+    if (!isTUIProcessServerContext(ctx)) return {};
+    // cmux-feed.js and plugins/cmux/index.js both load this source, and every
+    // loader in one plugin scope receives the same ctx. OpenCode keeps one
+    // scope per directory, and disposes a scope's hooks when it tears it down.
+    const scopes = globalThis[CMUX_FEED_SERVER_SCOPES_KEY] ||= new WeakSet();
+    if (scopes.has(ctx)) return {};
+    scopes.add(ctx);
+    return createCMUXFeed(ctx);
+  },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },
 };
