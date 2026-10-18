@@ -127,6 +127,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.pathLastSegmentOnly",
         "sidebar.rightMaxWidth",
+        "sidebar.keepPaneWidthsOnToggle",
         "sidebar.showBranchDirectory",
         "sidebar.showCloudDeviceIcons",
         "sidebar.showCustomMetadata",

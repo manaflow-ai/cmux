@@ -158,6 +158,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.loadingSpinnerPosition` | `"leading"` or `"trailing"` | `"leading"` | Which side of the workspace row the loading spinner appears on: leading (left, sharing the unread-badge slot) or trailing (right). |
 | `sidebar.notificationBadgePosition` | `"leading"` or `"trailing"` | `"leading"` | Which side of the workspace row the unread notification badge appears on: leading (left) or trailing (right). |
 | `sidebar.rightMaxWidth` | number | — | Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies. |
+| `sidebar.keepPaneWidthsOnToggle` | boolean | `false` | Grow or shrink the window by the right sidebar width when toggling it, when the active display has room. |
 
 ## workspaceColors
 

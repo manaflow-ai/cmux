@@ -1842,6 +1842,11 @@ enum CmuxEmbeddedConfigSchema {
           "exclusiveMinimum": 0,
           "descriptionKey": "schemaDescriptions.sidebar.rightMaxWidth",
           "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
+        },
+        "keepPaneWidthsOnToggle": {
+          "type": "boolean",
+          "default": false,
+          "description": "Grow or shrink the window by the right sidebar width when toggling it, when the active display has room."
         }
       }
     },

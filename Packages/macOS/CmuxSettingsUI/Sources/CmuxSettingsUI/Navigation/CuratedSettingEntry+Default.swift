@@ -371,6 +371,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
             ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), synonyms: "Dock Max Width sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
+            .init(section: .sidebarAppearance, id: "keep-pane-widths-on-toggle", title: String(localized: "settings.sidebar.keepPaneWidthsOnToggle", defaultValue: "Keep Pane Widths When Toggling Right Sidebar"), synonyms: "sidebar.keepPaneWidthsOnToggle right sidebar toggle window resize stable pane widths terminal reflow"),
 
             // Mobile
             .init(

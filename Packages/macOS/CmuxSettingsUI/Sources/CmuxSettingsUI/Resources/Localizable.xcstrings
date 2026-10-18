@@ -15491,6 +15491,124 @@
         }
       }
     },
+    "settings.sidebar.keepPaneWidthsOnToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Pane Widths When Toggling Right Sidebar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fensterbreiten der Bereiche beim Umschalten der rechten Seitenleiste beibehalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conserver la largeur des volets lors du basculement de la barre latérale droite"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحفاظ على أحجام الأجزاء عند تبديل الشريط الجانبي الأيمن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener el ancho de los paneles al alternar la barra lateral derecha"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換右側邊欄時保留面板寬度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换右侧边栏时保持面板宽度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 사이드바를 전환할 때 패널 너비 유지"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーの切り替え時にペイン幅を維持"
+          }
+        }
+      }
+    },
+    "settings.sidebar.keepPaneWidthsOnToggle.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grow or shrink the window by the sidebar width when the active display has room."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster um die Breite der Seitenleiste vergrößern oder verkleinern, wenn auf dem aktiven Bildschirm Platz ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrandir ou réduire la fenêtre de la largeur de la barre latérale lorsque l’écran actif le permet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كبّر النافذة أو صغّرها بمقدار عرض الشريط الجانبي عندما تتوفر مساحة على الشاشة النشطة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumenta o reduce la ventana según el ancho de la barra lateral cuando haya espacio en la pantalla activa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當目前顯示器有足夠空間時，依側邊欄寬度放大或縮小視窗。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前显示器有足够空间时，按侧边栏宽度放大或缩小窗口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 디스플레이에 공간이 있으면 사이드바 너비만큼 창을 넓히거나 줄입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなディスプレイに空きがある場合、サイドバーの幅だけウィンドウを拡大または縮小します。"
+          }
+        }
+      }
+    },
     "settings.account.pro.appStoreSubtitle": {
       "extractionState": "manual",
       "localizations": {
