@@ -204,11 +204,11 @@ final class CEFPaneHost {
             // The first frame takes this pane's theme scope (room,
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
-            let started = shim.createWindow(
-                request, Unmanaged.passUnretained(hostView).toOpaque(),
-                max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32,
-                tab.takeInitialURLString(), contextKey
-            )
+            let initialURL = tab.takeInitialURLString()
+            let started = CEFStartSteps.shared.createWindow {
+                shim.createWindow(request, Unmanaged.passUnretained(hostView).toOpaque(),
+                                  max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
+            }
             if started != 1 {
                 runtime.pendingWindows[request] = nil
                 window = .none
@@ -240,6 +240,7 @@ final class CEFPaneHost {
 
     func windowCreated(browser: Int32, request: Int32) {
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
+        CEFStartSteps.shared.firstWindowEnded()
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)
         lastActivated = browser

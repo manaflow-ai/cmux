@@ -11,7 +11,8 @@ import CmuxNextCompat
 /// mutating methods (`action.run`, compat mutations) go through the bounded
 /// ``MainActorWorkQueue``; the rest run off-main under the request deadline.
 /// No request can wait past its deadline (default 2 s; a request that
-/// starts a terminal gets ``Configuration/terminalStartDeadline``).
+/// starts a terminal gets ``Configuration/terminalStartDeadline``). Time the
+/// main thread spends in Chromium's start does not count (`MainThreadEngineStart`).
 public final class ControlRouter: Sendable {
     public struct Configuration: Sendable {
         /// Deadline for every request that is not answered from the snapshot.

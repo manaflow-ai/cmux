@@ -27,9 +27,20 @@ TITLE = "cmux-os-smoke"
 result = {"steps": {}, "notes": []}
 
 
+STALLS_SEEN = [0]
+
+
 def step(name, ok, detail=None):
     result["steps"][name] = {"ok": bool(ok), **({"detail": detail} if detail is not None else {})}
     print("%-9s %s %s" % (name, "ok" if ok else "FAIL", "" if detail is None else json.dumps(detail)[:400]), flush=True)
+    if not ok and "did not finish within" in json.dumps(detail) and DEBUG_ROUTER:
+        # A control deadline passed: the main-thread stalls since the last report say what held it.
+        records = (rpc("debug.hangs", {"after": STALLS_SEEN[0]}) or {}).get("records") or []
+        STALLS_SEEN[0] = max([STALLS_SEEN[0]] + [r.get("sequence", 0) for r in records])
+        stalls = [{"ms": round(r.get("duration_ms", 0)), "cpu_ms": round(r.get("cpu_ms", 0)), "top": (r.get("frames") or [])[:4]}
+                  for r in records if r.get("duration_ms", 0) >= 300]
+        result["steps"][name]["stalls_300ms"] = stalls
+        print("stalls    %s %s" % (name, json.dumps(stalls)[:1500]), flush=True)
 
 
 def version_tuple(text):
@@ -179,56 +190,55 @@ def snap(name, file, kind="main"):
 
 
 def heaviest_main_path(sample_file, keep=14):
-    """The main thread's busiest call path in a `sample` report (the run loop's idle wait left
-    out): the frames, deepest last, and the samples each holds, so a long main-thread step
-    names the call that held it."""
+    """The main thread's busiest call path in a `sample` report (samples in the run loop's
+    idle wait left out): each frame as "busy samples, frame", deepest last, so a long
+    main-thread step names the call that held it."""
     try:
         lines = open(sample_file, errors="replace").read().split("Call graph:", 1)[1].splitlines()
     except (OSError, IndexError):
         return None
-    nodes, stack, total = [], [], 0
+    root, stack = None, []
     for line in lines:
-        if not line.startswith("    ") or not line.strip():
-            if nodes:
+        m = re.match(r"^    ([ +!:|]*)(\d+) (.*)$", line)
+        if not m:
+            if root:
                 break
             continue
-        m = re.match(r"^([ +!:|]*)(\d+) (.*)$", line[4:])
-        if not m:
-            break
         depth, count, text = len(m.group(1)), int(m.group(2)), m.group(3)
         if depth == 0:
-            if nodes:
+            if root:
                 break  # the first thread of the graph is the main thread
-            if "main-thread" not in text and "Thread_" not in text:
-                continue
-            total = count
-            nodes.append((depth, count, text))
-            stack = [(depth, [])]
+            root = {"count": count, "text": text, "children": []}
+            stack = [(0, root)]
             continue
         text = re.sub(r"\s+\[0x[0-9a-f,]+\]", "", text)
         text = re.sub(r"\s+\(in ([^)]*)\)", lambda g: " (" + g.group(1).replace("Chromium Embedded Framework", "CEF") + ")", text)
-        nodes.append((depth, count, text))
-    # Follow the child with the most samples at each level.
-    path, i = [], 1
-    while i < len(nodes):
-        depth = nodes[i][0]
-        best, j = None, i
-        while j < len(nodes) and nodes[j][0] >= depth:
-            # The run loop's idle wait is not work: follow the busiest other branch.
-            if (nodes[j][0] == depth and "__CFRunLoopServiceMachPort" not in nodes[j][2]
-                    and (best is None or nodes[j][1] > nodes[best][1])):
-                best = j
-            j += 1
-        if best is None:
+        node = {"count": count, "text": text.strip(), "children": []}
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        if not stack:
             break
-        path.append("%d %s" % (nodes[best][1], nodes[best][2].strip()))
-        i = best + 1
-        if i >= len(nodes) or nodes[i][0] <= depth:
+        stack[-1][1]["children"].append(node)
+        stack.append((depth, node))
+    if not root:
+        return None
+
+    def busy(node):
+        if "__CFRunLoopServiceMachPort" in node["text"]:
+            return 0
+        if "busy" not in node:
+            idle = sum(c["count"] - busy(c) for c in node["children"])
+            node["busy"] = node["count"] - idle
+        return node["busy"]
+    path, node = [], root
+    while node["children"]:
+        node = max(node["children"], key=busy)
+        if busy(node) == 0:
             break
+        path.append("%d/%d %s" % (busy(node), node["count"], node["text"]))
     # The app's own frames on the path (which cmux call led there) and the deepest frames.
     app_frames = [f for f in path[:-keep] if "CmuxNext" in f or "CEFRuntime" in f][-4:]
-    return {"samples": total, "app": app_frames, "path": path[-keep:]}
-
+    return {"samples": root["count"], "busy": busy(root), "app": app_frames, "path": path[-keep:]}
 
 def windows_now():
     if not os.path.exists(SOCKET):

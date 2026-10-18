@@ -14,7 +14,9 @@ import CmuxNextCompat
 ///   the next main run loop turn instead of the next display frame
 ///   (`scheduleSoon`); work left after a drain waits for frames.
 /// - Deadlined: every request carries a deadline. One that expires while
-///   queued fails with `timeout` and is dropped without running.
+///   queued fails with `timeout` and is dropped without running. Time the
+///   main thread spends in Chromium's start does not count
+///   (`MainThreadEngineStart`).
 public final class MainActorWorkQueue: Sendable {
     public struct Limits: Sendable {
         public var maxPending: Int
@@ -116,6 +118,10 @@ public final class MainActorWorkQueue: Sendable {
     ) async throws -> T {
         let now = ContinuousClock.now
         let timeout = ControlError.timeout(method, after: max(deadline - now, .zero))
+        // Main-thread time in Chromium's start does not count (MainThreadEngineStart):
+        // an item queued behind CefInitialize runs when it ends.
+        let engineStart = MainThreadEngineStart.shared
+        let mark = engineStart.total
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
             let item = MainActorWorkItem(
                 connection: connection,
@@ -136,7 +142,7 @@ public final class MainActorWorkQueue: Sendable {
             }
             let task = Task { [weak self] in
                 // wakeup-allow: one-shot work-item deadline, cancelled when the item runs
-                do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+                do { try await engineStart.waitPast(deadline, countingFrom: mark) } catch { return }
                 if item.expire(timeout) { self?.state.withLock { $0.stats.expired += 1 } }
             }
             item.attachTimer(task)

@@ -224,7 +224,7 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
-            try initialize(library, environment: environment)
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             startChildMonitor()
             windowGuard.start()
@@ -305,7 +305,7 @@ final class CEFRuntime {
         self.layout = layout
 
         let pump = CEFMessagePump(
-            work: { [weak self] in self?.shim?.doWork() },
+            work: { [weak self] in CEFStartSteps.shared.pump { self?.shim?.doWork() } },
             safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
         )
         self.pump = pump
