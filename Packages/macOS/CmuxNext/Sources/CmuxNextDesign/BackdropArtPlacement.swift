@@ -106,37 +106,46 @@ extension BackdropArtMetadata {
         let (iw, ih) = (Double(imageSize.width), Double(imageSize.height))
         let span = (visible.minX * vw)...(visible.maxX * vw)
         let cover = max(vw / iw, vh / ih)
+        // The columns over art are full height, so the whole height is visible.
         let x = Axis(view: vw, image: iw, subject: box.minX...box.maxX, span: span)
-        // The columns over art are full height, so the whole height is visible. A subject taller
-        // than the window (a portrait in a wide, short window) keeps its top: the faces.
-        let y = Axis(view: vh, image: ih, subject: box.minY...box.maxY, span: 0...vh, keepsTop: true)
+        let y = Axis(view: vh, image: ih, subject: box.minY...box.maxY, span: 0...vh)
+        let check = (box: box, span: span, height: vh)
 
         let steps = 16
         for step in 0...steps {
             let scale = cover * (1 + (Self.maximumZoom - 1) * Double(step) / Double(steps))
             if let ox = x.covering(scale), let oy = y.covering(scale) {
-                return place(scale: scale, origin: CGPoint(x: ox, y: oy), viewSize: viewSize, imageSize: imageSize, keeps: true)
+                return place(scale: scale, origin: CGPoint(x: ox, y: oy), viewSize: viewSize, imageSize: imageSize, check: check)
             }
         }
         // The subject fits the span but not while the art covers the window, or only smaller:
         // the art slides (and shrinks) off an edge, which the panes over it mostly hide, over
         // the blurred fill.
-        let fit = min((span.upperBound - span.lowerBound) / (iw * max(box.maxX - box.minX, 0.01)), cover)
+        let fit = min((span.upperBound - span.lowerBound) / (iw * max(box.maxX - box.minX, 0.01)),
+                      vh / (ih * max(box.maxY - box.minY, 0.01)), cover)
         if fit >= cover * Self.minimumShrink {
-            let oy = fit == cover ? y.covering(fit) ?? y.nearest(fit) : y.shrunk(fit)
-            return place(scale: fit, origin: CGPoint(x: x.shrunk(fit), y: oy), viewSize: viewSize, imageSize: imageSize, keeps: true)
+            return place(scale: fit, origin: CGPoint(x: x.shrunk(fit), y: y.shrunk(fit)), viewSize: viewSize, imageSize: imageSize,
+                         check: check)
         }
-        return place(scale: cover, origin: CGPoint(x: x.nearest(cover), y: y.nearest(cover)),
-                     viewSize: viewSize, imageSize: imageSize, keeps: false)
+        // Too big to keep whole: cover the window, centered on the subject across, its top kept.
+        return place(scale: cover, origin: CGPoint(x: x.nearest(cover), y: y.nearest(cover, keepingLeading: true)),
+                     viewSize: viewSize, imageSize: imageSize, check: check)
     }
 
     /// The subject box: the authored one, else a small box around the focal anchor.
     nonisolated var subject: BackdropSubjectBox { subjectBox ?? BackdropSubjectBox(around: focalAnchor) }
 
     /// The image at `scale` with its top-left corner at `origin` (top-left view coordinates).
+    /// Whether the subject is kept is measured on the result, never assumed: its box must lie in
+    /// the visible span across and in the window top to bottom.
     private nonisolated func place(scale: Double, origin: CGPoint, viewSize: CGSize, imageSize: CGSize,
-                                   keeps: Bool) -> BackdropArtPlacement {
+                                   check: (box: BackdropSubjectBox, span: ClosedRange<Double>, height: Double)) -> BackdropArtPlacement {
         let image = CGRect(x: origin.x, y: origin.y, width: Double(imageSize.width) * scale, height: Double(imageSize.height) * scale)
+        let slack = 0.5
+        let keeps = image.minX + check.box.minX * image.width >= check.span.lowerBound - slack
+            && image.minX + check.box.maxX * image.width <= check.span.upperBound + slack
+            && image.minY + check.box.minY * image.height >= -slack
+            && image.minY + check.box.maxY * image.height <= check.height + slack
         let shown = image.intersection(CGRect(origin: .zero, size: viewSize))
         guard !shown.isNull, shown.width > 0, shown.height > 0 else { return .whole(viewSize) }
         // Normalized in the image, then flipped: contentsRect and the view frame count from the bottom.
@@ -158,48 +167,45 @@ private nonisolated struct Axis {
     let image: Double
     let subject: ClosedRange<Double>
     let span: ClosedRange<Double>
-    /// A subject too big for the span keeps its leading edge (the top) instead of failing.
-    let keepsTop: Bool
-
-    init(view: Double, image: Double, subject: ClosedRange<Double>, span: ClosedRange<Double>, keepsTop: Bool = false) {
-        self.view = view
-        self.image = image
-        self.subject = subject
-        self.span = span
-        self.keepsTop = keepsTop
-    }
 
     /// The origin that centers the subject in the span.
     func centered(_ scale: Double) -> Double {
         (span.lowerBound + span.upperBound) / 2 - (subject.lowerBound + subject.upperBound) / 2 * image * scale
     }
 
+    /// The origins at which the subject lies in the span (empty when it is wider).
+    func keeping(_ scale: Double) -> ClosedRange<Double>? {
+        let extent = image * scale
+        let low = span.lowerBound - subject.lowerBound * extent, high = span.upperBound - subject.upperBound * extent
+        return low <= high + 1e-6 ? low...max(low, high) : nil
+    }
+
     /// The origin, nearest centered, at which the image covers the view and the subject lies in
     /// the span; nil when there is none.
     func covering(_ scale: Double) -> Double? {
-        let extent = image * scale
-        let low = max(view - extent, span.lowerBound - subject.lowerBound * extent)
-        let high = min(0, span.upperBound - subject.upperBound * extent)
-        guard low <= high + 1e-6 else {
-            guard keepsTop else { return nil }
-            return min(max(span.lowerBound - subject.lowerBound * extent, view - extent), 0)
-        }
+        guard let keeps = keeping(scale) else { return nil }
+        let low = max(view - image * scale, keeps.lowerBound), high = min(0, keeps.upperBound)
+        guard low <= high + 1e-6 else { return nil }
         return min(max(centered(scale), low), max(low, high))
     }
 
-    /// The origin, nearest centered, at which the image still covers the view.
-    func nearest(_ scale: Double) -> Double {
-        min(max(centered(scale), view - image * scale), 0)
+    /// The origin at which the image covers the view: nearest centered, or with
+    /// `keepingLeading` with the subject's leading edge (its top) in the span.
+    func nearest(_ scale: Double, keepingLeading: Bool = false) -> Double {
+        let wanted = keepingLeading && image * scale * (subject.upperBound - subject.lowerBound) > span.upperBound - span.lowerBound
+            ? span.lowerBound - subject.lowerBound * image * scale : centered(scale)
+        return min(max(wanted, view - image * scale), 0)
     }
 
-    /// The origin for a shrunk image: the subject in the span, and as little empty view as that allows.
+    /// The origin for an image shrunk so the subject fits the span: the subject in the span
+    /// first, then as much of the view covered, then centered.
     func shrunk(_ scale: Double) -> Double {
         let extent = image * scale
-        let low = span.lowerBound - subject.lowerBound * extent
-        let high = span.upperBound - subject.upperBound * extent
-        let centered = min(max(centered(scale), low), max(low, high))
-        // Toward covering: an image wider than the view keeps both edges filled when it can.
-        if extent >= view { return min(max(centered, max(low, view - extent)), min(max(low, high), 0)) }
-        return centered
+        guard let keeps = keeping(scale) else { return nearest(scale, keepingLeading: true) }
+        let centered = min(max(centered(scale), keeps.lowerBound), keeps.upperBound)
+        // Toward covering, as far as the subject allows: an image wider than the view slides
+        // only as far as its edges reach the view's.
+        let covering = extent >= view ? min(max(centered, view - extent), 0) : centered
+        return min(max(covering, keeps.lowerBound), keeps.upperBound)
     }
 }

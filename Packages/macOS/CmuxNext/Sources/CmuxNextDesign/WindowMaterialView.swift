@@ -41,7 +41,13 @@ public final class WindowMaterialView: NSView {
     /// The x ranges, in this view's points, that the sidebar and a docked agent chat cover: the
     /// art keeps its subject in the widest stretch between them (``BackdropVisibleSpan``).
     public var coveredColumns: [ClosedRange<CGFloat>] = [] {
-        didSet { if coveredColumns != oldValue { updateArtCrop(animated: true) } }
+        // A column that comes or goes moves the art on a spring; one resized (a divider drag, a
+        // window resize, the sidebar's slide) moves it at once, frame by frame with the column.
+        didSet {
+            if coveredColumns != oldValue {
+                updateArtCrop(animated: coveredColumns.count != oldValue.count && window?.inLiveResize != true)
+            }
+        }
     }
     /// The columns over the art by who reported them, in window coordinates (``setCover(_:for:)``).
     private var covers: [String: CGRect] = [:]
@@ -282,12 +288,12 @@ public final class WindowMaterialView: NSView {
     }
 
     /// The blur and dimming of the fill behind shrunk art: enough that it reads as the art's own
-    /// light, never as a second picture.
-    private static let fillFilters: [CIFilter] = {
+    /// light, never as a second picture. Made for each view: filters are mutable objects.
+    private static func fillFilters() -> [CIFilter] {
         let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 48])
         let dim = CIFilter(name: "CIColorControls", parameters: [kCIInputBrightnessKey: -0.18, kCIInputSaturationKey: 0.9])
         return [blur, dim].compactMap { $0 }
-    }()
+    }
 
     /// Places the art (``BackdropArtMetadata/placement(forViewSize:imageSize:visible:)``): on a
     /// resize at once, and with the move spring when the columns over it change.
@@ -317,7 +323,7 @@ public final class WindowMaterialView: NSView {
         let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
         let placement = metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible)
         let fills = placement.fills && !artView.isHidden
-        if fills, artFillView.layer?.filters == nil { artFillView.layer?.filters = Self.fillFilters }
+        if fills, artFillView.layer?.filters == nil { artFillView.layer?.filters = Self.fillFilters() }
         artFillView.isHidden = !fills
         guard placement != artPlacement else { return }
         artPlacement = placement

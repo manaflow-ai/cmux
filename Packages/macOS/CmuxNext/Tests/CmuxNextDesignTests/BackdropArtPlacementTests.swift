@@ -68,6 +68,19 @@ import Testing
         #expect(placement.keepsSubject)
     }
 
+    /// The review's case (#21709): a subject that fits the span at the cover scale but not while
+    /// the art covers the window slides right, under the panes, instead of staying under them.
+    @Test func aSubjectThatFitsOnlyOffTheCoverSlidesClearOfTheColumns() {
+        let view = CGSize(width: 1512, height: 945)
+        let visible = BackdropVisibleSpan.uncovered(width: view.width, by: [0...240, 240...660])
+        let metadata = Self.art((0.25, 0.15, 0.7, 0.9))
+        let placement = metadata.placement(forViewSize: view, imageSize: Self.image, visible: visible)
+        Self.checkSane(placement, view: view)
+        let subject = Self.subjectFrame(placement, metadata)
+        #expect(placement.keepsSubject && placement.fills)
+        #expect(subject.minX >= 660 - 0.5 && subject.maxX <= view.width + 0.5, "the subject \(subject) stayed under the panes")
+    }
+
     @Test func aSubjectTooWideForTheVisibleSpanShrinksOverTheFill() {
         let view = CGSize(width: 1512, height: 945)
         let visible = BackdropVisibleSpan.uncovered(width: view.width, by: [0...660])
@@ -115,8 +128,8 @@ import Testing
     }
 
     /// Every painting in the catalog, in the window shapes people use, beside a sidebar and an
-    /// agent chat: the subject stays whole and visible for all but a few very wide works
-    /// (`scripts/cmux-next/art/framing_sheet.py` prints the same counts and draws them).
+    /// agent chat: the subject stays whole and visible, measured, for all but a few very wide
+    /// works (`scripts/cmux-next/art/framing_sheet.py` prints the same counts and draws them).
     @Test(arguments: [
         (CGSize(width: 1512, height: 945), [ClosedRange<CGFloat>](), 174),
         (CGSize(width: 1512, height: 945), [0...240, 240...660], 172),
@@ -130,7 +143,12 @@ import Testing
             #expect(box.minX < box.maxX && box.minY < box.maxY, "\(art) has an empty subject")
             let placement = art.metadata.placement(forViewSize: view, imageSize: Self.image, visible: visible)
             Self.checkSane(placement, view: view)
-            if placement.keepsSubject { kept += 1 }
+            // Kept means kept: the subject's frame lies in the visible span and the window.
+            let subject = Self.subjectFrame(placement, art.metadata)
+            let inside = subject.minX >= visible.minX * view.width - 1 && subject.maxX <= visible.maxX * view.width + 1
+                && subject.minY >= -1 && subject.maxY <= view.height + 1
+            #expect(placement.keepsSubject == inside, "\(art) says kept \(placement.keepsSubject) with its subject at \(subject)")
+            if inside { kept += 1 }
         }
         #expect(kept >= least, "only \(kept) of \(BackdropArt.allCases.count) paintings keep their subject in view")
     }

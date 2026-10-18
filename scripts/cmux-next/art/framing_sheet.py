@@ -48,53 +48,74 @@ def visible_span(width, covered):
 
 
 class Axis:
-    def __init__(self, view, image, subject, span, soft=False):
-        self.view, self.image, self.subject, self.span, self.soft = view, image, subject, span, soft
+    def __init__(self, view, image, subject, span):
+        self.view, self.image, self.subject, self.span = view, image, subject, span
 
     def centered(self, scale):
         return (self.span[0] + self.span[1]) / 2 - (self.subject[0] + self.subject[1]) / 2 * self.image * scale
 
-    def covering(self, scale):
+    def keeping(self, scale):
         extent = self.image * scale
-        low = max(self.view - extent, self.span[0] - self.subject[0] * extent)
-        high = min(0, self.span[1] - self.subject[1] * extent)
+        low, high = self.span[0] - self.subject[0] * extent, self.span[1] - self.subject[1] * extent
+        return (low, max(low, high)) if low <= high + 1e-6 else None
+
+    def covering(self, scale):
+        keeps = self.keeping(scale)
+        if keeps is None:
+            return None
+        low, high = max(self.view - self.image * scale, keeps[0]), min(0, keeps[1])
         if low > high + 1e-6:
-            if not self.soft:
-                return None
-            # Too tall: keep the subject's top (the heads), as near as covering allows.
-            return min(max(self.span[0] - self.subject[0] * extent, self.view - extent), 0)
+            return None
         return min(max(self.centered(scale), low), max(low, high))
 
-    def nearest(self, scale):
-        return min(max(self.centered(scale), self.view - self.image * scale), 0)
+    def nearest(self, scale, keeping_leading=False):
+        extent = self.image * scale
+        wide = extent * (self.subject[1] - self.subject[0]) > self.span[1] - self.span[0]
+        wanted = self.span[0] - self.subject[0] * extent if keeping_leading and wide else self.centered(scale)
+        return min(max(wanted, self.view - extent), 0)
 
     def shrunk(self, scale):
         extent = self.image * scale
-        low = self.span[0] - self.subject[0] * extent
-        high = self.span[1] - self.subject[1] * extent
-        centered = min(max(self.centered(scale), low), max(low, high))
-        if extent >= self.view:
-            return min(max(centered, max(low, self.view - extent)), min(max(low, high), 0))
-        return centered
+        keeps = self.keeping(scale)
+        if keeps is None:
+            return self.nearest(scale, True)
+        centered = min(max(self.centered(scale), keeps[0]), keeps[1])
+        covering = min(max(centered, self.view - extent), 0) if extent >= self.view else centered
+        return min(max(covering, keeps[0]), keeps[1])
+
+
+def kept(subject, view, span, scale, ox, oy):
+    """Measured, as the Swift does: the subject in the span across and in the window top to bottom."""
+    w, h = IMAGE[0] * scale, IMAGE[1] * scale
+    return (ox + subject[0] * w >= span[0] - 0.5 and ox + subject[2] * w <= span[1] + 0.5
+            and oy + subject[1] * h >= -0.5 and oy + subject[3] * h <= view[1] + 0.5)
 
 
 def placement(subject, view, span):
-    """(scale, origin x, origin y, outcome) with outcome 'keeps', 'fills' or 'cuts'."""
+    """(scale, origin x, origin y, outcome) with outcome 'keeps', 'fills' or 'cuts', measured."""
     vw, vh = view
     iw, ih = IMAGE
     cover = max(vw / iw, vh / ih)
     x = Axis(vw, iw, (subject[0], subject[2]), span)
-    y = Axis(vh, ih, (subject[1], subject[3]), (0, vh), soft=True)
+    y = Axis(vh, ih, (subject[1], subject[3]), (0, vh))
+
+    def outcome(scale, ox, oy):
+        if not kept(subject, view, span, scale, ox, oy):
+            return scale, ox, oy, "cuts"
+        covers = ox <= 0.5 and oy <= 0.5 and ox + iw * scale >= vw - 0.5 and oy + ih * scale >= vh - 0.5
+        return scale, ox, oy, "keeps" if covers else "fills"
+
     steps = 16
     for step in range(steps + 1):
         scale = cover * (1 + (MAXIMUM_ZOOM - 1) * step / steps)
         ox, oy = x.covering(scale), y.covering(scale)
         if ox is not None and oy is not None:
-            return scale, ox, oy, "keeps"
-    fit = min((span[1] - span[0]) / (iw * max(subject[2] - subject[0], 0.01)), cover)
+            return outcome(scale, ox, oy)
+    fit = min((span[1] - span[0]) / (iw * max(subject[2] - subject[0], 0.01)),
+              vh / (ih * max(subject[3] - subject[1], 0.01)), cover)
     if fit >= cover * MINIMUM_SHRINK:
-        return fit, x.shrunk(fit), y.covering(fit) if fit == cover else y.shrunk(fit), "fills"
-    return cover, x.nearest(cover), y.nearest(cover), "cuts"
+        return outcome(fit, x.shrunk(fit), y.shrunk(fit))
+    return outcome(cover, x.nearest(cover), y.nearest(cover, True))
 
 
 def main():
