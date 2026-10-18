@@ -147,6 +147,14 @@ struct ChiefHomeNavigation {
         }
     }
 
+    /// Whether a main window makes Home when it appears. Not in a test host: its
+    /// windows stand for plain cmux windows, and Chief tests call ``ensureHome(in:)``.
+    static func makesHomeWhenAWindowAppears(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        !MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment)
+    }
+
     /// Ensures the canonical Home workspace exists. Conversations are loaded by
     /// the list inside that pane rather than materialized as sidebar workspaces.
     static func restoreConversations(in manager: TabManager) {
