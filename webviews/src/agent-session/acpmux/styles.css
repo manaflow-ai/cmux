@@ -83,7 +83,7 @@
 .acpmux-plan[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent,var(--agent-text)) 45%,transparent);color:var(--agent-accent,var(--agent-text))}
 .acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
-.acpmux-mode.acpmux-unrestricted .acpmux-picker-button{color:var(--acpmux-warning)}
+/* Full access draws in the chip's own color, like Claude's mode label: the shield's mark names the risk and the menu marks its icon (Leo 2026-10-18). */
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:var(--acpmux-pill-fill,color-mix(in srgb,var(--agent-text) 6%,transparent))}
 /* The model picker follows T3: one harness/model button and a stable two-column popover. */

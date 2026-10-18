@@ -487,9 +487,6 @@
   background: var(--acpmux-pill-open, var(--acpmux-row-hover));
   box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
 }
-.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
-  color: var(--acpmux-warning);
-}
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
   color: var(--agent-text);
 }
@@ -499,10 +496,6 @@
   .acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover {
     color: var(--agent-text);
   }
-}
-.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button[aria-expanded="true"] {
-  color: var(--acpmux-warning);
 }
 .acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
