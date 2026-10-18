@@ -181,16 +181,17 @@ open class ChromeLabel: NSView {
     }
 
     override open var intrinsicContentSize: NSSize {
-        // As wide as the text on one line, at most the preferred width; as tall as the lines
-        // at the width they break at (the preferred width, else the current one).
+        // As tall as the lines at the width they break at (the preferred width, else the
+        // current one).
         let line = metrics(width: nil).size
         guard shape.isMultiline, let width = wrapWidth else {
             if maximumNumberOfLines != 1, preferredMaxLayoutWidth > 0 { return metrics(width: preferredMaxLayoutWidth).size }
             return line
         }
         let wrapped = metrics(width: width).size
-        let widest = preferredMaxLayoutWidth > 0 ? min(line.width, preferredMaxLayoutWidth) : line.width
-        return NSSize(width: widest, height: wrapped.height)
+        // At a preferred width: the widest wrapped line. At the current width: the one-line
+        // width, so the width a layout gives the label never feeds back into it.
+        return NSSize(width: preferredMaxLayoutWidth > 0 ? wrapped.width : line.width, height: wrapped.height)
     }
 
     override open var firstBaselineOffsetFromTop: CGFloat { metrics(width: wrapWidth).firstBaseline }

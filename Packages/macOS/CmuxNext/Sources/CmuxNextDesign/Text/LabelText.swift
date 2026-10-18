@@ -6,7 +6,8 @@ import AppKit
 /// It lays out as a label field does (measured against `NSTextField` on macOS 26 and 27 by
 /// `debug.label_parity`): the text sits 2 pt in from each side (the line fragment padding; the
 /// field's alignment rect excludes it), the first line at the top edge, each line as tall as its
-/// font's line height rounded up to a whole point, widths rounded up to a whole pixel. Only a
+/// font's ascender and descender each rounded up to a whole point, widths rounded up to a
+/// whole pixel. Only a
 /// wrapping label (``Shape/wraps``) breaks lines at the width, up to its line count, the line
 /// break mode on its last line; any other label shows each of its lines whole, clipped or
 /// truncated at the width.
@@ -129,8 +130,9 @@ enum LabelText {
         manager.drawGlyphs(forGlyphRange: range, at: .zero)
     }
 
-    /// The layout manager delegate that makes every line a whole number of points tall, as a
-    /// label field's lines are (its font's line height rounded up; TextKit rounds to nearest).
+    /// The layout manager delegate that makes every line as tall as a label field's: its font's
+    /// ascender and descender, each rounded up to a whole point, the baseline under the ascender
+    /// (TextKit rounds the sum instead: an 11 pt line is 13 pt, a field's 14 pt).
     nonisolated final class WholePointLines: NSObject, NSLayoutManagerDelegate {
         /// How many lines it was asked about (debug.label_parity).
         var calls = 0
@@ -141,14 +143,18 @@ enum LabelText {
             calls += 1
             guard let storage = layoutManager.textStorage else { return false }
             let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-            var height: CGFloat = 0
+            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             storage.enumerateAttribute(.font, in: characters) { value, _, _ in
                 guard let font = value as? NSFont else { return }
-                height = max(height, (font.ascender - font.descender + font.leading).rounded(.up))
+                ascent = max(ascent, font.ascender.rounded(.up))
+                descent = max(descent, (-font.descender).rounded(.up))
+                leading = max(leading, font.leading.rounded(.up))
             }
-            guard height > lineFragmentRect.pointee.height else { return false }
+            guard ascent > 0 else { return false }
+            let height = ascent + descent + leading
             lineFragmentRect.pointee.size.height = height
-            lineFragmentUsedRect.pointee.size.height = max(lineFragmentUsedRect.pointee.height, height)
+            lineFragmentUsedRect.pointee.size.height = height
+            baselineOffset.pointee = ascent
             return true
         }
     }
