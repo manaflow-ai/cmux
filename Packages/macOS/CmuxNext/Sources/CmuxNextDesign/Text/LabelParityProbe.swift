@@ -170,7 +170,9 @@ public struct LabelParityProbe {
     struct Ink: CustomStringConvertible {
         var box: CGRect
         var amount: Double
-        var description: String { "box \(Int(box.minX)),\(Int(box.minY)) \(Int(box.width))x\(Int(box.height)) ink \(Int(amount))" }
+        var description: String {
+            box.isNull ? "no ink" : "box \(Int(box.minX)),\(Int(box.minY)) \(Int(box.width))x\(Int(box.height)) ink \(Int(amount))"
+        }
     }
 
     private static func same(_ a: Ink, _ b: Ink) -> Bool {
