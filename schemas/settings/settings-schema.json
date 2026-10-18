@@ -550,17 +550,6 @@
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
             }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
-            }
           }
         ],
         "id" : "agents",
@@ -576,6 +565,39 @@
           "harnesses",
           "agentHarnesses",
           "computerUse"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          }
+        ],
+        "id" : "chief-pet",
+        "lead" : [
+          "chiefPet"
+        ],
+        "symbol" : "pawprint",
+        "title" : {
+          "key" : "settings.category.chiefPet",
+          "text" : "Chief Pet"
+        },
+        "trail" : [
+
         ]
       },
       {
