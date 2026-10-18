@@ -17,8 +17,8 @@ impl Caller {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let id = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        super::super::origin_gate::set_role_for_test(mux, id, "main");
-        super::super::origin_gate::set_verified_app_for_test(mux, id, verified);
+        origin_gate::set_role_for_test(mux, id, "main");
+        origin_gate::set_verified_app_for_test(mux, id, verified);
         Self {
             id,
             writer,
@@ -37,7 +37,7 @@ impl Caller {
             &self.writer,
             &self.scheduler,
         ));
-        let until = std::time::Instant::now() + Duration::from_secs(5);
+        let until = Instant::now() + Duration::from_secs(5);
         loop {
             if let Some(line) = self.outbound.try_pop() {
                 let value: Value = serde_json::from_str(&line).unwrap();
@@ -45,7 +45,7 @@ impl Caller {
                     return value;
                 }
             }
-            assert!(std::time::Instant::now() < until, "job did not answer");
+            assert!(Instant::now() < until, "job did not answer");
             std::thread::sleep(Duration::from_millis(2));
         }
     }

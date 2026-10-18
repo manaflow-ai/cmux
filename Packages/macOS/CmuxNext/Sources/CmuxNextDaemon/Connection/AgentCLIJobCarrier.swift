@@ -1,3 +1,5 @@
+import Foundation
+
 /// A proved machine/session control transport captured for native UI job intent.
 /// It never reconnects, starts an owner, chooses commands or admits an app principal.
 public nonisolated struct AgentCLIJobCarrier: Sendable {
@@ -28,5 +30,3 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         return receipt
     }
 }
-import Foundation
-
