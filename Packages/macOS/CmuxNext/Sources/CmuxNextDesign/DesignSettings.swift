@@ -72,6 +72,8 @@ public final class DesignSettings {
     /// `appearance.backgroundAvoidPanes`: when a video background plays, and whether a painting
     /// keeps its subject clear of the panes (backgrounds plan phase 5).
     public var backdropPlayback = BackdropPlaybackSettings()
+    /// `home.chiefPictureMotion`: whether a Chief's animated picture moves (``ChiefPictureMotion``).
+    public var chiefPictureMotion = ChiefPictureMotion.hover
     /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
     /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
     public var classicHome = false

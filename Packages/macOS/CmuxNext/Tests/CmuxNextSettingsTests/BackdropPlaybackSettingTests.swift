@@ -44,4 +44,20 @@ struct BackdropPlaybackSettingTests {
             #expect(SettingsSchema.agentSettableKeys.contains("appearance." + key))
         }
     }
+
+    /// `home.chiefPictureMotion`: hover by default, always and never parse, a bad value keeps
+    /// hover and says why, and the Home row offers the three.
+    @Test func chiefPictureMotionParsesAndHasItsRow() throws {
+        let parse = { (value: JSONValue) in
+            CmuxConfigSnapshot.parse(.object(["home": .object(["chiefPictureMotion": value])]), validDensities: [], validMetrics: [])
+        }
+        #expect(CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: []).chiefPictureMotion == .hover)
+        #expect(parse("always").chiefPictureMotion == .always && parse("never").chiefPictureMotion == .never)
+        let bad = parse("sometimes")
+        #expect(bad.chiefPictureMotion == .hover && bad.diagnostics.contains { $0.path == "home.chiefPictureMotion" })
+        let row = try #require(SettingsSchema.descriptor(for: ["home", "chiefPictureMotion"]))
+        guard case .choice(let offered) = row.kind else { return Issue.record("not a choice row") }
+        #expect(offered.map(\.value) == ChiefPictureMotion.allCases.map(\.rawValue) && row.defaultValue == .string("hover"))
+        #expect(SettingsSchema.agentSettableKeys.contains("home.chiefPictureMotion"))
+    }
 }

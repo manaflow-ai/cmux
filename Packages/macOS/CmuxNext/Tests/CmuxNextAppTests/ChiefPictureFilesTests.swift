@@ -78,4 +78,22 @@ import UniformTypeIdentifiers
         #expect(files.tileAvatar() == nil, "the tile does not fall back to the bundled cat")
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("optchat/avatar.png").path))
     }
+
+    /// The tile is a small list icon: an animated picture, square or not, gets a still square copy
+    /// (backgrounds plan phase 5), so it never moves there and is never stretched.
+    @Test func anAnimatedPictureGetsAStillTile() throws {
+        let home = try Self.home(), source = try Self.home()
+        let files = HomeChiefFiles(muxHome: home)
+        for (width, height) in [(64, 64), (96, 48)] {
+            let gif = source.appendingPathComponent("wave-\(width).gif")
+            try Self.picture(.gif, width: width, height: height, frames: 3, to: gif)
+            try files.writePicture(from: gif)
+            guard case .picture(let tile) = files.tileAvatar() else { return Issue.record("no tile picture") }
+            #expect(tile.pathExtension == "png", "the \(width)x\(height) GIF's tile is not a still copy")
+            let image = try #require(CGImageSourceCreateWithURL(tile as CFURL, nil))
+            #expect(CGImageSourceGetCount(image) == 1)
+            let frame = try #require(CGImageSourceCreateImageAtIndex(image, 0, nil))
+            #expect(frame.width == frame.height)
+        }
+    }
 }

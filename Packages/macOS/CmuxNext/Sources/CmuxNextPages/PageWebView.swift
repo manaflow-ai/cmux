@@ -269,7 +269,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// the setting or of Reduce Motion pushes the theme again.
     private func observeStatusLook() {
         statusLookObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.statusIndicator.animation }) {
+            for await _ in ObservationStream({ "\(DesignSettings.shared.statusIndicator.animation.rawValue) \(DesignSettings.shared.chiefPictureMotion.rawValue)" }) {
                 guard let self else { return }
                 self.applyTheme()
             }

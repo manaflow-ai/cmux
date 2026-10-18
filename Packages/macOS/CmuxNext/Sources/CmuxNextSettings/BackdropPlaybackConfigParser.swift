@@ -14,4 +14,14 @@ enum BackdropPlaybackConfigParser {
         diagnostics += reader.diagnostics
         return settings
     }
+
+    /// `home.chiefPictureMotion`: always, hover (the default) or never.
+    static let chiefPictureMotionPath = ["home", "chiefPictureMotion"]
+
+    static func parseChiefPictureMotion(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> ChiefPictureMotion {
+        guard var reader = ConfigFieldReader(root, at: ["home"], diagnostics: &diagnostics) else { return .hover }
+        let motion = reader.choice("chiefPictureMotion", ChiefPictureMotion.self) ?? .hover
+        diagnostics += reader.diagnostics
+        return motion
+    }
 }

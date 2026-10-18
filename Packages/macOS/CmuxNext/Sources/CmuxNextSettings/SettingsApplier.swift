@@ -48,6 +48,7 @@ public final class SettingsApplier {
         if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
         if design.backdropPlayback != snapshot.backdropPlayback { design.backdropPlayback = snapshot.backdropPlayback }
+        if design.chiefPictureMotion != snapshot.chiefPictureMotion { design.chiefPictureMotion = snapshot.chiefPictureMotion }
         if design.classicHome != snapshot.classicHome { design.classicHome = snapshot.classicHome }
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }

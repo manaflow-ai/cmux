@@ -85,6 +85,7 @@ extension SettingsSchema {
         "appearance.backgroundVideo",
         "appearance.backgroundVideoOnBattery",
         "appearance.backgroundAvoidPanes",
+        "home.chiefPictureMotion",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",

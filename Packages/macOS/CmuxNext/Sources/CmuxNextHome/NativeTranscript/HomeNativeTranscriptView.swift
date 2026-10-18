@@ -3,6 +3,7 @@ public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
 import MessagesLabHome
+import Observation
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
 /// own code and motion (`MessagesLabHome`, vendored at the MessagesLab
@@ -158,9 +159,50 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// The header avatar's picture, over its text; nil shows the text.
+    /// The header's picture as given; it shows still (its first frame) unless
+    /// `home.chiefPictureMotion` is Always and Reduce Motion is off (backgrounds plan phase 5).
     public var avatarPicture: NSImage? {
-        get { transcript.avatarPicture }
-        set { transcript.avatarPicture = newValue }
+        get { givenAvatar }
+        set {
+            givenAvatar = newValue
+            showAvatar()
+            if !watchingAvatarMotion { watchAvatarMotion() }
+        }
+    }
+    private var givenAvatar: NSImage?
+    private var watchingAvatarMotion = false
+
+    private func showAvatar() {
+        transcript.avatarPicture = ChiefPictureMotion.effective == .always ? givenAvatar : givenAvatar.map(Self.firstFrame)
+    }
+
+    /// Follows the setting (and Reduce Motion, which ``ChiefPictureMotion/effective`` reads).
+    private func watchAvatarMotion() {
+        watchingAvatarMotion = true
+        observers.append(NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showAvatar() } // main-proof: observer on queue: .main
+        })
+        trackAvatarMotionSetting()
+    }
+
+    /// One observation of the setting at a time; each change shows the picture again and re-arms.
+    private func trackAvatarMotionSetting() {
+        withObservationTracking { _ = DesignSettings.shared.chiefPictureMotion } onChange: { [weak self] in
+            // task-owner: one hop to the main actor per setting change
+            Task { @MainActor in
+                self?.showAvatar()
+                self?.trackAvatarMotionSetting()
+            }
+        }
+    }
+
+    /// An animated picture's first frame as a still image; any other picture as it is.
+    static func firstFrame(_ image: NSImage) -> NSImage {
+        guard let rep = image.representations.lazy.compactMap({ $0 as? NSBitmapImageRep }).first,
+              (rep.value(forProperty: .frameCount) as? Int ?? 1) > 1 else { return image }
+        rep.setProperty(.currentFrame, withValue: 0)
+        guard let frame = rep.cgImage else { return image }
+        return NSImage(cgImage: frame, size: image.size)
     }
 
     /// The name pill's VoiceOver help.
