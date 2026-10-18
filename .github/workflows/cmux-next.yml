@@ -1646,10 +1646,34 @@ jobs:
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The fast tier builds cmux-tui-core through ghostty-vt-sys. Keep the
+      # Cargo registry and target directory across runs so a warm mini only
+      # recompiles crates affected by the current tree. The shared key is
+      # intentionally fast-tier-specific: its target artifacts are not a
+      # substitute for the release or package-test build graphs.
+      - name: Cache cmux-tui Rust build
+        id: cargo-cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-next-fast-tier
+          cache-all-crates: true
+
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
         run: git submodule update --init --depth 1 --filter=blob:none ghostty-next
 
+      # A verified tarball avoids the repeated mirror/download path (often
+      # several minutes on a cold runner); the installer still verifies the
+      # pinned SHA-256 before extracting it.
+      - name: Cache the verified Zig tarball
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
       - name: Install zig
+        env:
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
       - name: Run the fast tier

@@ -913,6 +913,20 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertIn("--reuse ghostty-next", reuse[0]["run"])
         self.assertNotIn("--all", reuse[0]["run"])
 
+    def test_fast_tier_caches_rust_build_and_verified_zig_tarball(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        steps = job["steps"]
+        rust_cache = next(step for step in steps if str(step.get("uses", "")).startswith("Swatinem/rust-cache@"))
+        self.assertEqual(rust_cache["with"]["workspaces"], "cmux-tui -> target")
+        self.assertEqual(rust_cache["with"]["shared-key"], "cmux-next-fast-tier")
+        self.assertEqual(rust_cache["with"]["cache-all-crates"], True)
+
+        zig_cache = next(step for step in steps if str(step.get("uses", "")).startswith("actions/cache@"))
+        self.assertEqual(zig_cache["with"]["path"], "${{ runner.temp }}/cmux-zig-tarballs")
+        self.assertIn("hashFiles('scripts/ci/zig-tarballs.sha256')", zig_cache["with"]["key"])
+        zig_install = next(step for step in steps if "scripts/install-zig-ci.sh" in step.get("run", ""))
+        self.assertEqual(zig_install["env"]["ZIG_TARBALL_CACHE_DIR"], "${{ runner.temp }}/cmux-zig-tarballs")
+
 
 class FastTierTriggers(unittest.TestCase):
     def test_a_fast_tier_registry_change_runs_the_workflow(self):
