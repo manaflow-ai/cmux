@@ -1,6 +1,6 @@
 CREATE TABLE "huge_blue_attach_tokens" (
   "token_hash" text PRIMARY KEY,
-  "runtime_id" uuid NOT NULL REFERENCES "persistent_workspaces" ("id") ON DELETE CASCADE,
+  "runtime_id" uuid NOT NULL,
   "owner_id" text NOT NULL,
   "tenant_id" text NOT NULL,
   "host_id" text NOT NULL,
