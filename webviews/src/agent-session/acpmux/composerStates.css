@@ -275,9 +275,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
-/* Its ink steps up as on hover, so focus reads as hover with a ring (unrestricted access keeps its
-   warning color). */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access:not(.acpmux-unrestricted)) .acpmux-picker-button:focus-visible {
+/* Its ink steps up as on hover, so focus reads as hover with a ring. */
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
   color: var(--agent-text);
 }
 @media (prefers-contrast: more) {
