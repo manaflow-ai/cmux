@@ -443,8 +443,9 @@ concurrency:
 # When a job takes the side label, macos-placement uploads the owned-pool-watch
 # marker. ci-owned-pool-rescue.yml's sweeper on main adopts the run
 # (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
-# queued or refuses. Every attempt 3, including operator-triggered rescues,
-# drops the stale placement output and takes the Blacksmith fallback.
+# queued or refuses. Bot attempt 3 is the measured Blacksmith overflow:
+# bot attempt 3 drops the stale placement output and takes the Blacksmith fallback,
+# including when an operator initiated the rescue.
 jobs:
   # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
   # pushes run the Release compile, the app scheme compile and the nightly-next
