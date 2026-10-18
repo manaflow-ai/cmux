@@ -249,7 +249,7 @@ export type AuthenticatedWorkspaceCreateVmInput = {
   readonly billingTeamId: string;
   readonly billingPlanId: string;
   readonly maxActiveVms: number | null;
-  readonly provider: string;
+  readonly provider: "freestyle";
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly memoryMb?: number;
@@ -265,7 +265,7 @@ export type AuthenticatedWorkspaceCreateVmInput = {
  */
 export function createAuthenticatedWorkspaceProvisioner(input: {
   readonly context: RequestScopedWorkspaceContext;
-  readonly provider: string;
+  readonly provider: "freestyle";
   readonly resolveImage: (request: Parameters<typeof persistentWorkspaceProviderFromCloudVm>[0] extends { provisionVm: (request: infer R) => unknown } ? R : never) => {
     readonly image: string;
     readonly imageVersion?: string | null;
