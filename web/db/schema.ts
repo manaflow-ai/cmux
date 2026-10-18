@@ -78,6 +78,8 @@ export const runEventKind = pgEnum("run_event_kind", [
   "attempt.started",
   "attempt.succeeded",
   "attempt.failed",
+  "attempt.cancelled",
+  "run.cancelled",
 ]);
 
 export const runs = pgTable("runs", {
@@ -108,6 +110,11 @@ export const runAttempts = pgTable("run_attempts", {
   ordinal: integer("ordinal").notNull(),
   variant: jsonb("variant").$type<Record<string, unknown>>().notNull(),
   status: runAttemptStatus("status").notNull().default("queued"),
+  /** Worker fencing token. Every provider side effect must carry this lease. */
+  leaseId: uuid("lease_id"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  workerId: text("worker_id"),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
   providerVmId: text("provider_vm_id"),
   result: jsonb("result").$type<Record<string, unknown>>(),
   error: text("error"),
@@ -118,6 +125,7 @@ export const runAttempts = pgTable("run_attempts", {
 }, (table) => [
   uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
   index("run_attempts_run_status_idx").on(table.runId, table.status),
+  index("run_attempts_lease_idx").on(table.status, table.leaseUntil, table.createdAt),
 ]);
 
 export const runEvents = pgTable("run_events", {

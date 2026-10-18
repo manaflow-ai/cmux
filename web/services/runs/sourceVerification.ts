@@ -57,6 +57,7 @@ export function sourceVerificationCommand(spec: RunSpec, marker: string): string
   return [
     "set -eu",
     `rm -rf ${shellQuote(workspace)}`,
+    `trap 'rm -rf ${shellQuote(workspace)}' EXIT`,
     `git init -q ${shellQuote(workspace)}`,
     `git -C ${shellQuote(workspace)} remote add origin ${shellQuote(repository)}`,
     `git -C ${shellQuote(workspace)} fetch -q --depth=1 origin ${shellQuote(commit)}`,
