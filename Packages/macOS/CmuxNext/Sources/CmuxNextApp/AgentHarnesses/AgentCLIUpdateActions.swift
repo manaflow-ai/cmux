@@ -25,7 +25,7 @@ final class AgentCLIUpdateActions {
     private let capture: @MainActor (ActionInvocation) throws -> Route
     private var intents: [String: Intent] = [:]
 
-    @Observable private final class Intent {
+    @Observable final class Intent {
         let route: Route
         let profile: String?
         let target: ActionTargetRef?
