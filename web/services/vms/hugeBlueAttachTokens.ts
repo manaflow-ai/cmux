@@ -10,6 +10,29 @@ export function attachTokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function validateHugeBlueRelayMode(
+  production: boolean,
+  relayMode: string | undefined,
+): void {
+  if (production && relayMode !== "per-tenant") {
+    throw new Error("Huge Blue production relay requires per-tenant daemon isolation");
+  }
+  if (!production && relayMode !== "shared-staging" && relayMode !== "per-tenant") {
+    throw new Error("Huge Blue relay mode must be shared-staging or per-tenant");
+  }
+}
+
+function validateHugeBlueRelayIdentity(
+  hostId: string | undefined,
+  session: string | undefined,
+  ttlMs: number,
+): { hostId: string; session: string; ttlMs: number } {
+  if (!hostId || !session || !Number.isSafeInteger(ttlMs) || ttlMs < 1_000 || ttlMs > 300_000) {
+    throw new Error("Huge Blue relay identity or TTL is invalid");
+  }
+  return { hostId, session, ttlMs };
+}
+
 export function hugeBlueRelayConfig(env: Readonly<Record<string, string | undefined>> = process.env) {
   const route = new URL(env.HUGE_BLUE_CMUX_REMOTE_URL ?? "");
   if (route.protocol !== "wss:" || route.username || route.password || route.search || route.hash || route.pathname !== "/v1/link") {
@@ -18,10 +41,14 @@ export function hugeBlueRelayConfig(env: Readonly<Record<string, string | undefi
   const hostId = env.HUGE_BLUE_VM_ID?.trim();
   const session = env.HUGE_BLUE_CMUX_REMOTE_SESSION?.trim();
   const ttlMs = Number(env.HUGE_BLUE_ATTACH_TTL_MS ?? 300_000);
-  if (!hostId || !session || !Number.isSafeInteger(ttlMs) || ttlMs < 1_000 || ttlMs > 300_000) {
-    throw new Error("Huge Blue relay identity or TTL is invalid");
-  }
-  return { route, hostId, session, ttlMs };
+  const relayMode = env.HUGE_BLUE_RELAY_MODE?.trim();
+  const production = env.VERCEL_ENV === "production" || env.CMUX_ENVIRONMENT === "production";
+  // The current carrier is a shared daemon. Refuse production startup/token
+  // issuance until a per-tenant daemon namespace is configured explicitly.
+  // Staging may opt into the shared carrier only with an explicit marker.
+  validateHugeBlueRelayMode(production, relayMode);
+  const identity = validateHugeBlueRelayIdentity(hostId, session, ttlMs);
+  return { route, ...identity, relayMode };
 }
 
 /** Serialize rotation with the workspace row, including concurrent attaches. */
