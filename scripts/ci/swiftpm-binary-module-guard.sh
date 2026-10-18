@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # Sourced by the Swift package lanes (package-test-lane.sh,
-# run-swift-testing-suites.sh). Keeps a reused SwiftPM .build correct when a
-# binary target's C headers change.
+# run-swift-testing-suites.sh) and by the kept-DerivedData app scheme compile
+# (scripts/cmux-next/check-cmux-scheme-compile.sh). Keeps a reused SwiftPM
+# .build or Xcode DerivedData correct when a binary target's C headers change.
 #
 # Why: a fleet step-warm slot (hq build-fleet cmd/worker/step_warm.go), a
 # GitHub runner's kept checkout or an nx-remote tree builds many commits in one
@@ -30,6 +31,19 @@
 #   .../ExplicitPrecompiledModules/*.scan" (2026-10-18, aws-m4pro-2 slot-1,
 #   step ec537be95de8581e393962bd).
 #
+# xcode_binary_module_guard DIR DERIVED_DATA XCODEBUILD_ARGS...
+#   The same guard for an xcodebuild run in DIR (XCODEBUILD_ARGS name the
+#   project or package scheme) into a kept DERIVED_DATA: resolves the packages
+#   into DERIVED_DATA/SourcePackages, digests the same inputs (DIR's
+#   Package.swift and its local dependencies; an Xcode project root without a
+#   manifest counts every Packages/**/Package.swift) and, on a change, removes
+#   every build output in DERIVED_DATA but SourcePackages
+#   (clear-stale-scheme-build-state.sh). The glaeda scheme job reused a .pcm of
+#   the old CCmuxAppFFI header after the pin moved, and Swift saw the old
+#   declarations: "cannot find type 'CmuxFocusReply'" on every push from
+#   2026-10-18T06:50Z (cmux17, cmux18, cmux24, cmux-austin-mini-1), which the
+#   stale-module retry does not match.
+#
 # swiftpm_purge_build_outputs SCRATCH
 #   Removes every build output in SCRATCH (keeps checkouts, repositories,
 #   artifacts and the resolution state). Also the backstop of the suite build.
@@ -47,7 +61,12 @@ swiftpm__sha256() {
 # The manifests of PKGDIR and of its local (path) dependencies, one per line.
 swiftpm__local_manifests() {
   local pkgdir="$1" scratch="$2"
-  echo "$pkgdir/Package.swift"
+  if [ -f "$pkgdir/Package.swift" ]; then
+    echo "$pkgdir/Package.swift"
+  elif [ -d "$pkgdir/Packages" ]; then
+    # An Xcode project root (no manifest of its own): every package it can link.
+    find "$pkgdir/Packages" \( -name .build -o -name '.build-*' \) -prune -o -name Package.swift -type f -print 2>/dev/null
+  fi
   [ -f "$scratch/workspace-state.json" ] || return 0
   python3 -I -c '
 import json, os, sys
@@ -125,6 +144,37 @@ swiftpm_binary_module_guard() {
     echo "ci-phase binary-target headers changed in $pkgdir since its last build: removed the build outputs in $scratch (a cold build of this package)"
   elif [ "$had_outputs" -eq 1 ]; then
     echo "ci-phase $scratch had build outputs but no binary-target header digest: removed them (a cold build of this package)"
+  fi
+}
+
+xcode_binary_module_guard() {
+  local root="$1" derived="$2" scratch="$2/SourcePackages" stamp digest previous=""
+  shift 2
+  stamp="$derived/$swiftpm_binary_module_inputs_file"
+  # As above: when resolution fails the artifacts may be the old commit's, so
+  # the digest proves nothing; build cold and let the build report why.
+  if ! (cd "$root" && xcodebuild "$@" -derivedDataPath "$derived" \
+      -resolvePackageDependencies < /dev/null >/dev/null 2>&1); then
+    digest=""
+  else
+    digest="$(swiftpm_binary_module_digest "$root" "$scratch")"
+  fi
+  [ ! -f "$stamp" ] || previous="$(cat "$stamp")"
+  if [ -n "$digest" ] && [ "$digest" = "$previous" ]; then
+    return 0
+  fi
+  # Written only after the outputs are gone: a step stopped in between purges again.
+  bash "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/clear-stale-scheme-build-state.sh" "$derived"
+  if [ -z "$digest" ]; then
+    rm -f "$stamp"
+    echo "ci-phase xcodebuild -resolvePackageDependencies failed: removed the build outputs in $derived"
+    return 0
+  fi
+  printf '%s\n' "$digest" > "$stamp"
+  if [ -n "$previous" ]; then
+    echo "ci-phase binary-target headers changed since the last build in $derived: removed its build outputs (a cold build)"
+  else
+    echo "ci-phase $derived had no binary-target header digest: removed its build outputs (a cold build)"
   fi
 }
 
