@@ -101,10 +101,8 @@ private final class ImmediatePresenceClock: Clock, @unchecked Sendable {
 
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
         let duration = now.duration(to: deadline)
-        lock.lock()
-        recordedSleeps.append(duration)
-        lock.unlock()
+        lock.withLock { recordedSleeps.append(duration) }
         guard duration >= .seconds(5) else { return }
-        try await ContinuousClock().sleep(for: .hours(1))
+        try await ContinuousClock().sleep(for: .seconds(3600))
     }
 }
