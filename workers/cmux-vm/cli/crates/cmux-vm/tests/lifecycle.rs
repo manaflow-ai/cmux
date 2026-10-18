@@ -95,6 +95,42 @@ fn json_stdout(out: &Output) -> Value {
 }
 
 #[tokio::test]
+async fn list_created_by_me_sends_caller_selector() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .and(query_param("createdBy", "caller"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items": [], "nextCursor": null})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "list", "--created-by-me"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), json!({"items": [], "nextCursor": null}));
+}
+
+#[tokio::test]
+async fn snapshot_list_created_by_me_sends_caller_selector() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/snapshots"))
+        .and(authorized())
+        .and(query_param("createdBy", "caller"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items": [], "nextCursor": null})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "snapshot", "list", "--created-by-me"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), json!({"items": [], "nextCursor": null}));
+}
+
+#[tokio::test]
 async fn create_sends_the_body_and_idempotency_key() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
