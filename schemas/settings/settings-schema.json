@@ -544,8 +544,7 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake",
-              "sessions.allowFullAccess"
+              "sessions.keepAwake"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -3821,56 +3820,6 @@
         true,
         false
       ],
-      "agent_refusal" : "destructive",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sessions",
-        "text" : "Agent Sessions"
-      },
-      "help" : {
-        "key" : "settings.sessions.allowFullAccess.help",
-        "text" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sessions.allowFullAccess",
-      "keywords" : [
-        "bypass",
-        "permissions",
-        "yolo",
-        "full access",
-        "dangerous",
-        "approve",
-        "safety"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sessions",
-        "allowFullAccess"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sessions.allowFullAccess",
-        "text" : "Allow Full-Access Modes"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -3884,7 +3833,7 @@
       },
       "help" : {
         "key" : "settings.phone.allowConnections.help",
-        "text" : "cmux registers this Mac's name with your cmux account so your phone can find it. Workspace names, folders and terminal output go only over the encrypted link to your phone. Branch names and repo URLs are never uploaded."
+        "text" : "cmux registers this Mac's name, device ID, platform, app bundle ID and version, and relay address with your cmux account so your phone can find it. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.allowConnections",
@@ -25439,7 +25388,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "cbcba01f4e5fa8017f5a497ead406cb5e21be8b2318bc49727c0926a38f604fd",
+  "schema_hash" : "e9ecbd2c1f2c90cdd577a35656d9adb442a2d0e42842ad27d737005d5cc193d2",
   "sections" : [
     {
       "id" : "general",
