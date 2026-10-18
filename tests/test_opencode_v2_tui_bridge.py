@@ -31,6 +31,7 @@ const { batch, createSignal } = await import("solid-js");
 const mod = await import(path.join(packageDir, "tui.js"));
 const serverMod = await import(path.join(packageDir, "index.js"));
 if (typeof serverMod.default?.server !== "function") throw new Error("missing inert V2 server entrypoint");
+if (serverMod.default.id !== "cmux.server") throw new Error(`unexpected V2 server plugin ID: ${serverMod.default.id}`);
 const serverCleanup = await serverMod.default.setup({});
 if (typeof serverCleanup !== "function") throw new Error("legacy server setup did not return a cleanup function");
 serverCleanup();
@@ -324,7 +325,8 @@ console.log("PASS");
 '''
     with tempfile.TemporaryDirectory(prefix="cmux-opencode-v2-package-") as package:
         package_dir = Path(package)
-        (package_dir / "index.js").write_text((ROOT / "Resources/opencode-plugin.js").read_text())
+        feed_source = (ROOT / "Resources/opencode-plugin.js").read_text()
+        (package_dir / "index.js").write_text(feed_source.replace('id: "cmux.feed"', 'id: "cmux.server"'))
         (package_dir / "tui.js").write_text((ROOT / "Resources/opencode-tui-plugin.js").read_text())
         (package_dir / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         (package_dir / "harness.mjs").write_text(source)
