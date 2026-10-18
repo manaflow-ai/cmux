@@ -29,7 +29,7 @@ extension WorkspaceContentController {
                 continue
             }
             guard let handle = handles.panes[id], let model = daemon.store.pane(handle) else { continue }
-            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, surface: $0.focusSurface, kind: .of($0)) }
+            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, surface: $0.daemonSurface, kind: .of($0)) }
             let selected = state.selection.selection(in: model.id).flatMap { id in tabs.contains { $0.id == id } ? id : nil }
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
@@ -77,8 +77,10 @@ extension WorkspaceContentController {
     func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, awayFrom paneKey: String? = nil,
                      generation: UInt64? = nil) {
         // The coordinator lands an expectation against the topology it holds at once (reducer
-        // `Expect`), and again on each later topology: no re-apply or topology send here.
-        focus.expect(.surface(String(surface.rawValue)), target: target, awayFrom: paneKey, generation: generation)
+        // `Expect`), and again on each later topology: no re-apply or topology send here. A tab
+        // the store has goes by its id, which a later surface change (a split's confirm) keeps.
+        let key: FocusState.Expectation.Key = daemon.store.tab(surface: surface).map { .tab($0.id) } ?? .surface(String(surface.rawValue))
+        focus.expect(key, target: target, awayFrom: paneKey, generation: generation)
     }
 }
 
@@ -110,7 +112,7 @@ extension PaneController {
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
             if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
-            return byID[id].map { FocusTopology.Tab(id: id, surface: $0.focusSurface, kind: .of($0)) } ?? FocusTopology.Tab(id: id, kind: .other)
+            return byID[id].map { FocusTopology.Tab(id: id, surface: $0.daemonSurface, kind: .of($0)) } ?? FocusTopology.Tab(id: id, kind: .other)
         }
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
     }
