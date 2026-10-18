@@ -21,7 +21,11 @@
 * { box-sizing: border-box; }
 /* In the app the page paints the window's surface (clear over a see-through window, pageBase.css);
    a plain browser paints --bg. */
-body { margin: 0; background: var(--cmux-surface-background, var(--bg)); color: var(--fg); }
+:root {
+  --inspector-page: var(--cmux-surface-background, var(--bg));
+}
+html { background: var(--inspector-page); }
+body { margin: 0; color: var(--fg); }
 .app { padding: 12px 16px 40px; max-width: 1200px; }
 h1 { font-size: 17px; margin: 0; }
 h3 { font-size: 13px; margin: 0 0 6px; display: inline; }
