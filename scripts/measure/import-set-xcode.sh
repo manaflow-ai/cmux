@@ -51,7 +51,7 @@ tool="${CMUX_CI_TOOL_CMUX_IMPORT_SET:-}"
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 [[ -f "$leaf" && -f App/main.swift && -d Packages/macOS/CmuxNext ]] || { echo "import-set-xcode.sh: $leaf, App/main.swift or CmuxNext missing" >&2; exit 2; }
-imported() { git grep -q -E "^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*((public|internal|package|private|fileprivate)[[:space:]]+)?import[[:space:]]+(struct[[:space:]]+|class[[:space:]]+|enum[[:space:]]+|protocol[[:space:]]+|func[[:space:]]+|typealias[[:space:]]+|var[[:space:]]+|let[[:space:]]+)?$1([^A-Za-z0-9_]|$)" -- 'Packages/macOS/*.swift' 'Packages/Shared/*.swift' App; }
+imported() { git grep -q -E "^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*((public|internal|package|private|fileprivate)[[:space:]]+)?import[[:space:]]+(struct[[:space:]]+|class[[:space:]]+|enum[[:space:]]+|protocol[[:space:]]+|func[[:space:]]+|typealias[[:space:]]+|var[[:space:]]+|let[[:space:]]+)?$1([^A-Za-z0-9_]|$)" -- 'Packages/macOS/*.swift' 'Packages/Shared/*.swift' 'Packages/iOS/*.swift' App; }
 if [[ "$module" != auto ]] && imported "$module"; then
   echo "import-set-xcode.sh: a macOS module of this graph imports $module already; choose another module=" >&2
   exit 2
@@ -93,6 +93,7 @@ if [[ "$module" == auto ]]; then
          WeatherKit Translation FoundationModels Contacts CoreLocation os simd Dispatch)
   free=()
   for m in "${cands[@]}"; do imported "$m" || free+=("$m"); done
+  (( ${#free[@]} )) || { echo "import-set-xcode.sh: every probe candidate is imported already; pass module=" >&2; exit 2; }
   printf '%s\n' "${free[@]}" | xargs -P 8 -I{} /bin/bash -c '
     printf "import %s\n" "$1" >"$2/$1.swift"
     xcrun swiftc -target arm64-apple-macos14.0 -sdk "$3" -Onone -parse-as-library -module-cache-path "$2/mc" \
@@ -316,8 +317,10 @@ print(f"RESULT {label} products that differ: {' '.join(f'{r[:-2]}:{k}(kept {kp})
       f"; only here: {ponly_sh[:10] or 'none'}; only clean: {ponly_cl[:10] or 'none'}")
 for rel, k, kept, a, b in pdiff[:2]:
     if a and b and k == "order":
-        i = next(i for i, (x, y) in enumerate(zip(a["opts"] + [""], b["opts"] + [""])) if x != y)
-        print(f"RESULT {label} product {rel} hint order from #{i}: here={a['opts'][i:i + 6]} clean={b['opts'][i:i + 6]}")
+        for what in ("opts", "fl"):
+            i = next((i for i, (x, y) in enumerate(zip(a[what] + [""], b[what] + [""])) if x != y), None)
+            if i is not None:
+                print(f"RESULT {label} product {rel} {what} order from #{i}: here={a[what][i:i + 6]} clean={b[what][i:i + 6]}")
 ok_parts["products"] = not ponly_sh and not ponly_cl and not pdiff and not stale_prelink
 
 # 3. The executable: bytes and ordered load commands.
@@ -374,6 +377,7 @@ def link_cmd(log):
 c_sh, c_cl = link_cmd(slog_again) or link_cmd(slog), link_cmd(clog)
 if c_sh is None or c_cl is None:
     print(f"RESULT {label} link command not in the log here={c_sh is None} clean={c_cl is None} (no relink in this build?)")
+    ok_parts["link_command"] = False
 else:
     eq = c_sh == c_cl
     msg = f"RESULT {label} link command args={len(c_sh)}/{len(c_cl)} equal={eq} same_set={sorted(c_sh) == sorted(c_cl)}"
@@ -389,7 +393,7 @@ if expect in ("match", "info"):
 elif expect == "stale-objects":
     ok = any(k == "set" and kept for _r, k, kept, _a, _b in odiff)
 else:   # stale-dylib: the executable keeps a load command of the removed module
-    ok = any(module in d for d in dl_sh if d not in dl_cl)
+    ok = any(f"/libswift{module}.dylib" in d or f"/{module}.framework/" in d for d in dl_sh if d not in dl_cl)
 bad = [k for k, v in ok_parts.items() if not v]
 print(f"RESULT {label} {'PASS' if ok else 'FAIL'} (expected {expect}; differ: {', '.join(bad) or 'nothing'})")
 sys.exit(0 if ok or expect == "info" else 1)
@@ -411,6 +415,22 @@ got = {p["identity"]: p["state"] for p in json.load(open(sys.argv[2]))["pins"]}
 moved = sorted(k for k in want if got.get(k) != want[k])
 print(f"RESULT pins kept={not moved} pins={len(want)} moved={moved[:8] or 'none'}")
 PY
+if (( force_module )) && python3 -I - "$RA/Build/Products/Debug/cmux-next-exe" "$module" <<'PY'
+import struct, sys
+d = open(sys.argv[1], "rb").read(); n = struct.unpack_from("<I", d, 16)[0]; o = 32; m = sys.argv[2]
+for _ in range(n):
+    c, s = struct.unpack_from("<II", d, o)
+    if c in (0xC, 0x80000018):
+        name = d[o + struct.unpack_from("<I", d, o + 8)[0]:o + s].split(b"\0")[0].decode()
+        if f"/libswift{m}.dylib" in name or f"/{m}.framework/" in name:
+            sys.exit(0)
+    o += s
+sys.exit(1)
+PY
+then
+  force_module=0
+  echo "==> note: the clean A executable links $module already (a dependency); nofix-remove expects stale objects only"
+fi
 reference clean-A2 A "$RA2"
 reference clean-B B "$RB"
 reference clean-B2 B "$RB2"
