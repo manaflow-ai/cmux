@@ -46,6 +46,12 @@ final class DebugFrameProbe {
         if ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_IMMOVABLE"] == "1" {
             for window in NSApp.windows { window.isMovable = false }
         }
+        // PROBE ONLY: AppKit's per-display-cycle drag-margin reset (window-server shapes) off.
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_NODRAGMARGINS"] == "1",
+           let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_resetDragMarginsIfNeeded")) { // crash-allow: probe only
+            let block: @convention(block) (AnyObject) -> Void = { _ in }
+            method_setImplementation(method, imp_implementationWithBlock(block))
+        }
         CGSTransactionProbe.install()
         CGSTransactionProbe.stacks = [:]
         CGSTransactionProbe.calls = 0
