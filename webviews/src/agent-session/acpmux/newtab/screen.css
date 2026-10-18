@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(16px,calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
 @media (max-height:480px){.nt-screen{padding-top:12px}}
@@ -86,12 +86,12 @@
 }
 /* The location strip (ComposerContext, the composer's own; hq#1957 composer location strip) heads
    the card as plain text a few px over it (Cursor's home, #21133; the rules after the strip's fill
-   below). Under a top strip variant (Debug Settings) it is a tab of the card's fill instead, in
-   from the card's sides by its corner radius. Its wrapper only marks the page as touched, so it
+   below). Under a top strip variant (Debug Settings) it is a strip of the card's fill instead,
+   spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
-.nt-composer { --acpmux-strip-inset: 20px; }
+.nt-composer { --acpmux-strip-radius: 20px; }
 /* The strip is the box's fill (.nt-box below): the composer's surface, and the box's hover lift
    while the box has the pointer, so the two stay one surface at rest and on hover. */
 .nt-composer .acpmux-composer-strip {
@@ -167,7 +167,7 @@
   border-radius: 10px;
 }
 .nt-screen[data-template="console"] .nt-composer {
-  --acpmux-strip-inset: 10px;
+  --acpmux-strip-radius: 10px;
 }
 .nt-screen[data-template="console"],
 .nt-screen[data-template="console"] .nt-field {
@@ -184,7 +184,7 @@
   border-radius: 24px;
 }
 .nt-screen[data-template="composer"] .nt-composer {
-  --acpmux-strip-inset: 24px;
+  --acpmux-strip-radius: 24px;
 }
 .nt-screen[data-template="composer"] .nt-input {
   min-height: 96px;
