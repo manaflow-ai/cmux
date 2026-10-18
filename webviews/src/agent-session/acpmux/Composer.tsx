@@ -282,7 +282,9 @@ export function Composer({
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState(() => readPersistedDraft(sessionId) ?? "");
+  // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
+  // arrive in the same render; preferring the host value keeps it visible through initialization.
+  const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
@@ -446,6 +448,7 @@ export function Composer({
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
     if (!draft || field.current?.value()) return;
+    field.current?.reset(draft);
     setText((current) => seededText(current, draft));
     setCaret(draft.length);
     pendingCaret.current = draft.length;
@@ -458,10 +461,14 @@ export function Composer({
     hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
-    setText(restored);
-    setCaret(restored.length);
-    pendingCaret.current = restored.length;
-  }, [sessionId, text]);
+    // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
+    // when the local remount cache is empty; otherwise this effect can clear the host-provided
+    // draft before the editor has initialized.
+    const initial = restored || draft || "";
+    setText(initial);
+    setCaret(initial.length);
+    pendingCaret.current = initial.length;
+  }, [sessionId, text, draft]);
   useEffect(() => {
     let current = true;
     void readDurableDraft(sessionId).then((restored) => {
