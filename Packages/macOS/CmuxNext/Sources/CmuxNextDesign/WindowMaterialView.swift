@@ -110,6 +110,10 @@ public final class WindowMaterialView: NSView {
 
     /// The layer of the tint over the desktop while it shows (`debug.themes`).
     var shownTintLayer: CALayer? { tintView.isHidden ? nil : tintView.layer }
+    /// Liquid Glass's own tint (its end color) and the overlay that blends from the old one while
+    /// it shows (`debug.themes`).
+    var glassTintColor: CGColor? { (materialView as? GlassPanelView)?.tintColor?.cgColor }
+    var shownGlassBlendLayer: CALayer? { glassTint.overlay.isHidden ? nil : glassTint.overlay.layer }
 
     /// The theme tint laid over glass while the window is not key: Liquid
     /// Glass drops its `tintColor` then and draws the system's grey, so the
