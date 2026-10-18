@@ -62,6 +62,7 @@ extension DockSplitStore {
                     observation: restorableAgentIndex?.entryForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId,
+                        stableSurfaceId: panels[panelId]?.stableSurfaceId,
                         processIdentityProvider: currentAgentProcessIdentity,
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
@@ -170,6 +171,7 @@ extension DockSplitStore {
             observation: restorableAgentIndex?.entryForStablePanel(
                 workspaceId: observationWorkspaceId,
                 panelId: panelId,
+                stableSurfaceId: panels[panelId]?.stableSurfaceId,
                 processIdentityProvider: {
                     guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
                     return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -383,7 +385,8 @@ extension DockSplitStore {
                         terminal: terminal,
                         isRemoteTerminal: transfer?.isRemoteTerminal == true
                     )
-                    : nil
+                    : nil,
+                restoreRecovery: terminal.restoreRecovery.sessionSnapshot
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil

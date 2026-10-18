@@ -2098,8 +2098,11 @@ class Tokens(unittest.TestCase):
                          # on GITHUB_TOKEN (Tokens.test_a_read_the_app_may_not_make...).
                          {"permission-actions": "read", "permission-pull-requests": "read"})
         watch = next(step for step in steps if step.get("name") == "Watch runs on persistent pools")
-        self.assertEqual(watch["env"]["READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
-        self.assertEqual(watch["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(
+            watch["env"]["READ_TOKEN"],
+            "${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}",
+        )
+        self.assertEqual(watch["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
 
 class Workflow(unittest.TestCase):
