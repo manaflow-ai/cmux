@@ -3,6 +3,7 @@
 // ends, so nothing remounts when it settles.
 import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal } from "../streamReveal";
+import { useLab } from "../labs";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
 
@@ -35,7 +36,8 @@ export function useStreamReveal(
   reduce.current ??= reducedMotion();
   // Text there when the row mounts shows at once; only what arrives after it flows in.
   reveal.current ??= new StreamReveal({ initial: text, reduceMotion: reduce.current });
-  const [shown, setShown] = useState<Shown>(() => ({ length: text.length, fresh: [], now: 0, settled: true }));
+  const [shown, setShown] = useState<Shown>(() => ({ length: text.length, fresh: [], now: 0, settled: true,
+  }));
   const latest = useRef({ text, streaming, shown });
   latest.current = { text, streaming, shown };
   const nextId = useRef(0);
@@ -106,8 +108,15 @@ function Revealed({
   githubRepository?: string;
 }) {
   const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
+  const live = useLab("liveRender");
+  // A finished transport can still have unrevealed tokens. Keep its frame until the fence draws
+  // its closing line too (Lucas 2026-10-18).
+  const revealing = streaming || (live && visible.length < text.length);
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
+    <Markdown streaming={revealing}
+      turnStreaming={streaming}
+      receivedText={live ? text : undefined}
+      fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
       {visible}
     </Markdown>
   );

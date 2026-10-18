@@ -1,662 +1,662 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "effort.short.high": {
-      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرتفع"
+    "render.error" : {
+      "comment" : "Agent pane render repair action (Lucas 2026-10-19).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Render error:"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Visoko"
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "خطأ في العرض:"
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Høj"
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Greška prikaza:"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hoch"
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fejl i visning:"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "High"
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Darstellungsfehler:"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alto"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Error de visualización:"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Élevé"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erreur de rendu :"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alto"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Errore di rendering:"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "高"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "描画エラー:"
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ខ្ពស់"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កំហុសក្នុងការបង្ហាញ៖"
           }
         },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "높음"
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "렌더링 오류:"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Høy"
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visningsfeil:"
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wys."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Błąd renderowania:"
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alto"
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erro de renderização:"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выс."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка отображения:"
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สูง"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้อผิดพลาดในการแสดงผล:"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yüksek"
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Görüntüleme hatası:"
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вис."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Помилка відображення:"
           }
         },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cao"
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lỗi hiển thị:"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "高"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "渲染错误："
           }
         },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "高"
-          }
-        }
-      }
-    },
-    "effort.short.low": {
-      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "منخفض"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nisko"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lav"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niedr."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Low"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Faible"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Basso"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "低"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទាប"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "낮음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lav"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niski"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Baixo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Низк."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ต่ำ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Düşük"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Низьк."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thấp"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "低"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "低"
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "算繪錯誤："
           }
         }
       }
     },
-    "effort.short.max": {
-      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أقصى"
+    "render.askToFix" : {
+      "comment" : "Agent pane render repair action (Lucas 2026-10-19).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask to fix"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maks."
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اطلب الإصلاح"
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maks."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zatraži ispravku"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Max."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bed om rettelse"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Max"
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um Behebung bitten"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máx."
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pedir corrección"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Max."
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demander une correction"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Max."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiedi una correzione"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最大"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修正を依頼"
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អតិបរមា"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្នើសុំឱ្យជួសជុល"
           }
         },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "최대"
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "수정 요청"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maks"
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Be om retting"
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maks."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poproś o naprawę"
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máx."
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pedir correção"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Макс."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попросить исправить"
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สูงสุด"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขอให้แก้ไข"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maks."
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Düzeltilmesini iste"
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Макс."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попросити виправити"
           }
         },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tối đa"
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yêu cầu sửa"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最大"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求修复"
           }
         },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最大"
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請求修正"
           }
         }
       }
     },
-    "effort.short.medium": {
-      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "متوسط"
+    "render.demoBackoffFooter" : {
+      "comment" : "Agent pane: live render confirmation and mock demo (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 محاولات، تراجع أُسّي"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sred."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 pokušaja, eksponencijalno čekanje"
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mid."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 forsøg, eksponentiel ventetid"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mittel"
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 Versuche, exponentielle Wartezeit"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Med"
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 attempts, exponential backoff"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Medio"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 intentos, espera exponencial"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Moyen"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 tentatives, attente exponentielle"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Medio"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 tentativi, attesa esponenziale"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4回の試行、指数バックオフ"
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មធ្យម"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការព្យាយាម 4 ដង ពេលរង់ចាំកើនតាមអិចស្ប៉ូណង់ស្យែល"
           }
         },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "보통"
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4회 시도, 지수 백오프"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mid."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 forsøk, eksponentiell ventetid"
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Śr."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 próby, wykładnicze opóźnienie"
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Médio"
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 tentativas, espera exponencial"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сред."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 попытки, экспоненциальная задержка"
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กลาง"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ลอง 4 ครั้ง เว้นระยะแบบทวีคูณ"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Orta"
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 deneme, üstel geri çekilme"
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сер."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 спроби, експоненційна затримка"
           }
         },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vừa"
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 lần thử, thời gian chờ tăng theo cấp số nhân"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 次尝试，指数退避"
           }
         },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中"
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 次嘗試，指數退避"
           }
         }
       }
     },
-    "effort.short.xhigh": {
-      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرتفع جدًا"
+    "render.showAll" : {
+      "comment" : "Agent pane: live render confirmation and mock demo (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عرض الكل"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "V. visoko"
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikaži sve"
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "X-høj"
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis alt"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S. hoch"
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alles anzeigen"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "XHigh"
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show all"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "M. alto"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar todo"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "T. élevé"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout afficher"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "M. alto"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra tutto"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最高"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて表示"
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ខ្ពស់បំផុត"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញទាំងអស់"
           }
         },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "매우 높음"
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "모두 보기"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "X-høy"
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis alt"
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "B. wys."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż wszystko"
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "M. alto"
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar tudo"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оч. выс."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать всё"
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สูงมาก"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงทั้งหมด"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ç. yüksek"
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tümünü göster"
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Д. вис."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показати все"
           }
         },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rất cao"
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiện tất cả"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "超高"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示全部"
           }
         },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "超高"
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示全部"
+          }
+        }
+      }
+    },
+    "render.sendToChat" : {
+      "comment" : "Agent pane: live render confirmation and mock demo (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إرسال إلى المحادثة؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poslati u razgovor?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send til chatten?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An Chat senden?"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send to chat?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Enviar al chat?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer dans le chat ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inviare alla chat?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットに送信しますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្ញើទៅការជជែកឬ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅으로 보낼까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send til chatten?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wysłać do czatu?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar para o chat?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить в чат?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ส่งไปยังแชทหรือไม่?"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbete gönderilsin mi?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Надіслати в чат?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gửi vào cuộc trò chuyện?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送到聊天？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送到聊天？"
           }
         }
       }
@@ -10951,6 +10951,138 @@
         }
       }
     },
+    "table.scroll": {
+      "comment": "Agent pane: accessible name for a keyboard-focusable horizontally scrolling Markdown table",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Table, scroll horizontally"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جدول، مرر أفقيا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabela, pomjerajte vodoravno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabel, rul vandret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabelle, horizontal scrollen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabla, desplázate horizontalmente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableau, défilement horizontal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabella, scorri orizzontalmente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表、横方向にスクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តារាង អូសផ្ដេក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표, 가로로 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabell, rull vannrett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabela, przewijaj w poziomie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabela, role horizontalmente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таблица, прокрутка по горизонтали"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตาราง เลื่อนในแนวนอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tablo, yatay kaydırın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таблиця, прокручуйте горизонтально"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bảng, cuộn theo chiều ngang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表格，水平滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表格，水平捲動"
+          }
+        }
+      }
+    },
     "artifact.open": {
       "comment": "Agent pane: code card button that opens an HTML, SVG or Markdown block in the side preview panel",
       "extractionState": "manual",
@@ -14643,138 +14775,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "打開系統設定"
-          }
-        }
-      }
-    },
-    "dictation.recording": {
-      "comment": "Agent pane: the chip of a dictation session's audio, sent with the prompt to a harness that takes voice input",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تسجيل صوتي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Glasovni snimak"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stemmeoptagelse"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sprachaufnahme"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voice recording"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Grabación de voz"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Enregistrement vocal"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Registrazione vocale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "音声録音"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការថតសំឡេង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "음성 녹음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Stemmeopptak"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nagranie głosowe"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gravação de voz"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Голосовая запись"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การบันทึกเสียง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ses kaydı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Голосовий запис"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bản ghi âm giọng nói"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "语音录音"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "語音錄音"
           }
         }
       }
@@ -34479,6 +34479,534 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "展開"
+          }
+        }
+      }
+    },
+    "render.copy" : {
+      "comment" : "Agent pane: copy requested by a live render, confirmed in the pane (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "نسخ"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiraj"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiér"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copiar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copier"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copia"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចម្លង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "복사"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopier"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiuj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copiar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Копировать"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คัดลอก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopyala"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Копіювати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sao chép"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拷贝"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複製"
+          }
+        }
+      }
+    },
+    "render.edit" : {
+      "comment" : "Agent pane: live render confirmation and mock demo (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعديل في حقل الإدخال"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uredi u polju za unos"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rediger i promptfeltet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Eingabefeld bearbeiten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit in prompt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar en el campo de entrada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifier dans le champ de saisie"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifica nel campo di immissione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力欄で編集"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កែសម្រួលក្នុងប្រអប់បញ្ចូល"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "입력란에서 편집"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rediger i inndatafeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edytuj w polu wprowadzania"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar no campo de entrada"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменить в поле ввода"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แก้ไขในช่องป้อนข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İstem alanında düzenle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Редагувати в полі введення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sửa trong ô nhập"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在输入框中编辑"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在輸入框中編輯"
+          }
+        }
+      }
+    },
+    "render.open" : {
+      "comment" : "Agent pane: live render controls and page loading",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فتح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvori"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbn"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrir"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apri"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開く"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpne"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwórz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打開"
+          }
+        }
+      }
+    },
+    "render.loadFailed" : {
+      "comment" : "Agent pane: live render controls and page loading",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعذر تحميل الصفحة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stranica se nije mogla učitati"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Siden kunne ikke indlæses"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seite konnte nicht geladen werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not load the page"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se pudo cargar la página"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de charger la page"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile caricare la pagina"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ページを読み込めませんでした"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចផ្ទុកទំព័របានទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "페이지를 불러올 수 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke laste inn siden"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie udało się wczytać strony"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível carregar a página"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось загрузить страницу"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่สามารถโหลดหน้าได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sayfa yüklenemedi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося завантажити сторінку"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể tải trang"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法加载页面"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法載入頁面"
           }
         }
       }
@@ -137611,134 +138139,134 @@
         }
       }
     },
-    "tools.thoughtFor": {
-      "comment": "Agent pane: an ended reasoning trace folded to one line; {time} is how long the agent thought, e.g. 12s or 1m 5s",
+    "tools.thoughts": {
+      "comment": "Agent pane: the label of an opened thought line (Debug thought style: brain)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "فكّر لمدة {time}"
+            "value": "أفكار"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Razmišljao {time}"
+            "value": "Razmišljanja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tænkte i {time}"
+            "value": "Tanker"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nachgedacht für {time}"
+            "value": "Gedanken"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thought for {time}"
+            "value": "Thoughts"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Razonó durante {time}"
+            "value": "Razonamientos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A réfléchi pendant {time}"
+            "value": "Réflexions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ha ragionato per {time}"
+            "value": "Ragionamenti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{time} 思考しました"
+            "value": "思考"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានគិតរយៈពេល {time}"
+            "value": "ការគិត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{time} 동안 생각함"
+            "value": "생각"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tenkte i {time}"
+            "value": "Tanker"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Myślał przez {time}"
+            "value": "Myśli"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Raciocinou por {time}"
+            "value": "Raciocínios"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Размышлял {time}"
+            "value": "Размышления"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คิดเป็นเวลา {time}"
+            "value": "ความคิด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Şu kadar düşündü: {time}"
+            "value": "Düşünceler"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Розмірковував {time}"
+            "value": "Роздуми"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã suy nghĩ trong {time}"
+            "value": "Suy nghĩ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已思考 {time}"
+            "value": "思考"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已思考 {time}"
+            "value": "思考"
           }
         }
       }
@@ -152263,6 +152791,270 @@
         }
       }
     },
+    "summary.openInApp" : {
+      "comment" : "Agent pane: Thread details' button that opens the chat's folder in an app; {app} is the app's name (VS Code, Finder)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فتح في {app}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvori u aplikaciji {app}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbn i {app}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "In {app} öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in {app}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir en {app}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrir dans {app}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apri in {app}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{app} で開く"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើកក្នុង {app}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{app}에서 열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpne i {app}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwórz w {app}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir no {app}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть в {app}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิดใน {app}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{app} ile aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрити в {app}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở trong {app}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在 {app} 中打开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在 {app} 中開啟"
+          }
+        }
+      }
+    },
+    "summary.threadDetails" : {
+      "comment" : "Agent pane: the header button and card that show the thread's folder, branch, commit and what it produced",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تفاصيل المحادثة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Detalji niti"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trådoplysninger"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thread-Details"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thread details"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Detalles del hilo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Détails du fil"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dettagli del thread"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "スレッドの詳細"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ព័ត៌មានលម្អិតនៃខ្សែ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스레드 세부 정보"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trådinformasjon"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Szczegóły wątku"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Detalhes da conversa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сведения о ветке"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รายละเอียดเธรด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İleti dizisi ayrıntıları"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відомості про тред"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chi tiết luồng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "会话详情"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "對話詳細資料"
+          }
+        }
+      }
+    },
     "summary.collapse" : {
       "comment" : "Agent pane: the summary card (summary/SummaryCard.tsx)",
       "extractionState" : "manual",
@@ -159571,6 +160363,1458 @@
         }
       }
     },
+    "shortcutsHelp.title" : {
+      "comment" : "Agent pane: keyboard shortcuts overview, title (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard shortcuts"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اختصارات لوحة المفاتيح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prečice na tastaturi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tastaturgenveje"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tastaturkurzbefehle"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atajos de teclado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raccourcis clavier"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scorciatoie da tastiera"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キーボードショートカット"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្លូវកាត់ក្តារចុច"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "키보드 단축키"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tastatursnarveier"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skróty klawiszowe"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atalhos de teclado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетания клавиш"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แป้นพิมพ์ลัด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klavye kısayolları"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сполучення клавіш"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Phím tắt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "键盘快捷键"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "鍵盤快速鍵"
+          }
+        }
+      }
+    },
+    "shortcutsHelp.composer" : {
+      "comment" : "Agent pane: keyboard shortcuts overview, composer (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Composer"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "محرر الرسائل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uređivač poruka"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskedfelt"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachrichtenfeld"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redactor"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rédaction"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Composizione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メッセージ入力"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងសរសេរសារ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "메시지 작성"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meldingsfelt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edytor wiadomości"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Composição"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ввод сообщения"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ช่องเขียนข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesaj düzenleyici"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Редактор повідомлень"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soạn tin nhắn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "消息编辑"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訊息編輯"
+          }
+        }
+      }
+    },
+    "shortcutsHelp.conversation" : {
+      "comment" : "Agent pane: keyboard shortcuts overview, conversation (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conversation"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المحادثة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Razgovor"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Samtale"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unterhaltung"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conversación"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conversation"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conversazione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会話"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការសន្ទនា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "대화"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Samtale"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozmowa"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conversa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разговор"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การสนทนา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbet"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Розмова"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuộc trò chuyện"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对话"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "對話"
+          }
+        }
+      }
+    },
+    "shortcutsHelp.navigation" : {
+      "comment" : "Agent pane: keyboard shortcuts overview, navigation (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigation"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "التنقل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigacija"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigation"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigation"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navegación"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigation"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigazione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ナビゲーション"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការរុករក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "탐색"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigasjon"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nawigacja"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navegação"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Навигация"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การนำทาง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gezinme"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Навігація"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Điều hướng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导航"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "導覽"
+          }
+        }
+      }
+    },
+    "shortcutsHelp.newLine" : {
+      "comment" : "Agent pane: keyboard shortcuts overview, newLine (Lucas 2026-10-18).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New line"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سطر جديد"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novi red"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny linje"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neue Zeile"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nueva línea"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelle ligne"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuova riga"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "改行"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បន្ទាត់ថ្មី"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "줄 바꿈"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny linje"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nowy wiersz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nova linha"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая строка"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ขึ้นบรรทัดใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni satır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новий рядок"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dòng mới"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "换行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "換行"
+          }
+        }
+      }
+    },
+    "effort.short.high": {
+      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرتفع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visoko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høj"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Élevé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ពស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "높음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wys."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สูง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüksek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вис."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cao"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高"
+          }
+        }
+      }
+    },
+    "effort.short.low": {
+      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منخفض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nisko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lav"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedr."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទាប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "낮음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lav"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niski"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Низк."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต่ำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Düşük"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Низьк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thấp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低"
+          }
+        }
+      }
+    },
+    "effort.short.max": {
+      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maks."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maks."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máx."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អតិបរមា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maks."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máx."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Макс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สูงสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maks."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Макс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tối đa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大"
+          }
+        }
+      }
+    },
+    "effort.short.medium": {
+      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوسط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sred."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mittel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moyen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មធ្យម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Śr."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Médio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сред."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сер."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vừa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中"
+          }
+        }
+      }
+    },
+    "effort.short.xhigh": {
+      "comment": "Agent pane: the effort chip's short level name when the composer row is short (Medium -> Med); keep it to one short word or abbreviation",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرتفع جدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "V. visoko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X-høj"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S. hoch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHigh"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M. alto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "T. élevé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M. alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最高"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ពស់បំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매우 높음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X-høy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B. wys."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M. alto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оч. выс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สูงมาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ç. yüksek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Д. вис."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rất cao"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超高"
+          }
+        }
+      }
+    },
+    "tools.thoughtFor": {
+      "comment": "Agent pane: an ended reasoning trace folded to one line; {time} is how long the agent thought, e.g. 12s or 1m 5s",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فكّر لمدة {time}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razmišljao {time}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tænkte i {time}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachgedacht für {time}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thought for {time}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razonó durante {time}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A réfléchi pendant {time}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ha ragionato per {time}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} 思考しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានគិតរយៈពេល {time}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{time} 동안 생각함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tenkte i {time}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Myślał przez {time}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raciocinou por {time}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размышлял {time}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คิดเป็นเวลา {time}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şu kadar düşündü: {time}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмірковував {time}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã suy nghĩ trong {time}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已思考 {time}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已思考 {time}"
+          }
+        }
+      }
+    },
     "composer.speedLabel": {
       "comment": "Agent pane: the composer's speed toggle (lightning bolt left of the mic); {tier} is Standard, Fast or Ultrafast",
       "extractionState": "manual",
@@ -161319,6 +163563,138 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "dictation.recording": {
+      "comment": "Agent pane: the chip of a dictation session's audio, sent with the prompt to a harness that takes voice input",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسجيل صوتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glasovni snimak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmeoptagelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachaufnahme"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice recording"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grabación de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enregistrement vocal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Registrazione vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "音声録音"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការថតសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 녹음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmeopptak"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nagranie głosowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gravação de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосовая запись"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การบันทึกเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses kaydı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосовий запис"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản ghi âm giọng nói"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "语音录音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "語音錄音"
           }
         }
       }

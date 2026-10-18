@@ -6,6 +6,8 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { expandPrompt } from "./promptCollapse";
+import { ChatSessionContext } from "./viewIdentity";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -145,7 +147,13 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
 /** The transcript row that draws the current match (`id` and whether it is an edited-files card)
  * and the query, while Find shows one; ToolRows passes it to that row only. `repaint` redraws the
  * highlights once a part opens (only that part re-renders otherwise). */
-export type FindRevealTarget = { rowId: string; card: boolean; needle: string; repaint: () => void };
+export type FindRevealTarget = {
+  rowId: string;
+  card: boolean;
+  needle: string;
+  occurrence?: number;
+  repaint: () => void;
+};
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
 /** Whether `row` draws match row `rowId` itself: the row or its copy in an open fold. */
@@ -158,6 +166,19 @@ const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.m
 /** Whether `row` is the one `reveal` names. */
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
   row.id === reveal.rowId && Boolean(row.ended) === reveal.card;
+
+/// Find opens the prompt holding its match before the highlights paint (Lucas 2026-10-18).
+export function usePromptFindReveal(row: AcpmuxRow, enabled: boolean): void {
+  const reveal = useContext(FindReveal);
+  const sessionId = useContext(ChatSessionContext);
+  const id = row.id;
+  const hit = enabled && reveal !== undefined && isRevealRow(row, reveal);
+  useLayoutEffect(() => {
+    if (!hit || !reveal) return;
+    expandPrompt(id, true, sessionId);
+    reveal.repaint();
+  }, [hit, id, reveal, sessionId]);
+}
 
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
  * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */
