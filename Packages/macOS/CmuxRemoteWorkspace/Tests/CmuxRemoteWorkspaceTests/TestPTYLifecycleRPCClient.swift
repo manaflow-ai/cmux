@@ -12,13 +12,11 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
     private let closeStarted = DispatchSemaphore(value: 0)
     private var _closedSessionIDs: [String] = []
     private var _closeError: (any Error)?
-    private var _stopCount = 0
 
     init(delaysAttach: Bool = false) {
         self.delaysAttach = delaysAttach
     }
 
-    var stopCount: Int { lock.withLock { _stopCount } }
     var closedSessionIDs: [String] { lock.withLock { _closedSessionIDs } }
 
     func failClose(with error: any Error) { lock.withLock { _closeError = error } }
@@ -41,9 +39,7 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
 
     func listPTY() throws -> [[String: Any]] { [] }
 
-    func stop() {
-        lock.withLock { _stopCount += 1 }
-    }
+    func stop() {}
 
     func openStream(host: String, port: Int, timeoutMs: Int) throws -> String {
         throw NSError(domain: "test.remote.proxy", code: 1)
