@@ -137,6 +137,16 @@ final class DividerHandleView: NSView {
     /// The line's color as drawn now.
     var lineColor: CGColor? { line.backgroundColor }
 
+    /// Whether the native line currently contributes pixels. Edge handles use
+    /// a transparent line at rest and only draw while hovered or dragged; the
+    /// overlay must not reserve a Chromium occlusion hole for that clear state.
+    var isLineVisible: Bool {
+        // Use the presentation color while the hover fade is running. The
+        // page must remain covered until the last visible native pixel fades.
+        guard let color = (line.presentation() ?? line).backgroundColor else { return false }
+        return color.alpha > 0.001 && line.opacity > 0.001
+    }
+
     /// Set only by the owning screen's hover pass.
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
