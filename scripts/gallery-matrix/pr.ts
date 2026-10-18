@@ -237,13 +237,14 @@ if (import.meta.main) {
   const baseEvidence = values.outcomes ? undefined : evidenceReceipt(values.base!, "base", values["base-manifest"], values["capture-manifest"]);
   const headEvidence = values.outcomes ? undefined : evidenceReceipt(values.head!, "head", values["head-manifest"], values["capture-manifest"]);
   const repeatEvidence = values.outcomes || !values.repeat ? undefined : evidenceReceipt(values.repeat, "repeat", values["head-manifest"], values["capture-manifest"]);
-  meta.evidence = { base: baseEvidence, head: headEvidence, repeat: repeatEvidence };
+  const comparison = values.outcomes ? undefined : comparisonReceipt(baseEvidence, headEvidence, repeatEvidence, { base: values["base-sha"]!, head: values["head-sha"]! }, values["live-head-sha"]);
+  meta.evidence = { base: baseEvidence, head: headEvidence, repeat: repeatEvidence, freshness: comparison?.freshness };
   writeFileSync(join(out, "outcomes.json"), `${JSON.stringify(outcomes, null, 2)}\n`);
   writeFileSync(join(out, "summary.json"), `${JSON.stringify(feedSummary(outcomes, meta), null, 2)}\n`);
   if (!values.outcomes)
     writeFileSync(
       join(out, "comparison.json"),
-      `${JSON.stringify(comparisonReceipt(baseEvidence, headEvidence, repeatEvidence, { base: values["base-sha"]!, head: values["head-sha"]! }, values["live-head-sha"]), null, 2)}\n`,
+      `${JSON.stringify(comparison, null, 2)}\n`,
     );
   writeFileSync(join(out, "comment.md"), commentMarkdown(outcomes, meta));
   // thumbs.txt: the keys whose thumbnails the comment shows, for the publisher to upload.

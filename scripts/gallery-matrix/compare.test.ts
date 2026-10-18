@@ -289,10 +289,11 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
       base: { captureId: "base-capture", sha: "base-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
       head: { captureId: "head-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete", quality: "pass" },
       repeat: { captureId: "repeat-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
+      freshness: { status: "verified" },
     },
   });
   expect(html).toContain('data-evidence="comparison"');
-  expect(html).toContain("Candidate freshness: unverified");
+  expect(html).toContain("Candidate freshness: verified");
   expect(html).toContain("base-capture");
   expect(html).toContain("head-capture");
   expect(html).toContain("repeat-capture");

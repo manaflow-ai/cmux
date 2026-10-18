@@ -22,7 +22,7 @@ export type ReportMeta = {
   head: string;
   base: string;
   links: ReportLinks;
-  evidence?: { base?: unknown; head?: unknown; repeat?: unknown };
+  evidence?: { base?: unknown; head?: unknown; repeat?: unknown; freshness?: unknown };
 };
 
 type EvidenceView = { captureId?: string; role?: string; sha?: string; scenarioFingerprint?: string; status?: string; quality?: string };
@@ -41,7 +41,8 @@ function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
     ].filter(Boolean).join(" · ");
     return `<span class="evidence-item"><strong>${label}</strong> ${details}</span>`;
   };
-  const freshness = evidence.head && typeof evidence.head === "object" ? "Candidate freshness: unverified" : "Candidate freshness: missing";
+  const recordedFreshness = evidence.freshness && typeof evidence.freshness === "object" ? (evidence.freshness as { status?: string }).status : undefined;
+  const freshness = recordedFreshness ? `Candidate freshness: ${recordedFreshness}` : evidence.head && typeof evidence.head === "object" ? "Candidate freshness: unverified" : "Candidate freshness: missing";
   return `<div class="evidence" data-evidence="comparison"><strong>Evidence</strong><span class="evidence-freshness">${freshness}</span>${item("Baseline", evidence.base)}${item("Candidate", evidence.head)}${item("Repeat", evidence.repeat)}<a href="comparison.json">comparison receipt</a></div>`;
 }
 
