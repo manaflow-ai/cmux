@@ -576,7 +576,7 @@ const SessionRow = memo(function SessionRow({
     menuItems.push({
       id: "mark-unread",
       label: t("chatMenu.markUnread"),
-      icon: <Icon name="status.unread" size={ROW_ICON} row />,
+      icon: <Icon name="unread.dot" size={ROW_ICON} row />,
       onSelect: () => actions.onMarkUnread?.(session),
     });
   if (actions?.onProject)
@@ -590,7 +590,7 @@ const SessionRow = memo(function SessionRow({
     menuItems.push({
       id: "group",
       label: "Group",
-      icon: <Icon name="list" size={ROW_ICON} row />,
+      icon: <Icon name="group.new" size={ROW_ICON} row />,
       onSelect: () => actions.onGroup?.(session),
     });
   if (actions?.onFork)
@@ -605,7 +605,7 @@ const SessionRow = memo(function SessionRow({
     menuItems.push({
       id: "share",
       label: "Share",
-      icon: <Icon name="share" size={ROW_ICON} row />,
+      icon: <Icon name="action.share" size={ROW_ICON} row />,
       separatorBefore: true,
       onSelect: () => actions.onShare?.(session),
     });
@@ -630,7 +630,7 @@ const SessionRow = memo(function SessionRow({
     menuItems.push({
       id: "copy",
       label: t("chatMenu.copy"),
-      icon: <Icon name="copy" size={ROW_ICON} row />,
+      icon: <Icon name="action.copy" size={ROW_ICON} row />,
       children: copyItems,
       separatorBefore: true,
       onSelect: () => undefined,
@@ -647,7 +647,7 @@ const SessionRow = memo(function SessionRow({
     menuItems.push({
       id: "archive",
       label: session.archived ? t("chatMenu.unarchive") : t("chatMenu.archive"),
-      icon: <Icon name="archive" size={ROW_ICON} row />,
+      icon: <Icon name="action.snooze" size={ROW_ICON} row />,
       separatorBefore: true,
       onSelect: () => actions.onArchive?.(session, !session.archived),
     });
