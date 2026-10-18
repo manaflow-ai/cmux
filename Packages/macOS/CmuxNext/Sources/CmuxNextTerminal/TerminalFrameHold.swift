@@ -145,5 +145,12 @@ private final class HeldFrameView: NSView {
         layer?.contents = contents
     }
 
+    // A last frame can be shown before the view is in a window: the frame's pixels are at the
+    // window's scale, whatever the source layer had then.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let scale = window?.backingScaleFactor { layer?.contentsScale = scale }
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

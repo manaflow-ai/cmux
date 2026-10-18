@@ -10,32 +10,56 @@ import IOSurface
 @MainActor
 public final class TerminalLastFrame {
     private let surface: IOSurface
+    /// Readers that need the pages now (a hover card render), and whether a new surface owns the
+    /// frame for good: it is volatile only while neither holds.
+    private var pins = 0
+    private var taken = false
+    /// The system reclaimed the pages once: the frame is gone for good.
+    private var purged = false
 
     /// The frame `session` presents now; nil before its first draw.
     public init?(of session: TerminalSession) {
         guard let surface = session.surfaceView.presentedFrame else { return nil }
         self.surface = surface
-        var old: UInt32 = 0
-        IOSurfaceSetPurgeable(surface, UInt32(kIOSurfacePurgeableVolatile), &old)
+        surface.setPurgeable(.volatile, oldState: nil)
     }
 
-    /// The frame, made non-volatile again for its new owner; nil when the system reclaimed it.
+    /// The frame for a new surface that shows it from now on (non-volatile for good); nil when
+    /// the system reclaimed it.
     func take() -> IOSurface? {
-        var old: UInt32 = 0
-        IOSurfaceSetPurgeable(surface, UInt32(kIOSurfacePurgeableNonVolatile), &old)
-        return old == UInt32(kIOSurfacePurgeableEmpty) ? nil : surface
+        let surface = pin()
+        taken = surface != nil
+        return surface
     }
 
     /// A downscaled picture of the frame, rendered off the main thread (hover cards); nil when the
     /// system reclaimed it.
     public func snapshot(maxPixelSize: CGFloat) async -> CGImage? {
-        guard let surface = take() else { return nil }
+        guard let surface = pin() else { return nil }
+        defer { unpin() }
         let frame = SendableSurface(surface: surface)
-        let image = await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             TerminalSnapshotRenderer.render(frame, maxPixelSize: maxPixelSize)
         }.value
-        var old: UInt32 = 0
-        IOSurfaceSetPurgeable(surface, UInt32(kIOSurfacePurgeableVolatile), &old)
-        return image
+    }
+
+    /// The frame made non-volatile for one reader; nil (and volatile again) when the system
+    /// reclaimed it.
+    private func pin() -> IOSurface? {
+        guard !purged else { return nil }
+        var old = IOSurfacePurgeabilityState.nonVolatile
+        surface.setPurgeable(.nonVolatile, oldState: &old)
+        guard old != .empty else {
+            purged = true
+            surface.setPurgeable(.volatile, oldState: nil)
+            return nil
+        }
+        pins += 1
+        return surface
+    }
+
+    private func unpin() {
+        pins -= 1
+        if pins == 0, !taken { surface.setPurgeable(.volatile, oldState: nil) }
     }
 }
