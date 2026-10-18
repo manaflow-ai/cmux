@@ -41,6 +41,16 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(policy.selectedEnvironment(from: environment, kind: nil).isEmpty)
     }
 
+    @Test("Custom Antigravity executable remains scoped to Antigravity restores")
+    func customAntigravityExecutableRemainsScopedToAntigravityRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = ["CMUX_CUSTOM_ANTIGRAVITY_PATH": "/opt/antigravity/bin/agy"]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "antigravity") == environment)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex").isEmpty)
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(

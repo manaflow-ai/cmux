@@ -329,12 +329,46 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// The marker carries only the digest of OpenSSH's resolved configuration;
     /// it never serializes a proxy command, socket path, or credential.
     public func routeSensitiveOption(for routeIdentifier: String) -> String? {
-        guard Self.isRouteDigest(routeIdentifier) else { return nil }
-        return "\(Self.routeSensitiveMarkerKey)=\(routeIdentifier)"
+        Self.routeSensitiveMarkerOption(for: routeIdentifier)
+    }
+
+    /// The serialized route marker for `routeIdentifier`, or `nil` when it is
+    /// not a route digest. Needs no instance, so pure value types can use it.
+    public static func routeSensitiveMarkerOption(for routeIdentifier: String) -> String? {
+        guard isRouteDigest(routeIdentifier) else { return nil }
+        return "\(routeSensitiveMarkerKey)=\(routeIdentifier)"
+    }
+
+    /// Drops the private route marker from serialized SSH options.
+    ///
+    /// The marker is cmux's own note and not an OpenSSH option; OpenSSH
+    /// refuses an option it does not know. Every other option is returned as
+    /// given.
+    public static func removingRouteSensitiveMarker(from options: [String]) -> [String] {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        return options.filter { resolver.optionKey($0) != routeSensitiveMarkerKey }
     }
 
     /// Reads the opaque route marker from serialized SSH options.
     public func routeSensitiveIdentifier(in options: [String]) -> String? {
+        Self.routeSensitiveMarkerIdentifier(in: options)
+    }
+
+    /// Whether serialized SSH options carry the route marker with any value,
+    /// including the `true` placeholder for a sensitive route whose identity
+    /// is unknown. ``mergingDefaults(into:userConfiguredControlOptions:routeSensitiveOptions:routeIdentifier:)``
+    /// treats exactly these options as route-sensitive.
+    public static func hasRouteSensitiveMarker(in options: [String]) -> Bool {
+        SSHAgentSocketResolver(environment: [:])
+            .optionValue(named: routeSensitiveMarkerKey, in: options) != nil
+    }
+
+    /// The marker for a route-sensitive connection whose identity is unknown.
+    /// It keeps the connection off every shared master.
+    public static let unidentifiedRouteSensitiveMarkerOption = "\(routeSensitiveMarkerKey)=true"
+
+    /// Reads the opaque route marker from serialized SSH options without an instance.
+    public static func routeSensitiveMarkerIdentifier(in options: [String]) -> String? {
         let resolver = SSHAgentSocketResolver(environment: [:])
         guard let value = resolver.optionValue(named: Self.routeSensitiveMarkerKey, in: options),
               Self.isRouteDigest(value) else {
