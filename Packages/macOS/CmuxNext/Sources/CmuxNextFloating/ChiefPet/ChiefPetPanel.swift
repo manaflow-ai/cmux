@@ -24,6 +24,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
             backing: .buffered,
             defer: true
         )
+        ThemeScope.app.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         // The character's PNG carries its own soft edge; a window shadow would box it.
@@ -67,7 +68,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         setFrameOrigin(ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible))
     }
 
-    private func saveOrigin() {
+    /// Keeps the spot the pet was dragged to, pulled fully back on its screen.
+    func saveOrigin() {
         guard let screen else { return }
         let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: screen.visibleFrame)
         if origin != frame.origin { setFrameOrigin(origin) }
@@ -89,6 +91,7 @@ final class ChiefPetView: NSView {
     /// The pointer in screen points; tests drive their own.
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     private let imageView = NSImageView()
+    private let badgeView = ChiefPetBadge()
     /// Where the press started, in screen points, and the panel's origin then.
     private var press: (start: CGPoint, origin: CGPoint)?
     private var dragging = false
@@ -100,6 +103,8 @@ final class ChiefPetView: NSView {
         imageView.frame = bounds
         imageView.autoresizingMask = [.width, .height]
         addSubview(imageView)
+        badgeView.isHidden = true
+        addSubview(badgeView)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
@@ -112,6 +117,22 @@ final class ChiefPetView: NSView {
     var image: NSImage? {
         get { imageView.image }
         set { imageView.image = newValue }
+    }
+
+    /// Notices that wait for the user, on a small badge at its top right; 0 hides it.
+    var badge: Int = 0 {
+        didSet {
+            guard badge != oldValue else { return }
+            badgeView.count = badge
+            badgeView.isHidden = badge == 0
+            needsLayout = true
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let size = badgeView.fittingSize
+        badgeView.frame = CGRect(x: bounds.maxX - size.width, y: bounds.maxY - size.height, width: size.width, height: size.height)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -144,5 +165,55 @@ final class ChiefPetView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
+    }
+}
+
+/// The pet's count of notices that wait for the user: a small round attention-colored badge.
+final class ChiefPetBadge: NSView {
+    static let height: CGFloat = 16
+    private let label = ChromeLabel(labelWithString: "")
+
+    var count = 0 {
+        didSet { label.stringValue = count > 99 ? "99+" : String(count); needsLayout = true }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        label.alignment = .center
+        addSubview(label)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var fittingSize: NSSize {
+        NSSize(width: max(Self.height, ceil(label.intrinsicContentSize.width) + 8), height: Self.height)
+    }
+
+    override func layout() {
+        super.layout()
+        let height = ceil(label.intrinsicContentSize.height)
+        label.frame = CGRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+        layer?.cornerRadius = bounds.height / 2
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        recolor()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        recolor()
+    }
+
+    private func recolor() {
+        performWithTheme {
+            layer?.backgroundColor = Palette.attention.cgColor
+            label.textColor = Palette.textOnPrimary
+            label.font = Typography.caption
+        }
     }
 }
