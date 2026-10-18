@@ -357,9 +357,8 @@
       "reason": "planned in cx-b4h.2"
     },
     "stat_path": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["files.statFile"]
     },
     "begin_upload": {
       "status": "planned",

@@ -1876,6 +1876,131 @@
         }
       }
     },
+    "/v1/vms/{vmId}/files/stat": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "files.statFile",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GuestPath"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FileStat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileStat"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read file metadata from a VM. Requires the vm:files scope. Reads metadata directly from saved disk on paused, stopped or retired VMs without starting or executing the guest. Symlinks are reported as symlinks even if their target is a file or directory. A missing path is 404 File not found. Malformed provider metadata answers 503 instead of inventing size, permissions or timestamps. The API adds no read audit row. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Read file metadata from a VM"
+      }
+    },
     "/v1/vms/{vmId}/files/content": {
       "get": {
         "tags": [
@@ -7298,6 +7423,70 @@
         "title": "maxLength(4096)",
         "minLength": 1,
         "maxLength": 4096
+      },
+      "FileStat": {
+        "type": "object",
+        "required": [
+          "kind",
+          "size",
+          "mode",
+          "mtime",
+          "owner",
+          "group"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory",
+              "symlink",
+              "other"
+            ]
+          },
+          "size": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 0 and 9007199254740991",
+            "title": "between(0, 9007199254740991)",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Int",
+            "description": "POSIX permission bits, including setuid/setgid/sticky, as an integer (420 is 0644). File-type bits are excluded.",
+            "title": "between(0, 4095)",
+            "minimum": 0,
+            "maximum": 4095
+          },
+          "mtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Int",
+                "description": "a number between -62167219200 and 253402300799",
+                "title": "between(-62167219200, 253402300799)",
+                "minimum": -62167219200,
+                "maximum": 253402300799
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last modification time, epoch seconds. Null when unavailable on the saved disk; never inferred from the VM's timestamps."
+          },
+          "owner": {
+            "type": "string",
+            "description": "a string at most 256 character(s) long",
+            "title": "maxLength(256)",
+            "maxLength": 256
+          },
+          "group": {
+            "type": "string",
+            "description": "a string at most 256 character(s) long",
+            "title": "maxLength(256)",
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false
       },
       "PayloadTooLarge": {
         "type": "object",

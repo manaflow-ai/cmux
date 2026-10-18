@@ -109,6 +109,23 @@ enum Command {
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
+    /// Read guest file metadata without starting the VM
+    #[command(subcommand)]
+    File(FileCommand),
+}
+
+#[derive(Subcommand, Debug)]
+enum FileCommand {
+    /// Show file metadata on a running, paused, stopped or retired VM
+    Stat(FileStatArgs),
+}
+
+#[derive(Args, Debug)]
+struct FileStatArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Absolute guest path, without parent segments
+    path: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -561,6 +578,23 @@ async fn dispatch(
         }
         Command::Snapshot(command) => snapshot(client, command, prompt, out).await,
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
+        Command::File(FileCommand::Stat(args)) => {
+            let id = args
+                .vm_id
+                .parse::<types::VmId>()
+                .map_err(|_| CliError::usage("invalid VM id"))?;
+            if !args.path.starts_with('/')
+                || args.path.contains('\0')
+                || args.path.split('/').any(|part| part == "..")
+                || args.path.encode_utf16().count() > 4096
+            {
+                return Err(CliError::usage(
+                    "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
+                ));
+            }
+            let body = fetch_body(client.files_stat_file(id.as_str(), &args.path, None)).await?;
+            out.file_stat(&body)
+        }
     }
 }
 

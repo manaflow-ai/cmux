@@ -269,6 +269,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vms/{vmId}/files/stat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read file metadata from a VM
+         * @description Read file metadata from a VM. Requires the vm:files scope. Reads metadata directly from saved disk on paused, stopped or retired VMs without starting or executing the guest. Symlinks are reported as symlinks even if their target is a file or directory. A missing path is 404 File not found. Malformed provider metadata answers 503 instead of inventing size, permissions or timestamps. The API adds no read audit row. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        get: operations["files.statFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms/{vmId}/files/content": {
         parameters: {
             query?: never;
@@ -1166,6 +1186,32 @@ export interface components {
          * @description a string at most 4096 character(s) long
          */
         GuestPath: string;
+        FileStat: {
+            /** @enum {string} */
+            kind: "file" | "directory" | "symlink" | "other";
+            /**
+             * between(0, 9007199254740991)
+             * @description a number between 0 and 9007199254740991
+             */
+            size: components["schemas"]["Int"];
+            /**
+             * between(0, 4095)
+             * @description POSIX permission bits, including setuid/setgid/sticky, as an integer (420 is 0644). File-type bits are excluded.
+             */
+            mode: components["schemas"]["Int"];
+            /** @description Last modification time, epoch seconds. Null when unavailable on the saved disk; never inferred from the VM's timestamps. */
+            mtime: components["schemas"]["Int"] | null;
+            /**
+             * maxLength(256)
+             * @description a string at most 256 character(s) long
+             */
+            owner: string;
+            /**
+             * maxLength(256)
+             * @description a string at most 256 character(s) long
+             */
+            group: string;
+        };
         PayloadTooLarge: {
             message: string;
             maxBytes: components["schemas"]["Int"];
@@ -2793,6 +2839,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.statFile": {
+        parameters: {
+            query: {
+                path: components["schemas"]["GuestPath"];
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description FileStat */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileStat"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
                 };
             };
             /** @description QuotaExceeded */

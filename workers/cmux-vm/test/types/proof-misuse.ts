@@ -51,6 +51,14 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* upstream.exec(a, { owns: ownsA, scope: write }, { command: "true" });
         // @ts-expect-error vm:write is not vm:files
         yield* upstream.listFiles(a, { owns: ownsA, scope: write }, "/");
+        // @ts-expect-error vm:read does not authorize file metadata
+        yield* upstream.statFile(a, { owns: ownsA, scope: read }, "/");
+        const files = keyHasScope(caller, "vm:files");
+        if (files !== null) {
+          yield* upstream.statFile(a, { owns: ownsA, scope: files }, "/");
+          // @ts-expect-error VM A's ownership does not authorize VM B's file metadata
+          yield* upstream.statFile(b, { owns: ownsA, scope: files }, "/");
+        }
         // @ts-expect-error a create needs a TenantMayCreate proof
         yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
       }),

@@ -245,6 +245,15 @@ export class FileList extends Schema.Class<FileList>("FileList")({
   entries: Schema.Array(FileEntry),
 }) {}
 
+export class FileStat extends Schema.Class<FileStat>("FileStat")({
+  kind: FileEntryKind,
+  size: Schema.Int.pipe(Schema.between(0, Number.MAX_SAFE_INTEGER)),
+  mode: Schema.Int.pipe(Schema.between(0, 0o7777)).annotations({ description: "POSIX permission bits, including setuid/setgid/sticky, as an integer (420 is 0644). File-type bits are excluded." }),
+  mtime: Schema.NullOr(Schema.Int.pipe(Schema.between(-62167219200, 253402300799))).annotations({ description: "Last modification time, epoch seconds. Null when unavailable on the saved disk; never inferred from the VM's timestamps." }),
+  owner: Schema.String.pipe(Schema.maxLength(256)),
+  group: Schema.String.pipe(Schema.maxLength(256)),
+}) {}
+
 export const FilePathParams = Schema.Struct({ path: GuestPath });
 
 export const WriteFileParams = Schema.Struct({
@@ -441,6 +450,12 @@ export class ExecGroup extends HttpApiGroup.make("exec")
   .middleware(Authentication) {}
 
 export class FilesGroup extends HttpApiGroup.make("files")
+  .add(
+    HttpApiEndpoint.get("statFile", "/v1/vms/:vmId/files/stat")
+      .setPath(VmPath).setUrlParams(FilePathParams).setHeaders(TeamHeaders).addSuccess(FileStat)
+      .addError(BadRequest).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Read file metadata from a VM", "vm:files", "Reads metadata directly from saved disk on paused, stopped or retired VMs without starting or executing the guest. Symlinks are reported as symlinks even if their target is a file or directory. A missing path is 404 File not found. Malformed provider metadata answers 503 instead of inventing size, permissions or timestamps. The API adds no read audit row.")),
+  )
   .add(
     HttpApiEndpoint.get("readFile", "/v1/vms/:vmId/files/content")
       .setPath(VmPath)

@@ -58,6 +58,33 @@ impl<'a> Printer<'a> {
         }
     }
 
+    pub fn file_stat(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::FileStat = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let stat: serde_json::Value = decode(body)?;
+        for field in ["kind", "size", "mode", "mtime", "owner", "group"] {
+            let value = &stat[field];
+            let text = if field == "mode" {
+                format!(
+                    "{:04o}",
+                    value
+                        .as_u64()
+                        .ok_or_else(|| CliError::unexpected("invalid file mode"))?
+                )
+            } else if value.is_null() {
+                "unknown".to_owned()
+            } else if let Some(text) = value.as_str() {
+                text.escape_debug().to_string()
+            } else {
+                value.to_string()
+            };
+            self.line(&format!("{field:<11}{text}"))?;
+        }
+        Ok(())
+    }
+
     pub fn vm_list(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);

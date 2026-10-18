@@ -93,10 +93,21 @@ export interface FileEntryRecord {
   readonly kind: string;
 }
 
+export interface FileStatRecord {
+  readonly kind: "file" | "directory" | "symlink" | "other";
+  readonly size: number;
+  readonly mode: number;
+  readonly mtime: number | null;
+  readonly owner: string;
+  readonly group: string;
+}
+
 export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /** Reads saved-disk metadata without running guest code, including when retired. */
+  readonly statFile: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:files"> }, path: string) => Effect.Effect<FileStatRecord, UpstreamError>;
   /** Irreversibly fences this owned VM; success requires a confirmed zero budget and no running compute. */
   readonly retireVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }) => Effect.Effect<UpstreamVm, UpstreamError>;
   /** Ensure resource floors on exactly this owned VM; never deletes it on failure. */

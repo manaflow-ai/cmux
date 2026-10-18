@@ -11,6 +11,7 @@ import { initialNetworkBody } from "./initial-network.ts";
 import { makeUpstreamHttp } from "./live-http.ts";
 import { makeHttpsProxies } from "./live-https-proxies.ts";
 import { makeRetireVm } from "./live-retire.ts";
+import { makeStatFile } from "./live-file-stat.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
@@ -221,6 +222,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     })),
     ...makeHttpsProxies(makeUpstreamHttp(config)),
     ...makeRetireVm(makeUpstreamHttp(config)),
+    ...makeStatFile(makeUpstreamHttp(config)),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),

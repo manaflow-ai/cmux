@@ -81,6 +81,16 @@ usual rate limit; a lapsed create plan does not block it. There is no unretire
 operation. `cmux-vm retire VM_ID --yes --json` requires explicit confirmation
 for scripts and refuses success without the matching retirement receipt.
 
+`GET /v1/vms/{vmId}/files/stat?path=/absolute/path` reads metadata under
+`vm:files` on running, paused, stopped or retired VMs without executing guest
+code. It returns `kind`, byte `size`, integer permission `mode`, epoch-second
+`mtime` (null when unavailable), `owner` and `group`. Symlinks keep their own
+kind; file-type bits are removed from mode. A missing path is 404; malformed
+metadata is 503. Ownership, service labels, resource allowlists, path validation
+and file-rate limits apply before any provider request. There is no read audit
+row. `cmux-vm file stat VM_ID /absolute/path --json` exposes the same contract;
+human output prints permission bits in octal and escapes control characters.
+
 A tenant is dev/test when the Worker is not production, or when its id is in
 `DEV_TEST_TENANT_IDS` on production. Dev/test VMs get an idle timeout of at
 most 300 s (default 300); product VMs default to -1 and the web app's CloudDO

@@ -1504,3 +1504,70 @@ async fn retire_interactive_confirmation_requires_the_exact_vm_id() {
     assert_eq!(accepted.asked, 1);
     assert_eq!(json_stdout(&out)["retired"], true);
 }
+
+#[tokio::test]
+async fn file_stat_preserves_public_metadata_and_uses_one_read_request() {
+    let server = MockServer::start().await;
+    let stat = json!({"kind": "file", "size": 12, "mode": 416, "mtime": null, "owner": "ubuntu", "group": "staff"});
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+        .and(query_param("path", "/srv/team/a b"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&stat))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let json_out = cli(&server, &["--json", "file", "stat", VM_ID, "/srv/team/a b"]).await;
+    assert_eq!(json_out.code, exit::OK, "{}", json_out.stderr);
+    assert_eq!(json_stdout(&json_out), stat);
+    let human = cli(&server, &["file", "stat", VM_ID, "/srv/team/a b"]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(human.stdout.contains("0640"));
+    assert!(human.stdout.contains("unknown"));
+    assert!(human.stdout.contains("ubuntu"));
+}
+
+#[tokio::test]
+async fn file_stat_rejects_invalid_paths_and_private_ids_without_http() {
+    let server = MockServer::start().await;
+    for (id, path) in [
+        (VM_ID, "relative"),
+        (VM_ID, "/srv/../etc"),
+        ("private-provider-reference", "/safe"),
+    ] {
+        let out = cli(&server, &["--json", "file", "stat", id, path]).await;
+        assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+        assert!(out.stdout.is_empty());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn file_stat_reports_missing_paths_without_retry_or_guest_execution() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"_tag": "NotFound", "message": "File not found"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "file", "stat", VM_ID, "/missing"]).await;
+    assert_eq!(out.code, exit::NOT_FOUND, "{}", out.stderr);
+    assert!(out.stdout.is_empty());
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn file_stat_human_output_escapes_guest_control_characters() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"kind": "file", "size": 0, "mode": 384, "mtime": 0, "owner": "bad\u{1b}[2J\nname", "group": "users"})))
+        .expect(1).mount(&server).await;
+    let out = cli(&server, &["file", "stat", VM_ID, "/saved"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(!out.stdout.contains('\u{1b}'));
+    assert!(out.stdout.contains("\\nname"));
+}
