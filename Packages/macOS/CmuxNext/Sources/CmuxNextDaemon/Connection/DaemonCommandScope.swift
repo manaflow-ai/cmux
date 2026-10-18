@@ -56,7 +56,8 @@ public final class DaemonCommandScope: Sendable {
         var barriers: [String: UInt64] = [:]
         var closed = false
         var idleWaiters: [CheckedContinuation<Void, Never>] = []
-        /// What the run did and when (`stageLog`), at most 48 entries.
+        /// What the run did and when (`stageLog`): the first 16 entries and
+        /// the last 32 (`appendKeepingHead`).
         var stages: [String] = []
     }
 
@@ -85,7 +86,7 @@ public final class DaemonCommandScope: Sendable {
     public func note(_ stage: String) {
         let entry = stamped(stage)
         state.withLock { state in
-            if state.stages.count < 48 { state.stages.append(entry) }
+            state.stages.appendKeepingHead(entry)
         }
     }
 
@@ -135,7 +136,7 @@ public final class DaemonCommandScope: Sendable {
         let entry = stamped("close#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
         let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
             guard state.open.remove(ticket.id) != nil else { return [] }
-            if state.stages.count < 48 { state.stages.append(entry) }
+            state.stages.appendKeepingHead(entry)
             if let failure { state.failures.append(failure) }
             guard state.open.isEmpty else { return [] }
             defer { state.idleWaiters.removeAll() }
@@ -275,5 +276,14 @@ extension DaemonCommandScope {
     static func noteCreated(by request: some DaemonRequest, response: Any) {
         guard let scope = current, let creating = request as? any DaemonCreatingRequest else { return }
         scope.noteCreated(creating.createdObjects(inAny: response))
+    }
+}
+
+extension [String] {
+    /// Appends `entry`, keeping the first 16 entries and the newest 32 (the
+    /// end of a long run is what a timeout waited on).
+    fileprivate mutating func appendKeepingHead(_ entry: String) {
+        if count >= 48 { remove(at: 16) }
+        append(entry)
     }
 }
