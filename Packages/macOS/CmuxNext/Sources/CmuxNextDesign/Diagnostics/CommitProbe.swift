@@ -5,7 +5,7 @@ public import QuartzCore
 /// asks for its display, so Core Animation displays it inside the commit of the current
 /// transaction, after AppKit's layout and display of the window and before the encode and the
 /// window-server transaction; the run loop block queued from there runs once that commit's run
-/// loop source returns. `onCommit` gets both times (`CACurrentMediaTime`). On macOS 26 the update
+/// loop source returns (an upper bound of the commit's end). `onCommit` gets both times (`CACurrentMediaTime`). On macOS 26 the update
 /// cycle commits once per frame from its own run loop source, not at the run loop's idle (cx-8w027.25).
 @MainActor
 public final class CommitProbe {
@@ -24,14 +24,17 @@ public final class CommitProbe {
 
     private let layer = Layer()
 
-    public init(host: CALayer, onCommit: @escaping @MainActor (_ displayed: CFTimeInterval, _ ended: CFTimeInterval) -> Void) {
+    public init(onCommit: @escaping @MainActor (_ displayed: CFTimeInterval, _ ended: CFTimeInterval) -> Void) {
         layer.onCommit = onCommit
         layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
-        host.addSublayer(layer)
     }
 
-    /// The commit of the transaction open now reports its end.
-    public func mark() { layer.setNeedsDisplay() }
+    /// The commit of the transaction open now reports its times; the probe (re)joins `host` first,
+    /// since a layer outside a committed tree is never displayed.
+    public func mark(in host: CALayer) {
+        if layer.superlayer !== host { host.addSublayer(layer) }
+        layer.setNeedsDisplay()
+    }
 
     public func remove() { layer.removeFromSuperlayer() }
 }

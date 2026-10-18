@@ -334,10 +334,11 @@ final class WindowManager {
         let restacks = restacking.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window,
            !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.controller(for: $0)?.window })) {
-            // A restored window shown alone keeps its saved place in the order (also when it takes key).
+            // A restored window shown alone comes forward without key; the order keeps its saved place.
+            let kept = keepsOrder
             keepsOrder = restacks
-            WindowActivation.show(window, behind ? .presentBehind : .present)
-            keepsOrder = false
+            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
+            keepsOrder = kept
         }
         onPresent?(controller)
         enterRestoredFullScreens()

@@ -699,8 +699,9 @@ class Gate:
                                                                          "origin": "script", "wait": False})) for _ in range(20)]
             app.settle()
             phase["ping_ms"] = [timed(lambda: app.rpc("system.ping")) for _ in range(20)]
-        # The gated timing: the app's own time per switch (debug.tab_switch): intent to shown (apply), to the end of
-        # the Core Animation commit that carries it, and the frames that commit missed (0: the first frame it could).
+        # The gated timing: the app's own time per switch (debug.tab_switch): intent to shown (apply), to the Core
+        # Animation commit that carries it (after AppKit's layout and display), and the frames it missed (0: the
+        # first frame it could); the commit's end (an upper bound) is reported.
         switches = own.get("switches") or []
         phase["switches"] = [{k: round(v, 2) for k, v in row.items()} for row in switches]
         if not check(len(switches) == ops, f"debug.tab_switch timed {len(switches)} of {ops} switches", scenario):

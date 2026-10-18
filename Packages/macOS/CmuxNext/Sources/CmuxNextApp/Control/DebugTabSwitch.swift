@@ -19,7 +19,7 @@ enum DebugTabSwitch {
     private(set) static var isRecording = false
     private static var started: [ObjectIdentifier: CFTimeInterval] = [:]
     private static var pending: [Pending] = []
-    /// One probe per window that showed a switch while recording.
+    /// One probe per window that showed a switch while recording (a switch outside a window is not timed).
     private static var probes: [ObjectIdentifier: CommitProbe] = [:]
     private static var samples: [[String: JSONValue]] = []
     private static let capacity = 1_024
@@ -50,13 +50,12 @@ enum DebugTabSwitch {
 
     /// The pane `owner` shows its new selection in `window`: the transaction open now carries it to the screen.
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
-        guard isRecording, let start = started.removeValue(forKey: ObjectIdentifier(owner)) else { return }
+        guard isRecording, let start = started.removeValue(forKey: ObjectIdentifier(owner)), let window,
+              let host = window.contentView?.layer else { return }
         pending.append(Pending(start: start, applied: CACurrentMediaTime()))
-        if let host = window?.contentView?.layer {
-            let probe = probes[ObjectIdentifier(host)] ?? CommitProbe(host: host) { committed(at: ($0, $1)) }
-            probes[ObjectIdentifier(host)] = probe
-            probe.mark()
-        }
+        let probe = probes[ObjectIdentifier(window)] ?? CommitProbe { committed(at: ($0, $1)) }
+        probes[ObjectIdentifier(window)] = probe
+        probe.mark(in: host)
         client.activate()
     }
 
