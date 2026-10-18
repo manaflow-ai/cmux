@@ -8,15 +8,7 @@ import CmuxNextSettingsWindow
 import CmuxNextTabs
 import Observation
 
-/// Which internal page tabs each pane lists, and their views
-/// (``InternalPage``). Where the pane's daemon holds page tabs
-/// (`page-tabs-v1`) a page opens as a store tab with a page source and
-/// moves, splits and closes like any other tab; else it is an app-only tab
-/// (`LocalPageTab`) this app session keeps. Tabs are observable by pane
-/// (`ObservedMap`): a pane's strip observes its own
-/// page tabs; the control snapshot lists app-only page tabs and republishes
-/// when one opens or closes (bd cx-5xsi). Provider registration is observed
-/// too, so restored tabs replace their fallback when their owner registers.
+/// Internal page tabs and their views; provider registration is observed.
 @Observable @MainActor
 final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
@@ -116,21 +108,14 @@ final class InternalPageTabStore {
                             icon: Self.tabIcon(provider), isBusy: false)
     }
 
-    /// A provider can register after restoration. Keep a recognizable title without
-    /// creating its view or consuming its saved route to obtain one.
+    /// Fallback title while a restored provider is still registering.
     private static func tabTitle(_ provider: (any InternalPageProvider)?, key: String, page: InternalPageID?) -> String {
         if let title = provider?.title(for: key), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return title }
         if let title = provider?.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return title }
         guard let page, !page.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return Strings.untitledBrowser }
-        switch page {
-        case .settings: return SettingsDeepLink.pageTitle
-        case .debugSettings: return DebugSettingsModel.paneTitle
-        case .changelog: return ChangelogPageStrings.title
-        default: return page.rawValue
-        }
+        return switch page { case .settings: SettingsDeepLink.pageTitle; case .debugSettings: DebugSettingsModel.paneTitle; case .changelog: ChangelogPageStrings.title; default: page.rawValue }
     }
 
-    /// A page tab's strip icon: the page's cmux icon, else its SF Symbol.
     static func tabIcon(_ provider: (any InternalPageProvider)?) -> TabIcon {
         guard let provider else { return .icon(.fileText) }
         return provider.icon.map(TabIcon.icon) ?? .symbol(provider.symbol)
