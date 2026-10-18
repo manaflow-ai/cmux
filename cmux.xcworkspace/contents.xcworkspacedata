@@ -17,6 +17,9 @@
          location = "group:CmuxAgentCursor">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentQuestion">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
@@ -45,6 +48,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxIrxTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMessagesLab">
       </FileRef>
       <FileRef
          location = "group:CMUXMobileCore">
@@ -99,6 +105,9 @@
    <Group
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
+      <FileRef
+         location = "group:CmuxComputerUseHelper">
+      </FileRef>
       <FileRef
          location = "group:CmuxNext">
       </FileRef>

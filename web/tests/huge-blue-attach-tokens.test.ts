@@ -14,11 +14,28 @@ describe("Huge Blue attach token primitives", () => {
       HUGE_BLUE_VM_ID: "huge-blue-staging",
       HUGE_BLUE_CMUX_REMOTE_SESSION: "huge-blue-staging",
       HUGE_BLUE_ATTACH_TTL_MS: "300000",
+      HUGE_BLUE_RELAY_MODE: "shared-staging",
     });
     expect(config.route.href).toBe("wss://relay.example/v1/link");
     expect(config.hostId).toBe("huge-blue-staging");
     expect(config.session).toBe("huge-blue-staging");
     expect(config.ttlMs).toBe(300000);
+
+    expect(() => hugeBlueRelayConfig({
+      HUGE_BLUE_CMUX_REMOTE_URL: "wss://relay.example/v1/link",
+      HUGE_BLUE_VM_ID: "huge-blue-prod",
+      HUGE_BLUE_CMUX_REMOTE_SESSION: "prod",
+      VERCEL_ENV: "production",
+      HUGE_BLUE_RELAY_MODE: "shared-staging",
+    })).toThrow("per-tenant daemon isolation");
+
+    expect(hugeBlueRelayConfig({
+      HUGE_BLUE_CMUX_REMOTE_URL: "wss://relay.example/v1/link",
+      HUGE_BLUE_VM_ID: "huge-blue-prod",
+      HUGE_BLUE_CMUX_REMOTE_SESSION: "tenant-prod",
+      VERCEL_ENV: "production",
+      HUGE_BLUE_RELAY_MODE: "per-tenant",
+    }).relayMode).toBe("per-tenant");
 
     expect(() => hugeBlueRelayConfig({
       HUGE_BLUE_CMUX_REMOTE_URL: "wss://relay.example/v1/link?token=static",
