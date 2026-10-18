@@ -98,7 +98,7 @@ extension SidebarViewComponents {
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
     }
- || lastState?.itemInfo != state.itemInfo    /// Whether a sections change animates its rows. Provisional rows swap in place.
+    /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !((old ?? []) + new).contains(where: \.hasProvisionalRows)
     }
