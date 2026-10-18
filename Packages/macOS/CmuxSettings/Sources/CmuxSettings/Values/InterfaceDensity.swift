@@ -25,8 +25,9 @@ public enum InterfaceDensity: String, CaseIterable, Sendable, SettingCodable {
     /// Reads the stored density, falling back to ``defaultValue`` for a
     /// missing or unrecognized value.
     ///
-    /// Reads the key directly instead of building `AppCatalogSection`, since
-    /// titlebar hit testing calls this on pointer events.
+    /// Reads the UserDefaults key directly rather than going through a
+    /// settings catalog key (the `app.density` catalog entry comes in a later
+    /// change), since titlebar hit testing calls this on pointer events.
     public static func stored(in defaults: UserDefaults = .standard) -> InterfaceDensity {
         InterfaceDensity(rawValue: defaults.string(forKey: userDefaultsKey) ?? "") ?? defaultValue
     }
