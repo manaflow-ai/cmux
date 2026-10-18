@@ -6,7 +6,6 @@ objects it did not recompile after an import set changed, so a shipped build
 starts from an empty DerivedData even on a worker that kept one before.
 """
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,7 +23,6 @@ class NightlyBuildState(unittest.TestCase):
         self.workspace = self.root / 'src'
         self.workspace.mkdir()
         self.home = self.root / 'home'
-        subprocess.run(['git', 'init', '-q', str(self.workspace)], check=True)
 
     def prepare(self, runner='cmux15-glaeda', toolchain='Xcode 26.6'):
         return state.prepare(self.workspace, self.home, runner, 'nightly-next', toolchain)

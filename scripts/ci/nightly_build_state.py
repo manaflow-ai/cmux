@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 STATE_ROOT = 'Library/Caches/cmux-nightly-next'
 
@@ -33,7 +34,7 @@ def remove(path: Path) -> None:
     if path.is_symlink() or path.is_file():
         path.unlink()
         return
-    stale = path.with_name(f'{path.name}.stale.{os.getpid()}')
+    stale = path.with_name(f'{path.name}.stale.{os.getpid()}.{time.time_ns()}')
     path.rename(stale)
     shutil.rmtree(stale, ignore_errors=True)
 
