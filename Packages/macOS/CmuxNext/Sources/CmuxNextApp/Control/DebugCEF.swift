@@ -20,6 +20,13 @@ enum DebugCEF {
             "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
+            "start_steps": .array(services.cache.cef.startMarks.map {
+                .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
+            }),
+            "prefetch": services.cache.cef.frameworkPrefetch.map {
+                .object(["bytes": .number(Double($0.bytes)), "files": .number(Double($0.files)), "ms": .number($0.milliseconds),
+                         "services_ms": .number($0.servicesMilliseconds)])
+            } ?? .null,
         ]
         if case let browserTabs = services.cache.browserTabs {
             object["default_engine"] = .string(browserTabs.preference.defaultEngine.rawValue)
