@@ -85,6 +85,7 @@ open class ChromeLabel: NSTextField {
 
     private func inkModeDidChange() {
         drawn = nil
+        fill.isHidden = !wantsUpdateLayer
         // The stock drawing's backing store, from before; the glyphs replace it.
         if wantsUpdateLayer { layer?.contents = nil }
         needsDisplay = true
