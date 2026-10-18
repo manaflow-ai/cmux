@@ -335,7 +335,7 @@ fi
 # God-file, localization and concurrency lint fail only on the change itself, so
 # they are never waived: --override is for base-red or flaky lanes. Any such
 # check reported on the exact head must complete green, with or without it.
-while IFS=$'\t' read -r name st co; do
+while IFS=$'\t' read -r name st co _; do
   [ -n "$name" ] || continue
   lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
   [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]] || continue
@@ -524,10 +524,11 @@ for protection_source in rules classic; do
   else
     protection_route="repos/$repo/branches/$base/protection"
   fi
-  set +e
-  protection_json=$(gh api "$protection_route" 2>/dev/null)
-  protection_status=$?
-  set -e
+  if protection_json=$(gh api "$protection_route" 2>/dev/null); then
+    protection_status=0
+  else
+    protection_status=$?
+  fi
   if [ "$protection_status" -ne 0 ]; then
     if jq -e '.status == 404' <<<"$protection_json" >/dev/null 2>&1; then
       continue
