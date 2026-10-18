@@ -215,8 +215,11 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # The settings exports and their source stamp, into the same artifact (as
-      # cmux-next-base-autofix.yml does after a merge).
+      # The settings exports and their source stamp, as cmux-next-base-autofix.yml
+      # regenerates them after a merge. The script copies each export before its
+      # final stamp check, so it writes into a folder of its own, and the files
+      # join the action-exports artifact only when the whole regeneration
+      # succeeded: a failed one hands repair nothing half-made.
       - name: Regenerate the settings exports
         id: settings
         if: needs.action-areas.outputs.settings == 'true'
@@ -226,8 +229,10 @@ jobs:
           # The base's copy, or the pull request's before the base has one.
           regenerate="$RUNNER_TEMP/autofix/scripts/cmux-next/regenerate-settings-exports.sh"
           [[ -x "$regenerate" ]] || regenerate=scripts/cmux-next/regenerate-settings-exports.sh
-          "$regenerate" "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/settings-exports.txt"
+          "$regenerate" "$RUNNER_TEMP/settings-exports" | tee "$RUNNER_TEMP/settings-exports.txt"
           if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
+            mkdir -p "$RUNNER_TEMP/action-exports"
+            cp -R "$RUNNER_TEMP/settings-exports/." "$RUNNER_TEMP/action-exports/"
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 

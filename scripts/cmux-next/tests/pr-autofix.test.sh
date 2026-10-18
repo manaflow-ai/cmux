@@ -48,8 +48,11 @@ repo="$tmp/repo"
 mkdir -p "$repo/plans/cmux-next" "$repo/web/data" "$repo/.github/workflows"
 mkdir -p "$repo/cmux-tui/crates/cmux-app-host/generated"
 mkdir -p "$repo/schemas/settings" "$repo/schemas/settings-export" "$repo/docs/mdm"
-settings_exports=(schemas/settings/settings-schema.json schemas/settings-export/settings-schema.sources.sha256
-  docs/mdm/com.manaflow.cmux.json docs/mdm/managed-preferences.md)
+# Exactly the files regenerate-settings-exports.sh lists (its `exports` array).
+settings_exports=()
+while IFS= read -r file; do settings_exports+=("$file"); done < <(
+  sed -n '/^exports=(/,/^)/p' "$ROOT_DIR/scripts/cmux-next/regenerate-settings-exports.sh" | grep -oE '(docs|schemas)/[^ )]+')
+(( ${#settings_exports[@]} >= 3 )) || fail "could not read the settings export list"
 for file in plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json \
   web/data/cmux-shortcuts.generated.json cmux-tui/crates/cmux-app-host/generated/scopes.json .github/workflows/x.yml \
   "${settings_exports[@]}"; do
@@ -70,6 +73,15 @@ for file in "${settings_exports[@]}"; do
   [[ "$(cat "$repo/$file")" == new ]] || fail "the settings export $file must be applied"
 done
 git -C "$repo" checkout -q -- .
+
+# Only those exports: another file beside them is not an autofix output.
+for stray in docs/mdm/notes.md schemas/settings-export/other.txt; do
+  echo new > "$repo/$stray"
+  git -C "$repo" add -N "$repo/$stray"
+  git -C "$repo" diff --binary > "$tmp/stray.patch"
+  git -C "$repo" reset -q -- "$repo/$stray" && rm -f "$repo/$stray"
+  bash "$APPLY" "$tmp/stray.patch" "$repo" > "$tmp/out" 2>&1 && fail "$stray is not a settings export and must be refused"
+done
 
 echo new > "$repo/.github/workflows/x.yml"
 git -C "$repo" diff --binary > "$tmp/workflow.patch"
