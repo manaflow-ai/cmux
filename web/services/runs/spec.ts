@@ -159,7 +159,8 @@ function normalizeCapabilities(raw: Record<string, unknown>): RunSpec["capabilit
 }
 
 function normalizePolicy(raw: Record<string, unknown>): RunSpec["policy"] {
-  const evidenceKinds = Array.isArray(raw.evidenceKinds) ? raw.evidenceKinds.filter((value): value is RunSpec["policy"]["evidenceKinds"][number] => value === "screenshot" || value === "recording" || value === "patch") : ["screenshot", "recording", "patch"];
+  const defaultEvidenceKinds: RunSpec["policy"]["evidenceKinds"] = ["screenshot", "recording", "patch"];
+  const evidenceKinds = Array.isArray(raw.evidenceKinds) ? raw.evidenceKinds.filter((value): value is RunSpec["policy"]["evidenceKinds"][number] => value === "screenshot" || value === "recording" || value === "patch") : defaultEvidenceKinds;
   return { mode: raw.mode === "fanout" ? "fanout" : "thunderdome", humanApprovalRequired: raw.humanApprovalRequired !== false, evidenceKinds };
 }
 
