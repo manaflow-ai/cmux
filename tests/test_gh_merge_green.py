@@ -831,6 +831,18 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertFalse(merged)
         self.assertIn("Vercel", result.stderr)
 
+    def test_required_context_deduplicates_check_and_status_verdicts(self):
+        result, merged, _ = self.run_case(
+            required_contexts=["Vercel"],
+            checks=[{"id": 7, "name": "Vercel", "status": "completed", "conclusion": "success"}],
+            statuses=[{"id": 8, "context": "Vercel", "state": "pending"}],
+            files=["build-fleet/internal/agentledger/consumer.go"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("Vercel", result.stderr)
+        self.assertIn("in_progress/pending", result.stderr)
+
     def test_required_vercel_context_stays_strict_for_non_web_head(self):
         result, merged, _ = self.run_case(
             required_contexts=["Vercel"],

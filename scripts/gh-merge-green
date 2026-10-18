@@ -303,7 +303,7 @@ if ! runs=$(jq -r '
   | sort_by(.name, (.id // 0))
   | group_by(.name)[]
   | last
-  | [.name,.status,(.conclusion // ""),(.app.slug // "")]
+  | [.name,.status,(.conclusion // ""),(.app.slug // ""),(.id // 0)]
   | @tsv
   ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
@@ -506,7 +506,7 @@ if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --p
 fi
 if ! statuses=$(jq -r '
   (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
-  | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
+  | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state, "", (.id // 0)] | @tsv
 ' <<<"$statuses_json" 2>/dev/null); then
   refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
 fi
@@ -530,7 +530,13 @@ fi
 all_verdicts="$runs"$'\n'"$statuses"
 while IFS= read -r required_context; do
   [ -n "$required_context" ] || continue
-  line=$(printf '%s\n' "$all_verdicts" | awk -F '\t' -v required="$required_context" '$1 == required')
+  line=$(printf '%s\n' "$all_verdicts" | awk -F '\t' -v required="$required_context" '
+    $1 == required {
+      id = ($5 ~ /^[0-9]+$/ ? $5 + 0 : 0)
+      if (!found || id > latest) { found = 1; latest = id; row = $0 }
+    }
+    END { if (found) print row }
+  ')
   if [ -z "$line" ]; then
     refuse \
       "not green: required context '$required_context' has not reported on $sha" \
