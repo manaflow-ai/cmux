@@ -5,7 +5,7 @@ import IOKit.ps
 /// changes: IOKit's power-source notification on the main run loop, so
 /// nothing polls.
 final class PowerSourceMonitor {
-    /// Called on the main thread with the new battery state.
+    /// Called on the main actor with the new battery state.
     var onChange: ((Bool) -> Void)?
     private var source: CFRunLoopSource?
 
@@ -16,9 +16,11 @@ final class PowerSourceMonitor {
             // The monitor lives as long as `KeepAwakeService.shared`, the app's lifetime,
             // so the unretained context never dangles.
             let made = IOPSNotificationCreateRunLoopSource({ context in
-                guard let context, Thread.isMainThread else { return }
+                guard let context else { return }
                 let monitor = Unmanaged<PowerSourceMonitor>.fromOpaque(context).takeUnretainedValue()
-                MainActor.assumeIsolated { monitor.onChange?(PowerSourceMonitor.onBattery()) }
+                let onBattery = PowerSourceMonitor.onBattery()
+                // task-owner: one main-actor hop per power-source change (a rare event)
+                Task { @MainActor in monitor.onChange?(onBattery) }
             }, context)?.takeRetainedValue()
             if let made {
                 CFRunLoopAddSource(CFRunLoopGetMain(), made, .commonModes)

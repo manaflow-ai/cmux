@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextPhoneAccess
 import Testing
 
 /// Phone access became opt-in. A Mac whose phone host already ran keeps
