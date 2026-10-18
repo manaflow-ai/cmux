@@ -14,13 +14,17 @@ import Testing
         var rows: [String: AgentCLIStoredIntent] = [:]
         var events: [String] = []
         var refuse = false
+        var refuseList = false
 
         var port: AgentCLIUpdateActions.Persistence {
             .init(record: { inputs in
                 self.events.append("record:\(inputs.count)")
                 if self.refuse { throw DaemonError.notConnected }
                 for input in inputs { self.rows[input.key] = try .init(intent: input, receipt: self.rows[input.key]?.receipt) }
-            }, list: { Array(self.rows.values) }, attach: { input, receipt in
+            }, list: {
+                if self.refuseList { throw DaemonError.notConnected }
+                return Array(self.rows.values)
+            }, attach: { input, receipt in
                 self.events.append("attach:\(input.cli)")
                 self.rows[input.key] = try .init(intent: input, receipt: receipt)
             })
@@ -73,6 +77,14 @@ import Testing
         catch {}
         #expect(h.ledger.events.first == "record:1")
         #expect(h.owner.starts.isEmpty)
+    }
+
+    @Test func anUnreadableLedgerPreventsANewIntent() async throws {
+        let h = Harness(); h.ledger.refuseList = true
+        let (actions, registry) = h.make()
+        do { _ = try await actions.runSettings(id: "work-profile", context: gesture(), registry: registry) } catch {}
+        #expect(h.owner.starts.isEmpty)
+        #expect(h.ledger.rows.isEmpty)
     }
 
     @Test func theWholeBatchIsDurableBeforeItsFirstEffect() async throws {
