@@ -2705,7 +2705,11 @@ export class AcpmuxDirectClient {
         modeId: answer.modeId,
         ...(typeof answer.name === "string" && answer.name ? { name: answer.name } : {}),
       };
-    } catch {
+    } catch (error) {
+      // A folder no pick has granted yet (a fresh New Tab's home folder): the host refuses to name
+      // it. Its own profile can apply only once it is granted, so the chip names the harness's.
+      if (cwd && (error as { code?: unknown } | undefined)?.code === "transport.path_outside_roots")
+        return this.startMode(harness);
       return undefined;
     }
   }
