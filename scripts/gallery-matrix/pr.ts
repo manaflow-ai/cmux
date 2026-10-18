@@ -96,6 +96,8 @@ const evidenceReceipt = (dir: string, label: string, manifest?: string, captureM
   // PR workflows render a union manifest (head plus base-only cases), while the report receives
   // each side's narrower manifest. Verify the narrower case params below; compare fingerprints
   // only when the receipt and supplied manifest describe the same complete set.
+  if (captureManifest && receipt.scenario.count !== manifestCount)
+    throw new Error(`${label} receipt scenario count mismatch: expected ${manifestCount}, got ${receipt.scenario.count}`);
   if (manifestForReceipt && receipt.scenario.count === manifestCount && receipt.scenario.fingerprint !== receiptFingerprint(manifestForReceipt))
     throw new Error(`${label} receipt scenario fingerprint mismatch`);
   return {

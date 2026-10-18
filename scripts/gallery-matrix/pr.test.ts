@@ -132,6 +132,25 @@ test("PR reports require a receipt when a union capture manifest is supplied", (
   }
 });
 
+test("PR reports reject a receipt with the wrong union scenario count", () => {
+  const root = mkdtempSync(join(tmpdir(), "gallery-pr-union-count-"));
+  const manifest = join(root, "manifest.json");
+  const captureManifest = join(root, "capture.json");
+  const results = join(root, "results");
+  try {
+    const cases = [{ id: "head", path_or_url: "frame.html", params: { entry: "head" } }];
+    const union = [...cases, { id: "base-only", path_or_url: "frame.html", params: { entry: "base-only" } }];
+    writeFileSync(manifest, JSON.stringify(cases));
+    writeFileSync(captureManifest, JSON.stringify(union));
+    mkdirSync(results);
+    writeFileSync(join(results, "results.json"), JSON.stringify([{ id: "head", params: { entry: "head" }, revision: { sha: "head-a", source: "src/head.gallery.tsx" } }]));
+    writeFileSync(join(results, "receipt.json"), JSON.stringify({ schemaVersion: 1, captureId: "wrong-count", scenario: { count: 1, fingerprint: scenarioFingerprint(cases) }, results: { count: 1, expected: 1, status: "complete" }, quality: "pass" }));
+    expect(() => assertRunRevision(results, "head-a", "head", manifest, captureManifest)).toThrow(/scenario count mismatch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("PR reports allow union captures to include cases outside a side manifest", () => {
   const root = mkdtempSync(join(tmpdir(), "gallery-pr-union-"));
   const manifest = join(root, "manifest.json");
