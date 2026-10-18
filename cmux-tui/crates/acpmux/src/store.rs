@@ -190,6 +190,11 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// The session took its mode from the person's approval of its preset
+    /// (`hub/person.rs` (b)): the approved contents' digest. A spawn from
+    /// other contents leaves that mode (`hub/start_gate/preset_bind.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_mode_approval: Option<String>,
     /// The seqs of this chat's `user_message` records the person bookmarked (the pane's thread
     /// minimap; `hub/bookmarks.rs`). A fork renumbers its copies; a move keeps the log's seqs.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]

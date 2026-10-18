@@ -443,6 +443,7 @@
     "setting.palette.scopes.tabs.prefix": "@",
     "setting.palette.scopes.workspaces.prefix": "#",
     "setting.picker.pinned": [],
+    "setting.sessions.keepAwake": "pluggedIn",
     "setting.shortcuts.showModifierHoldHints": true,
     "setting.sidebar.border": false,
     "setting.sidebar.borderWidth": null,

@@ -145,7 +145,7 @@ public final class HomeChiefSidebar: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     /// The theme's sidebar step (a panel apart from the Home content), or the user's sidebar
     /// background (`appearance.surfaces`), like the window's left sidebar; re-resolved on a theme change.

@@ -127,6 +127,19 @@ public final class CEFEngine: BrowserEngine {
         _ = await CEFRuntime.shared.loadTask?.value
     }
 
+    /// Records `name` once in the start marks (the first Chromium page's
+    /// creation points, `debug.cef` `start_steps`); true, for a `guard`.
+    public func notePoint(_ name: String) -> Bool {
+        CEFStartSteps.shared.point(name)
+        return true
+    }
+
+    /// `notePoint(name)`, then `value`.
+    public func noted<T>(_ name: String, _ value: T) -> T {
+        CEFStartSteps.shared.point(name)
+        return value
+    }
+
     /// The timed steps of Chromium's start in this process (`debug.cef`).
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
