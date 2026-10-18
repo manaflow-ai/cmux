@@ -51,8 +51,27 @@ test("a device chat child is rendered once when its parent key names both card i
 // nothing was sent in yet (acpmux: no last prompt, no turn) is not a recent chat.
 test("a chat nothing was sent in yet stays off the recent chats", () => {
   const sent = { sessionId: "sent", name: "Fix the build", lastPrompt: "fix the build", turnCount: 1, updatedAt: 1 };
-  const running = { sessionId: "running", name: "first turn", lastPrompt: "hello", turnCount: 0, updatedAt: 2 };
+  const running = {
+    sessionId: "running",
+    name: "first turn",
+    lastPrompt: "hello",
+    turnCount: 1,
+    status: "running",
+    updatedAt: 2,
+  };
   const unsent = { sessionId: "unsent", lastPrompt: null, turnCount: 0, updatedAt: 3 };
   expect(recentSessions([sent, running, unsent]).map((session) => session.sessionId)).toEqual(["running", "sent"]);
   expect(recentChatCards([sent, running, unsent], 0).map((card) => card.sessionId)).toEqual(["running", "sent"]);
+});
+
+// Review of #21733: a first prompt that has not reached the agent yet (queued, or the chat waits on
+// the person) is a sent chat, and the one the list most needs to show.
+test("a chat whose first prompt waits is still a recent chat", () => {
+  const base = { lastPrompt: null, turnCount: 0, updatedAt: 1 };
+  const queued = { ...base, sessionId: "queued", name: "queued", queued: 1, status: "ready" };
+  const asking = { ...base, sessionId: "asking", name: "asking", pendingPermissions: 1, status: "waiting" };
+  const waiting = { ...base, sessionId: "waiting", name: "waiting", inputSince: 5, status: "ready" };
+  const starting = { ...base, sessionId: "starting", name: "starting", status: "running" };
+  const ids = recentSessions([queued, asking, waiting, starting], 10, false).map((session) => session.sessionId);
+  expect(ids.sort()).toEqual(["asking", "queued", "starting", "waiting"]);
 });
