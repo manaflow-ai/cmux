@@ -39,7 +39,7 @@ extension AppServices {
     /// send). Its view takes the confirmed terminal's own theme, and a focus wait by that surface
     /// in a window showing `daemon` (surface numbers are per daemon) takes the tab's id.
     func terminalConfirmed(_ tab: TabModel, on daemon: DaemonService) {
-        if let entry = cache.existingTerminal(tab.id) { themes.terminalDidMount(entry) }
+        if let entry = cache.existingTerminal(tab.id) { themes.catchUp(entry, fresh: true) } // its theme key moved
         for controller in windows.controllers where controller.content?.daemon === daemon { controller.content?.rekeySurfaceWait() }
     }
 

@@ -18,8 +18,8 @@ extension TabContentCache {
     /// confirm, in its own turn (nothing re-enters a presentation), reported to ``onTerminalConfirmed``.
     func awaitConfirm(_ entry: TerminalEntry, of tab: TabModel, daemon: DaemonService) {
         entry.confirmation = Task { [weak self, weak entry, weak tab, weak daemon] in
-            let surface = await ObservationStream({ [weak tab] in tab?.surface }).first { $0.map { !ProvisionalTab.isProvisional(surface: $0) } ?? true }
-            guard surface != nil, let self, let entry, let tab, let daemon, self.terminals[tab.id] === entry else { return }
+            for await surface in ObservationStream({ [weak tab] in tab?.surface }) where surface.map(ProvisionalTab.isProvisional) != true { break }
+            guard !Task.isCancelled, let self, let entry, let tab, let daemon, self.terminals[tab.id] === entry else { return }
             let target = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID, generation: daemon.store.generation)
             entry.confirm(validity: Self.terminalValidity(tab, daemon: daemon), target: target,
                           themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab), store: daemon.store)
