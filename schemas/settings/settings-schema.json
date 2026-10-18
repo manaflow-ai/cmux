@@ -540,6 +540,16 @@
               "key" : "settings.group.freeModel",
               "text" : "AI Models"
             }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
+            }
           }
         ],
         "id" : "agents",
@@ -574,8 +584,7 @@
               "notifications.suppressWhileTypingSeconds",
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
-              "notifications.dockBadge",
-              "notifications.dockBounce"
+              "notifications.dockBadge"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -3719,6 +3728,79 @@
       "title" : {
         "key" : "settings.freeModel.enabled",
         "text" : "Free AI Model Without Sign-In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwake.help",
+        "text" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "caffeinate",
+        "battery",
+        "power",
+        "agents"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.keepAwake",
+        "text" : "Keep Mac Awake While Agents Work"
       },
       "validation" : "portable"
     },
@@ -22950,77 +23032,6 @@
     },
     {
       "accepts" : [
-        "off",
-        "once",
-        "untilActive"
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.dockBounceOff",
-            "text" : "Off"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.dockBounceOnce",
-            "text" : "Once"
-          },
-          "value" : "once"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.dockBounceUntilActive",
-            "text" : "Until You Switch to cmux"
-          },
-          "value" : "untilActive"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "once",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.banners",
-        "text" : "Banners and Sound"
-      },
-      "help" : {
-        "key" : "settings.notifications.dockBounce.help",
-        "text" : "When a notification alerts while cmux isn't the active app."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "notifications.dockBounce",
-      "keywords" : [
-        "dock",
-        "bounce",
-        "attention",
-        "badge"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "notifications",
-        "dockBounce"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "notifications",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.notifications.dockBounce",
-        "text" : "Bounce Dock Icon"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -25194,7 +25205,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "473626315af83e45cf71aaa5708b01d13c22679b4555cf50f13ae1b203d5115c",
+  "schema_hash" : "a74d98bf2720d5abde1e8aff3e83a7ed0d9175328cbbd7ae9bff8b9baa74c46d",
   "sections" : [
     {
       "id" : "general",
