@@ -22,9 +22,13 @@ type AttemptFailure = { readonly ok: false; readonly response: Response };
 function safeError(error: unknown): string {
   const source = error && typeof error === "object" ? error as Record<string, unknown> : {};
   const cause = source.cause && typeof source.cause === "object" ? source.cause as Record<string, unknown> : undefined;
-  const detail = typeof cause?.message === "string" ? cause.message : typeof source.message === "string" ? source.message : String(error);
+  const message = typeof cause?.message === "string" ? cause.message : typeof source.message === "string" ? source.message : String(error);
+  const fields = ["detail", "constraint", "column", "table", "schema", "hint"]
+    .map((key) => typeof cause?.[key] === "string" ? `${key}=${cause[key]}` : "")
+    .filter(Boolean)
+    .join("; ");
   const code = typeof cause?.code === "string" ? ` [${cause.code}]` : "";
-  return `${detail}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 600);
+  return `${message}${fields ? ` (${fields})` : ""}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 1_000);
 }
 
 function errorResponse(message: string, status = 400): Response {
