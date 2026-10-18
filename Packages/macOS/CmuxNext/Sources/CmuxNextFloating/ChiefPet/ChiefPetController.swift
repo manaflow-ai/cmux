@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextDesign
 
 /// Owns the Chief pet's panel: shown while it is turned on, made on first
 /// show and kept (with its spot) while hidden.
@@ -12,10 +13,11 @@ public final class ChiefPetController {
     private(set) var panel: ChiefPetPanel?
     private var watch: Task<Void, Never>?
 
-    public init(enabled: @escaping @MainActor @Sendable () -> Bool = { ChiefPetTunables.enabled.value },
-         makePanel: @escaping () -> ChiefPetPanel,
-         onClick: @escaping () -> Void) {
-        self.enabled = enabled
+    /// `enabled`: whether the pet shows, read under observation; nil reads `ChiefPetTunables.enabled`.
+    public init(enabled: (@MainActor @Sendable () -> Bool)? = nil,
+                makePanel: @escaping () -> ChiefPetPanel,
+                onClick: @escaping () -> Void) {
+        self.enabled = enabled ?? { ChiefPetTunables.enabled.value }
         self.makePanel = makePanel
         self.onClick = onClick
     }
