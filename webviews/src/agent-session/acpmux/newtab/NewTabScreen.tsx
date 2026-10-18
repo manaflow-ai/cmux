@@ -6,7 +6,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
-import { isAgentHome } from "../sessionList";
+import { isAgentHome, mostRecentProject } from "../sessionList";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -124,7 +124,16 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<number | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
-  const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
+  const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
+  // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
+  // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
+  const [picked, setPicked] = useState(false);
+  const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
+  const recent = useMemo(
+    () => (!picked && folderless && !props.startCwd ? mostRecentProject(snapshot.sessions, home) : undefined),
+    [picked, folderless, props.startCwd, snapshot.sessions, home],
+  );
+  const project = recent ?? seeded;
   const field = useRef<HTMLTextAreaElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
@@ -474,6 +483,7 @@ export function NewTabScreen(props: Props) {
   };
   const pickProject = (cwd: string) => {
     touch();
+    setPicked(true);
     setProject(cwd);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
