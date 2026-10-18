@@ -165,6 +165,7 @@ xcode_binary_module_guard() {
   fi
   # Written only after the outputs are gone: a step stopped in between purges again.
   bash "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/clear-stale-scheme-build-state.sh" "$derived"
+  mkdir -p "$derived"
   if [ -z "$digest" ]; then
     rm -f "$stamp"
     echo "ci-phase xcodebuild -resolvePackageDependencies failed: removed the build outputs in $derived"
