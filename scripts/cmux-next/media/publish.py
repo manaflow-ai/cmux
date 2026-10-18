@@ -212,7 +212,7 @@ def scope_table(media: Path) -> str:
     if not isinstance(matches, dict):
         return ""
     rows = []
-    for tour in ("new-tab", "agent-pane", "core"):
+    for tour in ("new-tab", "agent-pane", "glass", "core"):
         paths = matches.get(tour)
         if not isinstance(paths, list) or not paths:
             continue
