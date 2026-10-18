@@ -20,7 +20,8 @@ optionally:
     wait      seconds to let the UI settle before the screenshot (default 1.5)
     shot      false to skip the screenshot
     optional  why the step may fail (a feature not ported yet); its failure is
-              reported as unavailable and does not fail the tour
+              reported as unavailable and makes the tour degraded, rather than
+              letting an incomplete tour look fully verified
 
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
@@ -30,8 +31,10 @@ rectangle on screen, captured in the console user's session as the E2E
 recorder on main does (scripts/ci/preflight-e2e-screen-capture.py), so it
 works when the runner user is not the console user.
 
-Exit status: 0 when every required step passed, 1 otherwise. The media is
-written either way.
+The manifest records `result` as `pass`, `degraded`, or `failed`. Optional
+failures keep the process exit status green for compatibility, but result in a
+degraded manifest that publishers and reviewers can distinguish from a full
+pass. The media is written either way.
 """
 
 from __future__ import annotations
@@ -686,6 +689,15 @@ def passed(manifest: dict[str, Any]) -> bool:
     return "error" not in manifest and all(step["status"] != "failed" for step in manifest["steps"])
 
 
+def result(manifest: dict[str, Any]) -> str:
+    """Classify the evidence without treating optional gaps as full coverage."""
+    if manifest.get("error") or any(step.get("status") == "failed" for step in manifest.get("steps", [])):
+        return "failed"
+    if any(step.get("status") == "unavailable" for step in manifest.get("steps", [])):
+        return "degraded"
+    return "pass"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("tours", nargs="+", type=Path, help="tour JSON files or directories of them")
@@ -721,7 +733,13 @@ def main(argv: list[str] | None = None) -> int:
     for tour in tours:
         signal.signal(signal.SIGINT, signal.default_int_handler)
         signal.signal(signal.SIGTERM, terminated)
-        ok = passed(run_tour(args.app, tour, args.out, session, fresh_state=args.fresh_state)) and ok
+        manifest = run_tour(args.app, tour, args.out, session, fresh_state=args.fresh_state)
+        manifest["result"] = result(manifest)
+        (args.out / tour["name"] / "manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"[{tour['name']}] result={manifest['result']}", flush=True)
+        ok = passed(manifest) and ok
     return 0 if ok else 1
 
 
