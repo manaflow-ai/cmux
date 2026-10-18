@@ -19,6 +19,7 @@ import {
   type AttemptPromotionStorePort,
   type PromotionView,
 } from "./runs/promotion";
+import type { VmEntitlements } from "./vms/entitlements";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -213,6 +214,61 @@ export type RuntimeComposition = {
   readonly workspaceService: ReturnType<typeof createPersistentWorkspaceService>;
   readonly promotionDependencies: AttemptPromotionDependencies;
 };
+
+/**
+ * The authenticated scope that a workspace provider is allowed to use.
+ *
+ * Workspace persistence is process-wide, but VM provisioning is request
+ * scoped: billing, admission, and model-plane ownership are resolved by the
+ * authenticated route before this value is constructed. Keeping the resolved
+ * entitlement object attached to the provider factory makes it impossible for
+ * a startup-only composition to guess a billing owner.
+ */
+export type RequestScopedWorkspaceContext = {
+  readonly userId: string;
+  readonly entitlements: VmEntitlements;
+};
+
+/**
+ * Build the provider only after a route has authenticated and resolved VM
+ * entitlements. A missing adapter is an intentional fail-closed result: the
+ * caller must return the existing 503 instead of falling back to a direct
+ * provider.create call that would bypass policy.
+ */
+export type RequestScopedWorkspaceProviderFactory = (
+  context: RequestScopedWorkspaceContext,
+) => PersistentWorkspaceProvider | null;
+
+/**
+ * Construct a persistent workspace service for one authenticated request.
+ *
+ * This helper has no global side effects. In particular, it does not call
+ * `configurePersistentWorkspaceService`; route code may safely create one
+ * service per request without leaking one user's billing scope into another
+ * request. The explicit factory is the only place that may supply provider
+ * credentials or invoke the VM workflow.
+ */
+export function createRequestScopedWorkspaceService(input: {
+  readonly context: RequestScopedWorkspaceContext;
+  readonly workspaceStore: PersistentWorkspaceStore;
+  readonly providerFactory: RequestScopedWorkspaceProviderFactory;
+  readonly identity?: Parameters<typeof createPersistentWorkspaceService>[0]["identity"];
+}): ReturnType<typeof createPersistentWorkspaceService> | null {
+  const userId = input.context.userId.trim();
+  const billingTeamId = input.context.entitlements.billingTeamId.trim();
+  const planId = input.context.entitlements.planId.trim();
+  if (!userId || !billingTeamId || !planId) {
+    throw new Error("request-scoped workspace context is incomplete");
+  }
+
+  const provider = input.providerFactory(input.context);
+  if (!provider) return null;
+  return createPersistentWorkspaceService({
+    store: input.workspaceStore,
+    provider,
+    ...(input.identity ? { identity: input.identity } : {}),
+  });
+}
 
 /** Install one complete production dependency graph into the route seams. */
 export function installRuntimeComposition(input: {

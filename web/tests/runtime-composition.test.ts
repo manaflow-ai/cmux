@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   configureRuntimeCompositionFromEnv,
+  createRequestScopedWorkspaceService,
   installRuntimeComposition,
 } from "../services/runtimeComposition";
 import {
@@ -29,6 +30,16 @@ const savedEnv = {
 const store = {} as PersistentWorkspaceStore;
 const provider = {} as PersistentWorkspaceProvider;
 const promotionStore = {} as AttemptPromotionStorePort;
+const requestContext = {
+  userId: "user-request-scoped",
+  entitlements: {
+    planId: "pro",
+    billingCustomerType: "team" as const,
+    billingTeamId: "team-request-scoped",
+    maxActiveVms: 3,
+    resourcePool: null,
+  },
+};
 
 afterEach(() => {
   configurePersistentWorkspaceService(null);
@@ -63,5 +74,46 @@ describe("runtime composition", () => {
     expect(result.configured).toBe(false);
     expect(persistentWorkspaceService()).toBeNull();
     expect(() => runAttemptPromotionDependencies()).toThrow("not configured");
+  });
+
+  test("builds a request-scoped service without mutating the global seam", () => {
+    const scopedProvider = { create: async () => ({ providerVmId: "vm", providerWorkspaceId: "workspace" }) } as PersistentWorkspaceProvider;
+    let receivedContext: unknown;
+    const service = createRequestScopedWorkspaceService({
+      context: requestContext,
+      workspaceStore: store,
+      providerFactory: (context) => {
+        receivedContext = context;
+        return scopedProvider;
+      },
+    });
+
+    expect(service).not.toBeNull();
+    expect(receivedContext).toBe(requestContext);
+    expect(persistentWorkspaceService()).toBeNull();
+  });
+
+  test("returns null when no request-scoped provider adapter is installed", () => {
+    const service = createRequestScopedWorkspaceService({
+      context: requestContext,
+      workspaceStore: store,
+      providerFactory: () => null,
+    });
+
+    expect(service).toBeNull();
+    expect(persistentWorkspaceService()).toBeNull();
+  });
+
+  test("rejects incomplete scope before asking the provider factory", () => {
+    let called = false;
+    expect(() => createRequestScopedWorkspaceService({
+      context: { ...requestContext, userId: " " },
+      workspaceStore: store,
+      providerFactory: () => {
+        called = true;
+        return null;
+      },
+    })).toThrow("request-scoped workspace context is incomplete");
+    expect(called).toBe(false);
   });
 });
