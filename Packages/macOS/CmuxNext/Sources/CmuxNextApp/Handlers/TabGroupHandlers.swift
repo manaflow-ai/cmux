@@ -178,6 +178,20 @@ enum TabGroupHandlers {
         }
         bind("tabGroup.close") { invocation in
             guard let (group, pane) = group(invocation, ctx), connection(for: pane, ctx) != nil else { return }
+            // The daemon's group-close event arrives after the request. Move
+            // focus out of the group at the press, like a browser closes the
+            // selected tab immediately; otherwise the pane keeps presenting a
+            // tab that is already on its way out until the tree delta lands.
+            if let controller = ctx.services.paneController(for: pane),
+               let selected = controller.stripModel.selectedID,
+               controller.stripModel.tab(selected)?.groupID == CmuxNextTabs.TabGroupID(group.rawValue) {
+                let ordered = controller.stripModel.orderedTabs
+                let surviving = ordered.filter { $0.groupID != CmuxNextTabs.TabGroupID(group.rawValue) }
+                if let next = FocusAfterClose.tab(selected: selected, old: ordered.map(\.id),
+                                                  surviving: surviving.map(\.id), shown: Set(surviving.map(\.id))) {
+                    controller.select(next)
+                }
+            }
             let close = { run("close-tab-group", pane: pane, ctx) { c, t in _ = try await c.closeTabGroup(group, transaction: t) } }
             guard CloseUndoToasts.isUserClose, let undo = ctx.services.closedTabs?.undoToasts else { return close() }
             // One undo toast for the group (REOPEN-CLOSED), decided before the close ends its terminals (cx-lb4al).
