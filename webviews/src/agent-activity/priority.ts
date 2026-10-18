@@ -1,7 +1,4 @@
-import type {
-  SessionChanged,
-  SessionSummary,
-} from "../agent-session/acpmux/protocol/generated/types";
+import type { SessionChanged, SessionSummary } from "../agent-session/acpmux/protocol/generated/types";
 import type { Lane, LaneState } from "./lanes";
 
 /** The small event envelope emitted by the ACPmux watch hook. */
@@ -30,11 +27,7 @@ function laneState(session: SessionSummary): LaneState {
   return "idle";
 }
 
-function laneFor(
-  session: SessionSummary,
-  workspaceId: string | null | undefined,
-  peer?: string | null,
-): Lane {
+function laneFor(session: SessionSummary, workspaceId: string | null | undefined, peer?: string | null): Lane {
   const state = laneState(session);
   const since = session.lane?.since ?? session.inputSince ?? session.updatedAt;
   const error = session.lastTurn?.errorText ?? session.lastTurn?.detail ?? null;
@@ -51,26 +44,13 @@ function laneFor(
   };
 }
 
-function isSessionSummary(session: SessionChanged["session"]): session is SessionSummary {
-  if (!session || typeof session !== "object") return false;
-  const candidate = session as Partial<SessionSummary>;
-  return (
-    typeof candidate.sessionId === "string" &&
-    typeof candidate.status === "string" &&
-    typeof candidate.attached === "number"
-  );
-}
-
 /** Convert the ACPmux watch payload without inventing a second identity model. */
-export function agentStateEvent(
-  change: SessionChanged,
-  workspaceId?: string | null,
-): AgentStateEvent {
+export function agentStateEvent(change: SessionChanged, workspaceId?: string | null): AgentStateEvent {
   return {
     kind: change.kind === "purged" ? "purged" : change.kind === "created" ? "created" : "updated",
     sessionId: change.sessionId,
     seq: change.seq,
-    session: isSessionSummary(change.session) ? change.session : undefined,
+    session: change.kind === "purged" ? undefined : (change.session as SessionSummary),
     workspaceId,
     peer: change.peer,
   };
@@ -81,16 +61,11 @@ export function applyAgentStateEvent(state: PriorityState, event: AgentStateEven
   const nextSeqBySession = { ...state.seqBySession, [event.sessionId]: event.seq };
   const previous = state.lanes.find((lane) => lane.id === event.sessionId);
   const existing = state.lanes.filter((lane) => lane.id !== event.sessionId);
-  if (event.kind === "purged" || !event.session)
-    return { lanes: existing, seqBySession: nextSeqBySession };
+  if (event.kind === "purged" || !event.session) return { lanes: existing, seqBySession: nextSeqBySession };
   return {
     lanes: [
       ...existing,
-      laneFor(
-        event.session,
-        event.workspaceId ?? previous?.workspaceId,
-        event.peer ?? previous?.peer,
-      ),
+      laneFor(event.session, event.workspaceId ?? previous?.workspaceId, event.peer ?? previous?.peer),
     ],
     seqBySession: nextSeqBySession,
   };
@@ -99,9 +74,7 @@ export function applyAgentStateEvent(state: PriorityState, event: AgentStateEven
 export function priorityLanes(state: PriorityState): Lane[] {
   return [...state.lanes].sort((a, b) => {
     const rank: Record<LaneState, number> = { failed: 0, lost: 1, input: 2, idle: 3, working: 4 };
-    return (
-      rank[a.state] - rank[b.state] || (a.since ?? 0) - (b.since ?? 0) || a.id.localeCompare(b.id)
-    );
+    return rank[a.state] - rank[b.state] || (a.since ?? 0) - (b.since ?? 0) || a.id.localeCompare(b.id);
   });
 }
 
