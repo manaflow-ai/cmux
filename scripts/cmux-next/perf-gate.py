@@ -702,16 +702,33 @@ class Gate:
         if not check(len(restored) >= grid[0] * 2 and restored == pages,
                      f"the relaunch restores the grid's {len(pages)} New Tab pages ({len(restored)} came back)", "relaunch"):
             return
-        # The restore's own work (shells start again, terminals attach) ends before the measured phases.
-        deadline, last = time.monotonic() + 30, None
-        while time.monotonic() < deadline:  # bounded: the restored grid's counters stop moving
-            now = {k: app.counters(reset=False).get(k) for k in App.QUIET_KEYS}
-            if now == last:
+        # The restore's own work ends before the measured phases: every terminal of the grid runs
+        # again (live, with a terminal id), the tab lists stop changing, and the counters stop moving
+        # for 3 reads in a row. Its cost is the restore's (a bead of its own), not the phases'.
+        start, last, still = time.monotonic(), None, 0
+        while time.monotonic() - start < 60:  # bounded: the restored grid settles
+            now = (self.grid_tabs(), {k: app.counters(reset=False).get(k) for k in App.QUIET_KEYS})
+            live = all(not tab["dead"] and tab["terminal"] for pane in now[0] for tab in pane if tab["kind"] == "terminal")
+            still = still + 1 if live and now == last else 0
+            if still >= 3:
                 break
             last = now
-            time.sleep(1.0)  # test script: the gap between two counter reads while the restore settles
+            time.sleep(1.0)  # test script: the gap between two reads while the restore settles
+        settled = round(time.monotonic() - start, 1)
+        report["phases"]["relaunch"] = {"settle_s": settled, "settled": still >= 3}
+        if still < 3:
+            warn(f"the restored grid did not settle in 60 s (terminals live, tabs and counters still)", "relaunch")
         self.tabs("relaunch tabs")
         self.split("relaunch split")
+
+    def grid_tabs(self):
+        """The shown workspace's tabs per pane: id, kind, dead, terminal id (in order)."""
+        topo = self.app.topology()
+        focus = (topo.get("focus") or {}).get("workspace")
+        return [[{"id": tab.get("id"), "kind": tab.get("kind"), "dead": bool(tab.get("dead")),
+                  "terminal": tab.get("terminal")} for tab in pane.get("tabs") or []]
+                for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
+                for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []]
 
     def page_tabs(self):
         """Tab ids of the shown workspace that are not terminals (the grid's New Tab pages)."""
