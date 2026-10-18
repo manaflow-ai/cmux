@@ -473,6 +473,7 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     private func resetDisplayChangeState(_ appDelegate: AppDelegate) {
+        appDelegate.didObserveDisplayReconfigurationSinceReconcile = false
         appDelegate.isScreenChangeCaptureSuppressed = false
         appDelegate.screenChangeCaptureSuppressionSignature = nil
         appDelegate.screenChangeCaptureSuppressionSignatureGeneration = nil

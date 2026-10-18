@@ -110,6 +110,7 @@ extension AppDelegate {
 
     func handleDisplayReconfiguration(isBeginning _: Bool) {
         displayReconfigurationGeneration += 1
+        didObserveDisplayReconfigurationSinceReconcile = true
         beginScreenChangeCaptureSuppression()
     }
 
@@ -131,9 +132,12 @@ extension AppDelegate {
             return
         }
 
-        // Restore remembered per-configuration frames only when the connected
-        // display set genuinely changed — so sleep/wake and Dock resize (same
-        // signature) never reposition a deliberately-placed window.
+        // Restore remembered per-configuration frames when the connected display
+        // set genuinely changed, or when a display reconfiguration settled back
+        // on the same signature: macOS may have shrunk windows while the display
+        // reported a transient mode (wake in clamshell), and nothing else would
+        // undo that. A Dock resize raises no reconfiguration, so it never
+        // repositions a deliberately-placed window.
         let signature = displays.available
             .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
         let signatureChanged = signature.map {
@@ -155,7 +159,14 @@ extension AppDelegate {
         if let signature {
             if signatureChanged {
                 restoreRememberedFrames(for: signature, displays: displays)
+            } else if didObserveDisplayReconfigurationSinceReconcile {
+                restoreRememberedFrames(
+                    for: signature,
+                    displays: displays,
+                    skippingZoomedWindows: true
+                )
             }
+            didObserveDisplayReconfigurationSinceReconcile = false
             lastAppliedConfigurationSignature = signature
             didObserveUnknownDisplayConfiguration = false
             screenChangeReconcileRetryBudget = 0
@@ -233,14 +244,18 @@ extension AppDelegate {
 
     /// Restores each window's remembered frame for `signature`, routed through
     /// `resolvedWindowFrame` (so a remembered frame that no longer fits is
-    /// re-clamped rather than applied raw). Fullscreen windows are skipped.
+    /// re-clamped rather than applied raw). Fullscreen windows are skipped, and
+    /// zoomed ones too when `skippingZoomedWindows` (the zoom repair owns them
+    /// and restoring would retire their zoom intent).
     func restoreRememberedFrames(
         for signature: String,
-        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)
+        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?),
+        skippingZoomedWindows: Bool = false
     ) {
         for window in mainWindowsForVisibilityController() {
             guard let window = window as? CmuxMainWindow else { continue }
             guard !window.styleMask.contains(.fullScreen) else { continue }
+            guard !(skippingZoomedWindows && window.cmuxWantsZoomedFrame) else { continue }
             guard Self.shouldReconcileWindowAfterScreenChange(
                 isOnActiveSpace: window.isOnActiveSpace
             ) else { continue }
