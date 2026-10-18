@@ -78,7 +78,7 @@ open class ChromeLabel: NSTextField {
             // The image at its own pixel size (whole pixels, rounded up), top edge on the field's
             // top edge, as the field's backing store sits: no resampling.
             let size = image.map { CGSize(width: CGFloat($0.width) / scale, height: CGFloat($0.height) / scale) } ?? .zero
-            let top = ScrollEdgeFade.rendersTopDown(fill) ? 0 : fill.bounds.height - size.height
+            let top = ScrollEdgeFadeView.rendersTopDown(fill) ? 0 : fill.bounds.height - size.height
             glyphs.frame = CGRect(origin: CGPoint(x: 0, y: top), size: size)
         }
     }
