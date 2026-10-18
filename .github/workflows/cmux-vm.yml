@@ -71,7 +71,8 @@ on:
     # Lane branches deploy the preview Worker (decision V6). The preview
     # environment admits only feat-cmux-vm-* refs, which a pull_request run
     # (refs/pull/N/merge) never is, so preview deploys run on push.
-    branches: [main, feat-cmux-next, "feat-cmux-vm-*"]
+    # Agent implementation branches run checks; only feat-cmux-vm-* deploy previews.
+    branches: [main, feat-cmux-next, "feat-cmux-vm-*", "codex/vm-api-*"]
     paths:
       - workers/cmux-vm/**
       # The Stack webhook signature check shared with the cmux-next API Worker.
