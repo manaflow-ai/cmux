@@ -13,6 +13,8 @@ export type Lane = {
   state: LaneState;
   since?: number | null;
   error?: string | null;
+  /** Existing sessionId → workspace binding, used when jumping to the row. */
+  workspaceId?: string | null;
 };
 export type LaneGroup = { id: string; title?: string; lanes: Lane[]; attention: number };
 export type LaneMachine = { id: string; name: string; groups: LaneGroup[]; attention: number };

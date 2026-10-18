@@ -1,15 +1,19 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextFocus
 
 // The focus topology of the shown workspace and the helpers creation paths
 // use to ask for focus on something that lands later.
 extension WorkspaceContentController {
-    /// Tells the coordinator the current panes, tabs and selections.
-    func sendTopology() {
-        guard !isParked else { return }
+    /// Tells the coordinator the current panes, tabs and selections. While
+    /// `apply` runs it sends once, at its end. The coordinator drops a
+    /// topology equal to the one it holds.
+    func sendTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
+        guard !isParked, !isApplying else { return }
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
+        DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
     }
@@ -42,7 +46,14 @@ extension WorkspaceContentController {
 
     /// The shown workspace's focus history, newest first (focus.md 4a).
     var recentPanes: [LayoutPaneID] {
-        focus.state.recentPanes.map(LayoutPaneID.init(rawValue:))
+        focus.recentPanes().map(LayoutPaneID.init(rawValue:))
+    }
+
+    /// The daemon pane shown as layout pane `key` (its controller's, else the store's).
+    func paneModel(key: String) -> PaneModel? {
+        let id = LayoutPaneID(key)
+        if let controller = panes[id] { return controller.pane }
+        return handles.panes[id].flatMap(daemon.store.pane)
     }
 
     /// Focuses the most recently focused pane of `screen`, else its first.
@@ -65,8 +76,9 @@ extension WorkspaceContentController {
     /// once it left that pane (a tab created there and moved away).
     func expectFocus(on surface: SurfaceID, target: FocusState.Target = .content, awayFrom paneKey: String? = nil,
                      generation: UInt64? = nil) {
+        // The coordinator lands an expectation against the topology it holds at once (reducer
+        // `Expect`), and again on each later topology: no re-apply or topology send here.
         focus.expect(.surface(String(surface.rawValue)), target: target, awayFrom: paneKey, generation: generation)
-        applyCurrent()
     }
 }
 

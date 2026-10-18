@@ -260,6 +260,7 @@ impl Hub {
             // Set from the summary's own fields by `decide`.
             indicator: None,
             lane: None,
+            lifecycle_receipt: None,
             peer: None,
         };
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);

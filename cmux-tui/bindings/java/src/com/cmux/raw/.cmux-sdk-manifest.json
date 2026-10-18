@@ -652,8 +652,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "440c3c19b7338fe4072ec4923e3a7e20eb198be1fb961307edf39422712a5637",
-      "size": 74301
+      "sha256": "775bf576d950ae183631b2ef5f751b9c4a692c5dd4f3faa7b28fe7279cc06bed",
+      "size": 74350
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -949,6 +949,11 @@
       "path": "ConversationTabRecord.java",
       "sha256": "5ff8de391771008f81a157110cd8aa541090ab4ec62c321a3a6e9be3713c89f4",
       "size": 4927
+    },
+    {
+      "path": "ConversationTabSplit.java",
+      "sha256": "5090d25acc77c73d42f8969c8590096bad80411a436feb39cf96a44461fd2d40",
+      "size": 2879
     },
     {
       "path": "ConversationTextRun.java",
@@ -1787,8 +1792,8 @@
     },
     {
       "path": "NewConversationTabRequest.java",
-      "sha256": "92c3fb9b67cb673637f242333fb6d6b53cb6ffa24b2e5077c6a7b65ae96ae46f",
-      "size": 9487
+      "sha256": "48220f72500dfb32fadd17aec4ead52fe883652476a418ba8eb783b7da6fb093",
+      "size": 10319
     },
     {
       "path": "NewConversationTabResult.java",
@@ -2007,7 +2012,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "78059bde6225aa64412cdf4a0964f49a19b57c0f18322bb68ee085468f819137",
+      "sha256": "4aa886f02e6d753495961a4d50b24942a7aa50766672cfb02db5fec4e4ad57d2",
       "size": 7112
     },
     {
@@ -3267,7 +3272,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4",
+  "ir_sha256": "dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

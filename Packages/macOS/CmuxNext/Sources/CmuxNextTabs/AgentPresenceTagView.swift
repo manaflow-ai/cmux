@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// small-radius rect of the agent's presence color at the content's top-right.
 /// It passes clicks through to the content under it.
 public final class AgentPresenceTagView: NSView {
-    let label = NSTextField(labelWithString: "")
+    let label = ChromeLabel(labelWithString: "")
     public private(set) var presence: TabPresence?
 
     override public init(frame: NSRect) {

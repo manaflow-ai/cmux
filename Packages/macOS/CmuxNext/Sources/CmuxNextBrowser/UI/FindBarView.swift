@@ -9,7 +9,7 @@ final class FindBarView: NSView {
     weak var tab: (any BrowserTab)?
 
     private let field = ChromeTextField()
-    private let countLabel = NSTextField(labelWithString: "")
+    private let countLabel = ChromeLabel(labelWithString: "")
     private var findTask: Task<Void, Never>?
     private let density = DensityBinding()
     private let icon = NSImageView()

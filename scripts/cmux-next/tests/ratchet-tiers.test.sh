@@ -33,6 +33,27 @@ grep -q '^::warning title=ratchet debt::.*god type.*Fixture/Big' "$tmp/out" || {
 god GODFILES_WARN_SLACK=20 1290 && fail "a 1290-line type must fail over a 1200-line ceiling"
 grep -q 'over the hard ceiling of 1200' "$tmp/out" || { cat "$tmp/out"; fail "a failure over the ceiling must name the ceiling"; }
 
+# --- Base-as-self: inherited god-file debt must compare equal and pass.
+base_self() {
+  local repo="$tmp/base-self" pkg scripts i
+  rm -rf "$repo"; pkg="$repo/Packages/macOS/CmuxNext"; scripts="$repo/scripts/cmux-next"
+  mkdir -p "$pkg/Sources/Fixture" "$scripts"
+  cp "$ROOT_DIR/scripts/cmux-next/check-no-godfiles.sh" "$scripts/check-no-godfiles.sh"
+  cp "$ROOT_DIR/scripts/cmux-next/godfile-baseline.tsv" "$scripts/godfile-baseline.tsv"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email test@example.invalid
+  git -C "$repo" config user.name test
+  {
+    echo 'struct Inherited {'
+    for (( i = 0; i < 410; i++ )); do echo "  let value$i = $i"; done
+    echo '}'
+  } > "$pkg/Sources/Fixture/Inherited.swift"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm base
+  env bash "$scripts/check-no-godfiles.sh" --only swift --base HEAD "$pkg" > "$tmp/out" 2>&1
+}
+base_self || { cat "$tmp/out"; fail "a base-as-self check must excuse inherited god-file debt"; }
+
 # --- l10n: one table of every language with English "Hello %@".
 l10n() { # env-assignments... -- python-edit -> exit status; output in $tmp/out
   local repo="$tmp/l10n" edit

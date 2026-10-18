@@ -44,6 +44,22 @@
   --acpmux-strip-pad: 1.5px;
 }
 .acpmux-composer > .acpmux-composer-strip { z-index: var(--layer-raised, 1); }
+.acpmux-composer > .acpmux-composer-strip-placeholder {
+  /* The location strip leaves after the first send, but its former height remains reserved so the
+     bottom-anchored composer controls do not jump while the first transcript rows mount. A queue
+     replaces this slot below. */
+  flex: none;
+  height: 46px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip-placeholder { display: none; }
+:root[data-top-strip="bump"] .acpmux-composer > .acpmux-composer-strip-placeholder {
+  height: calc(46px + var(--acpmux-strip-gap, 4px));
+}
+:root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip-placeholder {
+  height: calc(46px + var(--acpmux-strip-gap, 4px));
+}
 .acpmux-composer > .acpmux-composer-strip::after {
   content: "";
   position: absolute;
@@ -398,6 +414,10 @@
   padding-inline: var(--acpmux-row-inset);
   border-radius: 7px;
 }
+.acpmux-composer-bar .acpmux-steer {
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
   min-width: 0;
@@ -516,7 +536,7 @@
   background: var(--acpmux-composer-surface);
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer-box:focus-within {
+.acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
@@ -631,7 +651,7 @@
   border-radius: 12px 12px 5px 5px;
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
-:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   --acpmux-queue-edge: var(--acpmux-composer-edge-focus);
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
@@ -655,7 +675,7 @@
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
 :root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
   padding: 0;
   border-radius: 0;
@@ -707,7 +727,7 @@
 /* A started chat's queue is the tray: the same inset, tuck, corners, fill and edge. Over a new
    chat's strip it is the tray's top, flush on the strip. */
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   --acpmux-composer-tray: var(--acpmux-top-tray);
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
@@ -715,7 +735,7 @@
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
 }
-:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus);
 }
 :root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
@@ -763,7 +783,7 @@
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 12px; color: var(--agent-text); }
+.acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
 /* The name and its suffix on one line, cut at the end: "cmux · cg-lane-adopt". */
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-suffix,

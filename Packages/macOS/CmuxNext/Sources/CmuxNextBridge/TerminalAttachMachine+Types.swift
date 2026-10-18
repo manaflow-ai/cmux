@@ -93,7 +93,10 @@ extension TerminalAttachMachine {
         case send(Link, Data)
         /// Report `size` on `link`, then claim canonical geometry.
         case claim(Link, CellSize)
-        case release(Link)
+        /// The view hid: it keeps its lease, viewport and claim and stops counting toward the grid.
+        case hide(Link)
+        /// The view hid on `link` shows again: it counts toward the grid again.
+        case unhide(Link)
         case detach(Link)
         /// Show `LinkStatus` in the view.
         case status(LinkStatus)

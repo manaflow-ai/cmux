@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextTabs
 import Observation
+import CmuxNextFocus
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
@@ -16,7 +17,7 @@ import Observation
 final class PaneController: SurfacePresenter, PresentablePane {
     let paneKey: String
     let layoutPaneID: LayoutPaneID
-    var pane: PaneModel // set only by adopt(_:): the daemon pane replacing a provisional one
+    var pane: PaneModel // set only by adopt(_:): a resync's new record of the same pane
     /// The machine daemon that owns `pane`.
     let daemon: DaemonService
     let stripModel = TabStripModel()
@@ -74,6 +75,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
             services?.surfaceInvariant.noteChange()
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
         }
+        #if DEBUG
+        DebugLayoutCounters.note("pane mount", #fileID, #line)
+        #endif
         observe()
     }
 
@@ -95,20 +99,22 @@ final class PaneController: SurfacePresenter, PresentablePane {
     // MARK: Sync
 
     func observe() {
+        // One snapshot now (the first frame), tracked; the stream brings the later ones. A trigger:
+        // `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
+        let (first, later) = ObservationStream.current({ [weak self] in ObservationTrigger(self?.snapshot()) })
         observation?.cancel(); observation = Task { [weak self] in
-            guard let self else { return }
-            // A trigger: `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
-            for await snapshot in ObservationStream({ [weak self] in ObservationTrigger(self?.snapshot()) }) {
-                guard let snapshot = snapshot.value else { return }
+            for await snapshot in later {
+                guard let self, let snapshot = snapshot.value else { return }
                 self.apply(snapshot)
             }
         }
-        apply(snapshot())
+        if let first = first.value { apply(first) }
     }
 
-    func snapshot() -> Snapshot {
+    func snapshot(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
         DebugLayoutCounters.paneSnapshots &+= 1
+        DebugLayoutCounters.note("snapshot", file, line)
         #endif
         let store = daemon.store
         let fallback = Strings.untitledTerminal

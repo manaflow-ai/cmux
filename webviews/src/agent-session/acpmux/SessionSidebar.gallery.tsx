@@ -17,6 +17,9 @@ const sessions: Props["sessions"] = [
     updatedAt: minutesAgo(1),
     status: "running",
     indicator: "working",
+    preview: "The checkout still needs a final pass on the payment form.",
+    cwd: "/Users/you/src/cmux",
+    branch: "feat/checkout",
   }),
   session({
     sessionId: "sidebar-second",
@@ -45,6 +48,8 @@ const sessions: Props["sessions"] = [
     branch: "ci/nightly",
   }),
 ];
+
+const sessionsWithoutPreview = sessions.map((entry) => ({ ...entry, preview: undefined }));
 
 const active = session({
   sessionId: "sidebar-active",
@@ -171,6 +176,16 @@ const contextActions = async (ctx: PlayContext) => {
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
 };
 
+const hoverPreview = async (ctx: PlayContext) => {
+  await ctx.hover({ selector: '[data-session-id="sidebar-first"]' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-preview"));
+};
+
+const focusPreview = async (ctx: PlayContext) => {
+  await ctx.focus({ selector: '[data-session-id="sidebar-first"]' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-preview"));
+};
+
 const entry = componentEntry<Props>({
   id: "agent-pane.session-sidebar",
   title: "Session sidebar",
@@ -261,6 +276,30 @@ const entry = componentEntry<Props>({
         onContinue: () => undefined,
       },
       play: contextActions,
+    },
+    "hover-preview": {
+      note: "A deliberate hover opens the latest reply with status and placement metadata in a floating card.",
+      props: { ...baseProps, groupProjects: false },
+      play: hoverPreview,
+    },
+    "hover-preview-quiet": {
+      note: "Debug layout sidebarPreviewVariant=quiet: a narrower, flatter latest-reply card keeps metadata readable with less elevation.",
+      props: { ...baseProps, groupProjects: false, previewVariant: "quiet" },
+      play: hoverPreview,
+    },
+    "hover-preview-outline": {
+      note: "Debug layout sidebarPreviewVariant=outline: a lightly tinted rim keeps the latest-reply card distinct without a drop shadow.",
+      props: { ...baseProps, groupProjects: false, previewVariant: "outline" },
+      play: hoverPreview,
+    },
+    "focus-preview": {
+      note: "Keyboard focus opens the same preview without changing the sidebar row geometry.",
+      props: { ...baseProps, groupProjects: false },
+      play: focusPreview,
+    },
+    "no-preview": {
+      note: "Rows without a latest reply remain compact and do not mount a preview card.",
+      props: { ...baseProps, sessions: sessionsWithoutPreview, groupProjects: false },
     },
   },
 });

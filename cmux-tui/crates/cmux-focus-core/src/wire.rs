@@ -5,45 +5,8 @@
 //! module), not JSON.
 
 use crate::child_window::{self, Decision, Facts};
-use crate::event::FocusEvent;
-use crate::reducer;
-use crate::state::FocusState;
 use crate::type_ahead::TypeAheadQueue;
 use serde::{Deserialize, Serialize};
-
-// Compatibility for app builds pinned before the handle ABI: the old
-// whole-state JSON ops (`focus_reduce`, `focus_changes_view`). Delete them
-// once the app's CCmuxAppFFI pin uses `cmux_focus_*` (bead cx-8w027.2).
-
-#[derive(Debug, Deserialize)]
-pub struct ReduceRequest {
-    pub state: FocusState,
-    pub event: FocusEvent,
-}
-
-pub fn reduce(request: ReduceRequest) -> serde_json::Value {
-    let mut state = request.state;
-    state.derive();
-    let mut effects = Vec::new();
-    match request.event {
-        FocusEvent::Topology { topology } => {
-            reducer::set_topology(&mut state, topology, &mut effects);
-        }
-        event => {
-            reducer::reduce(&mut state, &event, &mut effects);
-        }
-    }
-    serde_json::json!({"state": state.export(), "effects": effects})
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ChangesViewRequest {
-    pub event: FocusEvent,
-}
-
-pub fn changes_view(request: &ChangesViewRequest) -> serde_json::Value {
-    serde_json::json!({"changesView": request.event.changes_view()})
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

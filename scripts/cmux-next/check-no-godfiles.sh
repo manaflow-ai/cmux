@@ -287,7 +287,21 @@ report="$(evaluate 0)"
 if [[ -n "$base_ref" ]] && grep -q '^FAIL' <<<"$report"; then
   if base_commit="$(git -C "$repo" rev-parse --verify --quiet "$base_ref^{commit}")"; then
     base_tree="$(mktemp -d)"
-    package_rel="${root#"$repo"/}"
+    # ROOT is often a temporary worktree path while REPO is the main clone;
+    # normalize both before deriving the repository-relative package path.
+    # Without this, a /var versus /private/var spelling mismatch makes the
+    # base archive empty and turns inherited god-file debt into new failures.
+    package_rel="$(pkg_rel "$root" "$repo")"
+    archive_paths=("$package_rel")
+    # cmux-tui is optional in focused fixtures and partial checkouts. A missing
+    # pathspec makes git archive fail before it writes the Swift package, which
+    # leaves base measurements empty and falsely turns inherited debt into new
+    # failures.
+    if git -C "$repo" cat-file -e "$base_commit:cmux-tui" 2>/dev/null; then
+      archive_paths+=(cmux-tui)
+    fi
+    git -C "$repo" archive "$base_commit" -- "${archive_paths[@]}" 2>/dev/null |
+      tar -x -C "$base_tree" 2>/dev/null || true
     git -C "$repo" archive "$base_commit" -- "$package_rel" cmux-tui 2>/dev/null | tar -x -C "$base_tree" 2>/dev/null || true
     measure "$base_tree/$package_rel" "$base_tree" "$base_commit" > "$base_measurements"
     report="$(evaluate 1)"

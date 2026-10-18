@@ -7958,6 +7958,31 @@
    },
    "additional_properties": false
   },
+  "ConversationTabSplit": {
+   "kind": "object",
+   "fields": {
+    "direction": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The side of pane the new pane takes: right, down, left or up."
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed."
+    }
+   },
+   "additional_properties": false
+  },
   "ConversationTabRecord": {
    "kind": "object",
    "fields": {
@@ -16536,6 +16561,17 @@
       "default": null,
       "capability": "conversation-tab-transaction-v1",
       "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result."
+     },
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabSplit"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "conversation-tab-split-v1",
+      "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction."
      }
     },
     "additional_properties": false
@@ -16597,7 +16633,7 @@
    },
    "stream": null,
    "constraints": [
-    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. split (conversation-tab-split-v1) needs pane and excludes workspace. See spec/commands.md."
    ]
   },
   "bind-conversation-tab-session": {

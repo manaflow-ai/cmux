@@ -122,7 +122,7 @@ extension TabStripView {
         items.insertPlaceholder(placeholder, atTabIndex: resolved.index)
         let layout = TabLayoutEngine.layout(items: items, availableWidth: viewportWidth, style: model.style, metrics: metrics)
         guard let slot = layout.slot(Self.placeholderID) else { return nil }
-        let offset = TabScrollMath.clamp(scroll.target, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)
+        let offset = TabScrollMath.clamp(scrollOffset, contentWidth: layout.contentWidth, viewportWidth: viewportWidth)
         let mapping = TabScrollMapping(result: layout, viewportWidth: viewportWidth, minimumScrollable: metrics.minActiveTabWidth, offset: offset)
         let local = CGRect(x: mapping.viewX(slot.x, isPinned: false), y: tabTop, width: slot.width, height: min(metrics.tabHeight, bounds.height))
         let frameInWindow = tabsClip.convert(local, to: nil)

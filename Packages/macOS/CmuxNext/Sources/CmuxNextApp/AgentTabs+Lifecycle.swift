@@ -23,11 +23,13 @@ extension AgentTabStore {
     ///   - linked: A `cmux://session/<id>` link opened it: its page refuses a session the daemon does not have instead of falling back.
     ///   - adopt: The outside chat it resumes (`harness:agentSessionId`).
     ///   - idempotencyKey: The creation's key; a retry with it returns the same tab. Fresh by default.
+    ///   - split: The tab opens in a new pane on that side of `pane` (`conversation-tab-split-v1`): one daemon
+    ///     commit, shown at once in a provisional pane, never in `pane`'s strip.
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
     func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
               linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
-              idempotencyKey: String = UUID().uuidString.lowercased()) throws -> AgentTabPending {
+              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             let reason = !reachable(daemon) ? RefusalStrings.agentTabsDisconnected
@@ -70,16 +72,15 @@ extension AgentTabStore {
             record = AgentSessionRef(host: host ?? localHost, hostName: localHostName, session: session, harness: adopt?.harness)
         }
         let provisional = ProvisionalTab()
-        let key = provisional.id
-        var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: key),
-                                   kind: .conversation, title: "about:blank", browserRenderer: "frontend")
-        snapshot.conversation = ConversationTabRef(agentSession: record)
+        let key = provisional.id, snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
+        let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
         let store = daemon.store
         store.onTabCreated = { [weak self] provisional, tab in
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
         }
         let transaction = ClientTransactionID.generate()
-        store.intend(.createTab(pane: pane, provisional: snapshot), transaction: transaction)
+        store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
+                     transaction: transaction)
         if let session { sessions[key] = session }
         newTabPages[key] = newTab
         if session == nil { seeds[key] = seed }
@@ -92,7 +93,8 @@ extension AgentTabStore {
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
             do {
                 guard let self else { throw CancellationError() }
-                let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction)
+                let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
+                                                           splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID) })
                 tabCreated(key, as: created)
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
@@ -121,17 +123,20 @@ extension AgentTabStore {
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
-                 linked: Bool = false, select: Bool = true, hidden: Bool = false,
+                 linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil,
                  then: (@MainActor (String) -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
             pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
-                               spare: spare, linked: linked)
+                               spare: spare, linked: linked, split: split)
         } catch {
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return false
         }
+        // A split's tab takes focus in its provisional pane now, then in the store's (as a terminal split does).
+        let content = split == nil ? nil : pane.workspace, intent = content?.beginFocusIntent()
+        content?.expectFocus(on: pending.surface, generation: intent)
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {
@@ -141,6 +146,7 @@ extension AgentTabStore {
         pane.services.registry.track(Task {
             do {
                 let created = try await pending.value()
+                content?.expectFocus(on: created.surface, generation: intent)
                 if hidden { pane.pendingDock.insert(created.key) }
                 // A remote store can answer before its tree lists the provisional tab, so the
                 // provisional selection never took: the store's tab is selected now (cx-k21v).

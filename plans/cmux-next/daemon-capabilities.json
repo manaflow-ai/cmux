@@ -29,6 +29,7 @@
     "conversation-inbox-state-v1",
     "conversation-runs-v1",
     "conversation-search-v1",
+    "conversation-tab-split-v1",
     "conversation-tabs-v1",
     "conversation-thread-v1",
     "conversation-threads-v1",
@@ -79,6 +80,7 @@
     "session-icon-v1",
     "session-identity-v1",
     "session-journal-v1",
+    "shared-sizing-v1",
     "sidebar-doc-v1",
     "sidebar-layout-v1",
     "split-client-keys-v1",
@@ -115,6 +117,7 @@
     "workspace-groups-v1",
     "workspace-kind-v1",
     "workspace-metadata-v1",
+    "workspace-name-source-v1",
     "workspace-pin-v1",
     "ws-listen-origins-v1",
     "ws-listen-v1"

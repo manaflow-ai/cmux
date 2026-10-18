@@ -318,6 +318,12 @@ class GodfilePullRequestScope(unittest.TestCase):
         swift, rust = self.both()
         self.assertEqual((swift.returncode, rust.returncode), (1, 1), swift.stdout + rust.stdout)
 
+    def test_base_as_self_excuses_inherited_debt(self):
+        swift, rust = self.both("--base", "HEAD")
+        for result in (swift, rust):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("over budget on the base", result.stdout)
+
     def test_an_unrelated_change_passes_over_base_reds(self):
         (self.rust / "small.rs").write_text("fn f() {}\n")
         (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
@@ -494,6 +500,18 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
                 self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+
+    def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
+        """Rescue attempt 3 must use the Blacksmith fallback instead of a stale mini label."""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
+        self.assertNotIn(stale, text)
+        self.assertEqual(
+            text.count("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."),
+            13,
+        )
+        self.assertIn("bot attempt 3 is the measured Blacksmith overflow", text)
+        self.assertIn("bot attempt 3\n# drops the stale placement output and takes the Blacksmith fallback", text)
 
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -947,7 +965,7 @@ FAST_LANE_CLAUSE = (
 # The fast tier's runs-on before CI_FAST_LANE_RUNNER: with the variable unset it must route exactly so.
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
-    + "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
+    + "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
     "&& (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "

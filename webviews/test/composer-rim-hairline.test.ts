@@ -141,4 +141,22 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
     }
     await page.close();
   });
+
+  test("pointer focus leaves the composer rim quiet while keyboard traversal raises it", async () => {
+    const page = await open(2);
+    const rest = await insets(page, "composer");
+    const chip = page.locator("#composer-chip");
+    await chip.click();
+    // A mouse press may focus the chip, but it is not keyboard focus and must not change the card.
+    expect(await insets(page, "composer")).toEqual(rest);
+
+    // Move from the chip to the prompt with a real reverse-Tab. The prompt is then :focus-visible,
+    // so the card keeps its quiet one-device-pixel focus step for keyboard users.
+    await chip.focus();
+    await page.keyboard.press("Shift+Tab");
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("composer-field");
+    const keyboard = await insets(page, "composer");
+    expect(keyboard[0]?.alpha ?? 0).toBeGreaterThan(rest[0]?.alpha ?? 0);
+    await page.close();
+  });
 });

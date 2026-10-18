@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextFocus
 
 /// A surface's primary input (R65, spec app-screens.md section 3): Home's
 /// message box, the agent pane's composer, an app screen's

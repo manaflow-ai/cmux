@@ -35,14 +35,14 @@ import CmuxNextDesign
         if let hint, !hint.isHidden {
             if metrics.overflow == .scroll {
                 answer(usesScrolling: false)
-            } else if !isCrowdedAtMinimum || strip.window == nil {
+            } else if !isCrowdedAtMinimum || !strip.isShownInWindow {
                 hide()
             }
             return
         }
         guard DesignSettings.shared.useScrollingTabs != nil, !TabOverflowHintView.isAnswered,
               TabOverflowHintView.owner == nil || TabOverflowHintView.owner === strip,
-              strip.window != nil, strip.drag == nil, isCrowdedAtMinimum else { return }
+              strip.isShownInWindow, strip.drag == nil, isCrowdedAtMinimum else { return }
         let hint = self.hint ?? make(in: strip)
         // A narrow pane keeps its tabs: the hint waits for a crowded strip with room for it, the selected
         // tab and two more at their minimum (an 1100 pt window's 854 pt strip shows it).

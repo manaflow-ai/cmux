@@ -144,6 +144,12 @@ struct IntentLog {
         return intent.settleSequence.map { appliedSequence >= $0 } ?? false
     }
 
+    /// Settled, but what it shows has not reached the records yet: it leaves the log on the
+    /// apply that brings them, or with the next snapshot.
+    mutating func awaitRecords(_ transaction: ClientTransactionID) {
+        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.awaitsRecords = true }
+    }
+
     mutating func noteCreated(_ transaction: ClientTransactionID, surface: SurfaceID) {
         entries.modifyFirst(where: { $0.transaction == transaction }) { $0.createdSurface = surface }
     }
