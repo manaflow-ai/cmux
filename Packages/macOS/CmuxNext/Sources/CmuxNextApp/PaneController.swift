@@ -327,7 +327,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
-        if workspace?.isParked == false { workspace?.focus.send(.contentPresented(pane: paneKey)) }
+        if workspace?.isParked == false {
+            workspace?.focus.send(.contentPresented(pane: paneKey))
+            // `contentPresented` may synchronously move the responder while the focus
+            // coordinator suppresses its echo. Give the input hold a post-presentation
+            // settle point so keys captured during a cold-tab switch are replayed after
+            // the terminal view actually owns the keyboard.
+            services.keyRouter.creationInputCoordinator.focusDidSettle(in: view.window)
+        }
         services.surfaceInvariant.noteChange()
     }
 
