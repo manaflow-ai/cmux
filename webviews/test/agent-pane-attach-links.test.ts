@@ -158,6 +158,9 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     });
     await page.goto(url());
     await page.getByText("The notes are tidy.").waitFor();
+    // A chat with no summary content keeps the card closed until the header's button opens it.
+    await page.getByRole("button", { name: "Chat summary" }).click();
+    await page.getByRole("complementary", { name: "Chat summary" }).waitFor({ timeout: 5_000 });
   };
   const attach = (page: Page) => page.getByRole("button", { name: "Attach files or folders" });
 
@@ -188,7 +191,6 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     await open(page);
-    await page.getByRole("complementary", { name: "Chat summary" }).waitFor({ timeout: 5_000 });
     expect(await attach(page).count()).toBe(0);
     await context.close();
     session = local;
