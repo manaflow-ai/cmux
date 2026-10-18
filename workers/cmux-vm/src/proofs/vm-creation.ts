@@ -7,7 +7,7 @@ import { OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import type { RetainedVmCreation } from "../domain/vm-creation.ts";
 import { unavailable, vmNotFound } from "../errors.ts";
-import { parseVmId, type VmId } from "../lib/ids.ts";
+import { parseSnapshotId, parseVmId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 
 export interface CancellingVmCreation<C, V> extends Proof<"CancellingVmCreation", [C, V]> {}
@@ -56,6 +56,16 @@ const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(fu
     if (Option.isNone(parsed) || parsed.value !== progress.intent.receipt.id) return yield* Effect.fail(unavailable());
     return { status: stateOf({ state: "pending", id: parsed.value, receipt: progress.intent.receipt }),
       pending: { key, intent: progress.intent, createdBy: progress.createdBy, ...(progress.snapshotId === undefined ? {} : { snapshotId: progress.snapshotId }) } };
+  }
+  if (progress?.phase === "snapshotted" && record.generated !== undefined) {
+    const generated = record.generated;
+    if (caller.value.resourceAllowlist !== null || !carriesRequiredLabels(caller.value, generated.labels)
+      || (caller.value.actor.kind === "service" && actorRef(caller.value.actor) !== generated.createdBy)) return yield* Effect.fail(vmNotFound());
+    const snapshotId = parseSnapshotId(progress.snapshotId);
+    if (Option.isNone(snapshotId)) return yield* Effect.fail(unavailable());
+    const snapshot = yield* (yield* OwnershipStore).find(caller.value.tenantId, "snapshot", snapshotId.value).pipe(Effect.mapError(() => unavailable()));
+    if (Option.isNone(snapshot) || !carriesRequiredLabels(caller.value, snapshot.value.labels)) return yield* Effect.fail(vmNotFound());
+    return { status: stateOf({ state: "unresolved", id: null }), pending: null };
   }
   // Legacy journals do not prove labels, image or network intent. Never reinterpret them as a new request.
   if (caller.value.actor.kind === "service" || caller.value.resourceAllowlist !== null || caller.value.requiredLabels !== undefined) return yield* Effect.fail(vmNotFound());

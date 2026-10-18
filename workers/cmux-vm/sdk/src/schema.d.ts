@@ -116,7 +116,7 @@ export interface paths {
         put?: never;
         /**
          * Create a VM
-         * @description Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         * @description Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
          */
         post: operations["vms.createVm"];
         delete?: never;
@@ -260,9 +260,29 @@ export interface paths {
         put?: never;
         /**
          * Fork a VM into a new VM with the same memory and disk
-         * @description Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. The source must be running or paused (409 otherwise). On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete with the kept snapshot's id, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         * @description Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. A fresh source must be running or paused (409 otherwise); a retained snapshot or destination can be recovered after source deletion. On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete when allocation cannot be confirmed, with the kept snapshot's id and a server-issued creationKey when the caller omitted its key, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
          */
         post: operations["vms.forkVm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vm-creations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List server-issued VM creation handles
+         * @description List server-issued VM creation handles. Requires the vm:read scope. Bounded creation history for requests that omitted their key. Never lists caller-supplied keys or contacts the provider. Current service labels apply; resource-allowlisted keys cannot list. Empty filtered pages can still have a nextCursor.
+         */
+        get: operations["vmCreations.listVmCreations"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -967,16 +987,21 @@ export interface components {
         };
         ServiceUnavailable: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
             /** @enum {string} */
             _tag: "ServiceUnavailable";
         };
+        /** @description Server-issued recovery handle; use as Idempotency-Key. Not an authentication credential. */
+        VmCreationKey: string;
         NotFound: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
             /** @enum {string} */
             _tag: "NotFound";
         };
         QuotaExceeded: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
             retryAfterSeconds?: components["schemas"]["Int"];
             /** @enum {string} */
             budget?: "snapshots" | "vms" | "rate" | "capacity" | "mesh.perTenant" | "device.perMesh" | "firewallRule.perMesh" | "firewallRule.perResource" | "firewallRule.account" | "aclApply.perMeshPerMinute" | "enrollmentCode.perMeshPerHour" | "address.perDevice";
@@ -1049,11 +1074,13 @@ export interface components {
         };
         BadRequest: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
             /** @enum {string} */
             _tag: "BadRequest";
         };
         Conflict: {
             message: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
             /** @enum {string} */
             _tag: "Conflict";
         };
@@ -1147,7 +1174,7 @@ export interface components {
         VmProxyHeaders: {
             [key: string]: string;
         };
-        /** @description Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot. */
+        /** @description Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot. */
         RequestedResources: {
             /**
              * between(2, 32)
@@ -1185,6 +1212,7 @@ export interface components {
             autoDeleteSeconds: number | null;
             createdAt: string;
             updatedAt: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
             initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
             bootImage?: components["schemas"]["VmImage"];
         };
@@ -1238,15 +1266,20 @@ export interface components {
                 [key: string]: string;
             };
         };
-        /** @description The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot. */
+        /** @description The fork's snapshot was taken but the VM allocation could not be confirmed. The snapshot stays in the caller's tenant. Inspect or retry with the original Idempotency-Key or returned creationKey; an unknown allocation may already exist. */
         ForkIncomplete: {
             message: string;
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             snapshotId: string;
+            creationKey?: components["schemas"]["VmCreationKey"];
             /** @enum {string} */
             _tag: "ForkIncomplete";
         };
-        VmCreationStatus: {
+        VmCreationList: {
+            items: components["schemas"]["VmCreationListItem"][];
+            nextCursor: string | null;
+        };
+        VmCreationListItem: {
             /** @enum {string} */
             state: "pending" | "committed" | "deleted" | "unresolved";
             /**
@@ -1256,6 +1289,13 @@ export interface components {
             cancellation?: "requested" | "completed";
             id: string | null;
             receipt?: components["schemas"]["VmCreationReceipt"];
+            creationKey: components["schemas"]["VmCreationKey"];
+            createdAt: string;
+            /** @enum {string} */
+            operation: "create" | "fork";
+            displayName: string | null;
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            sourceId?: string;
         };
         /** @description Original accepted creation intent. Contains no provider identifiers or proxy credentials. */
         VmCreationReceipt: {
@@ -1268,6 +1308,17 @@ export interface components {
             idleTimeoutSeconds: number;
             bootImage?: components["schemas"]["VmImage"];
             initialNetwork?: components["schemas"]["InitialVmNetworkReceipt"];
+        };
+        VmCreationStatus: {
+            /** @enum {string} */
+            state: "pending" | "committed" | "deleted" | "unresolved";
+            /**
+             * @description Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key.
+             * @enum {string}
+             */
+            cancellation?: "requested" | "completed";
+            id: string | null;
+            receipt?: components["schemas"]["VmCreationReceipt"];
         };
         VmCreationCancellation: {
             /** @enum {string} */
@@ -2890,13 +2941,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Vm */
+            /** @description CreatedVm */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Vm"];
+                    "application/json": components["schemas"]["CreatedVm"];
                 };
             };
             /** @description The request did not match the expected schema */
@@ -2969,6 +3020,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceUnavailable"] | components["schemas"]["ForkIncomplete"];
+                };
+            };
+        };
+    };
+    "vmCreations.listVmCreations": {
+        parameters: {
+            query?: {
+                /** @description a string matching the pattern ^[a-f0-9]{64}$ */
+                cursor?: string;
+                /** @description a string to be decoded into a number */
+                limit?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description VmCreationList */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmCreationList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
                 };
             };
         };

@@ -660,7 +660,7 @@
             }
           }
         },
-        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Create a VM",
         "requestBody": {
           "content": {
@@ -1749,11 +1749,11 @@
         ],
         "responses": {
           "201": {
-            "description": "Vm",
+            "description": "CreatedVm",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Vm"
+                  "$ref": "#/components/schemas/CreatedVm"
                 }
               }
             }
@@ -1853,7 +1853,7 @@
             }
           }
         },
-        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. The source must be running or paused (409 otherwise). On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete with the kept snapshot's id, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. A fresh source must be running or paused (409 otherwise); a retained snapshot or destination can be recovered after source deletion. On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete when allocation cannot be confirmed, with the kept snapshot's id and a server-issued creationKey when the caller omitted its key, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Fork a VM into a new VM with the same memory and disk",
         "requestBody": {
           "content": {
@@ -1865,6 +1865,126 @@
           },
           "required": true
         }
+      }
+    },
+    "/v1/vm-creations": {
+      "get": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.listVmCreations",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^[a-f0-9]{64}$",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^[a-f0-9]{64}$"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List server-issued VM creation handles. Requires the vm:read scope. Bounded creation history for requests that omitted their key. Never lists caller-supplied keys or contacts the provider. Current service labels apply; resource-allowlisted keys cannot list. Empty filtered pages can still have a nextCursor.",
+        "summary": "List server-issued VM creation handles"
       }
     },
     "/v1/vm-creations/by-key": {
@@ -7059,6 +7179,9 @@
           "message": {
             "type": "string"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -7067,6 +7190,11 @@
           }
         },
         "additionalProperties": false
+      },
+      "VmCreationKey": {
+        "type": "string",
+        "description": "Server-issued recovery handle; use as Idempotency-Key. Not an authentication credential.",
+        "pattern": "^vcr_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
       },
       "NotFound": {
         "type": "object",
@@ -7077,6 +7205,9 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
           },
           "_tag": {
             "type": "string",
@@ -7096,6 +7227,9 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
           },
           "retryAfterSeconds": {
             "$ref": "#/components/schemas/Int"
@@ -7334,6 +7468,9 @@
           "message": {
             "type": "string"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -7352,6 +7489,9 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
           },
           "_tag": {
             "type": "string",
@@ -7594,7 +7734,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
+        "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
       },
       "CreatedVm": {
         "type": "object",
@@ -7683,6 +7823,9 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
           },
           "initialNetwork": {
             "$ref": "#/components/schemas/InitialVmNetworkReceipt"
@@ -7844,6 +7987,9 @@
             "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
             "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -7852,13 +7998,43 @@
           }
         },
         "additionalProperties": false,
-        "description": "The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot."
+        "description": "The fork's snapshot was taken but the VM allocation could not be confirmed. The snapshot stays in the caller's tenant. Inspect or retry with the original Idempotency-Key or returned creationKey; an unknown allocation may already exist."
       },
-      "VmCreationStatus": {
+      "VmCreationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmCreationListItem"
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationListItem": {
         "type": "object",
         "required": [
           "state",
-          "id"
+          "id",
+          "creationKey",
+          "createdAt",
+          "operation",
+          "displayName"
         ],
         "properties": {
           "state": {
@@ -7892,6 +8068,34 @@
           },
           "receipt": {
             "$ref": "#/components/schemas/VmCreationReceipt"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "create",
+              "fork"
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sourceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           }
         },
         "additionalProperties": false
@@ -7940,6 +8144,48 @@
         },
         "additionalProperties": false,
         "description": "Original accepted creation intent. Contains no provider identifiers or proxy credentials."
+      },
+      "VmCreationStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted",
+              "unresolved"
+            ]
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ],
+            "description": "Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          }
+        },
+        "additionalProperties": false
       },
       "VmCreationCancellation": {
         "type": "object",

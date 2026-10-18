@@ -31,7 +31,7 @@ export const recoverWithdrawnImage = <C>(
   if (status.state !== "committed" || status.receipt?.bootImage === undefined
     || status.receipt.bootImage.id !== image.id || status.receipt.bootImage.revision !== image.revision) return yield* Effect.fail(unavailable());
   const vm = yield* replayVm(caller, scope, prior.vmId);
-  return new CreatedVm({ ...vm, bootImage: status.receipt.bootImage,
+  return new CreatedVm({ ...vm, ...(record.generated === undefined ? {} : { creationKey: record.generated.key }), bootImage: status.receipt.bootImage,
     ...(status.receipt.initialNetwork === undefined ? {} : { initialNetwork: status.receipt.initialNetwork }),
   });
 }).pipe(Effect.uninterruptible);

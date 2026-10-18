@@ -4,6 +4,7 @@
  * two concurrent creates cannot both take the last quota slot, and two
  * requests with the same idempotency key cannot both start.
  */
+import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { DurableObject } from "cloudflare:workers";
 import {
   TenantLedger,
@@ -54,8 +55,10 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.release(reservationId);
   }
 
-  begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string): Promise<IdempotencyBegin> {
-    return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint);
+  listGenerated(scope: string, cursor: string | undefined, limit: number): Promise<GeneratedCreationPage> { return this.ledger.listGenerated(scope, cursor, limit); }
+
+  begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin> {
+    return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint, generated);
   }
 
   async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<boolean> {

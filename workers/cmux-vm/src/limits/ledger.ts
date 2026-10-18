@@ -8,6 +8,7 @@
  * keep request/provider digests, public creation intent and public cmux ids.
  */
 import { Schema } from "effect";
+import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
@@ -16,7 +17,7 @@ export interface LedgerStorage {
   get(key: string): Promise<unknown>;
   put(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<boolean>;
-  list(options: { readonly prefix: string; readonly limit?: number }): Promise<Map<string, unknown>>;
+  list(options: { readonly prefix: string; readonly startAfter?: string; readonly limit?: number }): Promise<Map<string, unknown>>;
 }
 
 export type RateClass = "read" | "write" | "exec" | "files";
@@ -83,6 +84,7 @@ export const IdempotencyRecord = Schema.Struct({
   fingerprint: Schema.String,
   /** Stable admitted client request, retained when an operator image leaves the catalog. Digest only. */
   clientFingerprint: Schema.optional(Schema.String),
+  generated: Schema.optional(GeneratedCreation),
   progress: Progress,
   /** While pending: when the claim lapses if its request died. */
   leaseUntilMs: Schema.Number,
@@ -95,6 +97,9 @@ const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Numbe
 
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
+const GeneratedIndex = Schema.Struct({ key: Schema.String, generated: GeneratedCreation });
+const isGeneratedIndex = Schema.is(GeneratedIndex);
+const generatedPrefix = (scope: string) => `generated:${encodeURIComponent(scope)}:`;
 const isReservation = Schema.is(Reservation);
 
 const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
@@ -239,13 +244,13 @@ export class TenantLedger {
   }
 
   /** Claims `key` for a request with `fingerprint`, or reports what an earlier request with the key did. */
-  async begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string): Promise<IdempotencyBegin> {
+  async begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin> {
     return this.storage.transaction(async (storage) => {
       const storageKey = `idem:${key}`;
       const raw = await storage.get(storageKey), record = checked(isRecord, raw);
       if (raw !== undefined && record === undefined) throw new Error("unrecognized idempotency record");
-      if (record !== undefined && (record.expiresMs > nowMs || record.progress.phase === "creating" || record.progress.phase === "cancelled" || record.progress.phase === "pending")) {
-        if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint)) return { state: "mismatch" };
+      if (record !== undefined && (record.generated !== undefined || record.expiresMs > nowMs || record.progress.phase === "creating" || record.progress.phase === "cancelled" || record.progress.phase === "pending")) {
+        if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint) || (generated !== undefined && JSON.stringify(record.generated) !== JSON.stringify(generated))) return { state: "mismatch" };
         // Older pending records may already have sent a provider create without retaining its ID.
         // They cannot safely become a new allocation, even after their former TTL.
         if (record.progress.phase === "pending") return { state: "in_progress" };
@@ -260,6 +265,7 @@ export class TenantLedger {
       await storage.put(storageKey, {
         fingerprint,
         ...(clientFingerprint === undefined ? {} : { clientFingerprint }),
+        ...(generated === undefined ? {} : { generated }),
         progress: { phase: "claimed" },
         leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS,
         expiresMs: nowMs + IDEMPOTENCY_TTL_MS,
@@ -291,6 +297,9 @@ export class TenantLedger {
         const held = checked(isReservation, await storage.get(`reserve:${progress.reservationId}`));
         if (!held || held.kind !== "vm" || (held.retained !== true && held.expiresMs <= nowMs)) throw new Error("allocation reservation expired");
         await storage.put(`reserve:${progress.reservationId}`, { ...held, retained: true });
+      }
+      if (record.generated !== undefined && (progress.phase === "creating" || progress.phase === "snapshotted")) {
+        await storage.put(`${generatedPrefix(record.generated.scope)}${record.generated.cursor}`, { key, generated: record.generated });
       }
       await storage.put(storageKey, {
         ...record,
@@ -335,14 +344,34 @@ export class TenantLedger {
     if (held !== undefined && held.holder === holder) await this.storage.delete(storageKey);
   }
 
-  /** Drops a bounded number of expired idempotency records. */
+  /** Bounded, read-only scan. Cursors are domain-separated digests of random server handles. */
+  async listGenerated(scope: string, cursor: string | undefined, limit: number): Promise<GeneratedCreationPage> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (cursor !== undefined && !/^[a-f0-9]{64}$/.test(cursor))) throw new Error("invalid creation page");
+    const prefix = generatedPrefix(scope);
+    const rows = [...await this.storage.list({ prefix, ...(cursor === undefined ? {} : { startAfter: prefix + cursor }), limit: limit + 1 })];
+    const scanned = rows.slice(0, limit), items: GeneratedCreation[] = [];
+    for (const [, raw] of scanned) {
+      const index = checked(isGeneratedIndex, raw);
+      if (index === undefined || index.generated.scope !== scope) continue;
+      const record = await this.inspect(index.key);
+      if (record?.generated?.key !== index.generated.key) continue;
+      items.push(record.generated);
+    }
+    return { items, nextCursor: rows.length > limit ? scanned.at(-1)?.[0].slice(prefix.length) ?? null : null };
+  }
+
+  /** Rotate a bounded sweep so permanent operation history cannot starve ordinary expiry. */
   private async sweep(storage: LedgerStorage, nowMs: number): Promise<void> {
-    const records = await storage.list({ prefix: "idem:", limit: 64 });
+    const previous = await storage.get("maintenance:sweep-cursor");
+    const records = await storage.list({ prefix: "idem:", ...(typeof previous === "string" ? { startAfter: previous } : {}), limit: 64 });
     for (const [key, value] of records) {
       const record = checked(isRecord, value);
-      if (record !== undefined && record.progress.phase !== "creating" && record.progress.phase !== "cancelled" && record.progress.phase !== "pending" && record.expiresMs <= nowMs) await storage.delete(key);
+      if (record !== undefined && record.generated === undefined && record.progress.phase !== "creating" && record.progress.phase !== "cancelled" && record.progress.phase !== "pending" && record.expiresMs <= nowMs) await storage.delete(key);
     }
+    if (records.size === 64) await storage.put("maintenance:sweep-cursor", [...records.keys()].at(-1));
+    else await storage.delete("maintenance:sweep-cursor");
   }
+
 }
 
 /** A LedgerStorage in memory, for tests and local tools. */
@@ -360,7 +389,7 @@ export function memoryLedgerStorage(): LedgerStorage {
       const out = new Map<string, unknown>();
       const all = entries();
       for (const key of [...all.keys()].sort()) {
-        if (!key.startsWith(options.prefix)) continue;
+        if (!key.startsWith(options.prefix) || (options.startAfter !== undefined && key <= options.startAfter)) continue;
         out.set(key, structuredClone(all.get(key)));
         if (options.limit !== undefined && out.size >= options.limit) break;
       }

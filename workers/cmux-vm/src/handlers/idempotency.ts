@@ -1,5 +1,6 @@
 /** The tenant ledger keeps digests and public VM ids, never request bodies. */
 import { Effect } from "effect";
+import type { GeneratedCreation } from "../domain/generated-creation.ts";
 import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import type { Principal } from "../domain/principal.ts";
 import { conflict, unavailable } from "../errors.ts";
@@ -20,11 +21,12 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
   run: (resumeFrom: IdempotencyProgress | null, keyed: string | null) => Effect.Effect<A, E, R>,
   replay: (vmId: string) => Effect.Effect<A, ER, RR>,
   clientFingerprint?: string,
+  generated?: GeneratedCreation,
 ) => Effect.gen(function* () {
   if (key === undefined) return yield* run(null, null);
   const limits = yield* TenantLimits;
   const scoped = yield* scopedCreationKey(principal, key);
-  const claim = yield* limits.begin(principal.tenantId, scoped, yield* requestFingerprint(request), clientFingerprint).pipe(Effect.mapError(() => unavailable()));
+  const claim = yield* limits.begin(principal.tenantId, scoped, yield* requestFingerprint(request), clientFingerprint, generated).pipe(Effect.mapError(() => unavailable()));
   if (claim.state === "resume" && (claim.progress.phase === "cancelled" || (claim.progress.phase === "creating" && claim.progress.cancelRequested === true))) {
     return yield* Effect.fail(conflict("This VM creation was cancelled; inspect its status"));
   }

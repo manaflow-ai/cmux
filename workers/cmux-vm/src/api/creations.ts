@@ -1,9 +1,9 @@
 /** Key-addressed allocation receipts; committed ownership does not imply a running VM. */
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform";
 import { Schema } from "effect";
-import { Conflict, NotFound, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
-import { VmId } from "../lib/ids.ts";
-import { describe, GroupCreationKeyHeaders } from "./common.ts";
+import { BadRequest, Conflict, Forbidden, NotFound, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
+import { VmCreationKey, VmId } from "../lib/ids.ts";
+import { describe, GroupCreationKeyHeaders, GroupTeamHeaders } from "./common.ts";
 import { VmImage } from "./images.ts";
 import { InitialVmNetworkReceipt } from "./initial-network.ts";
 
@@ -24,6 +24,18 @@ export class VmCreationStatus extends Schema.Class<VmCreationStatus>("VmCreation
   receipt: Schema.optional(VmCreationReceipt),
 }) {}
 
+export class VmCreationListItem extends VmCreationStatus.extend<VmCreationListItem>("VmCreationListItem")({
+  creationKey: VmCreationKey, createdAt: Schema.String, operation: Schema.Literal("create", "fork"),
+  displayName: Schema.NullOr(Schema.String), sourceId: Schema.optional(VmId),
+}) {}
+export class VmCreationList extends Schema.Class<VmCreationList>("VmCreationList")({
+  items: Schema.Array(VmCreationListItem), nextCursor: Schema.NullOr(Schema.String),
+}) {}
+export const VmCreationListQuery = Schema.Struct({
+  cursor: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))),
+  limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
+});
+
 /** Internal lifecycle distinguishes cancellation from ordinary resource deletion. */
 export interface VmCreationState {
   readonly state: "pending" | "committed" | "deleted" | "unresolved" | "cancelling" | "cancelled";
@@ -35,6 +47,10 @@ export class VmCreationCancellation extends Schema.Class<VmCreationCancellation>
 }) {}
 
 export class VmCreationsGroupDefinition extends HttpApiGroup.make("vmCreations")
+  .add(HttpApiEndpoint.get("listVmCreations", "/v1/vm-creations")
+    .setHeaders(GroupTeamHeaders).setUrlParams(VmCreationListQuery).addSuccess(VmCreationList)
+    .addError(BadRequest).addError(Forbidden).addError(QuotaExceeded).addError(ServiceUnavailable)
+    .annotateContext(describe("List server-issued VM creation handles", "vm:read", "Bounded creation history for requests that omitted their key. Never lists caller-supplied keys or contacts the provider. Current service labels apply; resource-allowlisted keys cannot list. Empty filtered pages can still have a nextCursor.")))
   .add(HttpApiEndpoint.get("getVmCreation", "/v1/vm-creations/by-key")
     .setHeaders(GroupCreationKeyHeaders).addSuccess(VmCreationStatus)
     .addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
