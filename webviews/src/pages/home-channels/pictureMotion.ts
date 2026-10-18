@@ -30,11 +30,14 @@ export function mayAnimate(src: string): boolean {
 }
 
 const stills = new Map<string, Promise<string | null>>();
+/** The stills kept: a page shows a few dozen Chiefs at most; the oldest drawing goes first. */
+const MAX_STILLS = 64;
 
 /** The first frame of `src` as a PNG data URL (once per picture); null when it cannot be drawn. */
 export function stillFrame(src: string): Promise<string | null> {
   let still = stills.get(src);
   if (!still) {
+    if (stills.size >= MAX_STILLS) stills.delete(stills.keys().next().value!);
     still = new Promise((resolve) => {
       const image = document.createElement("img");
       image.onload = () => {
