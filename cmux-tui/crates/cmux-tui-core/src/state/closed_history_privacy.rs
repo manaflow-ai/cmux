@@ -3,7 +3,7 @@
 //! incognito (ephemeral) workspaces. Content of an ephemeral workspace is
 //! already left out where groups are captured (`closed_history_store`).
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, params};
 use serde_json::Value;
 
 /// Words of a query key that make it a secret wherever they appear. A key
@@ -110,9 +110,10 @@ fn decode_key(key: &str) -> String {
 }
 
 /// `url` without its user info (`user:pass@`) and its secret query and
-/// fragment keys (`#access_token=`). Only web URLs (`http`, `https`, `ws`,
-/// `wss`) are touched, and the kept parts stay byte for byte: the query and
-/// fragment are filtered by their raw `&`-separated pairs, never re-encoded.
+/// fragment keys (`#access_token=`, a hash route's `#/cb?code=`). Only web
+/// URLs (`http`, `https`, `ws`, `wss`) are touched, and the kept parts stay
+/// byte for byte: the query and fragment are filtered by their raw pairs
+/// (separated by `&` or `;`), never re-encoded.
 pub(super) fn strip_url(url: &str) -> String {
     let lower = url.get(..6).unwrap_or(url).to_ascii_lowercase();
     if !["http:", "https:", "ws:", "wss:"].iter().any(|scheme| lower.starts_with(scheme)) {
@@ -131,8 +132,7 @@ pub(super) fn strip_url(url: &str) -> String {
         stripped.push('?');
         stripped.push_str(&query);
     }
-    // A fragment part is a key only when it has a value (`#section` stays).
-    if let Some(fragment) = fragment.and_then(|fragment| kept_pairs(fragment, false)) {
+    if let Some(fragment) = fragment.and_then(kept_fragment) {
         stripped.push('#');
         stripped.push_str(&fragment);
     }
@@ -140,32 +140,65 @@ pub(super) fn strip_url(url: &str) -> String {
 }
 
 /// `base` (scheme, authority and path) without user info in the authority.
+/// A web URL's authority starts after any run of `/` or `\` behind the
+/// scheme, as browsers read it: `https:user@h` is `https://user@h`.
 fn without_user_info(base: &str) -> String {
-    let Some(start) = base.find("://").map(|at| at + 3) else { return base.to_string() };
-    let end = base[start..].find('/').map_or(base.len(), |at| start + at);
+    let Some(colon) = base.find(':') else { return base.to_string() };
+    let slashes = base[colon + 1..].bytes().take_while(|byte| matches!(byte, b'/' | b'\\')).count();
+    let start = colon + 1 + slashes;
+    let end = base[start..].find(['/', '\\']).map_or(base.len(), |at| start + at);
     match base[start..end].rfind('@') {
         Some(at) => format!("{}{}", &base[..start], &base[start + at + 1..]),
         None => base.to_string(),
     }
 }
 
-/// The `&`-separated pairs of `part` that are not secrets, byte for byte;
-/// None when every pair was a secret. `bare_keys`: a pair without `=` is a
-/// key too.
+/// A fragment without its secret keys; None when nothing is left. A hash
+/// route (`#/cb?code=abc`) keeps its route and filters what follows its `?`
+/// as a query. Otherwise a fragment part is a key only when it has a value
+/// (`#section` and `#token` stay).
+fn kept_fragment(fragment: &str) -> Option<String> {
+    let Some((route, query)) = fragment.split_once('?') else {
+        return kept_pairs(fragment, false);
+    };
+    let kept = match kept_pairs(query, true) {
+        Some(query) => format!("{route}?{query}"),
+        None => route.to_string(),
+    };
+    (!kept.is_empty()).then_some(kept)
+}
+
+/// The pairs of `part` (separated by `&` or `;`) that are not secrets, byte
+/// for byte, each kept pair after the separator that preceded it; None when
+/// every pair was a secret. `bare_keys`: a pair without `=` is a key too.
 fn kept_pairs(part: &str, bare_keys: bool) -> Option<String> {
-    let pairs = part.split('&').collect::<Vec<_>>();
-    let kept = pairs
-        .iter()
-        .filter(|pair| {
-            let keyed = bare_keys || pair.contains('=');
-            !(keyed && is_secret_key(&decode_key(pair.split('=').next().unwrap_or(""))))
-        })
-        .copied()
-        .collect::<Vec<_>>();
+    let mut pairs = Vec::new();
+    let mut start = 0;
+    let mut separator = "";
+    for (at, character) in part.char_indices() {
+        if matches!(character, '&' | ';') {
+            pairs.push((separator, &part[start..at]));
+            separator = &part[at..at + 1];
+            start = at + 1;
+        }
+    }
+    pairs.push((separator, &part[start..]));
+    let secret = |pair: &str| {
+        (bare_keys || pair.contains('='))
+            && is_secret_key(&decode_key(pair.split('=').next().unwrap_or("")))
+    };
+    let kept = pairs.iter().filter(|(_, pair)| !secret(pair)).collect::<Vec<_>>();
     if kept.len() == pairs.len() {
         return Some(part.to_string());
     }
-    (!kept.is_empty()).then(|| kept.join("&"))
+    let mut joined = String::new();
+    for (index, (separator, pair)) in kept.iter().enumerate() {
+        if index > 0 {
+            joined.push_str(separator);
+        }
+        joined.push_str(pair);
+    }
+    (!kept.is_empty()).then_some(joined)
 }
 
 /// A frontend browser's opaque session history (a JSON object) with every
@@ -201,6 +234,85 @@ pub(super) fn strip_history(history: &str) -> Value {
         Value::String(parsed.to_string())
     } else {
         Value::String(history.to_string())
+    }
+}
+
+/// The version of the rules above that every stored closed group meets.
+/// Raise it with a rule that should reach rows written before it.
+const SCRUB_VERSION: i64 = 1;
+
+/// Closed groups written before the current rules keep what those rules
+/// strip until something rewrites them: once per store and rule version
+/// (`closed_history_scrub`), every `url` in every stored record is
+/// stripped again and every `browser_history` with it. Rows that need
+/// nothing are not written.
+pub(super) fn scrub_closed_groups(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS closed_history_scrub (
+           version INTEGER PRIMARY KEY NOT NULL
+         );",
+    )?;
+    let done: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM closed_history_scrub WHERE version >= ?1)",
+        [SCRUB_VERSION],
+        |row| row.get(0),
+    )?;
+    if done {
+        return Ok(());
+    }
+    let rows = {
+        let mut statement = transaction.prepare("SELECT seq, record_json FROM closed_groups")?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (seq, record) in rows {
+        let Ok(mut parsed) = serde_json::from_str::<Value>(&record) else { continue };
+        if scrub_record(&mut parsed) {
+            transaction.execute(
+                "UPDATE closed_groups SET record_json = ?1 WHERE seq = ?2",
+                params![parsed.to_string(), seq],
+            )?;
+        }
+    }
+    transaction.execute(
+        "INSERT OR IGNORE INTO closed_history_scrub(version) VALUES(?1)",
+        [SCRUB_VERSION],
+    )?;
+    Ok(())
+}
+
+/// Strip every `url` and `browser_history` string in `value`; whether any
+/// changed.
+fn scrub_record(value: &mut Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            let mut changed = false;
+            for (key, item) in map.iter_mut() {
+                match (key.as_str(), &mut *item) {
+                    ("url", Value::String(url)) => {
+                        let stripped = strip_url(url);
+                        if stripped != *url {
+                            *url = stripped;
+                            changed = true;
+                        }
+                    }
+                    ("browser_history", Value::String(history)) => {
+                        let stripped = strip_history(history);
+                        if stripped.as_str() != Some(history.as_str()) {
+                            *item = stripped;
+                            changed = true;
+                        }
+                    }
+                    _ => changed |= scrub_record(item),
+                }
+            }
+            changed
+        }
+        Value::Array(items) => {
+            items.iter_mut().fold(false, |changed, item| scrub_record(item) | changed)
+        }
+        _ => false,
     }
 }
 
@@ -263,6 +375,31 @@ mod tests {
             strip_url("https://user:pass@a.example/p?q=1&token=s#access_token=t&x=1"),
             "https://a.example/p?q=1#x=1"
         );
+    }
+
+    #[test]
+    fn strip_url_drops_secret_keys_of_a_hash_route_query() {
+        // A single-page app's route keeps its query in the fragment.
+        assert_eq!(strip_url("https://h/#/cb?code=abc"), "https://h/#/cb");
+        assert_eq!(strip_url("https://h/#/cb?code=abc&x=1"), "https://h/#/cb?x=1");
+        assert_eq!(strip_url("https://h/#/cb?x=1&state=s"), "https://h/#/cb?x=1&state=s");
+        assert_eq!(strip_url("https://h/#!/cb?access_token=t"), "https://h/#!/cb");
+    }
+
+    #[test]
+    fn strip_url_treats_a_semicolon_as_a_query_separator() {
+        assert_eq!(strip_url("https://h/p?a=1;token=x"), "https://h/p?a=1");
+        assert_eq!(strip_url("https://h/p?token=x;a=1&b=2"), "https://h/p?a=1&b=2");
+        assert_eq!(strip_url("https://h/p?a=1;b=2&c=3"), "https://h/p?a=1;b=2&c=3");
+    }
+
+    #[test]
+    fn strip_url_drops_user_info_without_slashes() {
+        // Browsers read `https:user:pass@h/p` as `https://user:pass@h/p`.
+        assert_eq!(strip_url("https:user:pass@h/p"), "https:h/p");
+        assert_eq!(strip_url("https:/user@h/p"), "https:/h/p");
+        assert_eq!(strip_url("https:\\\\user:pass@h/p"), "https:\\\\h/p");
+        assert_eq!(strip_url("https:h/@me"), "https:h/@me");
     }
 
     #[test]
