@@ -69,10 +69,7 @@ BUDGET = {
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {
-    ("workspaces", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
-    ("theme", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
-}
+KNOWN = {}
 FRAME_BUDGET_MS = 1000 / 60
 SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
 

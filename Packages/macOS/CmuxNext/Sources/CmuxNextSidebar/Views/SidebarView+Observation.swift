@@ -65,7 +65,7 @@ extension SidebarViewComponents {
             || lastState?.titlebarHeight != state.titlebarHeight
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
-            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || Self.bandsDrawSelectionChange(from: lastState?.selected, to: state.selected)
+            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
             || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
@@ -79,6 +79,9 @@ extension SidebarViewComponents {
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
             setChromeRevealed(isChromeRevealed)
         }
+        // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
+        // before any reload below, so a block it configures draws the new selection.
+        if lastState?.selected != state.selected { showActiveTopItem() }
         // A document change (a drop) moves the list's rows and its blocks together: the blocks update now, not at
         // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
         // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).
@@ -95,14 +98,7 @@ extension SidebarViewComponents {
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
     }
-    /// The bands draw only a top item's selection; a move between two list rows leaves them as they are.
-    static func bandsDrawSelectionChange(from old: SidebarItem?, to new: SidebarItem?) -> Bool {
-        guard old != new else { return false }
-        if case .topItem? = old { return true }
-        if case .topItem? = new { return true }
-        return false
-    }
-    /// Whether a sections change animates its rows. Provisional rows swap in place.
+ || lastState?.itemInfo != state.itemInfo    /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !((old ?? []) + new).contains(where: \.hasProvisionalRows)
     }

@@ -28,6 +28,14 @@ final class SidebarListView: NSView {
         // A held drag hit-tests a geometry built at its begin: new blocks rebuild it at the next move.
         didSet { if blocks != oldValue { drag?.docGeometry = nil } }
     }
+    /// The selected top item, drawn active in its block (`SidebarRegionView.activeItem`): a selection
+    /// change repaints the old and new item only, with no list reload (perf-speed-of-light I6).
+    var activeTopItem: LayoutItemID? {
+        didSet {
+            guard oldValue != activeTopItem else { return }
+            for view in rowViews.values { (view as? SidebarBlockRowView)?.region.activeItem = activeTopItem }
+        }
+    }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
     /// and no pop when the move lands; a refusal lets it go and the rows spring back.
