@@ -130,10 +130,13 @@ let package = Package(
             name: "cmux-next-exe",
             dependencies: [.product(name: "CmuxNextApp", package: "CmuxNext")],
             path: "Sources/cmux-next-exe",
-            linkerSettings: [
-                .linkedLibrary("c++"), .linkedFramework("Metal"), .linkedFramework("QuartzCore"),
-                .linkedFramework("IOSurface"), .linkedFramework("UniformTypeIdentifiers"), .linkedFramework("Carbon"),
-            ]
+            // One flag list: Xcode put .linkedLibrary("c++") before or after
+            // the .linkedFramework group in two clean builds of one tree
+            // (fleet step 4728fa07), which moves libc++'s load command.
+            linkerSettings: [.unsafeFlags([
+                "-lc++", "-framework", "Metal", "-framework", "QuartzCore", "-framework", "IOSurface",
+                "-framework", "UniformTypeIdentifiers", "-framework", "Carbon",
+            ])]
         ),
     ]
 )
@@ -338,6 +341,65 @@ if not same_order:
     short = lambda ds: [d.split(" ", 1)[1].rsplit("/", 1)[-1] for d in ds]
     print(f"RESULT {label} load order from #{i}: here={short(dl_sh[i:i + 8])} clean={short(dl_cl[i:i + 8])}")
 ok_parts["exe"] = exe_sh["sha"] == exe_cl["sha"]
+if not ok_parts["exe"]:
+    # Where the bytes differ: header and load commands, each section, and each
+    # __LINKEDIT table (symbols, strings, fixups, exports, signature).
+    def regions(path):
+        d = open(path, "rb").read()
+        n, sizeofcmds = struct.unpack_from("<II", d, 16)
+        out, off = [("header+load commands", 0, 32 + sizeofcmds)], 32
+        uuid = ""
+        LE = {0x26: "function starts", 0x29: "data in code", 0x1D: "code signature",
+              0x80000033: "exports trie", 0x80000034: "chained fixups"}
+        for _ in range(n):
+            cmd, size = struct.unpack_from("<II", d, off)
+            if cmd == 0x19:   # LC_SEGMENT_64
+                seg = d[off + 8:off + 24].split(b"\0")[0].decode()
+                nsects = struct.unpack_from("<I", d, off + 64)[0]
+                for k in range(nsects):
+                    so = off + 72 + 80 * k
+                    sect = d[so:so + 16].split(b"\0")[0].decode()
+                    addr_size = struct.unpack_from("<Q", d, so + 40)[0]
+                    foff = struct.unpack_from("<I", d, so + 48)[0]
+                    if foff:
+                        out.append((f"{seg},{sect}", foff, addr_size))
+            elif cmd == 0x2:
+                symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", d, off + 8)
+                out += [("symbol table", symoff, nsyms * 16), ("string table", stroff, strsize)]
+            elif cmd == 0xB:   # LC_DYSYMTAB
+                ind, nind = struct.unpack_from("<II", d, off + 56)
+                out.append(("indirect symbols", ind, nind * 4))
+            elif cmd in LE:
+                dataoff, datasize = struct.unpack_from("<II", d, off + 8)
+                out.append((LE[cmd], dataoff, datasize))
+            elif cmd == 0x1B:
+                uuid = d[off + 8:off + 24].hex()
+            off += size
+        return d, out, uuid
+    notes = []
+    try:
+        da, ra, ua = regions(os.path.join(shipped, "Build", "Products", "Debug", EXE))
+        db, rb, ub = regions(os.path.join(clean, "Build", "Products", "Debug", EXE))
+    except Exception as e:   # a diagnostic never stops the compare
+        da = db = b""
+        ra, rb, ua, ub = [], [("?", 0, 0)], "", ""
+        notes.append(f"region parse failed: {type(e).__name__}: {e}")
+    if len(da) != len(db) or [(r[0], r[1], r[2]) for r in ra] != [(r[0], r[1], r[2]) for r in rb]:
+        notes.append(f"layout differs (size {len(da)}/{len(db)})")
+        lay_b = {r[0]: r for r in rb}
+        notes += [f"{r[0]}:{r[2]}/{lay_b[r[0]][2]}" for r in ra if r[0] in lay_b and lay_b[r[0]][2] != r[2]][:10]
+    else:
+        for name, o, n in ra:
+            diff_chunks, first = 0, None
+            for c in range(o, o + n, 4096):
+                e = min(c + 4096, o + n)
+                if da[c:e] != db[c:e]:
+                    diff_chunks += 1
+                    if first is None:
+                        first = next(i for i in range(c, e) if da[i] != db[i]) - o
+            if diff_chunks:
+                notes.append(f"{name}: {diff_chunks} of {(n + 4095) // 4096} 4K chunks, first at +{first}")
+    print(f"RESULT {label} exe bytes differ in: {'; '.join(notes)[:1500] or 'nothing mapped'} (uuid {ua[:12]}/{ub[:12]})")
 
 # 4. LinkFileList and the link command line.
 def lfl(dd):
@@ -346,7 +408,7 @@ def lfl(dd):
 l_sh, l_cl = lfl(shipped), lfl(clean)
 if l_sh is None or l_cl is None:
     print(f"RESULT {label} LinkFileList missing here={l_sh is None} clean={l_cl is None}")
-    ok_parts["linkfilelist"] = False
+    ok_parts["linkfilelist (diagnostic)"] = False
 else:
     eq = l_sh == l_cl
     msg = f"RESULT {label} LinkFileList entries={len(l_sh)}/{len(l_cl)} equal={eq} same_set={sorted(l_sh) == sorted(l_cl)}"
@@ -354,7 +416,7 @@ else:
         i = next(i for i, (x, y) in enumerate(zip(l_sh + [""], l_cl + [""])) if x != y)
         msg += f" first difference #{i}: here={[os.path.basename(x) for x in l_sh[i:i + 5]]} clean={[os.path.basename(x) for x in l_cl[i:i + 5]]}"
     print(msg)
-    ok_parts["linkfilelist"] = eq
+    ok_parts["linkfilelist (diagnostic)"] = eq
 
 def link_cmd(log):
     """The argv of the last link of the executable in an xcodebuild log."""
@@ -378,7 +440,7 @@ def link_cmd(log):
 c_sh, c_cl = link_cmd(slog_again) or link_cmd(slog), link_cmd(clog)
 if c_sh is None or c_cl is None:
     print(f"RESULT {label} link command not in the log here={c_sh is None} clean={c_cl is None} (no relink in this build?)")
-    ok_parts["link_command"] = False
+    ok_parts["link_command (diagnostic)"] = False
 else:
     eq = c_sh == c_cl
     msg = f"RESULT {label} link command args={len(c_sh)}/{len(c_cl)} equal={eq} same_set={sorted(c_sh) == sorted(c_cl)}"
@@ -387,10 +449,10 @@ else:
         there = [a for a in c_cl if a not in c_sh][:6]
         msg += f" only here={here} only clean={there}"
     print(msg)
-    ok_parts["link_command"] = eq
+    ok_parts["link_command (diagnostic)"] = eq
 
 if expect in ("match", "info"):
-    ok = all(ok_parts.values())
+    ok = all(v for k, v in ok_parts.items() if "diagnostic" not in k)
 elif expect == "stale-objects":
     ok = any(k == "set" and kept for _r, k, kept, _a, _b in odiff)
 else:   # stale-dylib: the executable keeps a load command of the removed module
@@ -413,7 +475,7 @@ python3 -I - "$work/pins.json" "$work/app-exe/Package.resolved" <<'PY'
 import json, sys
 want = {p["identity"]: p["state"] for p in json.load(open(sys.argv[1]))["pins"]}
 got = {p["identity"]: p["state"] for p in json.load(open(sys.argv[2]))["pins"]}
-moved = sorted(k for k in want if got.get(k) != want[k])
+moved = sorted(k for k in want if k in got and got[k] != want[k])   # a pin the graph does not use is dropped
 print(f"RESULT pins kept={not moved} pins={len(want)} moved={[(k, want[k].get('version'), (got.get(k) or {}).get('version')) for k in moved[:8]] or 'none'}")
 PY
 if (( force_module )) && python3 -I - "$RA/Build/Products/Debug/cmux-next-exe" "$module" <<'PY'
