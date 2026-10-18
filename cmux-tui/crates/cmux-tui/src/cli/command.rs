@@ -30,7 +30,9 @@ mod sidebar_doc;
 mod state;
 mod workspace;
 
-pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
+pub(super) use plan::{
+    AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
+};
 use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
@@ -4227,6 +4229,47 @@ mod tests {
                 )
                 .is_err(),
                 "accepted noncanonical agent state {noncanonical:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_list_ranks_by_needs_me_by_default() {
+        let list = protocol(&["agent", "list"]);
+        assert_eq!(operation(&list), "agent.list");
+        assert_eq!(list.params.get("state"), None);
+        assert_eq!(list.view, ResponseView::AgentRoster(AgentRosterView::default()));
+    }
+
+    #[test]
+    fn agent_list_takes_sort_limit_and_needs_me() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        for (sort, expected) in [
+            ("needs-me", AgentSort::NeedsMe),
+            ("recent", AgentSort::Recent),
+            ("none", AgentSort::None),
+        ] {
+            let list = protocol(&["agent", "list", "--sort", sort, "--limit", "5"]);
+            assert_eq!(
+                list.view,
+                ResponseView::AgentRoster(AgentRosterView { sort: expected, limit: Some(5) })
+            );
+        }
+        // --needs-me is the daemon's `state: blocked` filter.
+        let needs_me = protocol(&["agent", "list", "--needs-me", "--terminal", TERMINAL]);
+        assert_eq!(needs_me.params["state"], "blocked");
+        assert_eq!(needs_me.params["terminal_id"], TERMINAL);
+        let both = protocol(&["agent", "list", "--needs-me", "--state", "blocked"]);
+        assert_eq!(both.params["state"], "blocked");
+        for invalid in [
+            &["agent", "list", "--needs-me", "--state", "working"][..],
+            &["agent", "list", "--sort", "oldest"],
+            &["agent", "list", "--limit", "0"],
+            &["agent", "list", "--limit", "many"],
+        ] {
+            assert!(
+                parse(&strings(invalid), super::super::Surface::CmuxTui).is_err(),
+                "accepted {invalid:?}"
             );
         }
     }

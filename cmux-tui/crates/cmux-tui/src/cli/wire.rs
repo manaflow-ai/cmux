@@ -989,6 +989,7 @@ fn human_key_rank(key: &str) -> usize {
     }
 }
 
+mod agent_roster;
 mod closed_view;
 mod hints;
 mod list_order;
