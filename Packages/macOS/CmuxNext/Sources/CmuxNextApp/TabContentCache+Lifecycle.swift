@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextTerminal
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
 /// (plans/cmux-next/tab-lifecycle.md).

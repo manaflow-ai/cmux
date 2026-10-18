@@ -49,6 +49,10 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// The surface's rect in its window as fractions of the window frame, top-left origin
     /// (x, y, width, height): where a window recording shows this terminal.
     public var windowFraction: CGRect? = nil
+    /// Evicted-terminal last frames this session showed while it attached (cx-8w027.10 b).
+    public var lastFrameHolds: Int = 0
+    /// A held frame (a last frame, or the old surface's after a swap) is on screen now.
+    public var holdingFrame: Bool = false
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -98,7 +102,9 @@ extension TerminalSession {
                 let rect = surface.convert(surface.bounds, to: nil)
                 return CGRect(x: rect.minX / frame.width, y: 1 - rect.maxY / frame.height,
                               width: rect.width / frame.width, height: rect.height / frame.height)
-            }
+            },
+            lastFrameHolds: lastFrameHolds,
+            holdingFrame: frameHold.isHolding
         )
     }
 }
