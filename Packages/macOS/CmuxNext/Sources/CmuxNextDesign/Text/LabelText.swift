@@ -124,13 +124,16 @@ enum LabelText {
 
     /// Draws `text` (font and color set) laid out for `shape` in a top-down box of `size` (the
     /// view's bounds, padding included) at the origin of the current (flipped) graphics context
-    /// `context`, clipped to the text's area (the padding stays clear, as a field's does).
+    /// `context`. As a field draws them, text of more than one line clips to the text's area (the
+    /// padding stays clear) and a single line to the box.
     static func draw(_ text: NSAttributedString, shape: Shape, in size: NSSize, context: CGContext) {
         let range = lay(paragraphed(text, shape: shape), shape: shape, width: size.width, height: layoutHeight(shape, size: size))
         guard range.length > 0 else { return }
         context.saveGState()
         defer { context.restoreGState() }
-        context.clip(to: CGRect(x: padding, y: 0, width: max(size.width - padding * 2, 0), height: size.height))
+        if manager.lineFragmentRect(forGlyphAt: NSMaxRange(range) - 1, effectiveRange: nil).minY > 0 {
+            context.clip(to: CGRect(x: padding, y: 0, width: max(size.width - padding * 2, 0), height: size.height))
+        }
         manager.drawGlyphs(forGlyphRange: range, at: .zero)
     }
 
