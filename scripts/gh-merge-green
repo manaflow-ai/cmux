@@ -498,35 +498,63 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
+# Read legacy commit statuses for the exact head. This is also needed when an
+# aggregate workflow exists so branch-protection-required legacy contexts cannot
+# be silently omitted from the merge gate.
+if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
+  refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
+fi
+if ! statuses=$(jq -r '
+  (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
+  | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
+' <<<"$statuses_json" 2>/dev/null); then
+  refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
+fi
+required_contexts=''
+set +e
+required_rules=$(gh api "repos/$repo/rules/branches/$base" 2>/dev/null)
+rules_status=$?
+set -e
+if [ $rules_status -ne 0 ]; then
+  if ! jq -e '.status == 404' <<<"$required_rules" >/dev/null 2>&1; then
+    refuse "not green: cannot read required branch contexts for $base" 'restore GitHub rules API access; refusing to guess which contexts are required'
+  fi
+elif ! required_contexts=$(jq -r '
+  if type == "array"
+  then [.[].parameters.required_status_checks[]?.context?] | .[]?
+  else [.parameters.required_status_checks[]?.context?] | .[]?
+  end
+' <<<"$required_rules" 2>/dev/null); then
+  refuse "not green: cannot parse required branch contexts for $base" 'retry after GitHub returns valid rules metadata'
+fi
+all_verdicts="$runs"$'\n'"$statuses"
+while IFS= read -r required_context; do
+  [ -n "$required_context" ] || continue
+  line=$(printf '%s\n' "$all_verdicts" | awk -F '\t' -v required="$required_context" '$1 == required')
+  if [ -z "$line" ]; then
+    refuse \
+      "not green: required context '$required_context' has not reported on $sha" \
+      'wait for the required branch context on the exact head, then retry'
+  fi
+  required_status=$(cut -f2 <<<"$line")
+  required_conclusion=$(cut -f3 <<<"$line")
+  if [ "$required_status" != completed ]; then
+    refuse \
+      "not green: required context '$required_context' is $required_status/$required_conclusion on $sha" \
+      'wait for the required branch context on the exact head, then retry'
+  fi
+  case "$required_conclusion" in
+    success|neutral|skipped) ;;
+    *)
+      refuse \
+        "not green: required context '$required_context' is $required_status/$required_conclusion on $sha" \
+        'repair the required branch context on the exact head, then retry'
+      ;;
+  esac
+done <<<"$required_contexts"
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
-  if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
-    refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
-  fi
-  if ! statuses=$(jq -r '
-    (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
-    | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
-  ' <<<"$statuses_json" 2>/dev/null); then
-    refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
-  fi
-  required_contexts=''
-  set +e
-  required_rules=$(gh api "repos/$repo/rules/branches/$base" 2>/dev/null)
-  rules_status=$?
-  set -e
-  if [ $rules_status -ne 0 ]; then
-    if ! jq -e '.status == 404' <<<"$required_rules" >/dev/null 2>&1; then
-      refuse "not green: cannot read required branch contexts for $base" 'restore GitHub rules API access; refusing to guess which contexts are required'
-    fi
-  elif ! required_contexts=$(jq -r '
-    if type == "array"
-    then [.[].parameters.required_status_checks[]?.context?] | .[]?
-    else [.parameters.required_status_checks[]?.context?] | .[]?
-    end
-  ' <<<"$required_rules" 2>/dev/null); then
-    refuse "not green: cannot parse required branch contexts for $base" 'retry after GitHub returns valid rules metadata'
-  fi
   if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
     refuse "not green: cannot list changed files for $ref" 'restore GitHub API access, then retry the exact-head check'
   fi
@@ -573,14 +601,6 @@ if [ "$has_ci" -eq 0 ]; then
   [ "$required_reported" -gt 0 ] || refuse \
     "not green: no required checks have reported on $sha (only advisory preview contexts were present)" \
     'run the repository pull request checks for a required gate before merging'
-  while IFS= read -r required_context; do
-    [ -n "$required_context" ] || continue
-    if ! awk -F '\t' -v required="$required_context" '$1 == required {found = 1} END {exit !found}' <<<"$all_verdicts"; then
-      refuse \
-        "not green: required context '$required_context' has not reported on $sha" \
-        'wait for the required branch context on the exact head, then retry'
-    fi
-  done <<<"$required_contexts"
 fi
 
 bad_required=()

@@ -788,10 +788,9 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 
-    def test_vercel_override_waives_only_the_named_external_status(self):
+    def test_vercel_status_is_advisory_without_override(self):
         result, merged, _ = self.run_case(
-            statuses=[{'id': 2, 'context': 'Vercel', 'state': 'pending'}],
-            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
+            statuses=[{'id': 2, 'context': 'Vercel', 'state': 'pending'}])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(merged)
         result, merged, _ = self.run_case(
@@ -813,6 +812,20 @@ class WorkflowPresenceRegression(unittest.TestCase):
         result, merged, _ = self.run_case(
             statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
             files=["web/app/page.tsx"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("Vercel", result.stderr)
+
+    def test_required_vercel_context_stays_strict_with_ci_status(self):
+        aggregate = "jobs:\n  tests:\n    runs-on: x\n  ci-status:\n    needs: [tests]\n"
+        result, merged, _ = self.run_case(
+            workflow=True,
+            workflow_body=aggregate,
+            required_contexts=["Vercel"],
+            checks=[{"id": 1, "name": "ci-status", "status": "completed", "conclusion": "success"}],
+            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+            files=["build-fleet/internal/agentledger/consumer.go"],
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
