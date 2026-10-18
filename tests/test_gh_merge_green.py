@@ -577,6 +577,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "cmux-next god files",
             "cmux-next l10n",
             "concurrency lint",
+            "risk evidence",
         ):
             for status, conclusion in (("completed", "failure"), ("in_progress", "")):
                 with self.subTest(name=name, status=status), tempfile.TemporaryDirectory() as directory:
