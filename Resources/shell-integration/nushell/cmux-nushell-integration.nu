@@ -317,6 +317,16 @@ def --wrapped claude [...args: string] {
     }
 }
 
+# Routes agy through the bundled cmux wrapper when present.
+def --wrapped agy [...args: string] {
+    let wrapper = (_cmux_wrapper_path "agy")
+    if ($wrapper != "") {
+        ^$wrapper ...$args
+    } else {
+        ^agy ...$args
+    }
+}
+
 # Routes grok through the bundled cmux wrapper when present.
 def --wrapped grok [...args: string] {
     let wrapper = (_cmux_wrapper_path "grok")

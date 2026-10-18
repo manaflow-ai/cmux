@@ -1,4 +1,5 @@
 import type { NetworkRulePlan } from "./networkPolicy";
+import type { ProviderTlsRuleInventory, ProviderVmInventory, VmControlProbe } from "./health/types";
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -61,6 +62,22 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     options?: VMVolumeListOptions,
   ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
+  /** Account-wide VM inventory for the read-only staff health sweep. */
+  readonly listAccountVms?: (
+    provider: ProviderId,
+    options: { readonly deadlineAtMs: number },
+  ) => Effect.Effect<ProviderVmInventory, VmProviderOperationError>;
+  /** Account-wide TLS rules, reduced to attribution ids, for the health sweep. */
+  readonly listAccountTlsRules?: (
+    provider: ProviderId,
+    options: { readonly deadlineAtMs: number },
+  ) => Effect.Effect<ProviderTlsRuleInventory, VmProviderOperationError>;
+  /** One bounded control-path probe of a running VM; never fails, a failure is an outcome. */
+  readonly probeVmControl?: (
+    provider: ProviderId,
+    vmId: string,
+    options: { readonly timeoutMs: number },
+  ) => Effect.Effect<VmControlProbe, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly getPauseState?: (provider: ProviderId, vmId: string) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
@@ -115,6 +132,8 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
+  /** Force a provider-level reboot; unlike resume this does not probe the guest first. */
+  readonly restart?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -219,6 +238,15 @@ function privateNetworking(provider: ProviderId) {
   return impl;
 }
 
+/** The driver's health inventory, or a typed unsupported failure. */
+function healthInventory(provider: ProviderId) {
+  const impl = getProvider(provider).healthInventory;
+  if (!impl) {
+    throw new VmOperationUnsupportedError({ provider, operation: "healthInventory" });
+  }
+  return impl;
+}
+
 /**
  * A provider read a route may bound (routeDeadline.ts). Outside a bounded
  * route it is a plain provider call. Inside one, it gets the time left
@@ -290,6 +318,21 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         throw new VmOperationUnsupportedError({ provider, operation: "deleteHomeVolume" });
       }
       await impl.deleteHomeVolume(volumeName);
+    }),
+  listAccountVms: (provider, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).listAccountVms({ ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "listAccountVms", cause }),
+    }),
+  listAccountTlsRules: (provider, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).listAccountTlsRules({ ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "listAccountTlsRules", cause }),
+    }),
+  probeVmControl: (provider, vmId, options) =>
+    Effect.tryPromise({
+      try: (signal) => healthInventory(provider).probeControl(vmId, { ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "probeVmControl", cause }),
     }),
   listVolumes: (provider, options) =>
     providerEffect(provider, "listVolumes", async () => {
@@ -405,6 +448,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }
     return await impl.getResourceStats(vmId);
   }),
+  restart: (provider, vmId) => {
+    const impl = getProvider(provider);
+    if (!vmCapabilitiesFor(provider).restart || !impl.restart) {
+      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "restart" }));
+    }
+    return providerEffect(provider, "restart", () => impl.restart!(vmId));
+  },
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));

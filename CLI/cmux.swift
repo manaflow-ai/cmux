@@ -16,6 +16,18 @@ import LocalAuthentication
 #if canImport(Security)
 import Security
 #endif
+
+#if os(macOS)
+@_silgen_name("csops_audittoken")
+private func cmuxCLICodeSigningOperationsForAuditToken(
+    _ processID: pid_t,
+    _ operation: UInt32,
+    _ destination: UnsafeMutableRawPointer?,
+    _ destinationSize: Int,
+    _ auditToken: UnsafeMutableRawPointer?
+) -> Int32
+#endif
+
 struct WindowInfo {
     let index: Int
     let id: String
@@ -100,6 +112,9 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 struct ClaudeHookSessionRecord: Codable {
+    /// Restart-stable panel identity carried by the managed terminal environment.
+    /// Runtime surface IDs are re-minted when a session is restored.
+    var stableSurfaceId: String? = nil
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
     struct PendingCursorShellApproval: Codable, Equatable {
@@ -232,6 +247,10 @@ struct ClaudeHookSessionRecord: Codable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// True after a top-level prompt has ended and remains set through later
+    /// helper notifications until the next accepted UserPromptSubmit.
+    /// Optional so records written by older builds continue to decode.
+    var turnSettled: Bool? = nil
     /// The hook event that most recently established the persisted lifecycle.
     /// Optional so records written by older builds continue to decode.
     var hookEventName: String? = nil
@@ -383,6 +402,8 @@ final class ClaudeHookSessionStore {
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
+    private let stableSurfaceId: String?
+    private let environmentSurfaceId: UUID?
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -403,6 +424,10 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.environmentSurfaceId = processEnv["CMUX_SURFACE_ID"].flatMap(UUID.init(uuidString:))
+        self.stableSurfaceId = processEnv["CMUX_STABLE_SURFACE_ID"].flatMap { value in
+            UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))?.uuidString
+        }
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -1164,6 +1189,11 @@ final class ClaudeHookSessionStore {
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                 return (staleTerminalTurn: true, nested: false)
             }
+            // UserPromptSubmit is the lifecycle boundary that starts a new
+            // parent turn. Clear the settled-turn fence while holding the
+            // store lock so a concurrent helper PreToolUse cannot reopen the
+            // old turn between the prompt and its running update.
+            record.turnSettled = false
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1273,6 +1303,7 @@ final class ClaudeHookSessionStore {
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
             let settlesTurn = depthAfterStop == 0
+            record.turnSettled = settlesTurn
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1401,6 +1432,7 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
+        turnSettled: Bool? = nil,
         hookEventName: String? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
@@ -1460,6 +1492,7 @@ final class ClaudeHookSessionStore {
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
+                turnSettled: turnSettled,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
@@ -2016,6 +2049,7 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord?,
         isRestorable: Bool?,
         agentLifecycle: AgentHibernationLifecycleState?,
+        turnSettled: Bool? = nil,
         hookEventName: String? = nil,
         lastSubtitle: String?,
         lastBody: String?,
@@ -2030,6 +2064,14 @@ final class ClaudeHookSessionStore {
     ) {
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
+            // PID/TTY routing can replace stale inherited runtime IDs. Carry a
+            // stable ID only when it belongs to the resolved runtime surface.
+            if let stableSurfaceId, let environmentSurfaceId,
+               UUID(uuidString: surfaceId) == environmentSurfaceId {
+                record.stableSurfaceId = stableSurfaceId
+            } else if record.surfaceId.caseInsensitiveCompare(surfaceId) != .orderedSame {
+                record.stableSurfaceId = nil
+            }
             record.surfaceId = surfaceId
         }
         if let cwd = normalizeOptional(cwd) {
@@ -2111,6 +2153,9 @@ final class ClaudeHookSessionStore {
         }
         if let agentLifecycle {
             record.agentLifecycle = agentLifecycle
+        }
+        if let turnSettled {
+            record.turnSettled = turnSettled
         }
         if let hookEventName = normalizeOptional(hookEventName) {
             record.hookEventName = hookEventName
@@ -3069,6 +3114,30 @@ enum SocketPasswordResolver {
 }
 
 final class SocketClient {
+    struct CoderouterArmServerIdentity: Equatable {
+        let auditTokenBytes: [UInt8]
+        let processID: pid_t
+
+        init(auditTokenBytes: [UInt8], processID: pid_t) {
+            self.auditTokenBytes = auditTokenBytes
+            self.processID = processID
+        }
+    }
+
+    private static let coderouterArmServerSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.app" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    // Local tagged Release bundles are signed with the shared Apple
+    // Development identity when the Developer ID private key is unavailable.
+    // This fallback is gated by the enclosing bundle ID below; the stable
+    // production bundle remains Developer ID only.
+    private static let coderouterTaggedDevelopmentSigningRequirement =
+        #"anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    private static let codeSigningValidFlag: UInt32 = 0x0000_0001
+    private static let codeSigningHardFlag: UInt32 = 0x0000_0100
+    private static let codeSigningKillFlag: UInt32 = 0x0000_0200
+    private static let codeSigningHardenedRuntimeFlag: UInt32 = 0x0001_0000
+    private static let codeSigningDebuggedFlag: UInt32 = 0x1000_0000
+
     private struct RelayEndpoint {
         let host: String
         let port: UInt16
@@ -3320,10 +3389,345 @@ final class SocketClient {
         socketAuthenticated = true
     }
 
+    /// Check the release server identity before the public proof request. This
+    /// is defense in depth; the response HMAC is the authenticator.
+    func verifiedCoderouterArmServerIdentity() -> CoderouterArmServerIdentity? {
+        guard let identity = coderouterArmServerIdentity(),
+              Self.coderouterArmServerIdentityIsAllowed(identity) else {
+            return nil
+        }
+        return identity
+    }
+
+    /// Re-read the kernel peer identity immediately before the proof request.
+    /// This narrows peer changes, PID reuse, exec, or signing-state changes in
+    /// the pre-write window.
+    func coderouterArmServerIdentityIsStillAllowed(
+        _ expectedIdentity: CoderouterArmServerIdentity
+    ) -> Bool {
+        guard let currentIdentity = coderouterArmServerIdentity(),
+              currentIdentity == expectedIdentity else {
+            return false
+        }
+        return Self.coderouterArmServerIdentityIsAllowed(currentIdentity)
+    }
+
+    private func coderouterArmServerIdentity() -> CoderouterArmServerIdentity? {
+        #if os(macOS)
+        guard socketFD >= 0, relayEndpoint == nil else { return nil }
+
+        var auditToken = audit_token_t()
+        var auditTokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(
+            socketFD,
+            SOL_LOCAL,
+            LOCAL_PEERTOKEN,
+            &auditToken,
+            &auditTokenSize
+        ) == 0,
+        auditTokenSize == MemoryLayout<audit_token_t>.size else {
+            return nil
+        }
+
+        var peerProcessID: pid_t = 0
+        var peerProcessIDSize = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(
+            socketFD,
+            SOL_LOCAL,
+            LOCAL_PEERPID,
+            &peerProcessID,
+            &peerProcessIDSize
+        ) == 0,
+        peerProcessIDSize == MemoryLayout<pid_t>.size,
+        peerProcessID > 0 else {
+            return nil
+        }
+
+        let bytes = withUnsafeBytes(of: auditToken) { Array($0) }
+        let auditProcessID = bytes.withUnsafeBytes { buffer in
+            pid_t(bitPattern: buffer.loadUnaligned(
+                fromByteOffset: 5 * MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        guard auditProcessID == peerProcessID else { return nil }
+        return CoderouterArmServerIdentity(
+            auditTokenBytes: bytes,
+            processID: peerProcessID
+        )
+        #else
+        return nil
+        #endif
+    }
+
+    private static func coderouterArmServerIdentityIsAllowed(
+        _ identity: CoderouterArmServerIdentity
+    ) -> Bool {
+        #if os(macOS) && canImport(Security)
+        guard identity.auditTokenBytes.count == MemoryLayout<audit_token_t>.size else {
+            return false
+        }
+        let effectiveUserID = identity.auditTokenBytes.withUnsafeBytes { buffer in
+            uid_t(buffer.loadUnaligned(
+                fromByteOffset: MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        let realUserID = identity.auditTokenBytes.withUnsafeBytes { buffer in
+            uid_t(buffer.loadUnaligned(
+                fromByteOffset: 3 * MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        guard effectiveUserID == getuid(), realUserID == getuid() else {
+            return false
+        }
+
+        let attributes = [
+            kSecGuestAttributeAudit: Data(identity.auditTokenBytes) as CFData,
+        ] as CFDictionary
+        var dynamicCode: SecCode?
+        guard SecCodeCopyGuestWithAttributes(
+            nil,
+            attributes,
+            SecCSFlags(),
+            &dynamicCode
+        ) == errSecSuccess,
+        let dynamicCode else {
+            return false
+        }
+
+        var requirement: SecRequirement?
+        let hasReleaseIdentity: Bool
+        if SecRequirementCreateWithString(
+            coderouterArmServerSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement {
+            hasReleaseIdentity = SecCodeCheckValidity(
+                dynamicCode,
+                SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+                requirement
+            ) == errSecSuccess
+        } else {
+            hasReleaseIdentity = false
+        }
+        #if DEBUG
+        guard hasReleaseIdentity else {
+            return coderouterDebugArmServerIdentityIsAllowed(
+                identity,
+                dynamicCode: dynamicCode
+            )
+        }
+        #else
+        if !hasReleaseIdentity {
+            guard coderouterTaggedReleaseArmServerIdentityIsAllowed(
+                dynamicCode: dynamicCode
+            ) else {
+                return false
+            }
+        }
+        #endif
+
+        var dynamicStatus: UInt32 = 0
+        var auditToken = audit_token_t()
+        identity.auditTokenBytes.withUnsafeBytes { source in
+            withUnsafeMutableBytes(of: &auditToken) { destination in
+                destination.copyBytes(from: source)
+            }
+        }
+        let dynamicStatusResult = withUnsafeMutablePointer(to: &dynamicStatus) { statusPointer in
+            withUnsafeMutablePointer(to: &auditToken) { auditTokenPointer in
+                cmuxCLICodeSigningOperationsForAuditToken(
+                    identity.processID,
+                    0, // CS_OPS_STATUS
+                    statusPointer,
+                    MemoryLayout<UInt32>.size,
+                    auditTokenPointer
+                )
+            }
+        }
+        let requiredDynamicFlags = codeSigningValidFlag
+            | codeSigningHardFlag
+            | codeSigningKillFlag
+            | codeSigningHardenedRuntimeFlag
+        guard dynamicStatusResult == 0,
+              dynamicStatus & requiredDynamicFlags == requiredDynamicFlags,
+              dynamicStatus & codeSigningDebuggedFlag == 0 else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        let flags = information[kSecCodeInfoFlags as String] as? NSNumber,
+        flags.uint32Value & codeSigningHardenedRuntimeFlag != 0 else {
+            return false
+        }
+
+        // cmux app entitlements are part of its release contract. Do not apply
+        // CodeRouter's empty-entitlements rule to the server application.
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    #if DEBUG && os(macOS) && canImport(Security)
+    private static func coderouterDebugArmServerIdentityIsAllowed(
+        _ identity: CoderouterArmServerIdentity,
+        dynamicCode: SecCode
+    ) -> Bool {
+        guard SecCodeCheckValidity(
+            dynamicCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            nil
+        ) == errSecSuccess else {
+            return false
+        }
+
+        var dynamicStatus: UInt32 = 0
+        var auditToken = audit_token_t()
+        identity.auditTokenBytes.withUnsafeBytes { source in
+            withUnsafeMutableBytes(of: &auditToken) { destination in
+                destination.copyBytes(from: source)
+            }
+        }
+        let statusResult = withUnsafeMutablePointer(to: &dynamicStatus) { statusPointer in
+            withUnsafeMutablePointer(to: &auditToken) { auditTokenPointer in
+                cmuxCLICodeSigningOperationsForAuditToken(
+                    identity.processID,
+                    0,
+                    statusPointer,
+                    MemoryLayout<UInt32>.size,
+                    auditTokenPointer
+                )
+            }
+        }
+        guard statusResult == 0,
+              dynamicStatus & codeSigningValidFlag == codeSigningValidFlag,
+              dynamicStatus & codeSigningDebuggedFlag == 0 else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any] else {
+            return false
+        }
+        return coderouterDebugArmServerSigningFieldsAreAllowed(
+            identifier: information[kSecCodeInfoIdentifier as String] as? String,
+            teamIdentifier: information[kSecCodeInfoTeamIdentifier as String] as? String,
+            expectedBundleIdentifier: ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]
+        )
+    }
+
+    static func coderouterDebugArmServerSigningFieldsAreAllowed(
+        identifier: String?,
+        teamIdentifier: String?,
+        expectedBundleIdentifier: String?
+    ) -> Bool {
+        CodeRouterDebugServerIdentityPolicy().isAllowed(
+            identifier: identifier,
+            teamIdentifier: teamIdentifier,
+            expectedBundleIdentifier: expectedBundleIdentifier
+        )
+    }
+    #endif
+
+    #if !DEBUG && os(macOS) && canImport(Security)
+    /// Allow the Apple Development signature used by a local tagged Release
+    /// artifact, while keeping the stable production bundle Developer ID only.
+    private static func coderouterTaggedReleaseArmServerIdentityIsAllowed(
+        dynamicCode: SecCode
+    ) -> Bool {
+        guard let expectedBundleIdentifier = CLIExecutableLocator
+            .enclosingAppBundle()?
+            .bundleIdentifier,
+            expectedBundleIdentifier.hasPrefix("com.cmuxterm.app.debug."),
+            expectedBundleIdentifier.count > "com.cmuxterm.app.debug.".count,
+            SecCodeCheckValidity(
+                dynamicCode,
+                SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+                nil
+            ) == errSecSuccess else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var developmentRequirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterTaggedDevelopmentSigningRequirement as CFString,
+            SecCSFlags(),
+            &developmentRequirement
+        ) == errSecSuccess,
+        let developmentRequirement,
+        SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            developmentRequirement
+        ) == errSecSuccess else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        information[kSecCodeInfoIdentifier as String] as? String
+            == expectedBundleIdentifier,
+        information[kSecCodeInfoTeamIdentifier as String] as? String
+            == "7WLXT3NR37" else {
+            return false
+        }
+
+        return true
+    }
+    #endif
+
     func send(
         command: String,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
+        includeCapability: Bool = true,
+        capabilityEnvironment: [String: String]? = nil,
         waitUntilCompletion: Bool = false
     ) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
@@ -3372,9 +3776,14 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        guard let payload = SocketCommandLine.framedLine(
-            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
-        ) else {
+        let automationCommand = Self.automationEnvelopeCommand(command)
+        let capabilityCommand = includeCapability
+            ? capabilityWrappedCommand(
+                automationCommand,
+                environment: capabilityEnvironment ?? ProcessInfo.processInfo.environment
+            )
+            : automationCommand
+        guard let payload = SocketCommandLine.framedLine(for: capabilityCommand) else {
             throw CLIError(message: "Rejected socket command containing line-terminator characters")
         }
         try writeAllNonBlocking(
@@ -3457,6 +3866,99 @@ final class SocketClient {
         }
         operationCompleted = true
         return response
+    }
+
+    /// Sends one bounded newline frame and requires the peer to close without
+    /// sending any byte after the response newline.
+    func sendSingleFrame(
+        command: String,
+        responseTimeout: TimeInterval,
+        maximumRawBytes: Int
+    ) throws -> String {
+        guard maximumRawBytes > 1,
+              !command.utf8.contains(0x0A),
+              !command.utf8.contains(0x0D) else {
+            throw CLIError(message: "Invalid socket frame")
+        }
+        let payload = Data((command + "\n").utf8)
+        guard payload.count <= maximumRawBytes else {
+            throw CLIError(message: "Socket frame is too large")
+        }
+        let deadline = Date.now.addingTimeInterval(responseTimeout)
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect(deadline: deadline)
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+
+        try configureResponseReceiveTimeout(responseTimeout)
+        _ = try? configureSocketWriteSafety(responseTimeout)
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: responseTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+        try writeAllNonBlocking(
+            payload,
+            deadline: deadline,
+            timeoutMessage: "Command timed out",
+            failureMessage: "Failed to write to socket"
+        )
+
+        var response = Data()
+        var sawNewline = false
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Command timed out")
+            }
+            operation.phase = .waitForResponse
+            operation.sawNewline = sawNewline
+            operation.timeout = remaining
+            recordOperation(operation)
+            try configureResponseReceiveTimeout(remaining)
+            let readCapacity = max(
+                1,
+                min(1024, maximumRawBytes + 1 - response.count)
+            )
+            var buffer = [UInt8](repeating: 0, count: readCapacity)
+            let count = Darwin.read(socketFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Command timed out")
+                }
+                throw CLIError(message: "Socket read error")
+            }
+            if count == 0 { break }
+            operation.bytesRead += count
+            for byte in buffer.prefix(count) {
+                guard !sawNewline else {
+                    throw CLIError(message: "Invalid socket frame")
+                }
+                response.append(byte)
+                guard response.count <= maximumRawBytes else {
+                    throw CLIError(message: "Socket frame is too large")
+                }
+                if byte == 0x0A {
+                    sawNewline = true
+                }
+            }
+        }
+
+        guard sawNewline,
+              response.last == 0x0A,
+              let decoded = String(
+                  data: Data(response.dropLast()),
+                  encoding: .utf8
+              ) else {
+            throw CLIError(message: "Invalid socket frame")
+        }
+        operation.phase = .completed
+        operation.sawNewline = true
+        recordOperation(operation)
+        return decoded
     }
 
     private static func automationEnvelopeCommand(_ command: String) -> String {
@@ -4279,10 +4781,157 @@ final class SocketClient {
     }
 }
 
+/// Injectable only through the in-process CMUXCLI initializer. The executable
+/// entry point always uses `production`; there is no argument or environment
+/// switch that can weaken the release peer identity prefilter. The capability
+/// HMAC, not this mutable peer token, authenticates the arm response.
+struct CoderouterArmServerPeerVerifier {
+    let verifyBeforeRequest: (SocketClient) -> SocketClient.CoderouterArmServerIdentity?
+    let reverifyBeforeArmRequest: (SocketClient, SocketClient.CoderouterArmServerIdentity) -> Bool
+
+    static let production = Self(
+        verifyBeforeRequest: { client in
+            client.verifiedCoderouterArmServerIdentity()
+        },
+        reverifyBeforeArmRequest: { client, expectedIdentity in
+            client.coderouterArmServerIdentityIsStillAllowed(expectedIdentity)
+        }
+    )
+}
+
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
+    let coderouterArmServerPeerVerifier: CoderouterArmServerPeerVerifier
+
+    /// Bounded socket wait around the cmux worker's hosted arm deadline.
+    static let coderouterHandoffSocketResponseTimeoutSeconds: TimeInterval = 25
+    private static let coderouterHandoffMaximumRawFrameBytes =
+        CodeRouterHandoffProtocol.maximumRawFrameBytes
+    private static let coderouterCapabilityProbeTimeoutSeconds: TimeInterval = 2
+    private static let coderouterCapabilityProbeMaximumBytes = 16 * 1024
+    private static let coderouterHandoffProtocolVersion =
+        CodeRouterHandoffProtocol.protocolVersion
+    private static let coderouterSigningRequirement: String = {
+#if DEBUG
+        // Tagged Debug builds use the shared Apple Development identity. Keep
+        // the identifier and team pinned while accepting only that Debug
+        // certificate family; Release retains the Developer ID requirement.
+        return #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#else
+        return #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#endif
+    }()
+    private static let coderouterTaggedDevelopmentSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    /// `kSecCodeSignatureRuntime` is not imported by Swift from CSCommon.h.
+    private static let coderouterHardenedRuntimeFlag: UInt32 = 0x0001_0000
+
+    private struct CoderouterCapabilityResponse: Decodable {
+        let product: String
+        let protocolVersion: Int
+        let authModes: [String]
+    }
+
+    typealias CoderouterHandoffArm = CodeRouterHandoffProtocol.Arm
+    private typealias CoderouterHandoffProofContext =
+        CodeRouterHandoffProtocol.ProofContext
+
+    private static func coderouterExecutableIsAllowed(
+        at executablePath: String,
+        environment: [String: String]
+    ) -> Bool {
+        #if DEBUG
+        // Tests use short-lived shell fixtures. This bypass is not present in
+        // a Release build and the CMUX_ prefix keeps it out of the child.
+        if environment["CMUX_CODEROUTER_TEST_ALLOW_UNSIGNED"] == "1" {
+            return true
+        }
+        #endif
+
+        #if canImport(Security)
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(
+            URL(fileURLWithPath: executablePath) as CFURL,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement else {
+            return false
+        }
+        let hasReleaseIdentity = SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            requirement
+        ) == errSecSuccess
+        #if DEBUG
+        guard hasReleaseIdentity else { return false }
+        #else
+        guard hasReleaseIdentity || coderouterTaggedReleaseCoderouterIdentityIsAllowed(
+            staticCode: staticCode
+        ) else { return false }
+        #endif
+
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        let flags = information[kSecCodeInfoFlags as String] as? NSNumber,
+        flags.uint32Value & coderouterHardenedRuntimeFlag != 0 else {
+            return false
+        }
+        let entitlements = information[kSecCodeInfoEntitlementsDict as String]
+            as? [String: Any] ?? [:]
+        return entitlements.isEmpty
+        #else
+        false
+        #endif
+    }
+
+    #if !DEBUG && canImport(Security)
+    /// Local tagged Release artifacts may use the shared Apple Development
+    /// identity. The app bundle ID gate keeps this out of production builds.
+    private static func coderouterTaggedReleaseCoderouterIdentityIsAllowed(
+        staticCode: SecStaticCode
+    ) -> Bool {
+        guard let bundleIdentifier = CLIExecutableLocator
+            .enclosingAppBundle()?
+            .bundleIdentifier,
+            bundleIdentifier.hasPrefix("com.cmuxterm.app.debug."),
+            bundleIdentifier.count > "com.cmuxterm.app.debug.".count else {
+            return false
+        }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterTaggedDevelopmentSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement,
+        SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            requirement
+        ) == errSecSuccess else {
+            return false
+        }
+        return true
+    }
+    #endif
 
     private enum NotifyTargetResolution {
         case surface(
@@ -4521,11 +5170,13 @@ struct CMUXCLI {
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
         simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
-            SimulatorOwnedCommandRunner()
+            SimulatorOwnedCommandRunner(),
+        coderouterArmServerPeerVerifier: CoderouterArmServerPeerVerifier = .production
     ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
+        self.coderouterArmServerPeerVerifier = coderouterArmServerPeerVerifier
     }
 
     /// Sends transport failures and structured protocol failures through the
@@ -4981,9 +5632,715 @@ struct CMUXCLI {
         return explicitValue == defaultValue ? catalogValue : explicitValue
     }
 
+    private func localizedCoderouterLaunchFailed() -> String {
+        let defaultValue = "Could not start the required CLI. Check the installation and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.launchFailed",
+            defaultValue: "Could not start the required CLI. Check the installation and try again.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.launchFailed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffFailed() -> String {
+        let defaultValue = "Could not prepare the CodeRouter handoff. Keep cmux signed in and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.failed",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.failed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffNotAuthenticated() -> String {
+        let defaultValue = "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffTeamRequired() -> String {
+        let defaultValue = "CodeRouter handoff requires a selected cmux team. Select a team in cmux, then retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.teamRequired",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.teamRequired",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffUnsupported() -> String {
+        let defaultValue = "The installed CodeRouter CLI does not support secure cmux handoff. Update CodeRouter and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.unsupported",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.unsupported",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private static func coderouterSocketPath(
+        explicitSocketPath: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> String {
+        let envSocketPath = explicitSocketPath == nil
+            ? try CLISocketEnvironment.socketPath(in: environment)
+            : CLISocketEnvironment.socketPathForTelemetry(in: environment)
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        )
+        let source: CLISocketPathSource
+        if explicitSocketPath != nil {
+            source = .explicitFlag
+        } else if envSocketPath != nil {
+            source = .environment
+        } else {
+            source = .implicitDefault
+        }
+        let resolver = CLISocketPathResolver(environment: environment, bundleIdentifier: bundleIdentifier)
+        let resolution = resolver.resolve(requestedPath: socketPath, source: source)
+        guard resolution.hasLiveSocket else {
+            throw CLIError(message: resolution.failureMessage)
+        }
+        return resolution.selectedPath ?? socketPath
+    }
+
+    static func coderouterHandoffSocketPathIsValid(_ socketPath: String) -> Bool {
+        CodeRouterHandoffProtocol().socketPathIsValid(socketPath)
+    }
+
+    /// Checks the arm response before Foundation can coerce number types or
+    /// collapse duplicate object keys.
+    static func coderouterHandoffResponseRawShapeIsValid(
+        _ rawResponse: String
+    ) -> Bool {
+        CodeRouterHandoffProtocol().responseRawShapeIsValid(rawResponse)
+    }
+
+    private static func coderouterHandoffProofContext(
+        environment: [String: String]
+    ) -> CoderouterHandoffProofContext? {
+        guard let capability = environment["CMUX_SOCKET_CAPABILITY"] else {
+            return nil
+        }
+
+        #if canImport(Security)
+        var challengeBytes = [UInt8](
+            repeating: 0,
+            count: SocketClientCapabilityProof.byteCount
+        )
+        guard SecRandomCopyBytes(
+            kSecRandomDefault,
+            challengeBytes.count,
+            &challengeBytes
+        ) == errSecSuccess else {
+            return nil
+        }
+        let challenge = Data(challengeBytes)
+        #else
+        return nil
+        #endif
+
+        let processID = getpid()
+        guard processID > 0 else { return nil }
+        var usage = rusage_info_v0()
+        let usageResult = withUnsafeMutableBytes(of: &usage) { buffer -> Int32 in
+            guard let baseAddress = buffer.baseAddress else { return -1 }
+            return proc_pid_rusage(
+                processID,
+                RUSAGE_INFO_V0,
+                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+            )
+        }
+        let processStartAbsoluteTime = usage.ri_proc_start_abstime
+        guard usageResult == 0, processStartAbsoluteTime > 0 else {
+            return nil
+        }
+
+        return CodeRouterHandoffProtocol().makeProofContext(
+            capability: capability,
+            challenge: challenge,
+            processID: processID,
+            processStartAbsoluteTime: processStartAbsoluteTime
+        )
+    }
+
+    func armCoderouterHandoff(
+        explicitSocketPath: String?,
+        explicitPassword _: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> CoderouterHandoffArm {
+        let socketPath = try Self.coderouterSocketPath(
+            explicitSocketPath: explicitSocketPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        guard Self.coderouterHandoffSocketPathIsValid(socketPath) else {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        guard let proofContext = Self.coderouterHandoffProofContext(
+            environment: environment
+        ) else {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        let client = SocketClient(path: socketPath)
+        do {
+            try client.connect()
+            guard let expectedServerIdentity = coderouterArmServerPeerVerifier
+                .verifyBeforeRequest(client) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            guard coderouterArmServerPeerVerifier.reverifyBeforeArmRequest(
+                client,
+                expectedServerIdentity
+            ) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            defer { client.close() }
+
+            let responseEnvelope = try client.sendV2Envelope(
+                method: SocketClientCapabilityProof.method,
+                params: proofContext.requestParams,
+                requestID: SocketClientCapabilityProof.requestID,
+                responseTimeout: Self.coderouterHandoffSocketResponseTimeoutSeconds,
+                includeCapability: false,
+                validateRawResponse: Self
+                    .coderouterHandoffResponseRawShapeIsValid,
+                strictFrameMaximumRawBytes: Self
+                    .coderouterHandoffMaximumRawFrameBytes
+            )
+            guard let verified = CodeRouterHandoffProtocol().verifyResponse(
+                responseEnvelope,
+                context: proofContext
+            ) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            if case let .armed(teamBinding) = verified {
+                return CoderouterHandoffArm(
+                    socketPath: socketPath,
+                    teamBinding: teamBinding
+                )
+            }
+            guard case let .signedError(code) = verified else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            if code == "team_required" {
+                throw CLIError(
+                    message: localizedCoderouterHandoffTeamRequired(),
+                    v2Code: code
+                )
+            }
+            if code == "not_authenticated" {
+                throw CLIError(
+                    message: localizedCoderouterHandoffNotAuthenticated(),
+                    v2Code: code
+                )
+            }
+            throw CLIError(
+                message: localizedCoderouterHandoffFailed(),
+                v2Code: code
+            )
+        } catch let error as CLIError {
+            client.close()
+            if error.v2Code == "team_required"
+                || error.v2Code == "not_authenticated" {
+                throw error
+            }
+            // Do not expose unsigned, invalid, or server-provided diagnostics.
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        } catch {
+            client.close()
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+    }
+
+    /// Sets `flags` on a CodeRouter spawn and starts the child from the signal
+    /// state a shell hands an interactive program: an empty mask and default
+    /// dispositions for the signals the CLI may leave ignored. A CLI command
+    /// runs on a Swift concurrency thread whose nearly full mask would
+    /// otherwise reach the child (see `cliResetInheritedSignalStateForExec`).
+    ///
+    /// - Returns: 0, or the first `posix_spawnattr_*` error.
+    private static func setCoderouterSpawnAttributes(
+        _ attributes: inout posix_spawnattr_t?,
+        flags: Int32
+    ) -> Int32 {
+        var childSignalMask = sigset_t()
+        sigemptyset(&childSignalMask)
+        var childDefaultSignals = sigset_t()
+        sigemptyset(&childDefaultSignals)
+        for signalNumber in cliChildLaunchDefaultDispositionSignals {
+            sigaddset(&childDefaultSignals, signalNumber)
+        }
+        var status = posix_spawnattr_setflags(
+            &attributes,
+            Int16(flags | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
+        )
+        if status == 0 {
+            status = posix_spawnattr_setsigmask(&attributes, &childSignalMask)
+        }
+        if status == 0 {
+            status = posix_spawnattr_setsigdefault(&attributes, &childDefaultSignals)
+        }
+        return status
+    }
+
+    private func execCoderouter(
+        executablePath: String,
+        commandArgs: [String],
+        handoff: CoderouterHandoffArm?,
+        preserveProviderCredentials: Bool,
+        environment inheritedEnvironment: [String: String]
+    ) throws {
+        let childEnvironment = Self.coderouterChildEnvironment(
+            inheritedEnvironment,
+            forHandoff: handoff != nil,
+            preserveProviderCredentials: preserveProviderCredentials
+        )
+        let launchArguments = Self.coderouterLaunchArguments(
+            commandArgs: commandArgs,
+            handoff: handoff
+        )
+        var argv = ([executablePath] + launchArguments).map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            let value = childEnvironment[key] ?? ""
+            return "\(key)=\(value)"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv { free(item) }
+            for item in environment { free(item) }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        // CLOEXEC_DEFAULT closes every descriptor that is not named in these
+        // actions, including high descriptors above a reduced RLIMIT_NOFILE.
+        // Preserve each standard descriptor only when the caller left it open
+        // at launch: a descriptor the CLI opened since may have reused a
+        // closed standard number, and must not reach the child. A closed
+        // standard descriptor stays closed and does not make the alias fail.
+        for descriptor in CLIStandardDescriptors.openAtLaunch {
+            guard posix_spawn_file_actions_addinherit_np(&actions, descriptor) == 0 else {
+                throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+            }
+        }
+        guard Self.setCoderouterSpawnAttributes(
+            &attributes,
+            flags: POSIX_SPAWN_SETEXEC | POSIX_SPAWN_CLOEXEC_DEFAULT
+        ) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+
+        var childPID: pid_t = 0
+        let executionError = executablePath.withCString { executable in
+            posix_spawn(&childPID, executable, &actions, &attributes, &argv, &environment)
+        }
+        guard executionError == 0 else {
+            let errorText = String(cString: strerror(executionError))
+            cliDebugLog(
+                "cli.coderouter.exec_failed executable=\(executablePath) "
+                    + "errno=\(executionError) error=\(errorText)"
+            )
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        // POSIX_SPAWN_SETEXEC replaces this process. Returning would mean the
+        // platform violated that contract.
+        throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+    }
+
+    static func coderouterLaunchArguments(
+        commandArgs: [String],
+        handoff: CoderouterHandoffArm?
+    ) -> [String] {
+        CodeRouterLaunchPolicy().launchArguments(
+            commandArgs: commandArgs,
+            handoff: handoff
+        )
+    }
+
+    static func coderouterChildEnvironment(
+        _ inheritedEnvironment: [String: String],
+        forHandoff: Bool,
+        preserveProviderCredentials: Bool = false
+    ) -> [String: String] {
+        CodeRouterLaunchPolicy().childEnvironment(
+            inheritedEnvironment,
+            forHandoff: forHandoff,
+            preserveProviderCredentials: preserveProviderCredentials
+        )
+    }
+
+    private func coderouterSupportsSecureHandoff(
+        executablePath: String,
+        inheritedEnvironment: [String: String]
+    ) -> Bool {
+        guard Self.coderouterExecutableIsAllowed(
+            at: executablePath,
+            environment: inheritedEnvironment
+        ) else {
+            return false
+        }
+
+        let timeoutNanoseconds = UInt64(
+            Self.coderouterCapabilityProbeTimeoutSeconds * 1_000_000_000
+        )
+        let deadline = DispatchTime.now().uptimeNanoseconds &+ timeoutNanoseconds
+        var outputFDs = [Int32](repeating: -1, count: 2)
+        guard Darwin.pipe(&outputFDs) == 0 else { return false }
+        var readFD = outputFDs[0]
+        var writeFD = outputFDs[1]
+        defer {
+            if readFD >= 0 { Darwin.close(readFD) }
+            if writeFD >= 0 { Darwin.close(writeFD) }
+        }
+        _ = fcntl(readFD, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(writeFD, F_SETFD, FD_CLOEXEC)
+
+        let argumentStrings = [
+            executablePath,
+            "capabilities",
+            "--json",
+        ]
+        let childEnvironment = Self.coderouterChildEnvironment(
+            inheritedEnvironment,
+            forHandoff: true
+        )
+
+        var argv = argumentStrings.map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            "\(key)=\(childEnvironment[key] ?? "")"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv { free(item) }
+            for item in environment { free(item) }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        let nullFD = Darwin.open("/dev/null", O_RDWR | O_CLOEXEC)
+        guard nullFD >= 0 else { return false }
+        defer { Darwin.close(nullFD) }
+
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else { return false }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        guard posix_spawnattr_init(&attributes) == 0 else { return false }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        guard posix_spawn_file_actions_adddup2(&actions, nullFD, STDIN_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&actions, writeFD, STDOUT_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&actions, nullFD, STDERR_FILENO) == 0,
+              posix_spawnattr_setpgroup(&attributes, 0) == 0,
+              Self.setCoderouterSpawnAttributes(
+                  &attributes,
+                  flags: POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP
+              ) == 0 else {
+            return false
+        }
+
+        var childPID: pid_t = 0
+        let spawnError = executablePath.withCString { executable in
+            posix_spawn(&childPID, executable, &actions, &attributes, &argv, &environment)
+        }
+        guard spawnError == 0 else { return false }
+        Darwin.close(writeFD)
+        writeFD = -1
+
+        guard let output = Self.readCoderouterCapabilityOutput(
+            from: readFD,
+            childPID: childPID,
+            deadline: deadline
+        ) else {
+            return false
+        }
+        Darwin.close(readFD)
+        readFD = -1
+        guard let capabilities = try? JSONDecoder().decode(
+            CoderouterCapabilityResponse.self,
+            from: output
+        ),
+        capabilities.product == "coderouter",
+        capabilities.protocolVersion == Self.coderouterHandoffProtocolVersion,
+        capabilities.authModes.contains("cmux-socket-v1") else {
+            return false
+        }
+        return true
+    }
+
+    private static func readCoderouterCapabilityOutput(
+        from fileDescriptor: Int32,
+        childPID: pid_t,
+        deadline: UInt64
+    ) -> Data? {
+        let currentFlags = fcntl(fileDescriptor, F_GETFL)
+        guard currentFlags >= 0,
+              fcntl(fileDescriptor, F_SETFL, currentFlags | O_NONBLOCK) == 0 else {
+            var status: Int32 = 0
+            stopCoderouterCapabilityProbe(
+                childPID: childPID,
+                childExited: false,
+                status: &status
+            )
+            return nil
+        }
+
+        var output = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var status: Int32 = 0
+        var childExited = false
+        var reachedEOF = false
+
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            while true {
+                let count = buffer.withUnsafeMutableBytes { bytes -> Int in
+                    guard let baseAddress = bytes.baseAddress else { return 0 }
+                    return Darwin.read(fileDescriptor, baseAddress, bytes.count)
+                }
+                if count > 0 {
+                    if output.count + count > coderouterCapabilityProbeMaximumBytes {
+                        stopCoderouterCapabilityProbe(
+                            childPID: childPID,
+                            childExited: childExited,
+                            status: &status
+                        )
+                        return nil
+                    }
+                    output.append(contentsOf: buffer.prefix(count))
+                    continue
+                }
+                if count == 0 {
+                    reachedEOF = true
+                } else if errno == EINTR {
+                    continue
+                } else if errno != EAGAIN && errno != EWOULDBLOCK {
+                    stopCoderouterCapabilityProbe(
+                        childPID: childPID,
+                        childExited: childExited,
+                        status: &status
+                    )
+                    return nil
+                }
+                break
+            }
+
+            if !childExited {
+                let waitResult = waitpid(childPID, &status, WNOHANG)
+                if waitResult == childPID {
+                    childExited = true
+                } else if waitResult < 0, errno != EINTR {
+                    stopCoderouterCapabilityProbe(
+                        childPID: childPID,
+                        childExited: false,
+                        status: &status
+                    )
+                    return nil
+                }
+            }
+            if childExited, reachedEOF {
+                return status == 0 ? output : nil
+            }
+
+            let now = DispatchTime.now().uptimeNanoseconds
+            let remainingNanoseconds = deadline > now ? deadline - now : 0
+            let remainingMilliseconds = max(1, min(50, Int(remainingNanoseconds / 1_000_000)))
+            var descriptor = pollfd(
+                fd: fileDescriptor,
+                events: Int16(POLLIN | POLLERR | POLLHUP),
+                revents: 0
+            )
+            let pollResult = Darwin.poll(&descriptor, 1, Int32(remainingMilliseconds))
+            if pollResult < 0, errno != EINTR {
+                stopCoderouterCapabilityProbe(
+                    childPID: childPID,
+                    childExited: childExited,
+                    status: &status
+                )
+                return nil
+            }
+        }
+
+        stopCoderouterCapabilityProbe(
+            childPID: childPID,
+            childExited: childExited,
+            status: &status
+        )
+        return nil
+    }
+
+    private static func stopCoderouterCapabilityProbe(
+        childPID: pid_t,
+        childExited: Bool,
+        status: inout Int32
+    ) {
+        // The probe starts in its own process group. Kill the whole group so a
+        // script cannot leave a sleeping or output-producing descendant after
+        // the two-second probe budget ends.
+        _ = Darwin.kill(-childPID, SIGKILL)
+        // A probe can change its own process group. Always target the direct
+        // child as well, so group manipulation cannot make cleanup wait on a
+        // live child.
+        _ = Darwin.kill(childPID, SIGKILL)
+        if !childExited {
+            let reapDeadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
+            while DispatchTime.now().uptimeNanoseconds < reapDeadline {
+                let result = waitpid(childPID, &status, WNOHANG)
+                if result == childPID || (result < 0 && errno == ECHILD) {
+                    return
+                }
+                if result < 0, errno != EINTR {
+                    return
+                }
+                usleep(1_000)
+            }
+        }
+    }
+
+    private static func coderouterNativeExecutablePath(
+        for resolvedPath: String
+    ) -> String? {
+        let resolvedURL = URL(fileURLWithPath: resolvedPath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        guard resolvedURL.lastPathComponent == "coderouter.js",
+              resolvedURL.deletingLastPathComponent().lastPathComponent == "bin" else {
+            return resolvedPath
+        }
+
+        #if arch(arm64)
+        let npmTarget = "darwin-arm64"
+        #elseif arch(x86_64)
+        let npmTarget = "darwin-x64"
+        #else
+        return nil
+        #endif
+        let packageRoot = resolvedURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let vendorExecutable = packageRoot
+            .appendingPathComponent("vendor", isDirectory: true)
+            .appendingPathComponent(npmTarget, isDirectory: true)
+            .appendingPathComponent("coderouter", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: vendorExecutable.path) else {
+            return nil
+        }
+        return vendorExecutable.path
+    }
+
+    /// Run the separately installed CodeRouter CLI. Every command replaces this
+    /// process, which preserves normal signal and exit behavior. Routed commands
+    /// use a hidden protocol-2 argv mode after cmux arms the current PID. The
+    /// socket path is not a credential. No lease, socket password, or descriptor
+    /// crosses exec. Arguments are built directly and are never parsed by a shell.
+    func runCoderouterAlias(
+        commandArgs: [String],
+        explicitSocketPath: String?,
+        explicitPassword: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws {
+        let resolvedPath = try resolveCoderouterExecutable(environment: environment)
+            ?? bootstrapCoderouter(environment: environment)
+        guard let executablePath = Self.coderouterNativeExecutablePath(for: resolvedPath) else {
+            throw CLIError(message: localizedCoderouterHandoffUnsupported())
+        }
+
+        // Only routed agent commands consume a handoff. Management, help,
+        // version, and capability commands keep the normal standalone CLI
+        // contract and never contact the cmux socket.
+        let isRoutedAgentCommand = Self.coderouterCommandRequiresHandoff(commandArgs)
+        if !isRoutedAgentCommand {
+            let preserveProviderCredentials = commandArgs.first.map {
+                ["naked", "direct"].contains($0)
+            } ?? false
+            return try execCoderouter(
+                executablePath: executablePath,
+                commandArgs: commandArgs,
+                handoff: nil,
+                preserveProviderCredentials: preserveProviderCredentials,
+                environment: environment
+            )
+        }
+
+        // Probe the exact executable before asking cmux to arm a one-use
+        // handoff. The probe is credential-free and requires the protocol-2
+        // socket mode, so old binaries fail closed before any socket action.
+        guard coderouterSupportsSecureHandoff(
+            executablePath: executablePath,
+            inheritedEnvironment: environment
+        ) else {
+            throw CLIError(message: localizedCoderouterHandoffUnsupported())
+        }
+
+        let handoff = try armCoderouterHandoff(
+            explicitSocketPath: explicitSocketPath,
+            explicitPassword: explicitPassword,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        try execCoderouter(
+            executablePath: executablePath,
+            commandArgs: commandArgs,
+            handoff: handoff,
+            preserveProviderCredentials: false,
+            environment: environment
+        )
+    }
+
+    static func coderouterCommandRequiresHandoff(_ commandArgs: [String]) -> Bool {
+        CodeRouterLaunchPolicy().commandRequiresHandoff(commandArgs)
+    }
+
     func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
+        // The resolver has stable debug/release fallbacks at runtime, but its
+        // API remains optional for callers that do not need a bundle ID.
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
+            ?? "com.cmuxterm.app"
         var explicitSocketPath: String? = nil
         var jsonOutput = false
         var idFormatArg: String? = nil
@@ -5053,13 +6410,14 @@ struct CMUXCLI {
         if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
             exit(try supervisor.run())
         }
-        // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
-        // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
-        // `cmux coderouter` keeps that passthrough except for the verbs cmux
-        // owns (`status`, `machines`, `claude`, help), which manage the team's
-        // model plane through the app socket (CMUXCLI+Coderouter.swift).
         if command == "cr" || (command == "coderouter" && !Self.isCmuxOwnedCoderouterInvocation(rawCommandArgs)) {
-            try runCoderouterAlias(commandArgs: rawCommandArgs)
+            try runCoderouterAlias(
+                commandArgs: rawCommandArgs,
+                explicitSocketPath: explicitSocketPath,
+                explicitPassword: socketPasswordArg,
+                environment: processEnv,
+                bundleIdentifier: cliBundleIdentifier
+            )
             return
         }
         if command == SudoPrivilegedExecutor.hiddenCommand {
@@ -6060,14 +7418,14 @@ struct CMUXCLI {
             case "agent-updates":
                 try runVMAgentUpdatesCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
-            case "pause", "resume":
+            case "pause", "resume", "restart":
                 // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
                 // stays); resuming brings the daemon and its terminals back.
                 let lifecycleArgs = rest.filter { $0 != "--json" }
                 guard lifecycleArgs.count == 1, let vmId = lifecycleArgs.first, !vmId.hasPrefix("-") else {
                     throw CLIError(message: Self.vmLifecycleUsage)
                 }
-                let response = try client.sendV2(method: "vm.\(sub)", params: ["id": vmId], responseTimeout: 180)
+                let response = try client.sendV2(method: "vm.\(sub)", params: ["id": vmId], responseTimeout: sub == "restart" ? 60 : 180)
                 if jsonOutput {
                     print(jsonString(response))
                     break
@@ -6075,8 +7433,10 @@ struct CMUXCLI {
                 let status = (response["status"] as? String) ?? "?"
                 if sub == "pause" {
                     print("OK \(vmId) paused (status=\(status)); `cmux vm resume \(vmId)` wakes it")
-                } else {
+                } else if sub == "resume" {
                     print("OK \(vmId) resumed (status=\(status))")
+                } else {
+                    print("OK " + String(format: String(localized: "cli.vm.restart.result", defaultValue: "%1$@ restarted (status=%2$@)"), vmId, status))
                 }
 
             case "base":
@@ -20241,7 +21601,7 @@ struct CMUXCLI {
                    cmux hooks feed --source <agent> [--event <event>]
 
             Manage and run cmux agent hooks without adding one top-level command per
-            agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
+            agent. Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
               codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, muse
@@ -28423,7 +29783,6 @@ struct CMUXCLI {
                 return
             }
 
-            var target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             var direction: String
             var anchoredCallerSurfaceId: String?
             if parsed.hasFlag("-h") {
@@ -28439,14 +29798,18 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
-            if parsed.hasFlag("-h"),
-               let callerWorkspace = tmuxCallerWorkspaceHandle(),
-               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
-                if let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
-                    target = (wsId, nil, anchoredTarget.targetSurfaceId)
-                    direction = anchoredTarget.direction
-                    anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
-                }
+            var target: (workspaceId: String, paneId: String?, surfaceId: String)
+            if let callerWorkspace = tmuxCallerWorkspaceHandle(),
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client),
+               let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
+                target = (wsId, nil, anchoredTarget.targetSurfaceId)
+                direction = anchoredTarget.direction
+                anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
+            } else {
+                // Resolve an ordinary target only after attempting the managed
+                // layout anchor. This lets a stale -t pane/surface fall back to
+                // the live leader when a teammate was closed outside the shim.
+                target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             }
 
             // tmux semantics: the new pane takes focus unless -d ("don't focus
@@ -29059,10 +30422,12 @@ struct CMUXCLI {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     try withLockedTmuxCompatStore { store in
                         let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                        let existingMainPaneWidth = store.mainVerticalLayouts[workspaceId]?.mainPaneWidthFraction
                         let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
                         store.mainVerticalLayouts[workspaceId] = MainVerticalState(
                             mainSurfaceId: callerSurface,
-                            lastColumnSurfaceId: seedColumn
+                            lastColumnSurfaceId: seedColumn,
+                            mainPaneWidthFraction: existingMainPaneWidth
                         )
                     }
                 }
@@ -29982,17 +31347,25 @@ struct CMUXCLI {
                         )
                     }
                 }
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: acceptedSessionId,
-                    cwd: hookCwd,
-                    launchCommand: launchCommand,
-                    observedPermissionMode: observedHookPermissionMode
-                )
+                // Claude writes a fork's transcript with its first message.
+                // Until then the fork cannot be resumed, so the pane keeps its
+                // binding; the first prompt or stop binds the fork (#20186).
+                let forkTranscriptIsPending = isForkSessionLaunch
+                    && hookTranscriptPath.map { !FileManager.default.fileExists(atPath: $0) } == true
+                if !forkTranscriptIsPending {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: acceptedSessionId,
+                        cwd: hookCwd,
+                        launchCommand: launchCommand,
+                        transcriptPath: hookTranscriptPath,
+                        observedPermissionMode: observedHookPermissionMode
+                    )
+                }
                 emitAgentJournalEvent(
                     client: client,
                     kind: .sessionStarted,
@@ -30192,6 +31565,7 @@ struct CMUXCLI {
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
                         agentLifecycle: stopFailure != nil ? .needsInput : (hasUnsettledWork ? .backgroundWorkPending : .idle),
+                        turnSettled: true,
                         hookEventName: reportedHookEventName(from: parsedInput) ?? "Stop",
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
@@ -30208,6 +31582,7 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: hookCwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
+                        transcriptPath: hookTranscriptPath,
                         observedPermissionMode: observedHookPermissionMode
                             ?? mappedSession?.lastPermissionMode
                     )
@@ -30406,6 +31781,7 @@ struct CMUXCLI {
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    turnSettled: false,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "UserPromptSubmit",
                     updateLastSummary: true,
                     markActive: true,
@@ -30420,6 +31796,7 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     cwd: hookCwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    transcriptPath: hookTranscriptPath,
                     observedPermissionMode: observedHookPermissionMode
                         ?? mappedSession?.lastPermissionMode
                 )
@@ -30971,6 +32348,17 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            // A helper can invoke PreToolUse after the parent turn's Stop hook.
+            // That event belongs to the completed turn, so it must not reopen
+            // the parent session as Running. A new parent turn always passes
+            // through UserPromptSubmit first, which replaces this settled
+            // lifecycle and clears the guard.
+            let parentTurnAlreadyEnded = mappedSession?.turnSettled == true
+            guard !parentTurnAlreadyEnded else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.after-stop")
+                printClaudeHookAck()
+                return
+            }
             let claudePid = localClaudePID(mapped: mappedSession)
             // One ancestry walk per hook event, shared by the suppression gate
             // and the notify payload's subagent tag.
@@ -32986,7 +34374,18 @@ struct CMUXCLI {
     }
 
     private func codexMonitorOwnerState(workspaceId: String, surfaceId: String?, client: SocketClient) -> CodexMonitorOwnerState {
-        guard client.connectionAppearsOpen() else { return client.isRelayBacked ? .unknown : .gone }
+        if !client.connectionAppearsOpen() {
+            // A failed request closes the client, so a closed connection is
+            // not proof the pane is gone. Reconnect and ask; only an app that
+            // refuses the connection ends the monitor.
+            client.close()
+            guard !client.isRelayBacked else { return .unknown }
+            do {
+                try client.connect()
+            } catch {
+                return .gone
+            }
+        }
         guard let payload = try? client.sendV2(
             method: "surface.list",
             params: ["workspace_id": workspaceId],
@@ -33891,6 +35290,22 @@ struct CMUXCLI {
         )
     }
 
+    /// The controlling terminal device of a live process, or `nil` when the
+    /// process has none or no longer exists.
+    func controllingTerminalDevice(of pid: Int) -> Int64? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0,
+              size > 0,
+              info.kp_proc.p_pid == Int32(pid),
+              info.kp_eproc.e_tdev != -1 else { // NODEV
+            return nil
+        }
+        return Int64(info.kp_eproc.e_tdev)
+    }
+
     private func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
@@ -34482,7 +35897,8 @@ struct CMUXCLI {
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
             runtimeCwd: cwd,
-            launchWorkingDirectory: launchCommand?.workingDirectory
+            launchWorkingDirectory: launchCommand?.workingDirectory,
+            transcriptPath: transcriptPath
         )
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
@@ -34673,9 +36089,21 @@ struct CMUXCLI {
         // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
         // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
         // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
-        var command = kind == "claude"
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
-            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        var command: String
+        if kind == "claude" {
+            command = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: resumeCommandParts,
+                quote: cliShellQuote
+            )
+        } else if kind == "antigravity" {
+            command = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+                parts: resumeCommandParts,
+                kind: kind,
+                quote: cliShellQuote
+            )
+        } else {
+            command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        }
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
@@ -34799,8 +36227,6 @@ struct CMUXCLI {
             launcher: launchCommand?.launcher,
             arguments: launchCommand?.arguments ?? []
         )
-        guard !selected.isEmpty else { return [:] }
-
         let claudeAuthKeys: Set<String> = [
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
@@ -34812,6 +36238,16 @@ struct CMUXCLI {
             "CLAUDE_CONFIG_DIR"
         ]
         var resolved = selected
+        if kind == "antigravity" {
+            resolved.merge(
+                AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                    kind: kind,
+                    executablePath: launchCommand?.executablePath,
+                    arguments: launchCommand?.arguments ?? []
+                )
+            ) { _, captured in captured }
+        }
+        guard !selected.isEmpty || !resolved.isEmpty else { return [:] }
         if kind == "claude" {
             let preservedClaudeKeys = selected.keys.sorted().filter { claudeAuthKeys.contains($0) }
             if !preservedClaudeKeys.isEmpty {
@@ -35078,6 +36514,7 @@ function sessionState(sessionId) {
       lastUserMessage: null,
       assistantPreamble: null,
       cwd: null,
+      lastStopKind: null,
       updatedAt: Date.now(),
     });
   }
@@ -35111,6 +36548,57 @@ function dropSession(sessionId) {
       messageRoles.delete(messageId);
     }
   }
+}
+
+function failureMessage(event) {
+  const props = eventProperties(event);
+  const raw = props.error || props.failure || props.reason;
+  if (typeof raw === "string") return normalizeText(raw, 500);
+  if (raw && typeof raw === "object") {
+    const nestedData = raw.data && typeof raw.data === "object" ? raw.data : {};
+    const nested = firstString(
+      raw.message,
+      raw.error,
+      raw.reason,
+      raw.description,
+      nestedData.message,
+      nestedData.error,
+      nestedData.reason,
+      nestedData.description,
+      raw.name
+    );
+    if (nested) return normalizeText(nested, 500);
+  }
+  return normalizeText(firstString(props.message, props.description), 500);
+}
+
+function sessionStatusType(status) {
+  if (typeof status === "string") return status.trim().toLowerCase();
+  if (!status || typeof status !== "object") return null;
+  return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
+}
+
+// A turn publishes exactly one terminal stop. Only a run signal (session
+// creation, busy status, a promoted prompt or an execution start) opens the
+// next turn. Message updates and queued prompts do not: a queued prompt's
+// message arrives while the previous turn is still running, and a repeated
+// update after a stop must not reopen a finished turn.
+function beginTurn(sessionId) {
+  sessionState(sessionId).lastStopKind = null;
+}
+
+// OpenCode keeps an execution interrupted by shutdown and resumes it.
+function isResumableInterruption(event) {
+  return event?.type === "session.execution.interrupted" && eventProperties(event).reason === "shutdown";
+}
+
+// The first terminal event settles the turn. A published stop cannot be
+// reclassified, so a later failure or idle for the same turn is dropped.
+function shouldSendStop(sessionId, kind) {
+  const state = sessionState(sessionId);
+  if (state.lastStopKind) return false;
+  state.lastStopKind = kind;
+  return true;
 }
 
 function contextForSession(sessionId) {
@@ -35165,10 +36653,12 @@ function looksLikeOpenCodeScript(value) {
   return lower.includes("opencode") || lower.includes("open-code");
 }
 
+// Compiled OpenCode reports Bun's virtual entry (src/index.js on 1.x, the TUI
+// worker on V2) as an argument. It is never a user argument.
 function isOpenCodeInternalWorkerArg(value) {
   if (!value) return false;
   const normalized = String(value).replaceAll("\\", "/");
-  return normalized.includes("/$bunfs/") && normalized.endsWith("/tui/worker.js");
+  return normalized.includes("/$bunfs/") || normalized.includes("/~BUN/");
 }
 
 function withoutOpenCodeInternalWorkerArgs(argv) {
@@ -35207,13 +36697,16 @@ function base64NulSeparated(values) {
 function hookEnvironment(cwd) {
   const env = { ...process.env };
   delete env.AMP_API_KEY;
-  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
-    const argv = normalizedLaunchArgv();
-    env.CMUX_AGENT_LAUNCH_KIND = "opencode";
-    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
-    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
-    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
-  }
+  // Any inherited capture describes a parent process: another agent, or an
+  // OpenCode that started this one. Always describe this process's launch.
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND;
+  delete env.CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT;
+  const argv = normalizedLaunchArgv();
+  env.CMUX_AGENT_LAUNCH_KIND = "opencode";
+  env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
+  env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+  env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
   return env;
 }
 
@@ -35284,29 +36777,66 @@ function trackMessage(event) {
   }
 }
 
+// Busy status carries no turn identity; prompts and user messages own it.
+function resetTurnFromEvent(event) {
+  const props = eventProperties(event);
+  const running = ["session.next.prompted", "session.execution.started"].includes(event?.type)
+    || (event?.type === "session.status" && sessionStatusType(props.status) === "busy");
+  if (!running) return;
+  const sessionId = sessionIdFor(event);
+  if (sessionId) beginTurn(sessionId);
+}
+
+function sendStop(ctx, event, failed = false) {
+  const sessionId = sessionIdFor(event);
+  if (!sessionId || !shouldSendStop(sessionId, failed ? "failure" : "success")) return;
+  const error = failed ? failureMessage(event) : null;
+  sendHook("stop", ctx, event, {
+    hook_event_name: failed ? "StopFailure" : "Stop",
+    ...(error ? { error } : {}),
+  });
+}
+
+// OpenCode publishes these through session.error without ending the turn: a
+// user interrupt (Esc) then goes idle, and a context overflow compacts and
+// continues. The idle stop that follows is the turn's outcome.
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
+
 const createCMUXSessionRestore = async (ctx) => {
   const handleEvent = async (event) => {
       trackMessage(event);
+      resetTurnFromEvent(event);
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
+          beginTurn(sessionIdFor(event));
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
             dropSession(sessionIdFor(event));
-          } else {
-            sendHook("session-start", ctx, event);
           }
           break;
         case "session.status":
-          if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event);
+          if (sessionStatusType(props.status) === "idle") {
+            sendStop(ctx, event);
           }
           break;
         case "session.idle":
-          sendHook("stop", ctx, event);
+          sendStop(ctx, event);
+          break;
+        case "session.execution.succeeded":
+        case "session.execution.interrupted":
+          if (!isResumableInterruption(event)) sendStop(ctx, event);
+          break;
+        case "session.error":
+          if (NON_TERMINAL_SESSION_ERRORS.has(props.error?.name)) break;
+          sendStop(ctx, event, true);
+          break;
+        case "session.execution.failed":
+        case "session.next.step.failed":
+          sendStop(ctx, event, true);
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
@@ -35329,11 +36859,37 @@ export const CMUXSessionRestore = async (ctx) => {
   return createCMUXSessionRestore(ctx);
 };
 
+// Released OpenCode calls `server(ctx)` inside each TUI process with the
+// project server context. Old V2 snapshots called it from a shared service
+// without that context, so only subscribe when it is present.
+function isTUIProcessServerContext(ctx) {
+  return Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
+}
+
+const CMUX_SESSION_SERVER_SCOPES_KEY = Symbol.for("cmux.session.server.scopes");
+
 export default {
-  id: "cmux.server",
-  // Keep the legacy server entry inert in V2. Session hooks run from the
-  // per-TUI ./tui entrypoint so a shared service never reuses one TUI's IDs.
-  server() { return {}; },
+  id: "cmux.session",
+  async server(ctx) {
+    if (!isTUIProcessServerContext(ctx)) return {};
+    // Every loader in one plugin scope receives the same ctx. OpenCode keeps
+    // one scope per directory and disposes a scope's hooks when it tears it
+    // down, after which this scope must not send hooks.
+    const scopes = globalThis[CMUX_SESSION_SERVER_SCOPES_KEY] ||= new WeakSet();
+    if (scopes.has(ctx)) return {};
+    scopes.add(ctx);
+    globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+    const hooks = await createCMUXSessionRestore(ctx);
+    let disposed = false;
+    return {
+      event: async (input) => {
+        if (!disposed) await hooks.event(input);
+      },
+      dispose() {
+        disposed = true;
+      },
+    };
+  },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },
 };
@@ -35412,7 +36968,9 @@ export default {
         try validateOpenCodeTUIPluginDirectory(in: configDir)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try Self.openCodeTUIPluginPackageSource.write(to: directory.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
-        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n" + (try bundledOpenCodePluginSource())
+        let feedSource = try bundledOpenCodePluginSource()
+        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n"
+            + feedSource.replacingOccurrences(of: "id: \"cmux.feed\"", with: "id: \"cmux.server\"")
         try serverSource.write(to: directory.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
         try bundledOpenCodeTUIPluginSource().write(to: directory.appendingPathComponent("tui.js"), atomically: true, encoding: .utf8)
         try (Self.openCodeTUIPluginOwnershipMarker + "\n").write(to: openCodeTUIPluginOwnershipURL(in: configDir), atomically: true, encoding: .utf8)
@@ -36433,7 +37991,7 @@ export default {
             isCmuxOwnedHookCommand(command, for: def, includeLegacy: includeLegacyOwnedCommands)
         }
         var entries: [CodexHookTrustEntry] = []
-        let keySource = codexNormalizedHookSourcePath(hooksFilePath)
+        let keySource = codexHookTrustKeySourcePath(hooksFilePath, def: def)
 
         for eventName in codexHookEventNames {
             guard let groups = hooks[eventName] as? [[String: Any]],
@@ -36471,7 +38029,12 @@ export default {
         def: AgentHookDef
     ) -> Set<String> {
         guard def.name == "codex" else { return [] }
-        return ["\(codexNormalizedHookSourcePath(hooksFilePath)):"]
+        // Earlier installs keyed trust by the fully resolved path; keep
+        // clearing those stale entries from the cmux-owned block.
+        return [
+            "\(codexHookTrustKeySourcePath(hooksFilePath, def: def)):",
+            "\(codexNormalizedHookSourcePath(hooksFilePath)):",
+        ]
     }
 
     private static func codexLegacyHookTrustHashes(def: AgentHookDef) -> Set<String> {
@@ -36530,6 +38093,21 @@ export default {
             )
         }
         return hashes
+    }
+
+    /// The hooks.json path exactly as Codex embeds it in trust keys. Codex
+    /// canonicalizes an explicit `CODEX_HOME` directory and joins `hooks.json`
+    /// to it, but uses `$HOME/.codex` verbatim (codex-rs/utils/home-dir
+    /// `find_codex_home`), so a symlinked default home must not be resolved.
+    private static func codexHookTrustKeySourcePath(_ path: String, def: AgentHookDef) -> String {
+        guard def.resolvesConfigDirFromEnvOverride else { return path }
+        let url = URL(fileURLWithPath: path)
+        guard let resolvedParent = realPath(url.deletingLastPathComponent().path) else {
+            return path
+        }
+        return URL(fileURLWithPath: resolvedParent, isDirectory: true)
+            .appendingPathComponent(url.lastPathComponent)
+            .path
     }
 
     private static func codexNormalizedHookSourcePath(_ path: String) -> String {
@@ -36738,6 +38316,10 @@ export default {
         ) else {
             return
         }
+        // The monitor held this connection for the whole turn. Replay the
+        // Stop on a fresh one so a connection the app dropped or stalled
+        // cannot delay the Idle projection by a response timeout per call.
+        client.close()
         try runGenericAgentHookEvent(
             def: def,
             commandArgs: replay.commandArguments,
@@ -37015,6 +38597,12 @@ export default {
                 ?? normalizedHookValue(env["PWD"])
                 ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let hookTranscriptPath = relayOrigin ? nil : input.transcriptPath
+        if def.name == "codex",
+           codexHookIsInternalSession(input: input, cwd: hookCwd, environment: env) {
+            telemetry.breadcrumb("codex-hook.internal-session-suppressed")
+            print("{}")
+            return
+        }
         func localAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
             guard !relayOrigin else { return nil }
             return mapped?.pid ?? inferredPID
@@ -39003,6 +40591,18 @@ export default {
                 )
                 return summary.status == .error ? summary : nil
             }()
+            let openCodeFailure: AgentHookNotificationSummary? = {
+                guard def.name == "opencode" else { return nil }
+                let event = reportedHookEventName(from: input)?.lowercased() ?? ""
+                guard isOpenCodeFailureHookEvent(event) else { return nil }
+                let rawObject = input.rawObject ?? input.object ?? [:]
+                return classifyAgentHookNotification(
+                    def: def,
+                    signal: event,
+                    message: openCodeFailureMessage(from: rawObject) ?? "",
+                    isFallback: false
+                )
+            }()
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
@@ -39029,8 +40629,10 @@ export default {
             )
             if let antigravityFailure {
                 subtitle = antigravityFailure.subtitle
+            } else if let openCodeFailure {
+                subtitle = openCodeFailure.subtitle
             }
-            if codexFailure == nil, antigravityFailure == nil, let projectName, !projectName.isEmpty {
+            if codexFailure == nil, antigravityFailure == nil, openCodeFailure == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.subtitle.completedInProject",
@@ -39041,6 +40643,7 @@ export default {
             }
             let body = codexFailure?.body
                 ?? antigravityFailure?.body
+                ?? openCodeFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String(
@@ -39057,7 +40660,7 @@ export default {
                 inputTurnID: input.turnId,
                 terminationReason: stopTerminationReason
             )
-            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil
+            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil || openCodeFailure != nil
                 ? .error
                 : (sameTurnNeedsInput ? .needsInput : .idle)
             var lifecycleAfterStop: AgentHibernationLifecycleState = {
@@ -39248,7 +40851,7 @@ export default {
             // reducer's per-session fold handles stale sessions (a newer
             // running session outranks this one) and subagent tagging keeps
             // nested sessions off the pane badge — no emit-side guessing.
-            let stopHadFailure = codexFailure != nil || antigravityFailure != nil
+            let stopHadFailure = codexFailure != nil || antigravityFailure != nil || openCodeFailure != nil
             emitJournal(
                 stopHadFailure ? .errorReported : (sameTurnNeedsInput ? .questionRequested : .turnCompleted),
                 workspaceId: workspaceId,
@@ -39412,6 +41015,18 @@ export default {
                         )
                     }
                 } else if antigravityFailure != nil {
+                    let statusValue = agentErrorStatusValue(for: def)
+                    if def.name == "cursor" {
+                        sendCursorCriticalCommand(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        )
+                    } else {
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    }
+                } else if openCodeFailure != nil {
                     let statusValue = agentErrorStatusValue(for: def)
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
@@ -40274,9 +41889,17 @@ export default {
     ) {
         let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         let reportedEvent = reportedHookEventName(from: parsedInput)
+        let isOpenCodeStopFailure = source == "opencode"
+            && reportedEvent.map(isOpenCodeFailureHookEvent) == true
         let hookEventName: String
-        if let reportedEvent,
-           (source == "claude" || source == "codex") {
+        if isOpenCodeStopFailure {
+            // OpenCode uses the Claude-compatible StopFailure discriminator in
+            // its lifecycle bridge, but Feed's wire schema represents a
+            // failed turn as Stop + is_error. Preserve the failure bit while
+            // avoiding a successful completion event in the app reducer.
+            hookEventName = "Stop"
+        } else if let reportedEvent,
+                  (source == "claude" || source == "codex") {
             // Preserve an explicit lifecycle discriminator when a command
             // entrypoint was selected by stale/duplicated settings. The
             // classifier keeps approval semantics (including Codex's native
@@ -40360,6 +41983,15 @@ export default {
             if !failureDetails.isEmpty {
                 event["failure"] = failureDetails
                 failureDetailsForFeed = failureDetails
+            }
+        }
+        if isOpenCodeStopFailure {
+            event["is_error"] = true
+            if let message = openCodeFailureMessage(from: fallbackObject) {
+                event["error"] = message
+                var failureDetails = event["failure"] as? [String: Any] ?? [:]
+                failureDetails["message"] = message
+                event["failure"] = failureDetails
             }
         }
         if let toolInput = parsedInput.object?["tool_input"] {
@@ -40611,6 +42243,51 @@ export default {
             .map { String(format: "%02x", $0) }
             .joined()
         return "fallback-\(String(digest.prefix(16)))"
+    }
+
+    /// The notification and Feed paths share this classification, so a raw
+    /// OpenCode failure event is an error in both.
+    private func isOpenCodeFailureHookEvent(_ value: String) -> Bool {
+        let event = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedOpenCodeHookEventName(event) == "stopfailure"
+            || event.contains("execution.failed")
+            || event.contains("next.step.failed")
+            || event == "session.error"
+            || event == "error"
+    }
+
+    private func normalizedOpenCodeHookEventName(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    /// Upstream error text reaches notifications and Feed, so credentials are
+    /// redacted first. Nil when no safe detail remains; callers then
+    /// use their product-level failure copy.
+    private func openCodeFailureMessage(from object: [String: Any]) -> String? {
+        let raw: String?
+        if let message = firstString(in: object, keys: ["error", "message", "reason", "description"]) {
+            raw = message
+        } else if let error = object["error"] as? [String: Any] {
+            let nestedData = error["data"] as? [String: Any]
+            raw = firstString(in: error, keys: ["message", "reason", "description"])
+                ?? nestedData.flatMap {
+                    firstString(in: $0, keys: ["message", "error", "reason", "description"])
+                }
+                ?? firstString(in: error, keys: ["name"])
+        } else {
+            raw = nil
+        }
+        guard let raw else { return nil }
+        let redacted = normalizedSingleLine(AgentHookNotificationPolicy.redactSensitiveErrorDetail(normalizedSingleLine(raw)))
+        let remaining = redacted.replacingOccurrences(
+            of: #"<[a-z]+>|[\s\p{P}]"#, with: "", options: .regularExpression
+        )
+        guard !remaining.isEmpty else { return nil }
+        return truncate(redacted, maxLength: 500)
     }
 
     /// Feed reading must retain the completion, not the notification preview.
@@ -44003,7 +45680,7 @@ export default {
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
-        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)")) }
+        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically via cmux wrappers)")) }
         print("")
         var count = 0
         var skipped = 0
@@ -44126,49 +45803,26 @@ export default {
         \(c7)  ::\(reset)
         """
 
-        // List factory defaults from the shared CmuxSettings table and display
-        // names, so a changed default updates this screen. Welcome describes a
-        // fresh install and never reads the user's settings; the last line
-        // points at where rebound shortcuts are shown.
-        let formatter = ShortcutDisplayFormatter()
-        func defaultKeys(_ action: ShortcutAction) -> String {
-            formatter.displayString(action.defaultShortcut ?? .unbound)
-        }
-        let welcomeActions: [ShortcutAction] = [
-            .newTab,
-            .newSurface,
-            .goToWorkspace,
-            .toggleSidebar,
-            .toggleRightSidebar,
-            .splitRight,
-            .splitDown,
-            .commandPalette,
-            .renameWorkspace,
-            .openBrowser,
-            .jumpToUnread,
-            .toggleUnread,
-        ]
-        let keyColumnWidth = 20
-        var shortcutLines = ["  \(bold)Default shortcuts\(reset)", ""]
-        for action in welcomeActions {
-            let keys = defaultKeys(action)
-            let padding = String(repeating: " ", count: max(1, keyColumnWidth - keys.count))
-            shortcutLines.append("  \(bold)\(keys)\(reset)\(padding)\(subdued)\(action.displayName)\(reset)")
-        }
-        shortcutLines.append("")
-        shortcutLines.append(
-            "  \(subdued)Rebound something? Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to see or change your keys"
-                + " (Settings > Keyboard Shortcuts).\(reset)"
-        )
-        shortcutLines.append(
-            "  \(subdued)Press \(reset)\(bold)\(defaultKeys(.commandPalette))\(reset)\(subdued)"
-                + " or use File > Command Palette… for everything else.\(reset)"
-        )
+        let shortcuts = """
+          \(bold)Shortcuts\(reset)
+          \(bold)\u{2318}N\(reset)\(subdued)                  New workspace\(reset)
+          \(bold)\u{2318}T\(reset)\(subdued)                  New tab\(reset)
+          \(bold)\u{2318}P\(reset)\(subdued)                  \(String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…"))\(reset)
+          \(bold)\u{2318}B\(reset)\(subdued)                  \(String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar"))\(reset)
+          \(bold)\u{2318}\u{2325}B\(reset)\(subdued)                 \(String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar"))\(reset)
+          \(bold)\u{2318}D\(reset)\(subdued)                  \(String(localized: "shortcut.splitRight.label", defaultValue: "Split Right"))\(reset)
+          \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 \(String(localized: "shortcut.splitDown.label", defaultValue: "Split Down"))\(reset)
+          \(bold)\u{2318}\u{21E7}P\(reset)\(subdued)                 \(String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…"))\(reset)
+          \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 \(String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace"))\(reset)
+          \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
+          \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 \(String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread"))\(reset)
+          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 \(String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread"))\(reset)
+        """
 
         print()
         print(logo)
         print()
-        print(shortcutLines.joined(separator: "\n"))
+        print(shortcuts)
         print()
         print("  \(bold)Docs\(reset)\(subdued)                https://cmux.com/docs\(reset)")
         print("  \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)")
@@ -44176,6 +45830,7 @@ export default {
         print("  \(bold)Email\(reset)\(subdued)               founders@cmux.com\(reset)")
         print()
         print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
+        print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
         print()
     }
@@ -44447,9 +46102,20 @@ private enum CMUXCLIOutput {
         cliWriteStderr(message)
     }
 }
+/// The standard descriptors the caller left open when the CLI started.
+enum CLIStandardDescriptors {
+    /// Read once, on first access at the top of `main`.
+    static let openAtLaunch: [Int32] = [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO].filter {
+        fcntl($0, F_GETFD) >= 0
+    }
+}
+
 @main
 struct CMUXTermMain {
     static func main() async {
+        // Record the caller's standard descriptors before anything can open a
+        // file that reuses a closed standard number.
+        _ = CLIStandardDescriptors.openAtLaunch
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()

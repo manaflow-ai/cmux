@@ -232,7 +232,8 @@ struct cmuxApp: App {
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
-            cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState()
+            cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState(),
+            sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
         )
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
@@ -891,7 +892,7 @@ struct cmuxApp: App {
                         appDelegate.performNewWorkspaceAction(
                             tabManager: activeTabManager,
                             debugSource: "menu.newWorkspace",
-                            skipConfiguredAction: true
+                            localOnly: true
                         )
                     } else {
                         activeTabManager.addWorkspaceIfActive()

@@ -576,6 +576,10 @@ if test "$_cmux_integration_enabled" != 0
                 function grok --wraps "$wrapper_path" --inherit-variable wrapper_path
                     "$wrapper_path" $argv
                 end
+            case agy
+                function agy --wraps "$wrapper_path" --inherit-variable wrapper_path
+                    "$wrapper_path" $argv
+                end
             case muse
                 function muse --wraps "$wrapper_path" --inherit-variable wrapper_path
                     "$wrapper_path" $argv
@@ -584,6 +588,7 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     _cmux_install_cli_wrapper claude cmux-claude-wrapper
+    _cmux_install_cli_wrapper agy agy
     _cmux_install_cli_wrapper grok grok
     _cmux_install_cli_wrapper muse muse
 
