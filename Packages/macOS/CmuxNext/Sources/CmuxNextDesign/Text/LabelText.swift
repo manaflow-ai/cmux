@@ -116,18 +116,35 @@ enum LabelText {
         // An empty label is one empty line of its font.
         let shown = text.length > 0 ? text
             : NSAttributedString(string: " ", attributes: [.font: font ?? .systemFont(ofSize: NSFont.systemFontSize)])
+        // A field measures the lines it shows: its first `lines` lines, laid out as if unlimited
+        // (a limited container sets the rest of the text on its last line).
+        let shownLines = measuring.wraps && measuring.lines > 0 ? measuring.lines : Int.max
+        if measuring.wraps { measuring.lines = 0 }
         let range = lay(paragraphed(shown, shape: measuring), shape: measuring, width: width.map { $0 + padding * 2 }, height: nil, scale: scale)
         guard range.length > 0 else { return Metrics(size: .zero, firstBaseline: 0, lastBaselineFromBottom: 0) }
-        let used = manager.usedRect(for: container)
+        var used = CGRect.null
+        var baselines: [CGFloat] = []
+        manager.enumerateLineFragments(forGlyphRange: range) { rect, usedRect, _, glyphs, stop in
+            used = used.union(usedRect)
+            baselines.append(rect.minY + reportedAscent(of: glyphs))
+            if baselines.count >= shownLines { stop.pointee = true }
+        }
+        // The extra line after a final line break counts too, as a field's.
+        if shownLines == Int.max, !manager.extraLineFragmentUsedRect.isEmpty { used = used.union(manager.extraLineFragmentUsedRect) }
         let scale = max(scale, 1)
         let textWidth = text.length > 0 ? max(used.maxX - padding * 2, 0) : 0
         let size = NSSize(width: (textWidth * scale).rounded(.up) / scale, height: (used.maxY * scale).rounded(.up) / scale)
-        var firstLine = NSRange(), lastLine = NSRange()
-        let first = manager.lineFragmentRect(forGlyphAt: range.location, effectiveRange: &firstLine)
-        let last = manager.lineFragmentRect(forGlyphAt: NSMaxRange(range) - 1, effectiveRange: &lastLine)
-        let firstBaseline = first.minY + manager.location(forGlyphAt: firstLine.location).y
-        let lastBaseline = last.minY + manager.location(forGlyphAt: lastLine.location).y
-        return Metrics(size: size, firstBaseline: firstBaseline, lastBaselineFromBottom: size.height - lastBaseline)
+        return Metrics(size: size, firstBaseline: baselines.first ?? 0, lastBaselineFromBottom: size.height - (baselines.last ?? 0))
+    }
+
+    /// The baseline a field reports for a line (its tallest font's ascender, rounded to a whole
+    /// point; the glyphs sit on the pixel-rounded one).
+    private static func reportedAscent(of glyphs: NSRange) -> CGFloat {
+        var ascent: CGFloat = 0
+        storage.enumerateAttribute(.font, in: manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)) { value, _, _ in
+            if let font = value as? NSFont { ascent = max(ascent, font.ascender.rounded()) }
+        }
+        return ascent
     }
 
     /// Draws `text` (font and color set) laid out for `shape` in a top-down box of `size` (the
