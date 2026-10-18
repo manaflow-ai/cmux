@@ -86,7 +86,10 @@ struct DeepLinkNavigator {
     /// page scrolls to the turn, a page not loaded yet once its row renders.
     private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent) throws {
         let tabs = services.agentTabs
-        if let shown = tabs.tab(showing: id), services.revealTab(shown, intent: intent) {
+        // Session ids are globally unique across local, Cloud, SSH and Chief hosts. Search all
+        // registered tab stores first so a click-through from Agent Activity or a copied link
+        // reveals the owning remote chat instead of creating a misleading local tab.
+        if let shown = tabs.tab(anywhereShowing: id), services.revealTab(shown, intent: intent) {
             if let turn { tabs.revealTurn(turn, in: shown) }
             return
         }
