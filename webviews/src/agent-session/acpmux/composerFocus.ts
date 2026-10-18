@@ -52,9 +52,11 @@ export function focusedArea(element: Element | null): string {
 
 /// Installs the composer's claim on the keyboard. `focusComposer` focuses the prompt and
 /// returns false when no composer is shown.
-export function useComposerKeyboard(focusComposer: () => boolean) {
+export function useComposerKeyboard(focusComposer: () => boolean, command?: (name: string) => boolean) {
   const latest = useRef(focusComposer);
   latest.current = focusComposer;
+  const commands = useRef(command);
+  commands.current = command;
   useEffect(() => {
     const claimIfIdle = () => {
       const active = document.activeElement;
@@ -62,6 +64,11 @@ export function useComposerKeyboard(focusComposer: () => boolean) {
     };
     const onKey = (event: KeyboardEvent) => {
       if (!routesToComposer(event, document.activeElement)) return;
+      // Pane commands get printed keys before the composer (Lucas 2026-10-18).
+      if (event.key === "?" && commands.current?.("shortcutsHelp")) {
+        event.preventDefault();
+        return;
+      }
       if (!latest.current()) return;
       event.preventDefault();
       // The field has the caret now; insertText goes through its input handling like typing.

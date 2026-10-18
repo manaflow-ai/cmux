@@ -9,11 +9,22 @@ import { useSyncExternalStore } from "react";
 /// - `copyTurn`: copy a prompt and its final answer together as Markdown.
 /// - `messageTimes`: show a prompt's send time on hover or focus.
 /// - `codeWrap`: remember one wrap choice for every code card in the pane.
+/// - `planProgress`: keep the running plan's current step above the composer.
+/// - `shortcutsHelp`: show the chat's live keys from its menu or with ? outside a field.
 ///
 /// Turn one on with `"labs": {"liveRender": true}` in `agent-pane/layout.json` (the App pushes the
 /// file to every chat), or in the dev server with `?data-lab-live-render=on`. Each switch is also
 /// `data-lab-<name>="on"` on `<html>`, for CSS.
-export const LABS = ["liveRender", "contextMeter", "promptCollapse", "copyTurn", "messageTimes", "codeWrap"] as const;
+export const LABS = [
+  "liveRender",
+  "contextMeter",
+  "promptCollapse",
+  "copyTurn",
+  "messageTimes",
+  "codeWrap",
+  "planProgress",
+  "shortcutsHelp",
+] as const;
 export type Lab = (typeof LABS)[number];
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
