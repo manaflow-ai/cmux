@@ -28,9 +28,7 @@ const replacements: Record<string, unknown> = {
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (
-    /^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent)/.test(
-      key,
-    ) &&
+    /^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent)/.test(key) &&
     !(key in scope)
   )
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
@@ -76,9 +74,7 @@ try {
       render(async () => "data:image/png;base64,AA==");
       await Promise.resolve();
     });
-    expect(host.querySelector(".cv-user__images img")?.getAttribute("src")).toBe(
-      "data:image/png;base64,AA==",
-    );
+    expect(host.querySelector(".cv-user__images img")?.getAttribute("src")).toBe("data:image/png;base64,AA==");
     await act(async () => {
       render(async () => {
         throw new Error("session closed");
