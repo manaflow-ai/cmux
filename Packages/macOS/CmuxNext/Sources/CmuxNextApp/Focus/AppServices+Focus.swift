@@ -1,5 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextFocus
 
 // App-wide inputs to the per-window focus coordinators.
 extension AppServices {

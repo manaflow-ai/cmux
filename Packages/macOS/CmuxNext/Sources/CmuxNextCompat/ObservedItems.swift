@@ -2,7 +2,7 @@
 /// field re-runs that model's item only, and `changed` runs only when an item differs from the one
 /// handed out. The owner observes the list (which models, in what order) without reading their
 /// fields, so a model change that draws the same (a split's confirm) applies nothing.
-@MainActor public final class ObservedItems<Model: AnyObject & Sendable, Item: Equatable & Sendable> {
+@MainActor public final class ObservedItems<Model: AnyObject & Sendable, Item: Sendable> {
     private struct Watch {
         weak var model: Model?
         var item: Item
@@ -10,11 +10,15 @@
     }
     private var watches: [String: Watch] = [:]
     private let item: @MainActor @Sendable (Model) -> Item?
-    private let changed: @MainActor () -> Void
+    private let same: (Item, Item) -> Bool
+    private let changed: () -> Void
 
-    /// `item` maps one model (nil: its owner is gone); `changed` runs after an item changed.
-    public init(item: @escaping @MainActor @Sendable (Model) -> Item?, changed: @escaping @MainActor () -> Void) {
+    /// `item` maps one model (nil: its owner is gone); `changed` runs after an item changed
+    /// (`same` false: an item's equality may be main-actor isolated, so it is passed in).
+    public init(item: @escaping @MainActor @Sendable (Model) -> Item?, same: @escaping (Item, Item) -> Bool,
+                changed: @escaping () -> Void) {
         self.item = item
+        self.same = same
         self.changed = changed
     }
 
@@ -51,7 +55,7 @@
         let task = Task { [weak self] in
             for await next in later {
                 guard let self, let value = next.value else { return }
-                guard var watch = self.watches[key], watch.item != value else { continue }
+                guard var watch = self.watches[key], !self.same(watch.item, value) else { continue }
                 watch.item = value
                 self.watches[key] = watch
                 self.changed()
