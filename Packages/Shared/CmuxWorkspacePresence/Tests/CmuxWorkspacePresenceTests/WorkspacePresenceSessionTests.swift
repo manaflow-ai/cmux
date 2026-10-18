@@ -69,13 +69,16 @@ struct WorkspacePresenceSessionTests {
         let transport = PresenceTestTransport()
         let clock = ImmediatePresenceClock()
         let session = WorkspacePresenceSession(transport: transport, clock: clock)
+        let snapshots = session.snapshots()
         let run = Task { await session.run(scope: scope, accessToken: { "test" }, isCurrent: { true }) }
         defer { run.cancel(); session.stop() }
 
         let first = try #require(await PresenceTestTransport.next(transport.connections))
         await first.connection.disconnect()
         let second = try #require(await PresenceTestTransport.next(transport.connections))
-        await second.connection.deliver(WorkspacePresenceSnapshot(scope: scope, participants: []))
+        let ada = WorkspacePresenceParticipant(id: "ada", displayName: "Ada")
+        await second.connection.deliver(WorkspacePresenceSnapshot(scope: scope, participants: [ada]))
+        #expect(await PresenceTestTransport.next(snapshots, matching: { $0 == [ada] }) == [ada])
         await second.connection.disconnect()
 
         _ = try #require(await PresenceTestTransport.next(transport.connections))
