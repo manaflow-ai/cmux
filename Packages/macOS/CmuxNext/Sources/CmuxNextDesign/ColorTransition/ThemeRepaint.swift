@@ -202,12 +202,13 @@ enum ThemeRepaint {
 
     // MARK: Hidden subtrees
 
-    /// A hidden subtree a repaint left out: the scope whose pass skipped it and that pass's
-    /// revision (``ThemeScope/paintRevision``), and the observation that repaints it when shown.
+    /// A hidden subtree a repaint left out: the scope whose pass skipped it and the revision of
+    /// the first pass it missed (``ThemeScope/paintRevision``), and the observation that
+    /// repaints it when shown.
     private final class StaleRegion {
         weak var scope: ThemeScope?
-        let scoped: Bool
-        let revision: Int
+        var scoped: Bool
+        var revision: Int
         /// A skipped pass also laid out (a border width or font changed).
         var layout = false
         var observation: NSKeyValueObservation?
@@ -217,6 +218,15 @@ enum ThemeRepaint {
             scoped = scope != nil
             revision = scope?.paintRevision ?? 0
         }
+
+        /// Another pass skipped the same subtree: one repaint on show covers both, in the wider
+        /// region when the passes came from different scopes (the view moved, or a config change).
+        func merge(scope other: ThemeScope?, layout: Bool) {
+            self.layout = self.layout || layout
+            guard scoped, other !== scope else { return }
+            scope = nil
+            scoped = false
+        }
     }
 
     private static let stale = NSMapTable<NSView, StaleRegion>(keyOptions: .weakMemory, valueOptions: .strongMemory)
@@ -225,10 +235,7 @@ enum ThemeRepaint {
     /// hooks once, if its scope repainted since (I5: a hidden or parked view costs nothing per
     /// theme change). One mark per view, whatever the number of changes while hidden.
     private static func markStale(_ view: NSView, scope: ThemeScope?, layout: Bool) {
-        if let marked = stale.object(forKey: view) {
-            marked.layout = marked.layout || layout
-            return
-        }
+        if let marked = stale.object(forKey: view) { return marked.merge(scope: scope, layout: layout) }
         let region = StaleRegion(scope: scope)
         region.layout = layout
         region.observation = view.observe(\.isHidden, options: [.new]) { view, _ in
@@ -243,16 +250,17 @@ enum ThemeRepaint {
         stale.removeObject(forKey: view)
     }
 
-    /// `view` was shown (or hidden again): a marked subtree repaints, without a blend (content
-    /// that appears does not fade), when its scope's revision moved past the pass that skipped it.
+    /// `view` was shown (or hidden again): a marked subtree missed the passes from
+    /// `region.revision` on and repaints once now, without a blend (content that appears does not
+    /// fade). A pass that reached the view meanwhile already dropped the mark. A view must be
+    /// shown through its own `isHidden`; one moved out of a hidden ancestor repaints with the
+    /// next pass that reaches it.
     private static func didShow(_ view: NSView) {
         guard !view.isHidden, let region = stale.object(forKey: view) else { return }
         forget(view, region)
-        let scope = region.scope
-        // The scope is gone (its owner closed): nothing draws in it any more.
-        if region.scoped, scope == nil { return }
-        if let scope, scope.paintRevision < region.revision { return }
-        batch { request(view, roots: { () -> [NSView] in [view] }, scope: scope, animated: false, layout: region.layout) }
+        // The scope is gone (its owner closed) and the view did not move: nothing draws in it.
+        if region.scoped, region.scope == nil { return }
+        batch { request(view, roots: { () -> [NSView] in [view] }, scope: region.scope, animated: false, layout: region.layout) }
     }
 
     private static func rootsOther(_ view: NSView, than scope: ThemeScope?) -> Bool {
