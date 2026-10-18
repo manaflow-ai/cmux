@@ -316,6 +316,16 @@ test("entry-filter counts only outcomes belonging to the selected entry", () => 
   });
 });
 
+test("feed summaries carry ordered comparison history", () => {
+  const evidence = {
+    history: [
+      { captureId: "base", role: "baseline", sha: "base-sha" },
+      { captureId: "head", role: "candidate", sha: "head-sha" },
+    ],
+  };
+  expect(feedSummary([outcome({})], { ...meta, evidence }).evidence).toEqual(evidence);
+});
+
 test("play-failed unchanged states stay out of the unchanged list", () => {
   const html = diffPage(
     [

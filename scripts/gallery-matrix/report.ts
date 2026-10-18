@@ -22,7 +22,7 @@ export type ReportMeta = {
   head: string;
   base: string;
   links: ReportLinks;
-  evidence?: { base?: unknown; head?: unknown; repeat?: unknown; freshness?: unknown };
+  evidence?: { base?: unknown; head?: unknown; repeat?: unknown; freshness?: unknown; history?: unknown[] };
 };
 
 type EvidenceView = { captureId?: string; role?: string; sha?: string; scenarioFingerprint?: string; status?: string; quality?: string };
