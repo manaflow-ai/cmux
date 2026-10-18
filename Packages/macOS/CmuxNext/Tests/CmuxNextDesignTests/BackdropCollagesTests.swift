@@ -50,11 +50,15 @@ import UniformTypeIdentifiers
         #expect(image.width == 3200 && image.height == 2000)
         #expect(collages.collage(id) == collage)
         #expect(collages.list() == [.collage(id: id)])
-        // An edit is a new drawing under a new id; the old files go.
+        // An edit is a new drawing under a new id; the old one stays until it is removed (the page
+        // removes it once the background has switched to the new one).
         var edited = collage
         edited.name = "Pair 2"
-        let next = try collages.save(edited, replacing: id)
-        #expect(next != id && collages.collage(id) == nil && collages.list() == [.collage(id: next)])
+        let next = try collages.save(edited)
+        #expect(next != id && collages.collage(id) == collage && collages.collage(next) == edited)
+        #expect(Set(collages.list()) == [.collage(id: id), .collage(id: next)])
+        try collages.delete(id)
+        #expect(collages.list() == [.collage(id: next)])
         try collages.delete(next)
         #expect(collages.list().isEmpty)
     }
