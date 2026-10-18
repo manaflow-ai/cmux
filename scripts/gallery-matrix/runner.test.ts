@@ -34,6 +34,11 @@ test("matrix index exposes receipt metadata and triage state filtering", () => {
   expect(html).toContain("play-failed");
 });
 
+test("matrix index marks missing revision data as provenance-failed", () => {
+  const html = renderIndex([{ id: "unbound", engine: "chromium", screenshot: "unbound.png", ready: "1" }]);
+  expect(html).toContain("provenance-failed");
+});
+
 test("matrix index pages large result sets instead of mounting every card", () => {
   const results = Array.from({ length: 49 }, (_, index) => ({
     id: `case-${index}`,
