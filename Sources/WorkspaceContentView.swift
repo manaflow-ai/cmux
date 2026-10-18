@@ -224,6 +224,11 @@ struct WorkspaceContentView: View {
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
 
+    private struct BonsplitPaneRenderSnapshot {
+        let tabIds: [UUID]
+        let selectedTabId: UUID?
+    }
+
     var body: some View {
 #if DEBUG
         let _ = {
@@ -237,6 +242,7 @@ struct WorkspaceContentView: View {
         let isSplit = workspace.hasMultipleSplitSurfaces
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
+        let bonsplitPaneRenderSnapshots = Self.bonsplitPaneRenderSnapshots(for: workspace.bonsplitController)
 
         let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
@@ -254,15 +260,13 @@ struct WorkspaceContentView: View {
                 // This content builder only needs selection identity. Building a
                 // full Tab snapshot also reads its title and icon metadata, which
                 // subscribes pane content to unrelated tab-bar changes.
-                let paneTabIds = workspace.bonsplitController.tabIds(inPane: paneId).map(\.uuid)
-                let selectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
-                    selectedTabId: workspace.bonsplitController.selectedTabId(inPane: paneId)?.uuid,
-                    tabIds: paneTabIds
-                )
+                let paneSnapshot = bonsplitPaneRenderSnapshots[paneId.id]
+                    ?? BonsplitPaneRenderSnapshot(tabIds: [], selectedTabId: nil)
+                let selectedTabId = paneSnapshot.selectedTabId
                 let isSelectedInPane = selectedTabId == tab.id.uuid
                 let isFallbackInPane = WorkspacePanelVisibilityPolicy.fallbackTabId(
                     selectedTabId: selectedTabId,
-                    tabIds: paneTabIds
+                    tabIds: paneSnapshot.tabIds
                 ) == tab.id.uuid
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
@@ -482,6 +486,26 @@ struct WorkspaceContentView: View {
             isWorkspaceVisible: isWorkspaceVisible,
             sourceView: workspace.cloudPaneCreationFailureSourceView
         ))
+    }
+
+    /// Captures the selection identity needed by each pane before Bonsplit
+    /// invokes its content closure once for every tab.
+    private static func bonsplitPaneRenderSnapshots(
+        for controller: BonsplitController
+    ) -> [UUID: BonsplitPaneRenderSnapshot] {
+        var snapshots: [UUID: BonsplitPaneRenderSnapshot] = [:]
+        for paneId in controller.allPaneIds {
+            let tabIds = controller.tabIds(inPane: paneId).map(\.uuid)
+            let selectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
+                selectedTabId: controller.selectedTabId(inPane: paneId)?.uuid,
+                tabIds: tabIds
+            )
+            snapshots[paneId.id] = BonsplitPaneRenderSnapshot(
+                tabIds: tabIds,
+                selectedTabId: selectedTabId
+            )
+        }
+        return snapshots
     }
 
     /// Keeps inactive workspaces from accepting AppKit drops without mutating
