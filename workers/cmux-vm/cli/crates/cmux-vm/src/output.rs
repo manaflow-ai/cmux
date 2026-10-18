@@ -89,7 +89,9 @@ impl<'a> Printer<'a> {
             for image in &images.items {
                 self.line(&format!(
                     "{:<24} {:<20} {}",
-                    image.id, image.revision, image.display_name
+                    image.id.as_str(),
+                    image.revision.as_str(),
+                    image.display_name
                 ))?;
             }
         }
