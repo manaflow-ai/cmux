@@ -34,6 +34,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "extensions.beta.enabled"
     )
 
+    /// Click by Hint: hint mode (Cmd-J labels every clickable control in the
+    /// window; typing a label clicks it) as an opt-in preview. Defaults off;
+    /// a remote rollout flag can turn it on even while this is off.
+    public let windowHints = DefaultsKey<Bool>(
+        id: "windowHints.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "windowHints.beta.enabled"
+    )
+
     /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
     /// JSON) discovered from `~/.config/cmux/sidebars/` and selectable in the
     /// sidebar button's provider picker. Defaults on; while off, no custom
@@ -89,5 +98,46 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// New Workspace on the remote host: with a remote tmux workspace selected, New
+    /// Workspace creates a tmux session on that workspace's host and New Local Workspace
+    /// is offered for local work. Defaults off; while off, New Workspace always creates a
+    /// local workspace.
+    public let remoteTmuxNewWorkspaceOnHost = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.newWorkspaceOnHost.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.newWorkspaceOnHost.enabled"
+    )
+
+    /// Aggregates all of a host's sessions through one shared `tmux -CC` connection
+    /// (required for hosts that permit a single concurrent SSH connection) instead of
+    /// one connection per session. The workspace model is identical either way.
+    /// Defaults off; while off, the per-session GA transport is used.
+    public let remoteTmuxMultiplexer = DefaultsKey<Bool>(
+        id: "remoteTmux.multiplexer.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.multiplexer.beta.enabled"
+    )
+
+
+    /// Remote host origin colors: tint each remote workspace's sidebar row and
+    /// tab with a stable per-host color (hashed from the host name into a palette
+    /// picked to stay distinguishable, collisions taking the next color) so servers are easy
+    /// to tell apart and a given host shows the same color in every window. A
+    /// user's manual workspace color always wins. Defaults off; while off, remote
+    /// workspaces render with no origin tint.
+    public let remoteTmuxOriginColors = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.originColors.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.originColors.enabled"
+    )
+
+    /// Remote host names on duplicate titles: when sidebar workspaces share a title and come from
+    /// different places, show each remote one's host after its title, leaving off the domain the
+    /// hosts share. Defaults off; while off, titles show as they are.
+    public let remoteTmuxOriginHostTitles = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.originHostTitles.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.originHostTitles.enabled"
+    )
     public init() {}
 }

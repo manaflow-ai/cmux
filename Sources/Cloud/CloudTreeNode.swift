@@ -93,7 +93,7 @@ final class CloudTreeNode: NSObject {
         case coderouterProviderGroup(CoderouterProvider, count: Int)
         case coderouterAccount(CoderouterAccount)
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
-        /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
+        /// hover "+" (New Machine, Cmd-Shift-Y), false while Cloud Machines is off and the
         /// header stands alone; `usage` is the plan's count (nil until it loads), `refresh` its refresh icon.
         case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil, refresh: CloudTreeSectionRefresh? = nil)
         case createAction(CloudTreeCreateAction)
@@ -105,6 +105,20 @@ final class CloudTreeNode: NSObject {
         case machineDetailTabs(CloudTreeMachineDetailTabs)
         /// The gap after a Cloud machine's last row, before the next machine.
         case machineEndSpacer(machine: SurfaceMachineID)
+        /// Rows whose open verb is the disclosure itself. These rows must still
+        /// consume a fast second or third pointer click: AppKit can deliver
+        /// the row action with a click count greater than one when clicks are
+        /// close enough to be coalesced into a multi-click gesture.
+        var togglesOnActivation: Bool {
+            switch self {
+            case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup,
+                 .browsersGroup, .portsGroup, .resourcesPool, .device, .devicesSection,
+                 .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup:
+                true
+            default:
+                false
+            }
+        }
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
         /// The identity glyph a top-level section header carries once for all of
@@ -272,7 +286,7 @@ final class CloudTreeNode: NSObject {
         case .machineDetailTabs, .machineEndSpacer: return ""
         case .devicesEmpty(let section):
             return section.count == 0
-                ? String(localized: "devices.empty.title", defaultValue: "No other devices yet")
+                ? String(localized: "cloudTree.devices.empty", defaultValue: "No devices yet")
                 : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }
@@ -292,10 +306,16 @@ final class CloudTreeNode: NSObject {
                 remoteWorkspaceID: view.workspace.id
             )
         }
-        // No `.browser` branch: `isDragSource` admits only terminals and
-        // displays, and `CloudTreeDragRegistration` is the only reader of a leaf
-        // row's group, so a browser row never gets here. Granting browsers a
-        // projection capability is a separate decision, not a naming fix.
+        if case .browser(let row) = kind,
+           let view = row.remoteView {
+            // Keep the exact daemon tab identity so moving a Cloud browser
+            // between workspaces preserves its authenticated session and URL.
+            return SurfaceResourceGroup(
+                title: CloudTreeResourceName(resource: row.resource, remoteView: view).browserName,
+                placements: [SurfaceResourcePlacement(resource: row.resource.id, remoteView: view)],
+                remoteWorkspaceID: view.workspace.id
+            )
+        }
         if case .display(let resource, _, let view) = kind,
            let view {
             // The group's title names the local workspace the drag produces, so
@@ -320,6 +340,7 @@ final class CloudTreeNode: NSObject {
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true
+        case .browser(let row): return !row.resource.machine.isLocal && row.remoteView != nil
         case .workspace(let machine, _, _, _, _) where !machine.isLocal:
             guard let group = dragGroup, !group.isEmpty else { return false }
             return group.resources.allSatisfy { !$0.machine.isLocal }
@@ -948,8 +969,8 @@ enum CloudTreeNodeBuilder {
         }
         return children
     }
-    /// Builds every nonempty Cloud workspace from its actual layout members.
-    /// Empty daemon records remain available to lookup and persistence.
+    /// Builds every Cloud workspace from its daemon record and actual layout members.
+    /// Empty daemon records remain visible so they can receive Cloud surface drops.
     private static func workspacesGroupNode(
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo,
@@ -983,7 +1004,7 @@ enum CloudTreeNodeBuilder {
             else { rows.displays.append(placement) }
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty || snapshot.pendingWorkspaceCreations?[machine]?[$0.workspace.id] != nil }.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in

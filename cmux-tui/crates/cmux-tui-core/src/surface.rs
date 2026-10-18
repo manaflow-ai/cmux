@@ -1643,6 +1643,7 @@ pub struct PtyTerminalRuntime {
     journal_capture_gate: Mutex<()>,
     journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
+    journal_capture_disabled: AtomicBool,
     journal_capture_reserved: AtomicBool,
     journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
@@ -2583,6 +2584,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -3103,6 +3105,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4191,6 +4194,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4423,6 +4427,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -5143,6 +5148,45 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         Ok(f(&mut pty.term.lock().unwrap()))
+    }
+
+    /// Abort an unreplayable parser sequence and run a capture while the
+    /// terminal/output fence is held. The synthetic CAN bytes are published to
+    /// byte attachments before the fence is released, so their parsers stay
+    /// synchronized with the authoritative terminal.
+    pub(crate) fn discard_unreplayable_replay_with<R>(
+        &self,
+        f: impl FnOnce(&mut Terminal) -> R,
+    ) -> anyhow::Result<Option<R>> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        // A connected terminal host owns the authoritative parser. The daemon
+        // terminal is only a mirror, so injecting CAN here would leave the two
+        // parsers at different sequence boundaries when the next host output
+        // frame arrives. Source-side recovery needs a host protocol command;
+        // refuse this local-only mutation until one exists.
+        #[cfg(unix)]
+        if matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_)) {
+            anyhow::bail!("cannot discard unreplayable replay on a hosted terminal");
+        }
+        let mut terminal = pty.term.lock().unwrap();
+        // The reader releases this lock before journaling its parsed frame.
+        // Do not let synthetic CAN overtake that frame in journal ingress.
+        anyhow::ensure!(
+            pty.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0,
+            "terminal journal ingress is unsettled during replay capture"
+        );
+        let Some(output) = terminal.discard_unreplayable_replay() else {
+            return Ok(None);
+        };
+        pty.observe_terminal_output(&output);
+        pty.broadcast_attach_output(&output);
+        if let Some(journal_target) = pty.journal_target() {
+            pty.journal_output_if_open(journal_target, output);
+        }
+        pty.stream_progress.notify();
+        Ok(Some(f(&mut terminal)))
     }
 
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
@@ -6715,36 +6759,63 @@ impl PtySurface {
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
             let mut pending = chunk.to_vec();
             loop {
-                let space_epoch = {
+                let retry = {
                     let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire) {
+                    if !self.journal_capture_open.load(Ordering::Acquire)
+                        || self.journal_capture_disabled.load(Ordering::Acquire)
+                    {
                         return;
                     }
-                    let retry = match mux.try_journal_terminal_output(
+                    mux.try_journal_terminal_output(
                         terminal_id.clone(),
                         self.journal_generation.clone(),
                         occurred_at_ms,
                         pending,
-                    ) {
-                        Ok(retry) => retry,
-                        Err(error) => {
-                            self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
-                            eprintln!(
-                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                            );
-                            return;
-                        }
-                    };
-                    let Some((retry, space_epoch)) = retry else { break };
-                    pending = retry;
-                    space_epoch
+                    )
                 };
-                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
+                let retry = match retry {
+                    Ok(retry) => retry,
+                    Err(error) => {
+                        self.journal_capture_disabled.store(true, Ordering::Release);
+                        if mux
+                            .try_journal_terminal_output_gap(
+                                terminal_id,
+                                self.journal_generation.clone(),
+                                "journal_output_write_failed",
+                            )
+                            .is_err()
+                        {
+                            eprintln!(
+                                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
+                            );
+                        }
+                        eprintln!(
+                            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
+                        );
+                        return;
+                    }
+                };
+                let Some((retry, space_epoch)) = retry else { break };
+                pending = retry;
+                let deadline = mux.terminal_journal_durable_deadline();
+                if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
+                {
+                    self.journal_capture_disabled.store(true, Ordering::Release);
+                    if mux
+                        .try_journal_terminal_output_gap_until(
+                            terminal_id,
+                            self.journal_generation.clone(),
+                            "journal_output_deadline_expired",
+                            deadline,
+                        )
+                        .is_err()
+                    {
+                        eprintln!(
+                            "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
+                        );
+                    }
                     eprintln!(
-                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
+                        "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
                     );
                     return;
                 }
@@ -7561,6 +7632,64 @@ mod tests {
         assert!(pty.reaper_thread.lock().unwrap().is_none());
     }
 
+    #[test]
+    fn checkpoint_recovery_resets_terminal_metadata_parser() {
+        let mux = Mux::new_for_test("checkpoint-metadata-recovery", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        let mut oversized = b"\x1b]9;4;1;".to_vec();
+        oversized.resize(1_048_577, b'x');
+        surface.apply_stream_output_for_test(&oversized).unwrap();
+
+        let recovered = surface
+            .discard_unreplayable_replay_with(|terminal| {
+                terminal.vt_replay_bounded(VT_REPLAY_MAX_BYTES)
+            })
+            .unwrap();
+        assert!(matches!(recovered, Some(Ok(_))));
+
+        let mut attach_output = Vec::new();
+        while let Ok(frame) = attach.stream.try_recv() {
+            if let AttachFrame::Output(bytes) = frame {
+                attach_output.extend_from_slice(&bytes);
+            }
+        }
+        assert!(
+            attach_output.contains(&0x18),
+            "recovery must publish CAN to attached byte parsers"
+        );
+
+        surface.apply_stream_output_for_test(b"\x1b]9;4;2;\x07").unwrap();
+        assert_eq!(surface.terminal_screen_snapshot().unwrap().osc_progress, "4;2;");
+    }
+
+    #[test]
+    fn checkpoint_recovery_waits_for_pending_journal_output() {
+        let mux = Mux::new_for_test("checkpoint-ingress-recovery", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
+        surface
+            .try_with_terminal(|terminal| terminal.set_kitty_inflight_storage_limit(64))
+            .unwrap();
+        let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+        assert!(pending_output.activate());
+        let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+        upload.resize(1024, b'A');
+        surface.apply_local_pty_output_for_test(&upload).unwrap();
+
+        // The local reader has parsed the frame but has not enqueued it yet.
+        let error = surface.discard_unreplayable_replay_with(|_| ()).unwrap_err();
+        assert!(error.to_string().contains("terminal journal ingress is unsettled"));
+        assert_eq!(attach.stream.try_recv().unwrap(), AttachFrame::Output(upload));
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+
+        drop(pending_output);
+        assert!(surface.discard_unreplayable_replay_with(|_| ()).unwrap().is_some());
+        assert_eq!(attach.stream.try_recv().unwrap(), AttachFrame::Output(vec![0x18]));
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_surface_reaper_timeout_retains_production_handle() {
@@ -7690,6 +7819,66 @@ mod tests {
         source.write_bytes(b"first").unwrap();
         projection.write_bytes(b"second").unwrap();
         assert_eq!(&*writer.0.lock().unwrap(), b"firstsecond");
+    }
+
+    #[test]
+    fn terminal_journal_write_failure_disables_capture_without_stopping_daemon() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-capture-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-capture-failure",
+            SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let injector = rusqlite::Connection::open(database_path).unwrap();
+        injector
+            .execute_batch(
+                "CREATE TRIGGER reject_capture_failure_test_terminal_output
+                 BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.output'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'database or disk is full');
+                 END;",
+            )
+            .unwrap();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let terminal_id = Arc::new(surface.terminal_public_id().unwrap().clone());
+        let pty = surface.as_pty().unwrap();
+
+        pty.journal_output_if_open(
+            (mux.clone(), terminal_id.clone()),
+            b"the first write enters the failing journal".to_vec(),
+        );
+        assert!(mux.flush_terminal_journal().is_err());
+        pty.journal_output_if_open(
+            (mux.clone(), terminal_id),
+            b"the next write reports the permanent failure".to_vec(),
+        );
+
+        assert!(pty.journal_capture_open.load(Ordering::Acquire));
+        assert!(pty.journal_capture_disabled.load(Ordering::Acquire));
+        let reader_gate = pty.begin_terminal_journal_update();
+        assert!(reader_gate.is_some(), "journal failure must not close the terminal reader gate");
+        drop(reader_gate);
+        assert!(
+            !mux.daemon_shutdown_requested(),
+            "journal storage failure must leave live terminal hosts available"
+        );
+        drop(surface);
+        drop(injector);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {

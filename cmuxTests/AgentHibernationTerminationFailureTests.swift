@@ -132,6 +132,65 @@ struct AgentHibernationTerminationFailureTests {
 
     @MainActor
     @Test
+    func recoveryObservesExitBeforeWaitingForTeardownFence() async {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let identity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let termination = AgentHibernationController.ScopedProcessTermination(
+            processID: 101,
+            processIdentity: identity,
+            processGroupID: 101,
+            ttyDevice: 123
+        )
+        let processExitCompletion = AgentHibernationProcessExitCompletion()
+        let recoveryExit = AsyncStream<Void>.makeStream()
+        let controller = AgentHibernationController.shared
+        var didRecover = false
+
+        controller.observeCommittedTermination(
+            panelID: panel.id,
+            terminations: [termination],
+            processExitCompletion: processExitCompletion,
+            waitForExit: { _ in false },
+            waitForRecoveryExit: { _ in
+                for await _ in recoveryExit.stream { return true }
+                return false
+            },
+            waitForRecoveryReadiness: {
+                await processExitCompletion.wait()
+            },
+            onExit: { true },
+            onFailure: {
+                panel.beginAgentHibernationTerminationRecovery()
+            },
+            onRecovery: {
+                didRecover = true
+                panel.completeAgentHibernationTermination()
+            },
+            onRecoveryFailure: {
+                panel.failAgentHibernationTermination()
+            }
+        )
+        let initial = controller.committedTerminationObservationsByPanelID[panel.id]?.task
+        await initial?.value
+        let recovery = controller.committedTerminationObservationsByPanelID[panel.id]?.task
+        #expect(recovery != nil)
+
+        recoveryExit.continuation.yield()
+        recoveryExit.continuation.finish()
+        await recovery?.value
+
+        #expect(didRecover)
+        #expect(await processExitCompletion.wait())
+        #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
+    }
+
+    @MainActor
+    @Test
     func failedTerminationKeepsRecoveryUntilNativeTeardownCompletes() async {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.close() }
