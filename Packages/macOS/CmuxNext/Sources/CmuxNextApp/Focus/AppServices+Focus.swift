@@ -35,6 +35,18 @@ extension AppServices {
 
     /// The chrome of page `key` gives the keyboard back to the page: its
     /// window's coordinator targets the page content (WebKit or Chromium).
+    /// A split's terminal tab, minted by a window, got its daemon surface. A focus wait by that
+    /// surface made before the store had it (the crate's copy of the tab may not name the surface
+    /// yet: the confirm sends no topology) takes the tab's stable id, with the same target,
+    /// pane and intent generation, so it lands now.
+    func terminalConfirmed(_ tab: TabModel) {
+        guard let surface = tab.daemonSurface else { return }
+        for controller in windows.controllers {
+            guard let wait = controller.focus.state.expectation, wait.key == .surface(surface) else { continue }
+            controller.focus.expect(.tab(tab.id), target: wait.target, awayFrom: wait.awayFrom, generation: wait.generation)
+        }
+    }
+
     func returnFocusToPage(_ key: String) {
         for controller in windows.controllers {
             guard let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == key }) else { continue }

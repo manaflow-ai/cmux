@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextCompat
 
 /// The terminal view of a pane Cmd+D shows before the daemon replied
 /// (plans/cmux-next/remote-state-ownership.md S3): keyed by its client-minted tab id, so the
@@ -14,11 +15,26 @@ extension TabContentCache {
 
     /// The provisional view of `tab`'s id, now attached to the daemon's `tab`; nil when there is none.
     func confirmedProvisional(_ tab: TabModel, validity: String, target: TerminalAttachment.Target,
-                              store: DaemonStore) -> TerminalEntry? {
+                              daemon: DaemonService) -> TerminalEntry? {
         guard !ProvisionalTab.isProvisional(surface: tab.surface), let entry = terminals[tab.id], entry.gate != nil else {
             return nil
         }
-        entry.confirm(validity: validity, target: target, store: store)
+        entry.confirm(validity: validity, target: target, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab), store: daemon.store)
         return entry
+    }
+
+    /// The provisional view of `entry` attaches when its own tab gets its daemon surface, whether
+    /// or not a pane applies anything then (no strip snapshot carries the surface).
+    func awaitConfirm(_ entry: TerminalEntry, of tab: TabModel, daemon: DaemonService) {
+        entry.confirmation = Task { [weak self, weak entry, weak tab, weak daemon] in
+            for await surface in ObservationStream({ [weak tab] in tab?.surface }) {
+                guard let self, let entry, let tab, let daemon, let surface else { return }
+                guard !ProvisionalTab.isProvisional(surface: surface) else { continue }
+                guard self.terminals[tab.id] === entry else { return }
+                _ = self.terminal(for: tab, daemon: daemon)
+                self.onTerminalConfirmed?(tab)
+                return
+            }
+        }
     }
 }

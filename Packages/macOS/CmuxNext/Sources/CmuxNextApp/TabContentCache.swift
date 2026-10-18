@@ -110,6 +110,8 @@ final class TabContentCache {
     /// closed, address bar editing ended); the App routes it through the
     /// window's focus coordinator.
     var onPageFocusRequest: ((String) -> Void)?
+    /// A provisional split's terminal tab got its daemon surface (``awaitConfirm(_:of:daemon:)``).
+    var onTerminalConfirmed: ((TabModel) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
@@ -142,7 +144,7 @@ final class TabContentCache {
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
-        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, store: daemon.store) {
+        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, daemon: daemon) {
             goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
             return entry
         }
@@ -167,6 +169,7 @@ final class TabContentCache {
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
+        if gate != nil { awaitConfirm(entry, of: tab, daemon: daemon) }
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
         return entry
