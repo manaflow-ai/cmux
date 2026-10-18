@@ -10,10 +10,10 @@ afterEach(async () => { await current?.dispose(); current = undefined; });
 const harness = async (options: HarnessOptions = {}) => { current = await makeHarness(options); return current; };
 const create = (t: Harness, key: string, idempotency = "recover-create") => t.request("/v1/vms", { ...bearer(key), "idempotency-key": idempotency }, { method: "POST", body: { displayName: "persistent agent", labels: { role: "team-vm" } } });
 const allocation = (t: Harness) => t.upstream.callsTo("POST", /^\/v5\/vms$/);
-const failCompletion = async () => {
+const failCompletion = async (loseAbandon = false) => {
   const base = await Effect.runPromise(Effect.provide(TenantLimits, memoryLimitsLayer()));
   const faults = { remaining: 1 };
-  return { faults, layer: Layer.succeed(TenantLimits, { ...base, advance: (tenant, key, progress) => {
+  return { faults, layer: Layer.succeed(TenantLimits, { ...base, abandon: loseAbandon ? () => Effect.void : base.abandon, advance: (tenant, key, progress) => {
     if (progress.phase === "done" && faults.remaining > 0) { faults.remaining--; return Effect.fail(new LimitsUnavailable({ cause: "lost durable completion" })); }
     return base.advance(tenant, key, progress);
   } }) };
@@ -40,6 +40,14 @@ it("does not report success until idempotency completion is durable, then repair
   expect(await retry.json()).toMatchObject({ id: t.resources[0]!.cmuxId });
   expect(allocation(t)).toHaveLength(1);
   expect(t.upstream.vms.size).toBe(1);
+});
+
+it("settles a committed allocation without waiting for the lease when completion and abandon both fail", async () => {
+  const completion = await failCompletion(true), t = await harness({ limits: completion.layer }), key = await t.addKey("team_alpha", ["vm:write"]);
+  expect((await create(t, key)).status).toBe(503);
+  expect((await create(t, key)).status).toBe(201);
+  expect(allocation(t)).toHaveLength(1);
+  expect(t.resources).toHaveLength(1);
 });
 
 it.each(["before", "after"] as const)("repairs an ownership write failure %s commit without deleting or duplicating the VM", async (when) => {

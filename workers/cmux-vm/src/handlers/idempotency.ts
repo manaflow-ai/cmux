@@ -4,6 +4,7 @@ import type { Principal } from "../domain/principal.ts";
 import { conflict, unavailable } from "../errors.ts";
 import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
+import { OwnershipStore } from "../db/stores.ts";
 
 const fingerprint = (value: unknown) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))).pipe(
@@ -26,6 +27,15 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
     case "mismatch":
       return yield* Effect.fail(conflict("This Idempotency-Key was already used with a different request"));
     case "in_progress":
+      if (claim.progress?.phase === "creating") {
+        // An ownership commit can outlive a failed completion/abandon RPC. SQL may settle it,
+        // but an active claim with no ownership row never permits another provider operation.
+        const status = yield* (yield* OwnershipStore).allocationStatus(principal.tenantId, claim.progress.vmId).pipe(Effect.mapError(() => unavailable()));
+        if (status !== "absent") {
+          yield* limits.advance(principal.tenantId, scoped, { phase: "done", vmId: claim.progress.vmId }).pipe(Effect.mapError(() => unavailable()));
+          return yield* replay(claim.progress.vmId);
+        }
+      }
       return yield* Effect.fail(conflict("A request with this Idempotency-Key is still running; retry shortly"));
     case "resume":
       if (claim.progress.phase === "done") return yield* replay(claim.progress.vmId);

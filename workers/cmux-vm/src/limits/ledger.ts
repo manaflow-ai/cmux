@@ -33,7 +33,8 @@ export type RateDecision = typeof RateDecision.Type;
 
 /**
  * Progress a create or fork made under one idempotency key: pending (claimed,
- * nothing made yet), snapshotted (a fork took its snapshot, public id, but
+ * no VM send yet), creating (durable allocation/context and retained quota),
+ * snapshotted (a fork took its snapshot, public id, but
  * has not created the VM), done (the VM, public id), snapshotDone (a snapshot
  * create finished, public snapshot id).
  */
@@ -54,7 +55,7 @@ export type IdempotencyProgress = typeof Progress.Type;
 export const IdempotencyBegin = Schema.Union(
   Schema.Struct({ state: Schema.Literal("new") }),
   Schema.Struct({ state: Schema.Literal("resume"), progress: Progress }),
-  Schema.Struct({ state: Schema.Literal("in_progress") }),
+  Schema.Struct({ state: Schema.Literal("in_progress"), progress: Schema.optional(Progress) }),
   Schema.Struct({ state: Schema.Literal("mismatch") }),
 );
 export type IdempotencyBegin = typeof IdempotencyBegin.Type;
@@ -95,7 +96,7 @@ export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
  * each), so a live request never loses its claim to a retry.
  */
 export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
-/** A reservation whose create died is released after this long. */
+/** An ordinary reservation expires after this long; an uncertain allocation retains its slot. */
 export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 
 export class TenantLedger {
@@ -163,7 +164,7 @@ export class TenantLedger {
       if (record !== undefined && (record.expiresMs > nowMs || record.progress.phase === "creating")) {
         if (record.fingerprint !== fingerprint) return { state: "mismatch" };
         if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") return { state: "resume", progress: record.progress };
-        if (record.leaseUntilMs > nowMs) return { state: "in_progress" };
+        if (record.leaseUntilMs > nowMs) return record.progress.phase === "creating" ? { state: "in_progress", progress: record.progress } : { state: "in_progress" };
         if (record.progress.phase === "snapshotted" || record.progress.phase === "creating") {
           await storage.put(storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
           return { state: "resume", progress: record.progress };

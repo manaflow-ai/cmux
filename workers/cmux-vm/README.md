@@ -77,7 +77,26 @@ snapshot succeeds and the create fails, the caller gets 503 `ForkIncomplete`
 with the snapshot's id, the snapshot stays in the tenant's ownership rows, and
 a retry with the same `Idempotency-Key` creates from it without a second
 snapshot. Create with `resources` boots the largest base size inside the
-request and then grows it; a failed grow deletes the new VM (409).
+request and then grows it. Without an idempotency key, a failed grow deletes
+the new VM (409). A keyed create retains its allocation for recovery instead.
+
+Use the same `Idempotency-Key` and request body when retrying a create or fork.
+Before provider I/O, the API durably retains the public allocation ID, original
+creator, an opaque request/provider-context digest and its quota reservation.
+Provider recovery reads only that intent's unique slug and checks its metadata
+and source snapshot; it never adopts by display name or account-wide listing.
+A provider or ownership-write failure retains the intent and quota slot. A
+confirmed ownership row repairs an uncertain completion, including a tombstone:
+retrying a deleted allocation cannot create another VM.
+
+Unresolved allocation intents do not expire at the ordinary 24-hour key or
+five-minute quota-reservation deadlines. They continue to occupy their slot
+until reconciled. Completed keys retain their result for at least 24 hours.
+Changed provider credentials, endpoint or effective create intent refuse
+recovery before provider I/O; restore the original context to resume. Unkeyed
+requests do not provide this cross-request recovery contract. Production
+billing integration, operator reconciliation/cancellation of abandoned intents,
+and live-provider validation remain separate work.
 
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
 (`TenantMayCreate`, 429; default 20 live VMs, `TENANT_VM_QUOTAS` overrides).

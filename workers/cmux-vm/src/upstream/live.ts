@@ -230,8 +230,9 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
-    createVm: (caller, spec, { source, network, image }) => {
-      if (spec.journal) return makeDurableCreate(config, baseImageFor)(caller, spec, { ...(source === undefined ? {} : { source }), ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) });
+    createVm: (caller, spec, proofs) => {
+      const { source, network, image } = proofs;
+      if (spec.journal) return makeDurableCreate(config, baseImageFor)(caller, spec, proofs);
       const sourceIdOf: Effect.Effect<UpstreamId | null> = source === undefined ? Effect.succeed(null) : idOf(source.owns);
       return Effect.flatMap(sourceIdOf, (sourceId) => Effect.gen(function* () {
         const imageId = image === undefined ? null : vmImageEvidenceOf(image).snapshotId;

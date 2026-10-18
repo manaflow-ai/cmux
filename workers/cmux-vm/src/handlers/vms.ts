@@ -133,8 +133,9 @@ const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: Tena
 
 /**
  * Creates the VM upstream (tagged with the tenant), grows it to the requested
- * size, and records it in the ownership table. If growing or recording fails,
- * the new VM is deleted by its exact id, so nothing unowned is left behind.
+ * size, and records it in the ownership table. Keyed creates retain an intent
+ * and quota slot before I/O; retries recover the same allocation. Unkeyed
+ * failures keep the legacy best-effort discard behavior.
  */
 const createRecorded = <C, S>(
   caller: Named<C, Principal>,
