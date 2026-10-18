@@ -24,6 +24,10 @@ warnings only.
                  snapshots, 0 sidebar list reloads (I6).
   split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
                  3 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
+  relaunch       the app quits and starts again on the same tag, so it restores the grid with
+                 its hidden New Tab pages (state an earlier launch left, as a person's app has);
+                 then tabs and split again in that grid, with the tabs and split budgets (I2,
+                 cx-8w027.20: each restored page re-ran its pane on every split or close anywhere).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -73,7 +77,7 @@ BUDGET = {
 # is removed, so the fixing lane tightens the gate in its own landing.
 KNOWN = {}
 FRAME_BUDGET_MS = 1000 / 60
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 SOURCES = "Packages/macOS/CmuxNext/Sources"
@@ -167,6 +171,12 @@ class App:
             raise SystemExit("perf-gate: the app's debug socket never answered (a Debug build is required)")
         if not wait(lambda: self.panes(), 60):
             raise SystemExit("perf-gate: the first terminal pane never showed")
+
+    def relaunch(self):
+        """Quits the app and starts it again on the same tag: it restores what this launch left."""
+        self.stop()
+        self.teardown = TagTeardown(self.bundle)
+        self.launch()
 
     def stop(self):
         try:
@@ -619,21 +629,22 @@ class Gate:
                 app.action("newTab.page", {}, target=f"pane:{pane}")
         want = columns * rows
         shown = wait(lambda: (lambda p: p if p[0] >= want and p[1] >= want * tabs else None)(app.panes()), 30) or app.panes()
-        print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {app.shown_workspace()}", flush=True)
+        self.grid_workspace = app.shown_workspace()
+        print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {self.grid_workspace}", flush=True)
         self.grid = shown
         return shown
 
-    def tabs(self):
+    def tabs(self, scenario="tabs"):
         app = self.app
         panes, tabs = getattr(self, "grid", None) or self.build_grid()
-        if not check(panes >= 16 and tabs >= 48, f"16 panes x 3 tabs shown ({panes} panes, {tabs} tabs)", "tabs"):
+        if not check(panes >= 16 and tabs >= 48, f"16 panes x 3 tabs shown ({panes} panes, {tabs} tabs)", scenario):
             return
         # Next Tab really moves the selection (outside the measured window: the reads cost nothing there).
         seen = []
         for _ in range(3):
             app.action("nextSurface")
             seen.append((app.topology().get("focus") or {}).get("tab"))
-        if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", "tabs"):
+        if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", scenario):
             return
         ops = 40
         app.quiet_counters()
@@ -643,15 +654,15 @@ class Gate:
             app.action("nextSurface")
             latencies.append((time.monotonic() - start) * 1000)
         measured = app.quiet_counters()
-        report["phases"]["tabs"] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
-                                    "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1]}
+        report["phases"][scenario] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
+                                      "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1]}
         check(not over(measured, BUDGET["tabs"]),
               f"{ops} tab switches at {panes} panes x 3 tabs: {breach_text(over(measured, BUDGET['tabs']), measured['sources']) or 'all 0'}"
-              f" (budget {BUDGET['tabs']})", "tabs")
-        if report["phases"]["tabs"]["latency_p99_ms"] > 50:
+              f" (budget {BUDGET['tabs']})", scenario)
+        if scenario == "tabs" and report["phases"]["tabs"]["latency_p99_ms"] > 50:
             warn(f"tab switch reply p99 {report['phases']['tabs']['latency_p99_ms']:.1f} ms (over 50 ms)", "tabs")
 
-    def split(self):
+    def split(self, scenario="split"):
         app = self.app
         panes, _ = getattr(self, "grid", None) or self.build_grid()
         pairs = 10
@@ -666,13 +677,27 @@ class Gate:
             landed += bool(split and closed)
         measured = app.quiet_counters()
         if not check(landed == pairs and app.panes()[0] == panes,
-                     f"{landed} of {pairs} split+close pairs landed ({app.panes()[0]} panes after, {panes} before)", "split"):
+                     f"{landed} of {pairs} split+close pairs landed ({app.panes()[0]} panes after, {panes} before)", scenario):
             return
         per_pair = {k: round(measured.get(k, 0) / pairs, 2) for k in BUDGET["split"]}
-        report["phases"]["split"] = {"pairs": pairs, "per_pair": per_pair, "sources": measured["sources"]}
+        report["phases"][scenario] = {"pairs": pairs, "per_pair": per_pair, "sources": measured["sources"]}
         breaches = over(measured, BUDGET["split"], pairs)
         check(not breaches, f"{pairs} split+close pairs at {panes} panes: per pair {per_pair} (budget {BUDGET['split']})"
-                            + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""), "split")
+                            + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""), scenario)
+
+    def relaunch(self):
+        """tabs and split again after a relaunch on the same tag, in the grid the app restored."""
+        app = self.app
+        if not getattr(self, "grid", None):
+            self.build_grid()
+        grid, workspace = self.grid, self.grid_workspace
+        app.relaunch()
+        app.action("goToWorkspace", {"workspace": workspace})
+        shown = wait(lambda: app.shown_workspace() == workspace and (lambda p: p[0] >= grid[0] and p[1] >= grid[1])(app.panes()), 60)
+        if not check(bool(shown), f"the relaunched app restores the grid ({app.panes()} panes and tabs, before {grid})", "relaunch"):
+            return
+        self.tabs("relaunch tabs")
+        self.split("relaunch split")
 
     def status(self):
         app = self.app
