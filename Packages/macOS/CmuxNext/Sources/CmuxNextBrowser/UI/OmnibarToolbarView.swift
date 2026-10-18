@@ -37,7 +37,7 @@ public final class OmnibarToolbarView: ArrowCursorView {
         OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     public override func layout() {
         super.layout()

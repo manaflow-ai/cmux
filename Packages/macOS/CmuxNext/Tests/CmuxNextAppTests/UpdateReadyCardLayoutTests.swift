@@ -28,10 +28,10 @@ import Testing
         var card: SidebarUpdateCardView { sidebar.updateCardView }
 
         /// Every piece of text the card shows, with the room it has.
-        func texts() -> [NSTextField] {
-            func walk(_ view: NSView) -> [NSTextField] {
+        func texts() -> [any ShownText] {
+            func walk(_ view: NSView) -> [any ShownText] {
                 guard !view.isHidden else { return [] }
-                return ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap(walk)
+                return ((view as? any ShownText).map { [$0] } ?? []) + view.subviews.flatMap(walk)
             }
             return walk(card)
         }
@@ -76,8 +76,8 @@ import Testing
         #expect(texts.contains { $0.stringValue == "Update Ready" })
         #expect(texts.contains { $0.stringValue.contains("3845050") }, "the card names the build: \(texts.map(\.stringValue))")
         for text in texts where !text.stringValue.isEmpty {
-            // The cell's own size: the text and the cell's insets.
-            let needed = ceil(text.cell?.cellSize.width ?? text.attributedStringValue.size().width)
+            // The text's own size, with the label's insets.
+            let needed = ceil((text as? NSTextField)?.cell?.cellSize.width ?? (text as? ChromeLabel)?.naturalSize.width ?? text.intrinsicContentSize.width)
             #expect(needed <= text.frame.width + 0.5,
                     "\"\(text.stringValue)\" needs \(needed) pt and has \(text.frame.width) pt at a \(Metrics.sidebarWidth) pt sidebar")
         }
