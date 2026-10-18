@@ -59,6 +59,8 @@ head rendered a second time.
 
 `pr.ts` (with `compare.ts` and `report.ts`) compares each state and writes `diff/`. Normal report builds require `--capture-manifest` alongside `--base-manifest` and `--head-manifest`; it must be the exact union manifest used to render the matrix, including base-only and head-only cases.
 
+Normal comparison runs also require full 40-character lowercase `--base-sha` and `--head-sha` values. `--outcomes` report rebuilds intentionally skip capture verification because they consume an existing, already-produced outcome set.
+
 - `index.html`: changed states first, each as a highlight overlay (changed regions boxed), a before/after slider and an onion skin; then new, removed, broken (the head stage did not mount) and nondeterministic states; unchanged states folded. The Entry filter narrows broad host changes to one gallery entry without discarding the measured states.
 - `comment.md`: the sticky PR comment ("7 states changed: agent-pane.composer/streaming, ...") with before/after thumbnails of the changed regions.
   With `--branch`, it also gives each changed or new state's page in the branch's live preview: `/wt/<name>/?entry=<id>#/<id>/<variant>`, where `<name>` is the branch as `gallery-live.sh` names it (hq `scripts/gallery-live.sh up <branch>` starts the preview, which follows the pushed branch). The comment gives only the path, because the gallery host is tailnet-only.
