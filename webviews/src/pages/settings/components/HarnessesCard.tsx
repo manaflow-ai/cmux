@@ -183,15 +183,12 @@ export function HarnessesCard() {
         )}
       </div>
       {(harnesses?.jobs ?? []).map((job, index) => (
-        <div
-          key={`${job.machine}:${job.terminal ?? index}`}
-          className="row-help"
-          role="status"
-          data-agent-update-job={job.state}
-        >
-          {agentDisplayName(job.cli)}
-          {" · "}
-          {jobText(job)}
+        <div key={`${job.machine}:${job.terminal ?? index}`} className="row-help" data-agent-update-job={job.state}>
+          <output>
+            {agentDisplayName(job.cli)}
+            {" · "}
+            {jobText(job)}
+          </output>
           {job.can_resume && job.intent_key && job.state === "unknown" && !job.terminal && (
             <button
               type="button"
