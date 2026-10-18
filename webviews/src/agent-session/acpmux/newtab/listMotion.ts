@@ -85,6 +85,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const currentKeys = keysRef.current;
     const root = list.current;
     if (observed.current?.root !== root) {
+      if (observed.current?.root) cancelRunning(running);
       observed.current?.observer.disconnect();
       observed.current = null;
       if (root && typeof ResizeObserver !== "undefined") {
