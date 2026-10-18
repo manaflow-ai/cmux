@@ -94,11 +94,15 @@ def parse_issue(issue: dict) -> Freeze:
         match = re.match(r"^\s*[-*]?\s*\**(paths|expires|owner|branch)\**\s*:\s*(.*?)\s*$", line, re.I)
         if match and match.group(1).lower() not in fields:
             fields[match.group(1).lower()] = match.group(2)
-    freeze.paths = [p.strip("`") for p in fields.get("paths", "").split() if p.strip("`")]
+    # Prefixes are repository paths: `./x/`, `/x/` and `x/,` all mean `x/`.
+    raw = [p.strip("`,") for p in fields.get("paths", "").replace(",", " ").split()]
+    freeze.paths = [re.sub(r"^\.?/+", "", p) for p in raw if p.strip("`,")]
     if not freeze.paths:
         freeze.problems.append("no `paths:` line")
     elif any(p.strip("/") in ("", "*", ".") for p in freeze.paths):
         freeze.problems.append("`paths:` names the whole repository; name the directories instead")
+    elif any(re.search(r"[*?\[]", p) for p in freeze.paths):
+        freeze.problems.append("`paths:` takes path prefixes, not globs (`cmux-tui/`, not `cmux-tui/*`)")
     if "expires" not in fields:
         freeze.problems.append("no `expires:` line")
     else:
@@ -218,8 +222,14 @@ def main(argv: list[str] | None = None) -> int:
             with open(args.files) as handle:
                 files = [line.strip() for line in handle if line.strip()]
         else:
-            files = gh("api", "--paginate", f"repos/{args.repo}/pulls/{args.pr}/files?per_page=100",
-                       "--jq", ".[].filename").split()
+            # Both ends of a rename: moving a file out of a frozen directory touches it too.
+            entries = gh_items(f"repos/{args.repo}/pulls/{args.pr}/files?per_page=100")
+            files = [e["filename"] for e in entries] + [e["previous_filename"] for e in entries
+                                                        if e.get("previous_filename")]
+            # The files API stops at 3000 files; an incomplete list can't clear a freeze.
+            expected = json.loads(gh("api", f"repos/{args.repo}/pulls/{args.pr}")).get("changed_files")
+            if expected is not None and len(entries) < expected:
+                raise ValueError(f"GitHub listed {len(entries)} of {expected} changed files")
         labeler = None
         if any(f.active(now) for f in freezes):
             events = (read_json_list(args.events_file) if args.events_file is not None

@@ -74,6 +74,14 @@ class FreezeTests(unittest.TestCase):
                                   ["docs/frozen-notes/a.md", "docs/app.md.orig"])
         self.assertEqual(status, 0)
 
+    def test_leading_slashes_and_commas_still_freeze_and_globs_are_malformed(self):
+        for paths in ("/cmux-tui/spec/", "./cmux-tui/spec/", "cmux-tui/spec/,"):
+            with self.subTest(paths=paths):
+                self.assertEqual(self.check([issue(body=body(paths=paths))], ["cmux-tui/spec/x.json"])[0], 1)
+        status, _, err = self.check([issue(body=body(paths="cmux-tui/*"))], ["cmux-tui/spec/x.json"])
+        self.assertEqual(status, 0)
+        self.assertIn("not globs", err)
+
     def test_an_expired_freeze_blocks_nothing(self):
         status, _, _ = self.check([issue(body=body(expires=stamp(NOW - timedelta(minutes=1))))],
                                   ["cmux-tui/spec/x.json"])
