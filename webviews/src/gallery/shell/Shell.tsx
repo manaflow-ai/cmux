@@ -15,7 +15,13 @@ import { css } from "../theme/tokens";
 import { themeTokens } from "../theme/web";
 import themes from "virtual:cmux-gallery/themes";
 import { EntryBoundary } from "./EntryBoundary";
-import { createGalleryRouter, validateShellSearch, VIEWS, type ShellSearch, type View } from "./router";
+import {
+  createGalleryRouter,
+  validateShellSearch,
+  VIEWS,
+  type ShellSearch,
+  type View,
+} from "./router";
 import { GalleryVariantPick } from "./GalleryVariantPick";
 import { CompareView } from "./CompareView";
 import { BrowseView } from "./BrowseView";
@@ -72,9 +78,15 @@ function GalleryLinks({ address }: { address: Address }) {
   };
   return (
     <div className="gallery-header-links" aria-label="Gallery links">
-      <a href={permalink} title="Open this exact gallery state">Permalink</a>
-      <button type="button" onClick={copy} aria-live="polite">{copied ? "Copied" : "Copy link"}</button>
-      <a href={TEAM_FEED_URL} target="_blank" rel="noreferrer">Team feed</a>
+      <a href={permalink} title="Open this exact gallery state">
+        Permalink
+      </a>
+      <button type="button" onClick={copy} aria-live="polite">
+        {copied ? "Copied" : "Copy link"}
+      </button>
+      <a href={TEAM_FEED_URL} target="_blank" rel="noreferrer">
+        Team feed
+      </a>
     </div>
   );
 }
@@ -124,7 +136,15 @@ function Highlight({ text, needle }: { text: string; needle: string }): ReactNod
 /** Scrolls the current (or keyboard-active) chip into view when it mounts or becomes current. */
 const reveal = (node: HTMLElement | null) => node?.scrollIntoView({ block: "nearest" });
 
-function Sidebar({ address, states, status }: { address: Address; states: readonly EntryState[]; status: LiveStatus }) {
+function Sidebar({
+  address,
+  states,
+  status,
+}: {
+  address: Address;
+  states: readonly EntryState[];
+  status: LiveStatus;
+}) {
   const [filter, setFilter] = useState("");
   const [active, setActive] = useState(-1);
   const needle = filter.trim().toLowerCase();
@@ -133,9 +153,13 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
   const experimental = experimentalLabel(address.search.locale);
   const entryMatches = (entry: GalleryEntry) =>
     !needle ||
-    `${entry.area} ${entry.title} ${entry.id} ${entry.experimental ? experimental : ""}`.toLowerCase().includes(needle);
+    `${entry.area} ${entry.title} ${entry.id} ${entry.experimental ? experimental : ""}`
+      .toLowerCase()
+      .includes(needle);
   const variantsOf = (entry: GalleryEntry) =>
-    Object.keys(entry.variants).filter((variant) => entryMatches(entry) || variant.includes(needle));
+    Object.keys(entry.variants).filter(
+      (variant) => entryMatches(entry) || variant.includes(needle),
+    );
   // The filter's arrow keys walk every visible variant in order; Return opens the active one.
   const flat = groups.flatMap((group) =>
     group.states.flatMap((state) =>
@@ -145,7 +169,8 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
     ),
   );
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
-  const open = (target: { entry: string; variant: string }) => go({ ...target, search: address.search });
+  const open = (target: { entry: string; variant: string }) =>
+    go({ ...target, search: address.search });
   const browseSearch = { ...address.search, view: "browse" as const };
   return (
     <nav className="gallery-list" aria-label="Gallery entries">
@@ -185,10 +210,15 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
       </div>
       {groups.map(({ area, states: all }) => {
         // A broken or loading file always shows (its card names the file); a loaded one when it matches.
-        const items = all.filter((state) => state.status !== "ready" || variantsOf(state.entry!).length > 0);
+        const items = all.filter(
+          (state) => state.status !== "ready" || variantsOf(state.entry!).length > 0,
+        );
         if (needle && items.length === 0) return null;
         const loaded = all.flatMap((state) => (state.entry ? [state.entry] : []));
-        const variantCount = loaded.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
+        const variantCount = loaded.reduce(
+          (sum, entry) => sum + Object.keys(entry.variants).length,
+          0,
+        );
         return (
           <section key={area} className="gallery-group">
             <h2>
@@ -203,7 +233,11 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
                 key={state.path}
                 state={state}
                 compact
-                loading={<div className="gallery-entry gallery-entry-loading">{known(state)?.title ?? state.path}</div>}
+                loading={
+                  <div className="gallery-entry gallery-entry-loading">
+                    {known(state)?.title ?? state.path}
+                  </div>
+                }
                 render={(entry) => (
                   <div className="gallery-entry">
                     <div className="gallery-entry-title">
@@ -213,7 +247,9 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
                     <ul className="gallery-variants">
                       {variantsOf(entry).map((variant) => {
                         const current = entry.id === address.entry && variant === address.variant;
-                        const index = flat.findIndex((item) => item.entry === entry.id && item.variant === variant);
+                        const index = flat.findIndex(
+                          (item) => item.entry === entry.id && item.variant === variant,
+                        );
                         return (
                           <li key={variant}>
                             <a
@@ -251,8 +287,13 @@ function Revision({ status }: { status: LiveStatus }) {
     ? `https://github.com/manaflow-ai/cmux/commit/${status.sha}`
     : undefined;
   return (
-    <div className="gallery-revision" title={`${status.branch ? `${status.branch}: ` : ""}${status.subject}`}>
-      <span className={status.live ? "gallery-revision-live" : undefined}>{status.live ? "live" : "build"}</span>{" "}
+    <div
+      className="gallery-revision"
+      title={`${status.branch ? `${status.branch}: ` : ""}${status.subject}`}
+    >
+      <span className={status.live ? "gallery-revision-live" : undefined}>
+        {status.live ? "live" : "build"}
+      </span>{" "}
       {url ? (
         <a href={url} target="_blank" rel="noreferrer">
           <code>{short}</code>
@@ -275,11 +316,14 @@ function ErrorBanner({ states, status }: { states: readonly EntryState[]; status
   return (
     <div className="gallery-banner" role="alert" data-gallery-banner="">
       <strong>
-        {failed.length > 0 && `${failed.length} ${failed.length === 1 ? "entry does" : "entries do"} not load`}
+        {failed.length > 0 &&
+          `${failed.length} ${failed.length === 1 ? "entry does" : "entries do"} not load`}
         {failed.length > 0 && compile.length > 0 && " · "}
-        {compile.length > 0 && `compile error in ${compile.length} ${compile.length === 1 ? "file" : "files"}`}
+        {compile.length > 0 &&
+          `compile error in ${compile.length} ${compile.length === 1 ? "file" : "files"}`}
       </strong>
-      : {[...failed, ...compile.map((error) => error.file)].join(", ")}. The other entries keep working.
+      : {[...failed, ...compile.map((error) => error.file)].join(", ")}. The other entries keep
+      working.
     </div>
   );
 }
@@ -412,7 +456,9 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         env={env}
         tune={search.tune}
         browse={search.browse}
-        onBrowseChange={(browse, replace = true) => go({ ...address, search: { ...search, browse } }, replace)}
+        onBrowseChange={(browse, replace = true) =>
+          go({ ...address, search: { ...search, browse } }, replace)
+        }
         onOpen={(target, targetVariant) =>
           go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
         }
@@ -428,7 +474,9 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
 function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }) {
   const [stagesRef, room] = useRoom();
   const { search } = address;
-  const variant = entry.variants[address.variant] ? address.variant : Object.keys(entry.variants)[0]!;
+  const variant = entry.variants[address.variant]
+    ? address.variant
+    : Object.keys(entry.variants)[0]!;
   const env: GalleryEnv = search;
   let stages: { key: string; variant: string; env: GalleryEnv; label?: string }[];
   switch (search.view) {
@@ -444,12 +492,14 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
       }));
       break;
     case "themes":
-      stages = SAMPLE_THEMES.filter((name) => themes.some((theme) => theme.name === name)).map((name) => ({
-        key: name,
-        variant,
-        env: { ...env, theme: name, colorScheme: "auto" as const },
-        label: `${variant} · ${name}`,
-      }));
+      stages = SAMPLE_THEMES.filter((name) => themes.some((theme) => theme.name === name)).map(
+        (name) => ({
+          key: name,
+          variant,
+          env: { ...env, theme: name, colorScheme: "auto" as const },
+          label: `${variant} · ${name}`,
+        }),
+      );
       break;
     default:
       stages = [{ key: variant, variant, env }];
@@ -459,7 +509,9 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
       <header className="gallery-header">
         <h1>
           {entry.title} <small>{entry.id}</small> <small>· {variant}</small>
-          {entry.experimental && <span className="gallery-experimental">{experimentalLabel(env.locale)}</span>}
+          {entry.experimental && (
+            <span className="gallery-experimental">{experimentalLabel(env.locale)}</span>
+          )}
         </h1>
         <Toolbar label="Gallery controls" className="gallery-toolbar">
           <ToolbarToggleGroup
@@ -518,7 +570,9 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
             tune={search.tune}
             compare={search.compare}
             room={room}
-            onCompare={(compare, replace) => go({ ...address, search: { ...search, compare } }, replace)}
+            onCompare={(compare, replace) =>
+              go({ ...address, search: { ...search, compare } }, replace)
+            }
           />
         ) : entry.pick && search.view === "variants" ? (
           <GalleryVariantPick
@@ -544,7 +598,10 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               env={stage.env}
               tune={search.tune}
               label={stage.label}
-              available={{ width: Math.max(320, room.width - 4), height: Math.max(240, room.height) }}
+              available={{
+                width: Math.max(320, room.width - 4),
+                height: Math.max(240, room.height),
+              }}
               thumbnail={search.view !== "variant"}
             />
           ))
