@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them."
+            "value": "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تسمح أوضاع مثل تجاوز الأذونات أو الوصول الكامل أو yolo للوكيل بتشغيل الأوامر وتغيير الملفات دون أن يسأل، ما قد يؤدي إلى فقدان البيانات أو تسريبها عبر حقن الأوامر. عند الإيقاف، لن يحوّل cmux أي وكيل إليها."
+            "value": "تسمح أوضاع مثل تجاوز الأذونات أو الوصول الكامل أو yolo للوكيل بتشغيل الأوامر وتغيير الملفات دون أن يسأل، ما قد يؤدي إلى فقدان البيانات أو تسريبها عبر حقن الأوامر. عند الإيقاف، لن يحوّل cmux أي وكيل إليها. مفعّل افتراضيًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Načini poput zaobilaženja dozvola, punog pristupa ili yolo omogućavaju agentu da pokreće naredbe i mijenja datoteke bez pitanja, što može izgubiti podatke ili ih otkriti putem prompt injection napada. Kada je isključeno, cmux neće prebaciti agenta u njih."
+            "value": "Načini poput zaobilaženja dozvola, punog pristupa ili yolo omogućavaju agentu da pokreće naredbe i mijenja datoteke bez pitanja, što može izgubiti podatke ili ih otkriti putem prompt injection napada. Kada je isključeno, cmux neće prebaciti agenta u njih. Uključeno je po zadanim postavkama."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilstande som omgåelse af tilladelser, fuld adgang eller yolo lader en agent køre kommandoer og ændre filer uden at spørge, hvilket kan miste data eller lække dem via prompt injection. Når det er slået fra, skifter cmux ikke en agent til dem."
+            "value": "Tilstande som omgåelse af tilladelser, fuld adgang eller yolo lader en agent køre kommandoer og ændre filer uden at spørge, hvilket kan miste data eller lække dem via prompt injection. Når det er slået fra, skifter cmux ikke en agent til dem. Slået til som standard."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modi wie das Umgehen von Berechtigungen, Vollzugriff oder yolo lassen einen Agenten Befehle ausführen und Dateien ändern, ohne zu fragen. Das kann Daten zerstören oder sie über eine Prompt-Injection preisgeben. Ausgeschaltet versetzt cmux keinen Agenten in diese Modi."
+            "value": "Modi wie das Umgehen von Berechtigungen, Vollzugriff oder yolo lassen einen Agenten Befehle ausführen und Dateien ändern, ohne zu fragen. Das kann Daten zerstören oder sie über eine Prompt-Injection preisgeben. Ausgeschaltet versetzt cmux keinen Agenten in diese Modi. Standardmäßig eingeschaltet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los modos como omitir permisos, acceso total o yolo permiten que un agente ejecute comandos y cambie archivos sin preguntar, lo que puede perder datos o filtrarlos mediante una inyección de prompt. Si está desactivado, cmux no cambiará ningún agente a ellos."
+            "value": "Los modos como omitir permisos, acceso total o yolo permiten que un agente ejecute comandos y cambie archivos sin preguntar, lo que puede perder datos o filtrarlos mediante una inyección de prompt. Si está desactivado, cmux no cambiará ningún agente a ellos. Activado de forma predeterminada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les modes comme le contournement des autorisations, l’accès complet ou yolo laissent un agent exécuter des commandes et modifier des fichiers sans demander, ce qui peut faire perdre des données ou les divulguer par injection de prompt. Désactivé, cmux ne fait passer aucun agent dans ces modes."
+            "value": "Les modes comme le contournement des autorisations, l’accès complet ou yolo laissent un agent exécuter des commandes et modifier des fichiers sans demander, ce qui peut faire perdre des données ou les divulguer par injection de prompt. Désactivé, cmux ne fait passer aucun agent dans ces modes. Activé par défaut."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modalità come bypass dei permessi, accesso completo o yolo permettono a un agente di eseguire comandi e modificare file senza chiedere, con il rischio di perdere dati o diffonderli tramite prompt injection. Se disattivato, cmux non porta nessun agente in queste modalità."
+            "value": "Modalità come bypass dei permessi, accesso completo o yolo permettono a un agente di eseguire comandi e modificare file senza chiedere, con il rischio di perdere dati o diffonderli tramite prompt injection. Se disattivato, cmux non porta nessun agente in queste modalità. Attivo per impostazione predefinita."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "権限のバイパス、フルアクセス、yolo などのモードでは、エージェントが確認なしでコマンドを実行しファイルを変更できます。データが失われたり、プロンプトインジェクションで漏れたりするおそれがあります。オフにすると、cmux はエージェントをこれらのモードに切り替えません。"
+            "value": "権限のバイパス、フルアクセス、yolo などのモードでは、エージェントが確認なしでコマンドを実行しファイルを変更できます。データが失われたり、プロンプトインジェクションで漏れたりするおそれがあります。オフにすると、cmux はエージェントをこれらのモードに切り替えません。デフォルトではオンです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "របៀបដូចជាការរំលងការអនុញ្ញាត ការចូលប្រើពេញលេញ ឬ yolo អនុញ្ញាតឱ្យភ្នាក់ងាររត់ពាក្យបញ្ជា និងប្ដូរឯកសារដោយមិនសួរ ដែលអាចធ្វើឱ្យបាត់ទិន្នន័យ ឬលេចធ្លាយតាម prompt injection។ ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបទាំងនោះទេ។"
+            "value": "របៀបដូចជាការរំលងការអនុញ្ញាត ការចូលប្រើពេញលេញ ឬ yolo អនុញ្ញាតឱ្យភ្នាក់ងាររត់ពាក្យបញ្ជា និងប្ដូរឯកសារដោយមិនសួរ ដែលអាចធ្វើឱ្យបាត់ទិន្នន័យ ឬលេចធ្លាយតាម prompt injection។ ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបទាំងនោះទេ។ បើកតាមលំនាំដើម។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "권한 우회, 전체 접근, yolo 같은 모드에서는 에이전트가 묻지 않고 명령을 실행하고 파일을 변경할 수 있어, 데이터가 손실되거나 프롬프트 인젝션으로 유출될 수 있습니다. 끄면 cmux는 에이전트를 이 모드로 전환하지 않습니다."
+            "value": "권한 우회, 전체 접근, yolo 같은 모드에서는 에이전트가 묻지 않고 명령을 실행하고 파일을 변경할 수 있어, 데이터가 손실되거나 프롬프트 인젝션으로 유출될 수 있습니다. 끄면 cmux는 에이전트를 이 모드로 전환하지 않습니다. 기본적으로 켜져 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moduser som omgåelse av tillatelser, full tilgang eller yolo lar en agent kjøre kommandoer og endre filer uten å spørre, noe som kan føre til tap av data eller lekkasje via prompt injection. Når det er av, bytter ikke cmux en agent til dem."
+            "value": "Moduser som omgåelse av tillatelser, full tilgang eller yolo lar en agent kjøre kommandoer og endre filer uten å spørre, noe som kan føre til tap av data eller lekkasje via prompt injection. Når det er av, bytter ikke cmux en agent til dem. På som standard."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tryby takie jak pomijanie uprawnień, pełny dostęp czy yolo pozwalają agentowi uruchamiać polecenia i zmieniać pliki bez pytania, co może prowadzić do utraty danych lub ich wycieku przez prompt injection. Po wyłączeniu cmux nie przełączy agenta w te tryby."
+            "value": "Tryby takie jak pomijanie uprawnień, pełny dostęp czy yolo pozwalają agentowi uruchamiać polecenia i zmieniać pliki bez pytania, co może prowadzić do utraty danych lub ich wycieku przez prompt injection. Po wyłączeniu cmux nie przełączy agenta w te tryby. Domyślnie włączone."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modos como ignorar permissões, acesso total ou yolo deixam um agente executar comandos e alterar arquivos sem perguntar, o que pode perder dados ou vazá-los por injeção de prompt. Desativado, o cmux não muda nenhum agente para eles."
+            "value": "Modos como ignorar permissões, acesso total ou yolo deixam um agente executar comandos e alterar arquivos sem perguntar, o que pode perder dados ou vazá-los por injeção de prompt. Desativado, o cmux não muda nenhum agente para eles. Ativado por padrão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Режимы вроде обхода разрешений, полного доступа или yolo позволяют агенту выполнять команды и менять файлы без вопросов, из-за чего данные могут потеряться или утечь через внедрение промптов. Если выключено, cmux не переключит агента в эти режимы."
+            "value": "Режимы вроде обхода разрешений, полного доступа или yolo позволяют агенту выполнять команды и менять файлы без вопросов, из-за чего данные могут потеряться или утечь через внедрение промптов. Если выключено, cmux не переключит агента в эти режимы. По умолчанию включено."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โหมดอย่างข้ามการอนุญาต สิทธิ์เต็ม หรือ yolo ให้เอเจนต์รันคำสั่งและแก้ไฟล์ได้โดยไม่ถาม ซึ่งอาจทำให้ข้อมูลสูญหายหรือรั่วไหลผ่าน prompt injection เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดเหล่านี้"
+            "value": "โหมดอย่างข้ามการอนุญาต สิทธิ์เต็ม หรือ yolo ให้เอเจนต์รันคำสั่งและแก้ไฟล์ได้โดยไม่ถาม ซึ่งอาจทำให้ข้อมูลสูญหายหรือรั่วไหลผ่าน prompt injection เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดเหล่านี้ เปิดอยู่โดยค่าเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "İzinleri atlama, tam erişim veya yolo gibi modlar bir ajanın sormadan komut çalıştırmasına ve dosyaları değiştirmesine izin verir; bu da verilerin kaybolmasına ya da prompt injection ile sızmasına yol açabilir. Kapalıyken cmux hiçbir ajanı bu modlara geçirmez."
+            "value": "İzinleri atlama, tam erişim veya yolo gibi modlar bir ajanın sormadan komut çalıştırmasına ve dosyaları değiştirmesine izin verir; bu da verilerin kaybolmasına ya da prompt injection ile sızmasına yol açabilir. Kapalıyken cmux hiçbir ajanı bu modlara geçirmez. Varsayılan olarak açık."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Режими на кшталт обходу дозволів, повного доступу чи yolo дають агентові виконувати команди й змінювати файли без запитань, через що дані можуть загубитися або витекти через ін’єкцію промптів. Якщо вимкнено, cmux не перемкне агента в ці режими."
+            "value": "Режими на кшталт обходу дозволів, повного доступу чи yolo дають агентові виконувати команди й змінювати файли без запитань, через що дані можуть загубитися або витекти через ін’єкцію промптів. Якщо вимкнено, cmux не перемкне агента в ці режими. Типово ввімкнено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Các chế độ như bỏ qua quyền, toàn quyền hay yolo cho phép tác tử chạy lệnh và sửa tệp mà không hỏi, có thể làm mất dữ liệu hoặc rò rỉ qua tấn công chèn prompt. Khi tắt, cmux sẽ không chuyển tác tử sang các chế độ đó."
+            "value": "Các chế độ như bỏ qua quyền, toàn quyền hay yolo cho phép tác tử chạy lệnh và sửa tệp mà không hỏi, có thể làm mất dữ liệu hoặc rò rỉ qua tấn công chèn prompt. Khi tắt, cmux sẽ không chuyển tác tử sang các chế độ đó. Mặc định bật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "绕过权限、完全访问或 yolo 等模式会让智能体不经询问就运行命令和修改文件，可能导致数据丢失，或因提示词注入而泄露。关闭后，cmux 不会把智能体切换到这些模式。"
+            "value": "绕过权限、完全访问或 yolo 等模式会让智能体不经询问就运行命令和修改文件，可能导致数据丢失，或因提示词注入而泄露。关闭后，cmux 不会把智能体切换到这些模式。默认开启。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "略過權限、完整存取或 yolo 等模式會讓代理程式不經詢問就執行指令和修改檔案，可能導致資料遺失，或因提示詞注入而外洩。關閉後，cmux 不會把代理程式切換到這些模式。"
+            "value": "略過權限、完整存取或 yolo 等模式會讓代理程式不經詢問就執行指令和修改檔案，可能導致資料遺失，或因提示詞注入而外洩。關閉後，cmux 不會把代理程式切換到這些模式。預設為開啟。"
           }
         }
       }
@@ -793,127 +793,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registers this Mac's name with your cmux account so your phone can find it. Workspace names, folders and terminal output go only over the encrypted link to your phone. Branch names and repo URLs are never uploaded."
+            "value": "cmux registers this Mac's name, platform, app version and relay address with your cmux account so your phone can find it. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يسجّل cmux اسم هذا الـ Mac في حسابك على cmux حتى يتمكن هاتفك من العثور عليه. تنتقل أسماء مساحات العمل والمجلدات ومخرجات الطرفية عبر الاتصال المشفّر إلى هاتفك فقط. لا تُرفع أسماء الفروع وعناوين URL للمستودعات أبدًا."
+            "value": "يسجّل cmux اسم هذا الـ Mac ونظامه وإصدار التطبيق وعنوان الترحيل في حسابك على cmux حتى يتمكن هاتفك من العثور عليه. تنتقل أسماء مساحات العمل والمجلدات والمسارات الكاملة ومخرجات الطرفية عبر الاتصال المشفّر إلى هاتفك فقط. لا يُرسل أي من ذلك، ولا أي اسم فرع أو عنوان URL لمستودع، إلى خوادم cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registruje ime ovog Maca na vašem cmux računu kako bi ga telefon mogao pronaći. Nazivi radnih prostora, mape i izlaz terminala idu samo preko šifrirane veze do vašeg telefona. Nazivi grana i URL-ovi repozitorija se nikad ne otpremaju."
+            "value": "cmux registruje ime, platformu, verziju aplikacije i relej adresu ovog Maca na vašem cmux računu kako bi ga telefon mogao pronaći. Nazivi radnih prostora, mape, pune putanje i izlaz terminala idu samo preko šifrirane veze do vašeg telefona. Ništa od toga, kao ni nazivi grana i URL-ovi repozitorija, ne šalje se na cmux servere."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registrerer denne Macs navn på din cmux-konto, så din telefon kan finde den. Navne på arbejdsområder, mapper og terminaloutput sendes kun via den krypterede forbindelse til din telefon. Grennavne og repo-URL'er uploades aldrig."
+            "value": "cmux registrerer denne Macs navn, platform, appversion og relæadresse på din cmux-konto, så din telefon kan finde den. Navne på arbejdsområder, mapper, fulde stier og terminaloutput sendes kun via den krypterede forbindelse til din telefon. Intet af det, og hverken grennavne eller repo-URL'er, sendes til cmux' servere."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registriert den Namen dieses Macs in deinem cmux-Account, damit dein Telefon ihn findet. Workspace-Namen, Ordner und Terminalausgaben gehen nur über die verschlüsselte Verbindung an dein Telefon. Branch-Namen und Repo-URLs werden nie hochgeladen."
+            "value": "cmux registriert Namen, Plattform, App-Version und Relay-Adresse dieses Macs in deinem cmux-Account, damit dein Telefon ihn findet. Workspace-Namen, Ordner, vollständige Pfade und Terminalausgaben gehen nur über die verschlüsselte Verbindung an dein Telefon. Nichts davon, auch kein Branch-Name und keine Repo-URL, wird an cmux-Server gesendet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registra el nombre de este Mac en tu cuenta de cmux para que tu teléfono pueda encontrarlo. Los nombres de los espacios de trabajo, las carpetas y la salida del terminal solo viajan por el enlace cifrado hasta tu teléfono. Los nombres de ramas y las URL de repositorios nunca se suben."
+            "value": "cmux registra el nombre, la plataforma, la versión de la app y la dirección de relé de este Mac en tu cuenta de cmux para que tu teléfono pueda encontrarlo. Los nombres de los espacios de trabajo, las carpetas, las rutas completas y la salida del terminal solo viajan por el enlace cifrado hasta tu teléfono. Nada de eso, ni ningún nombre de rama o URL de repositorio, se envía a los servidores de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux enregistre le nom de ce Mac dans votre compte cmux pour que votre téléphone puisse le trouver. Les noms des espaces de travail, les dossiers et la sortie du terminal passent uniquement par la liaison chiffrée vers votre téléphone. Les noms de branches et les URL de dépôts ne sont jamais envoyés."
+            "value": "cmux enregistre le nom, la plateforme, la version de l’app et l’adresse de relais de ce Mac dans votre compte cmux pour que votre téléphone puisse le trouver. Les noms des espaces de travail, les dossiers, les chemins complets et la sortie du terminal passent uniquement par la liaison chiffrée vers votre téléphone. Rien de tout cela, ni aucun nom de branche ou URL de dépôt, n’est envoyé aux serveurs de cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registra il nome di questo Mac nel tuo account cmux così il telefono può trovarlo. I nomi degli spazi di lavoro, le cartelle e l’output del terminale passano solo tramite il collegamento cifrato verso il telefono. I nomi dei branch e gli URL dei repository non vengono mai caricati."
+            "value": "cmux registra nome, piattaforma, versione dell’app e indirizzo di relay di questo Mac nel tuo account cmux così il telefono può trovarlo. I nomi degli spazi di lavoro, le cartelle, i percorsi completi e l’output del terminale passano solo tramite il collegamento cifrato verso il telefono. Niente di tutto ciò, né nomi di branch o URL di repository, viene inviato ai server di cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スマートフォンがこの Mac を見つけられるよう、cmux はこの Mac の名前を cmux アカウントに登録します。ワークスペース名、フォルダ、ターミナルの出力は、暗号化された接続でスマートフォンにのみ送られます。ブランチ名やリポジトリの URL がアップロードされることはありません。"
+            "value": "スマートフォンがこの Mac を見つけられるよう、cmux はこの Mac の名前、プラットフォーム、アプリのバージョン、リレーアドレスを cmux アカウントに登録します。ワークスペース名、フォルダ、フルパス、ターミナルの出力は、暗号化された接続でスマートフォンにのみ送られます。これらも、ブランチ名やリポジトリの URL も、cmux のサーバーには送られません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ចុះឈ្មោះ Mac នេះក្នុងគណនី cmux របស់អ្នក ដើម្បីឱ្យទូរសព្ទរបស់អ្នករកឃើញវា។ ឈ្មោះកន្លែងធ្វើការ ថត និងលទ្ធផលស្ថានីយ ផ្ញើតែតាមតំណដែលបានអ៊ិនគ្រីបទៅទូរសព្ទរបស់អ្នកប៉ុណ្ណោះ។ ឈ្មោះមែក និង URL ឃ្លាំង មិនត្រូវបានផ្ទុកឡើងឡើយ។"
+            "value": "cmux ចុះឈ្មោះ វេទិកា កំណែកម្មវិធី និងអាសយដ្ឋានបញ្ជូនបន្តរបស់ Mac នេះក្នុងគណនី cmux របស់អ្នក ដើម្បីឱ្យទូរសព្ទរបស់អ្នករកឃើញវា។ ឈ្មោះកន្លែងធ្វើការ ថត ផ្លូវពេញ និងលទ្ធផលស្ថានីយ ផ្ញើតែតាមតំណដែលបានអ៊ិនគ្រីបទៅទូរសព្ទរបស់អ្នកប៉ុណ្ណោះ។ គ្មានអ្វីមួយក្នុងនោះ ហើយក៏គ្មានឈ្មោះមែក ឬ URL ឃ្លាំង ត្រូវបានផ្ញើទៅម៉ាស៊ីនមេ cmux ឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "휴대폰이 이 Mac을 찾을 수 있도록 cmux가 이 Mac의 이름을 cmux 계정에 등록합니다. 작업 공간 이름, 폴더, 터미널 출력은 암호화된 연결을 통해 휴대폰으로만 전송됩니다. 브랜치 이름과 저장소 URL은 절대 업로드되지 않습니다."
+            "value": "휴대폰이 이 Mac을 찾을 수 있도록 cmux가 이 Mac의 이름, 플랫폼, 앱 버전, 릴레이 주소를 cmux 계정에 등록합니다. 작업 공간 이름, 폴더, 전체 경로, 터미널 출력은 암호화된 연결을 통해 휴대폰으로만 전송됩니다. 이 중 어떤 것도, 브랜치 이름이나 저장소 URL도 cmux 서버로 전송되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux registrerer navnet på denne Macen i cmux-kontoen din, slik at telefonen kan finne den. Navn på arbeidsområder, mapper og terminalutdata går bare over den krypterte forbindelsen til telefonen. Grennavn og repo-URL-er lastes aldri opp."
+            "value": "cmux registrerer navnet, plattformen, appversjonen og reléadressen til denne Macen i cmux-kontoen din, slik at telefonen kan finne den. Navn på arbeidsområder, mapper, fullstendige stier og terminalutdata går bare over den krypterte forbindelsen til telefonen. Ingenting av dette, og verken grennavn eller repo-URL-er, sendes til cmux-servere."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux rejestruje nazwę tego Maca na Twoim koncie cmux, aby telefon mógł go znaleźć. Nazwy obszarów roboczych, foldery i wyjście terminala trafiają tylko szyfrowanym połączeniem do Twojego telefonu. Nazwy gałęzi i adresy URL repozytoriów nigdy nie są wysyłane."
+            "value": "cmux rejestruje nazwę, platformę, wersję aplikacji i adres przekaźnika tego Maca na Twoim koncie cmux, aby telefon mógł go znaleźć. Nazwy obszarów roboczych, foldery, pełne ścieżki i wyjście terminala trafiają tylko szyfrowanym połączeniem do Twojego telefonu. Nic z tego, ani żadne nazwy gałęzi czy adresy URL repozytoriów, nie jest wysyłane na serwery cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux registra o nome deste Mac na sua conta cmux para que o celular possa encontrá-lo. Nomes de espaços de trabalho, pastas e a saída do terminal vão apenas pela conexão criptografada até o seu celular. Nomes de branches e URLs de repositórios nunca são enviados."
+            "value": "O cmux registra o nome, a plataforma, a versão do app e o endereço de relay deste Mac na sua conta cmux para que o celular possa encontrá-lo. Nomes de espaços de trabalho, pastas, caminhos completos e a saída do terminal vão apenas pela conexão criptografada até o seu celular. Nada disso, nem nomes de branches ou URLs de repositórios, é enviado aos servidores do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux регистрирует имя этого Mac в вашей учётной записи cmux, чтобы телефон мог его найти. Названия рабочих пространств, папки и вывод терминала передаются только по зашифрованному каналу на ваш телефон. Названия веток и URL репозиториев никогда не загружаются."
+            "value": "cmux регистрирует имя, платформу, версию приложения и адрес ретранслятора этого Mac в вашей учётной записи cmux, чтобы телефон мог его найти. Названия рабочих пространств, папки, полные пути и вывод терминала передаются только по зашифрованному каналу на ваш телефон. Ничего из этого, как и названия веток и URL репозиториев, не отправляется на серверы cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ลงทะเบียนชื่อ Mac เครื่องนี้กับบัญชี cmux ของคุณ เพื่อให้โทรศัพท์ค้นหาเจอ ชื่อพื้นที่ทำงาน โฟลเดอร์ และเอาต์พุตของเทอร์มินัลจะส่งผ่านการเชื่อมต่อที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น ชื่อสาขาและ URL ของรีโพจะไม่ถูกอัปโหลด"
+            "value": "cmux ลงทะเบียนชื่อ แพลตฟอร์ม เวอร์ชันแอป และที่อยู่รีเลย์ของ Mac เครื่องนี้กับบัญชี cmux ของคุณ เพื่อให้โทรศัพท์ค้นหาเจอ ชื่อพื้นที่ทำงาน โฟลเดอร์ พาธเต็ม และเอาต์พุตของเทอร์มินัลจะส่งผ่านการเชื่อมต่อที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น ไม่มีข้อมูลเหล่านี้ รวมถึงชื่อสาขาหรือ URL ของรีโพ ถูกส่งไปยังเซิร์ฟเวอร์ของ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux, telefonunuzun bulabilmesi için bu Mac'in adını cmux hesabınıza kaydeder. Çalışma alanı adları, klasörler ve terminal çıktısı yalnızca şifreli bağlantı üzerinden telefonunuza gider. Dal adları ve depo URL'leri asla yüklenmez."
+            "value": "cmux, telefonunuzun bulabilmesi için bu Mac'in adını, platformunu, uygulama sürümünü ve aktarma adresini cmux hesabınıza kaydeder. Çalışma alanı adları, klasörler, tam yollar ve terminal çıktısı yalnızca şifreli bağlantı üzerinden telefonunuza gider. Bunların hiçbiri, dal adları ve depo URL'leri de dahil, cmux sunucularına gönderilmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux реєструє назву цього Mac у вашому обліковому записі cmux, щоб телефон міг його знайти. Назви робочих просторів, папки й вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон. Назви гілок і URL репозиторіїв ніколи не завантажуються."
+            "value": "cmux реєструє назву, платформу, версію застосунку й адресу ретранслятора цього Mac у вашому обліковому записі cmux, щоб телефон міг його знайти. Назви робочих просторів, папки, повні шляхи й вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон. Нічого з цього, як і назви гілок чи URL репозиторіїв, не надсилається на сервери cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux đăng ký tên máy Mac này với tài khoản cmux của bạn để điện thoại có thể tìm thấy. Tên không gian làm việc, thư mục và đầu ra terminal chỉ đi qua kết nối được mã hóa tới điện thoại của bạn. Tên nhánh và URL kho mã không bao giờ được tải lên."
+            "value": "cmux đăng ký tên, nền tảng, phiên bản ứng dụng và địa chỉ chuyển tiếp của máy Mac này với tài khoản cmux của bạn để điện thoại có thể tìm thấy. Tên không gian làm việc, thư mục, đường dẫn đầy đủ và đầu ra terminal chỉ đi qua kết nối được mã hóa tới điện thoại của bạn. Không thông tin nào trong số đó, kể cả tên nhánh hay URL kho mã, được gửi đến máy chủ cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会把这台 Mac 的名称登记到你的 cmux 账户，方便手机找到它。工作区名称、文件夹和终端输出只通过加密连接发送到你的手机。分支名称和仓库 URL 绝不会上传。"
+            "value": "cmux 会把这台 Mac 的名称、平台、应用版本和中继地址登记到你的 cmux 账户，方便手机找到它。工作区名称、文件夹、完整路径和终端输出只通过加密连接发送到你的手机。这些内容以及分支名称、仓库 URL 都不会发送到 cmux 服务器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會把這台 Mac 的名稱登記到你的 cmux 帳號，讓手機找得到它。工作區名稱、檔案夾和終端機輸出只會透過加密連線傳到你的手機。分支名稱和儲存庫 URL 絕不會上傳。"
+            "value": "cmux 會把這台 Mac 的名稱、平台、App 版本和中繼位址登記到你的 cmux 帳號，讓手機找得到它。工作區名稱、檔案夾、完整路徑和終端機輸出只會透過加密連線傳到你的手機。這些內容以及分支名稱、儲存庫 URL 都不會傳送到 cmux 伺服器。"
           }
         }
       }

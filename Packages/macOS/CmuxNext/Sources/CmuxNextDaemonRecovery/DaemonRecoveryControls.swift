@@ -96,6 +96,7 @@ final class DaemonRecoveryControls: NSStackView {
         statusLabel.font = Typography.caption
         statusLabel.alignment = .center
         statusLabel.isSelectable = true
+        statusLabel.focusRingType = .none
         statusLabel.setAccessibilityIdentifier("daemon.recoveryStatus")
         Self.configure(retryButton, title: DaemonRecoveryStrings.retryNow, identifier: "daemon.retryNow", target: self, action: #selector(retryNow))
         Self.configure(restartButton, title: DaemonRecoveryStrings.restart, identifier: "daemon.restart", target: self, action: #selector(confirmRestart))

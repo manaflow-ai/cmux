@@ -184,6 +184,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextIcons",
+        "CmuxNextKeepAwake",
         "CmuxNextLayout",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
@@ -191,6 +192,7 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextPhoneAccess",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
@@ -617,6 +619,27 @@
       ],
       "packages": []
     },
+    "CmuxNextKeepAwake": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextKeepAwake",
+      "targets": [
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextKeepAwakeTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextKeepAwakeTests",
+      "targets": [
+        "CmuxNextKeepAwake",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextLayout": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
@@ -723,6 +746,29 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
         "CmuxNextPalette"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextPhoneAccess": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextKeepAwake",
+        "CmuxNextMobile",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextPhoneAccessTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
+      "targets": [
+        "CmuxNextPhoneAccess"
       ],
       "packages": [],
       "reads": []
