@@ -359,6 +359,15 @@ class InstalledHelperRegression(unittest.TestCase):
             text=True,
         )
 
+    def test_fork_trust_rejects_non_full_sha_values(self):
+        for value in ("main", "a" * 39, "A" * 40):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, extra_args=("--trust-fork-head", value))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker.exists())
+                self.assertIn("full lowercase 40-character SHA", result.stderr)
+
     def test_exploration_label_refuses_before_merging(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
