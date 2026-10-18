@@ -315,6 +315,7 @@ export function sidebarSections(
 ): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
+  active: AcpmuxSessionEntry[];
 } {
   const sessions = withoutChildren(all.filter(listed));
   const pinned = byRecency(
@@ -329,10 +330,19 @@ export function sidebarSections(
         sessions,
       )
     : [];
-  if (!query.trim()) return { pinned, groups };
+  const active = groupProjects
+    ? []
+    : byRecency(
+        filterSessions(
+          sessions.filter((session) => !session.pinned),
+          query,
+        ),
+      );
+  if (!query.trim()) return { pinned, groups, active };
   // Projects and their headers come from every session, so a search only hides rows.
   return {
     pinned,
+    active,
     groups: groups
       .map((group) => ({ ...group, sessions: filterSessions(group.sessions, query) }))
       .filter((group) => group.sessions.length > 0),
