@@ -12,6 +12,7 @@ actor CloudFilePreviewCache {
     private var cleanupTask: Task<Void, Never>?
     private var refreshTasks: [URL: Task<Void, Error>] = [:]
 
+    /// Reserves a unique cache root without creating files or scanning until a preview is requested.
     init(directory: URL = FileManager.default.temporaryDirectory, maximumEntries: Int = 32) {
         let owner = ProcessInfo.processInfo.processIdentifier
         root = directory.appendingPathComponent(
@@ -19,17 +20,20 @@ actor CloudFilePreviewCache {
             isDirectory: true
         )
         self.maximumEntries = maximumEntries
-        cleanupTask = Task.detached(priority: .utility) { Self.removeStaleDirectories(in: directory) }
     }
 
+    /// Removes old preview directories owned by exited processes, preserving every live owner's files.
     private static func removeStaleDirectories(in directory: URL) {
+        guard !Task.isCancelled else { return }
         guard let urls = try? FileManager.default.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+            // Fetch metadata only after filtering out unrelated temporary files.
+            includingPropertiesForKeys: [],
             options: [.skipsHiddenFiles]
         ) else { return }
         let cutoff = Date().addingTimeInterval(-staleDirectoryAge)
         for url in urls where url.lastPathComponent.hasPrefix("cmux-cloud-previews-") {
+            guard !Task.isCancelled else { return }
             let components = url.lastPathComponent.split(separator: "-")
             guard components.count > 3, let owner = Int32(components[3]) else { continue }
             if owner == ProcessInfo.processInfo.processIdentifier || kill(owner, 0) == 0 || errno == EPERM {
@@ -42,6 +46,7 @@ actor CloudFilePreviewCache {
         }
     }
 
+    /// Downloads a read-only preview held by a lease and starts this cache's one-time stale-file cleanup.
     func materialize(path: String, provider: any RemoteFileExplorerProvider) async throws -> CloudFilePreviewLease {
         guard !ManagedFileTransferPolicy.isDisabled else {
             throw ManagedFileTransferPolicy.refusalError()
@@ -52,6 +57,12 @@ actor CloudFilePreviewCache {
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let filename = (path as NSString).lastPathComponent
         guard !filename.isEmpty, filename != ".", filename != ".." else { throw FileExplorerError.providerUnavailable }
+        if cleanupTask == nil {
+            // Most Files stores never open a remote preview. Scanning on creation
+            // lets workspace churn saturate the cooperative executor with file I/O.
+            let parent = root.deletingLastPathComponent()
+            cleanupTask = Task.detached(priority: .utility) { Self.removeStaleDirectories(in: parent) }
+        }
         let url = directory.appendingPathComponent(filename, isDirectory: false)
         entries.insert(url)
         do {

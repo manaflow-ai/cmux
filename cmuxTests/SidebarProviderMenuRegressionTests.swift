@@ -446,7 +446,7 @@ struct SidebarProviderMenuRegressionTests {
         let directory = root.appendingPathComponent("sidebars", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let template = try #require(CustomSidebarOnboardingAssets().exampleTemplate(id: "focus"))
+        let template = try #require(CustomSidebarOnboardingAssets().exampleTemplate(id: "agents-board"))
         let first = CmuxExtensionSidebarSelection.writeCustomSidebar(
             named: template.suggestedName,
             fileExtension: template.fileExtension,
@@ -468,14 +468,14 @@ struct SidebarProviderMenuRegressionTests {
             return
         }
 
-        #expect(firstName == "focus")
-        #expect(secondName == "focus-2")
+        #expect(firstName == "agents-board")
+        #expect(secondName == "agents-board-2")
         #expect(firstURL != secondURL)
         #expect(CustomSidebarValidator().validate(fileURL: firstURL).errorMessage == nil)
         #expect(CustomSidebarValidator().validate(fileURL: secondURL).errorMessage == nil)
         #expect(
             CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(sidebarsDirectory: directory)
-                == ["focus", "focus-2"]
+                == ["agents-board", "agents-board-2"]
         )
     }
 

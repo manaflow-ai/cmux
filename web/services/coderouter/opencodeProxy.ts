@@ -1,12 +1,13 @@
 import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
+import { noAccountConfiguredMessage } from "./noAccountMessage";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable, pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
-import { authenticateRouteToken, selectAccountForRequest } from "./repository";
+import { authenticateRouteToken, hasConfiguredAccount, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { captureCoderouterEvent } from "./analytics";
@@ -50,6 +51,11 @@ type OpenCodeDependencies = {
   readonly remoteConfig: (accessToken: string, signal?: AbortSignal) => Promise<Record<string, unknown>>;
   readonly fetch?: typeof fetch;
   readonly resolveProviderURL?: (value: string) => Promise<URL | null>;
+  /**
+   * Whether the caller can see any OpenCode account, in any state. False
+   * turns an empty selection into a terminal 403 instead of a 503.
+   */
+  readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -71,6 +77,7 @@ const defaultDependencies: OpenCodeDependencies = {
   credential: freshCredential,
   remoteConfig,
   fetch,
+  hasConfiguredAccount,
 };
 
 const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
@@ -120,8 +127,17 @@ export async function openCodeClientConfig(
       true,
     );
   }
-  if (!resolved)
-    return Response.json({ error: "no_usable_account" }, { status: 503 });
+  if (!resolved) {
+    return await noUsableOpenCodeAccount(dependencies, auth.identity, request.signal, upstreamHeaderDeadlineAt, runtime.now, {
+      record: (status, terminal) => recordCoderouterOutcome({
+        outcome: "no_usable_account",
+        failureStage: terminal ? "provider_config" : "account_selection",
+        status,
+        provider: "opencode-go",
+        attempts: 0,
+      }),
+    });
+  }
   let remote: Record<string, unknown>;
   try {
     remote = await withCoderouterOperationDeadline(
@@ -245,20 +261,16 @@ export async function proxyOpenCodeRequest(
     attributes: { provider: "opencode-go", attempts: resolved?.attempts ?? 0, healthy: resolved !== null },
   });
   if (!resolved) {
-    captureOpenCodeHealth({
-      requestId,
-      identity: auth,
-      startedAt,
-      status: 503,
-      outcome: "no_usable_account",
-      failureStage: "account_selection",
+    return await noUsableOpenCodeAccount(dependencies, auth, request.signal, upstreamHeaderDeadlineAt, runtime.now, {
+      record: (status, terminal) => captureOpenCodeHealth({
+        requestId,
+        identity: auth,
+        startedAt,
+        status,
+        outcome: "no_usable_account",
+        failureStage: terminal ? "provider_config" : "account_selection",
+      }),
     });
-    return apiError(
-      "no_usable_account",
-      "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
-      503,
-      true,
-    );
   }
   let config: Record<string, unknown>;
   const configStartedAt = performance.now();
@@ -512,6 +524,55 @@ async function openCodeAccount(
     }
   }
   return null;
+}
+
+/**
+ * The answer when no OpenCode account served. A caller that can see no
+ * account at all gets a terminal 403; one whose accounts are cooling,
+ * refreshing, or broken gets a retryable 503. An unknown lookup answer keeps
+ * the 503 rather than telling a client to stop.
+ */
+async function noUsableOpenCodeAccount(
+  dependencies: Pick<OpenCodeDependencies, "hasConfiguredAccount">,
+  identity: RouteTokenIdentity,
+  requestSignal: AbortSignal,
+  deadlineAt: number,
+  now: () => number,
+  telemetry: { readonly record: (status: number, terminal: boolean) => void },
+): Promise<Response> {
+  const lookup = dependencies.hasConfiguredAccount;
+  let configured = true;
+  if (lookup) {
+    try {
+      configured = await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
+        teamId: identity.teamId,
+        provider: "opencode-go",
+        access: accountAccessForIdentity(identity),
+        signal,
+      }));
+    } catch (error) {
+      if (requestSignal.aborted) throw error;
+    }
+  }
+  if (!configured) {
+    telemetry.record(403, true);
+    // OpenCode providers use the OpenAI-compatible SDK, so the terminal
+    // answer uses the OpenAI error shape. No retry-after: it surfaces once.
+    return Response.json({
+      error: {
+        message: noAccountConfiguredMessage("opencode", identity),
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    }, { status: 403, headers: { "cache-control": "no-store" } });
+  }
+  telemetry.record(503, false);
+  return apiError(
+    "no_usable_account",
+    "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
+    503,
+    true,
+  );
 }
 
 async function remoteConfig(
@@ -808,15 +869,71 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
       });
       outgoing.on("error", reject);
       if (body) {
-        // pipeline destroys the request when the client body fails.
-        pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), outgoing, (error) => {
-          if (error) reject(error);
-        });
+        // Read the Web stream directly. Bun 1.3's Readable.fromWeb adapter can
+        // surface a body error outside pipeline's callback, leaving the test
+        // process with an unhandled rejection and the upstream request open.
+        void writeWebRequestBody(body, outgoing, init.signal ?? undefined).catch(reject);
       } else {
         outgoing.end();
       }
     });
   }) as typeof fetch;
+}
+
+async function writeWebRequestBody(
+  body: ReadableStream<Uint8Array>,
+  outgoing: ClientRequest,
+  signal?: AbortSignal,
+): Promise<void> {
+  const reader = body.getReader();
+  let closeError: Error | undefined;
+  const cancel = (reason: unknown) => {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    closeError ??= error;
+    void reader.cancel(reason).catch(() => undefined);
+  };
+  const onAbort = () => {
+    const reason = signal?.reason ?? new DOMException("The request was aborted", "AbortError");
+    cancel(reason);
+    outgoing.destroy(closeError);
+  };
+  const onClose = () => {
+    if (!outgoing.writableEnded) cancel(new Error("Upstream request closed during upload"));
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  outgoing.once("close", onClose);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        if (closeError) throw closeError;
+        outgoing.end();
+        return;
+      }
+      if (value?.byteLength && !outgoing.write(value)) {
+        await new Promise<void>((resolve, reject) => {
+          const onDrain = () => { cleanup(); resolve(); };
+          const onError = (error: Error) => { cleanup(); reject(error); };
+          const onClosed = () => { cleanup(); reject(closeError ?? new Error("Upstream request closed")); };
+          const cleanup = () => {
+            outgoing.off("drain", onDrain);
+            outgoing.off("error", onError);
+            outgoing.off("close", onClosed);
+          };
+          outgoing.once("drain", onDrain);
+          outgoing.once("error", onError);
+          outgoing.once("close", onClosed);
+        });
+      }
+    }
+  } catch (error) {
+    outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    outgoing.off("close", onClose);
+    reader.releaseLock();
+  }
 }
 
 const BODY_DECODERS: Record<string, () => NodeJS.ReadWriteStream> = {

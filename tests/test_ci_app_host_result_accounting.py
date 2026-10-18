@@ -220,6 +220,32 @@ def test_zero_matching_selector_never_passes() -> None:
     assert messages == ["selector matched zero built tests: MissingSuite"]
 
 
+def test_empty_selector_list_never_passes() -> None:
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testOne()"},
+        selectors=[],
+        results={"FooTests/testOne()": "Passed"},
+        known={},
+        log_text="** TEST SUCCEEDED **\n",
+        xcode_status=0,
+    )
+    assert passed is False
+    assert messages == ["no selectors: nothing was selected to run"]
+
+
+def test_empty_inventory_never_passes() -> None:
+    passed, messages = accounting.check_run(
+        inventory=set(),
+        selectors=["FooTests"],
+        results={"FooTests/testOne()": "Passed"},
+        known={},
+        log_text="** TEST SUCCEEDED **\n",
+        xcode_status=0,
+    )
+    assert passed is False
+    assert messages == ["inventory lists no built tests"]
+
+
 def test_missing_selected_test_result_never_passes() -> None:
     passed, messages = accounting.check_run(
         inventory={"FooTests/testOne()", "BarTests/testTwo()"},
@@ -316,6 +342,36 @@ def test_unknown_or_nonterminal_typed_result_never_passes() -> None:
         assert messages == [
             f"typed Test Case has nonterminal or unknown result: FooTests/testOne() ({result})"
         ]
+
+
+def test_duplicate_nonterminal_result_is_not_hidden_by_a_pass() -> None:
+    identifier = "FooTests/testOne()"
+    for nonterminal in ("Running", ""):
+        for order in (("Passed", nonterminal), (nonterminal, "Passed")):
+            nodes = [
+                {"nodeType": "Test Case", "nodeIdentifier": identifier, "result": result}
+                for result in order
+            ]
+            within_file = accounting.parse_xcresult_tests({"testNodes": nodes})
+            with tempfile.TemporaryDirectory() as directory:
+                paths = [Path(directory) / f"{index}.json" for index in range(2)]
+                for path, node in zip(paths, nodes):
+                    path.write_text(json.dumps({"testNodes": [node]}), encoding="utf-8")
+                across_files = accounting.merge_result_files(paths)
+
+            for results in (within_file, across_files):
+                passed, messages = accounting.check_run(
+                    inventory={identifier},
+                    selectors=["FooTests"],
+                    results=results,
+                    known={},
+                    log_text="** TEST SUCCEEDED **\n",
+                    xcode_status=0,
+                )
+                assert passed is False, (order, results, messages)
+                assert messages == [
+                    f"typed Test Case has nonterminal or unknown result: {identifier} ({nonterminal})"
+                ]
 
 
 def test_restart_or_outer_timeout_is_never_ratcheted_green() -> None:

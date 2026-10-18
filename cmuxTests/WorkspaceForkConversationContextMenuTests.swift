@@ -1524,12 +1524,12 @@ struct WorkspaceForkConversationContextMenuTests {
             workingDirectory: root.path,
             executablePath: executable.path
         )
-        let loaderStarted = OSAllocatedUnfairLock(initialState: false)
+        let (loaderStartedEvents, loaderStartedContinuation) = AsyncStream<Void>.makeStream()
         let releaseLoader = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
-                loaderStarted.withLock { $0 = true }
+                loaderStartedContinuation.yield(())
                 while !releaseLoader.withLock({ $0 }) {
                     Thread.sleep(forTimeInterval: 0.005)
                 }
@@ -1565,10 +1565,8 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         sharedIndex.scheduleRefreshIfStale(validating: panelKey)
-        for _ in 0..<1000 where !loaderStarted.withLock({ $0 }) {
-            await Task.yield()
-        }
-        #expect(loaderStarted.withLock { $0 })
+        var loaderStartedIterator = loaderStartedEvents.makeAsyncIterator()
+        #expect(await loaderStartedIterator.next() != nil)
 
         await sharedIndex.refreshForkAvailabilityNow(
             workspaceId: workspaceId,
@@ -3357,7 +3355,12 @@ struct WorkspaceForkConversationContextMenuTests {
         """
             .write(to: executable, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        // The probe result cache expires on the wall clock (30 s by default).
+        // This test counts probes, not expiry: a starved CI runner once took
+        // 32 s for the 130 panels, the cached result expired and the probe ran
+        // again. A TTL far past the test's length keeps the count meaningful.
         let sharedIndex = SharedLiveAgentIndex(
+            forkCapabilityProbeCache: ForkCapabilityProbeResultCache(ttl: 3_600),
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             }

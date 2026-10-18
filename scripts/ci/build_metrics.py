@@ -33,6 +33,14 @@ TIMING_RE = re.compile(
     r"^\s*(.+?)(?:\s+\(\d+\s+tasks?\)\s+\|)?\s+"
     r"([0-9]+(?:\.[0-9]+)?) seconds\s*$"
 )
+CACHE_PLUGIN_SETTING_RE = re.compile(
+    r"\bCOMPILATION_CACHE_ENABLE_PLUGIN\s*=\s*YES\b",
+    re.IGNORECASE,
+)
+CACHE_REMOTE_SETTING_RE = re.compile(
+    r"\bCOMPILATION_CACHE_REMOTE_SERVICE_PATH\s*=\s*\S+",
+    re.IGNORECASE,
+)
 CACHE_VALUES = {"Cache hit": "hit", "Cache miss": "miss"}
 
 
@@ -140,6 +148,15 @@ def parse_log(path: Path) -> dict[str, object]:
         "swift_compile_events": sum(swift_compile_by_target.values()),
         "swift_emit_module_events": sum(swift_emit_by_target.values()),
         "cacheable_tasks": cache["hit"] + cache["miss"],
+        # The command's build-settings echo is the only portable evidence of
+        # whether Xcode was given the fleet plugin/socket. Keep the value
+        # categorical; never copy the socket path into telemetry.
+        "cache_backend": (
+            "fleet"
+            if CACHE_PLUGIN_SETTING_RE.search("\n".join(lines))
+            and CACHE_REMOTE_SETTING_RE.search("\n".join(lines))
+            else "local"
+        ),
         "timing_summary_seconds": timing_summary(lines),
         "targets": targets,
     }
@@ -162,6 +179,7 @@ def aggregate(schemes: list[dict[str, object]]) -> dict[str, object]:
 
     return {
         **dict(totals),
+        "cache_backend": "fleet" if any(scheme.get("cache_backend") == "fleet" for scheme in schemes) else "local",
         "timing_summary_seconds": dict(sorted(timing.items())),
         "targets": {
             target: dict(values)
@@ -233,8 +251,10 @@ def build_receipt(
         "hit_rate": round(hits / cacheable, 6) if cacheable else None,
         "seed_distance": seed_distance,
         "compile_seconds": compile_phase,
+        "compile_wall_seconds": compile_seconds,
         "fetch_seconds": fetch_seconds,
         "link_seconds": link_phase,
+        "cache_backend": aggregate_values.get("cache_backend", "local"),
     }
     return {
         "schema_version": 1,

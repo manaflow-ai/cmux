@@ -16,6 +16,9 @@ enum CloudTeamPickerMenu {
     static let pendingTeamIdentifier = "CloudTeamPickerPendingTeam"
     static let createTeamIdentifier = "CloudTeamPickerCreateTeamButton"
     static let invitedHeaderIdentifier = "CloudTeamPickerInvitedHeader"
+    static let signedInAsIdentifier = "CloudTeamPickerSignedInAs"
+    static let signOutIdentifier = "CloudTeamPickerSignOutButton"
+    static let switchAccountIdentifier = "CloudTeamPickerSwitchAccountButton"
 
     static func invitationIdentifier(_ invitationID: String) -> String {
         "CloudTeamPickerInvitation_\(invitationID)"
@@ -41,7 +44,10 @@ enum CloudTeamPickerMenu {
         onInvite: (() -> Void)? = nil,
         onMembers: (() -> Void)? = nil,
         invitations: [Invitation] = [],
-        onJoin: ((Invitation) -> Void)? = nil
+        onJoin: ((Invitation) -> Void)? = nil,
+        accountEmail: String? = nil,
+        onSwitchAccount: (() -> Void)? = nil,
+        onSignOut: (() -> Void)? = nil
     ) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -127,6 +133,36 @@ enum CloudTeamPickerMenu {
         create.identifier = NSUserInterfaceItemIdentifier(createTeamIdentifier)
         create.isEnabled = !isBusy
         menu.addItem(create)
+        // The account closes the menu, like a team switcher: who is signed in,
+        // then the way out. Busy disables it so a sign-out cannot race a switch.
+        if let onSignOut {
+            menu.addItem(.separator())
+            if let accountEmail, !accountEmail.isEmpty {
+                menu.addItem(statusItem(
+                    String(
+                        format: String(localized: "mobile.pairing.signedInAs", defaultValue: "Signed in as %@"),
+                        accountEmail
+                    ),
+                    identifier: signedInAsIdentifier
+                ))
+            }
+            if let onSwitchAccount {
+                let switchAccount = SidebarRowClosureMenuItem(
+                    title: String(localized: "cloud.teamPicker.switchAccount", defaultValue: "Switch Account…"),
+                    handler: onSwitchAccount
+                )
+                switchAccount.identifier = NSUserInterfaceItemIdentifier(switchAccountIdentifier)
+                switchAccount.isEnabled = !isBusy
+                menu.addItem(switchAccount)
+            }
+            let signOut = SidebarRowClosureMenuItem(
+                title: String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+                handler: onSignOut
+            )
+            signOut.identifier = NSUserInterfaceItemIdentifier(signOutIdentifier)
+            signOut.isEnabled = !isBusy
+            menu.addItem(signOut)
+        }
         return menu
     }
 

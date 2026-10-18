@@ -15,6 +15,8 @@ import Darwin
 ///
 /// A failing step is recorded and the tour continues, so one bad identifier
 /// still leaves every later screenshot; the test fails at the end listing them.
+/// Cloud sidebar evidence tours: `cloud-sidebar-audit-tour` and
+/// `cloud-machine-author-tour` in `dogfood/scenarios/`.
 final class DogfoodScenarioUITests: XCTestCase {
     private var socketPath = ""
     private var lastSocketError = "no attempt"

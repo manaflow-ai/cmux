@@ -388,6 +388,18 @@ Transport diagnostics have two perspectives. The client snapshot owns its select
 
 Direct plaintext WebSocket binds are loopback-only unless explicitly enabled. Prefer a TLS reverse proxy for a public endpoint. The direct listener bounds raw HTTP sockets and requires an upgrade within ten seconds. Native and Cloudflare relays enforce global and per-slot admission, short-lived scoped tickets, join deadlines, circuit idle expiry, and bounded queues.
 
+## Embedded clients
+
+`crates/cmux-terminal-client` exposes the client side of this protocol as a C
+ABI for programs that cannot spawn `cmux-tui` (the iOS app). It connects by
+`ws://`, `wss://`, or `iroh://` route with a persistent device identity under a
+caller-owned state directory, optionally dials private addresses through an
+in-process WireGuard tunnel (`cmux-wg`), delivers raw terminal bytes to the
+embedding renderer, and reads the terminal catalog over the mux control
+service. `MuxLineClient` in `cmux-remote` is the request/response form of the
+mux control bridge that makes the catalog possible without a local socket. See
+the crate README for the contract.
+
 ## Terms
 
 - Carrier: the byte transport, such as SSH, WebSocket, QUIC, or a Unix socket.

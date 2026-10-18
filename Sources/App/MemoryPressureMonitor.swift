@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import OSLog
+import CmuxMemoryPressure
 
 @MainActor
 @Observable
@@ -23,6 +24,9 @@ final class MemoryPressureMonitor {
 
     @ObservationIgnored
     var onAggregatePressureCleared: (@MainActor () -> Void)?
+    /// Runs after each applied sample, at any severity, with its time.
+    @ObservationIgnored
+    var onSampleApplied: (@MainActor (Date) -> Void)?
 
     @ObservationIgnored
     private let footprintSampler: any MemoryPressureFootprintSampling
@@ -54,7 +58,15 @@ final class MemoryPressureMonitor {
     init(
         registry: MemoryPressureResponderRegistry? = nil,
         footprintSampler: any MemoryPressureFootprintSampling = TaskVMInfoMemoryPressureFootprintSampler(),
-        aggregateSampler: any MemoryPressureAggregateSampling = DarwinMemoryPressureAggregateSampler(),
+        aggregateSampler: any MemoryPressureAggregateSampling = DarwinMemoryPressureAggregateSampler(
+            snapshotProvider: {
+                await CmuxTopProcessSnapshot.captureCached(
+                    includeProcessDetails: false,
+                    includeCMUXScope: false,
+                    maximumAge: 15
+                )
+            }
+        ),
         aggregatePolicy: MemoryPressureAggregatePolicy = .default,
         thresholds: MemoryPressureFootprintThresholds = .default,
         criticalPersistenceDuration: TimeInterval = 60,
@@ -298,6 +310,7 @@ final class MemoryPressureMonitor {
         if evaluation.didBecomePersistentCritical {
             Self.logger.notice("memoryPressure.persistentCritical")
         }
+        onSampleApplied?(sampledAt)
     }
 
     private func logTransition(_ evaluation: MemoryPressureStateEvaluation) {

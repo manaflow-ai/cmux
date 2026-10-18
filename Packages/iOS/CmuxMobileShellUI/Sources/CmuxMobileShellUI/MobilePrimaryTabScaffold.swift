@@ -9,18 +9,21 @@ struct MobilePrimaryTabScaffold<
     Workspaces: View,
     Feed: View,
     Notifications: View,
+    Cloud: View,
     Search: View
 >: View {
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
     let feedNeedsInputCount: Int
+    let feedNeedsInputCountProvider: (@MainActor () -> Int)?
     /// False when the Feed replaces the Notifications tab (CMUX Labs).
     let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let feed: Feed
     let notifications: Notifications
+    let cloud: Cloud
     let search: Search
 
     init(
@@ -28,22 +31,26 @@ struct MobilePrimaryTabScaffold<
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
         feedNeedsInputCount: Int = 0,
+        feedNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
         showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder feed: () -> Feed,
         @ViewBuilder notifications: () -> Notifications,
+        @ViewBuilder cloud: () -> Cloud,
         @ViewBuilder search: () -> Search
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
         self.feedNeedsInputCount = feedNeedsInputCount
+        self.feedNeedsInputCountProvider = feedNeedsInputCountProvider
         self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.feed = feed()
         self.notifications = notifications()
+        self.cloud = cloud()
         self.search = search()
     }
 
@@ -98,16 +105,23 @@ struct MobilePrimaryTabScaffold<
                 feed
                     .tabItem { feedLabel }
                     .tag(MobilePrimaryTab.feed)
-                    .badge(feedNeedsInputCount)
+                    .badge(resolvedFeedNeedsInputCount)
                 if showsNotificationsTab {
                     notifications
                         .tabItem { notificationsLabel }
                         .tag(MobilePrimaryTab.notifications)
                         .badge(notificationUnreadCount)
                 }
+                cloud
+                    .tabItem { cloudLabel }
+                    .tag(MobilePrimaryTab.cloud)
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
+    }
+
+    private var resolvedFeedNeedsInputCount: Int {
+        feedNeedsInputCountProvider?() ?? feedNeedsInputCount
     }
 
     /// A tab-view bottom accessory always adds a full-width plate, which is
@@ -124,7 +138,7 @@ struct MobilePrimaryTabScaffold<
         Binding(
             get: { selection },
             set: { newValue in
-                if newValue.searchScope != nil {
+                if newValue != .search {
                     if searchCoordinator.isPresented {
                         // The round X returns selection to the previous tab
                         // while search is still presented; it cancels the
@@ -153,7 +167,7 @@ struct MobilePrimaryTabScaffold<
         } label: {
             feedLabel
         }
-        .badge(feedNeedsInputCount)
+        .badge(resolvedFeedNeedsInputCount)
 
         if showsNotificationsTab {
             Tab(value: MobilePrimaryTab.notifications) {
@@ -162,6 +176,11 @@ struct MobilePrimaryTabScaffold<
                 notificationsLabel
             }
             .badge(notificationUnreadCount)
+        }
+        Tab(value: MobilePrimaryTab.cloud) {
+            cloud
+        } label: {
+            cloudLabel
         }
     }
 
@@ -187,6 +206,14 @@ struct MobilePrimaryTabScaffold<
             systemImage: "bell"
         )
         .accessibilityIdentifier("MobilePrimaryTabNotifications")
+    }
+
+    private var cloudLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.cloud", defaultValue: "Cloud"),
+            systemImage: "cloud"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabCloud")
     }
 }
 

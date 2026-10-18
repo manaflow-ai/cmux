@@ -16,6 +16,10 @@ Tell us what you can:
 - The cmux version and how you installed it.
 - Steps or a proof of concept. A rough one is fine.
 
+Use test accounts and redact credentials, personal data, and unrelated terminal
+contents. Do not send live tokens or private keys. If sensitive evidence is
+needed, describe what you have so we can arrange how to share it privately.
+
 You do not need a CVSS score or a written-up advisory. A paragraph that says
 "a workspace name containing this string runs the rest of it as a command" is a
 complete report.
@@ -54,3 +58,11 @@ does something surprising, or an agent doing something you approved.
 
 We fix security issues in the latest release, the RC channel and NIGHTLY. There
 is no long-term support branch to backport to.
+
+## Security documentation
+
+- [Threat model outline](docs/security/threat-model.md): assets, trust boundaries,
+  threats, and limits of the protections cmux provides.
+- [Incident response overview](docs/security/incident-response.md): how reports,
+  fixes, and public communication fit together. Operational response procedures
+  and active incident evidence are maintained privately.

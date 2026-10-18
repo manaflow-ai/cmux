@@ -57,8 +57,6 @@ export function TeamMembers() {
   );
 }
 
-/** Seats are soft: this never blocks an invite, it only points admins at billing. */
-
 type PendingConfirm =
   | { readonly kind: "remove"; readonly member: TeamMember }
   | { readonly kind: "demoteSelf"; readonly member: TeamMember }

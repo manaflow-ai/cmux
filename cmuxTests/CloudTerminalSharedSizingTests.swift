@@ -102,7 +102,7 @@ import Testing
         )
         session.reconnect(socketPath: fixture.socketPath)
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
-        fixture.send(["id": identify.id, "ok": true, "data": ["protocol": 12, "capabilities": capabilities]])
+        fixture.send(["id": identify.id, "ok": true, "data": ["protocol": 12, "capabilities": capabilities + ["terminal-pending-sequence-v1"]]])
         let clientInfo = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(clientInfo.cmd == "set-client-info")
         fixture.send(["id": clientInfo.id, "ok": true, "data": [:]])

@@ -63,4 +63,26 @@ struct CloudWorkspacePresenceHeadsTests {
         #expect(WorkspacePresencePolicy.accessibilityLabel(participants).contains("Person 12"))
         #expect(WorkspacePresencePolicy.names([.init(id: "missing-name")]).isEmpty == false)
     }
+
+    /// Active participants remain visible before passive participants.
+    @Test("focused viewers keep visible slots ahead of passive viewers")
+    func activeViewersTakePriority() {
+        let participants = [
+            WorkspacePresenceParticipant(id: "idle-a", isActive: false),
+            WorkspacePresenceParticipant(id: "focused", isActive: true),
+            WorkspacePresenceParticipant(id: "idle-b", isActive: false),
+        ]
+        let layout = WorkspacePresencePolicy.layout(participants: participants, maximumVisible: 2)
+        #expect(layout.visible.map(\.id) == ["focused", "idle-a"])
+        #expect(layout.overflow == 1)
+    }
+
+    /// Passive participants retain a visible head with reduced opacity.
+    @Test("inactive viewers keep their head but render with reduced opacity")
+    func inactiveOpacity() {
+        let active = WorkspacePresenceParticipant(id: "active", isActive: true)
+        let inactive = WorkspacePresenceParticipant(id: "inactive", isActive: false)
+        #expect(WorkspacePresencePolicy.avatarOpacity(for: active) == 1)
+        #expect(WorkspacePresencePolicy.avatarOpacity(for: inactive) == WorkspacePresencePolicy.inactiveOpacity)
+    }
 }

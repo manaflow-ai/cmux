@@ -34,14 +34,5 @@ final class FakeUpdater: UpdaterHandle {
         checkForUpdatesCallCount += 1
     }
 
-    private(set) var checkForUpdateInformationCallCount = 0
-    private(set) var checkForUpdatesInBackgroundCallCount = 0
-
-    func checkForUpdateInformation() {
-        checkForUpdateInformationCallCount += 1
-    }
-
-    func checkForUpdatesInBackground() {
-        checkForUpdatesInBackgroundCallCount += 1
-    }
+    func checkForUpdateInformation() {}
 }

@@ -356,7 +356,8 @@ extension AppDelegate {
             localized: "dialog.deleteWorkspaceLayout.cancel",
             defaultValue: "Cancel"
         ))
-        alert.beginSheetModal(for: window) { [weak window, weak cmuxConfigStore] response in
+        let windowIdentifier = ObjectIdentifier(window)
+        alert.beginSheetModal(for: window) { [weak cmuxConfigStore] response in
             guard response == .alertFirstButtonReturn, let cmuxConfigStore else { return }
             do {
                 try CmuxConfigActionSaver.deleteAction(
@@ -368,7 +369,7 @@ extension AppDelegate {
                 cmuxDebugLog("deleteWorkspaceAction.deleted id=\(box.actionID)")
 #endif
             } catch {
-                guard let window else { return }
+                guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) else { return }
                 let errorAlert = NSAlert()
                 errorAlert.alertStyle = .warning
                 errorAlert.messageText = String(
@@ -495,7 +496,8 @@ extension AppDelegate {
             defaultValue: "Cancel"
         ))
 
-        alert.beginSheetModal(for: window) { [weak window, weak cmuxConfigStore] response in
+        let windowIdentifier = ObjectIdentifier(window)
+        alert.beginSheetModal(for: window) { [weak cmuxConfigStore] response in
             guard response == .alertFirstButtonReturn else { return }
             let typedTitle = accessory.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = typedTitle.isEmpty
@@ -530,14 +532,15 @@ extension AppDelegate {
                 // The app's store runs without file watchers; reload explicitly
                 // so the saved layout shows up in the menus right away.
                 cmuxConfigStore?.loadAll()
-                if let defaultUpdateError, let window {
+                if let defaultUpdateError,
+                   let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) {
                     self.presentNewWorkspaceDefaultLayoutError(defaultUpdateError, for: window)
                 }
 #if DEBUG
                 cmuxDebugLog("saveWorkspaceAction.saved id=\(result.actionID)")
 #endif
             } catch {
-                guard let window else { return }
+                guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) else { return }
                 let errorAlert = NSAlert()
                 errorAlert.alertStyle = .warning
                 errorAlert.messageText = String(

@@ -159,6 +159,42 @@ import Testing
         #expect(BrowserURLResolver.resolve("example.com/path?email=user@example.com")?.host == "example.com")
     }
 
+    @Test func authorityUserInfoIsRejectedEvenWhenLaterTextLooksLikeAScheme() throws {
+        for input in [
+            "localhost:80@evil.example/path?u=http://x",
+            "localhost:80@evil.example/path#http://x",
+            "localhost:80@evil.example",
+            "user@evil.example",
+            "user@evil.example/?next=https://x",
+        ] {
+            let url = BrowserURLResolver.resolve(input)
+            #expect(url?.host == "duckduckgo.com", "expected search for \(input)")
+            #expect(
+                URLComponents(url: try #require(url), resolvingAgainstBaseURL: false)?
+                    .queryItems?.first?.value == input
+            )
+        }
+    }
+
+    @Test func pathAndQueryDataDoNotAffectTheResolvedHost() throws {
+        let local = try #require(BrowserURLResolver.resolve("localhost:3000/a?next=http://x"))
+        #expect(local.absoluteString == "http://localhost:3000/a?next=http://x")
+        #expect(local.host == "localhost")
+        #expect(local.user == nil)
+
+        let atPath = try #require(BrowserURLResolver.resolve("example.com/@user"))
+        #expect(atPath.absoluteString == "https://example.com/@user")
+        #expect(atPath.host == "example.com")
+
+        let atQuery = try #require(BrowserURLResolver.resolve("example.com?x=a@b"))
+        #expect(atQuery.absoluteString == "https://example.com?x=a@b")
+        #expect(atQuery.host == "example.com")
+
+        let portQuery = try #require(BrowserURLResolver.resolve("example.com:8443/a?x=a@b&u=http://y"))
+        #expect(portQuery.host == "example.com")
+        #expect(portQuery.port == 8443)
+    }
+
     @Test func bareIPv6LoopbackIsBracketedHTTP() {
         // `::1` must be recognized as a local host (not a search) and bracketed.
         let url = BrowserURLResolver.resolve("::1")

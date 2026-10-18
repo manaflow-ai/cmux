@@ -2133,4 +2133,66 @@ mod tests {
         .unwrap();
         assert_eq!(focused_workspace["value"]["focused"], true);
     }
+
+    #[test]
+    fn tab_create_terminal_in_workspace_adds_a_selected_tab_to_its_focused_pane() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "workspace-tab");
+        let workspace = created["value"]["workspace_id"].as_str().unwrap().to_string();
+        let first_pane = created["value"]["pane_id"].as_str().unwrap().to_string();
+        let split = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::PaneSplit,
+                selectors(None, None, Some(&first_pane), None),
+                json!({"direction":"right","ratio":0.5}),
+                Some("workspace-tab-split"),
+            ),
+        )
+        .unwrap();
+        let second_pane = split["value"]["pane_id"].as_str().unwrap().to_string();
+
+        // Focus each pane in turn so the target cannot be the newest pane by
+        // coincidence.
+        for (round, pane) in [&first_pane, &second_pane, &first_pane].into_iter().enumerate() {
+            let focus_key = format!("workspace-tab-focus-{round}");
+            let create_key = format!("workspace-tab-create-{round}");
+            dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::PaneFocus,
+                    selectors(None, None, Some(pane), None),
+                    json!({}),
+                    Some(&focus_key),
+                ),
+            )
+            .unwrap();
+            let tab = dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::TabCreateTerminal,
+                    selectors(Some(&workspace), None, None, None),
+                    json!({"name":"phone tab"}),
+                    Some(&create_key),
+                ),
+            )
+            .unwrap();
+            assert_eq!(tab["value"]["kind"], "terminal");
+            assert_eq!(tab["value"]["workspace_id"], workspace);
+            assert_eq!(tab["value"]["pane_id"], *pane, "round {round}");
+            let tab_id = tab["value"]["tab_id"].as_str().unwrap();
+            let snapshot = dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::TabGet,
+                    selectors(None, None, None, Some(tab_id)),
+                    json!({}),
+                    None,
+                ),
+            )
+            .unwrap();
+            assert_eq!(snapshot["focused"], true, "round {round}: the new tab is selected");
+        }
+        mux.shutdown();
+    }
 }
