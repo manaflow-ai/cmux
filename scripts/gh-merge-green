@@ -485,7 +485,8 @@ fi
 is_vercel_context() {
   local lowered
   lowered=$(LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  [[ "$lowered" == vercel || "$lowered" == vercel\ * || "$lowered" == vercel-* || "$lowered" == vercel/* ]]
+  [[ "$lowered" == vercel || "$lowered" == vercel\ preview* || "$lowered" == vercel\ production* ||
+     "$lowered" == vercel-* || "$lowered" == vercel/* || "$lowered" == vercel\ -* || "$lowered" == vercel\ –* ]]
 }
 
 if [ "$has_ci" -eq 0 ]; then

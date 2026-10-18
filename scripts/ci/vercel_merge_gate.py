@@ -38,9 +38,18 @@ def requires_vercel(repo: str, paths: Iterable[str]) -> bool:
 
 
 def is_vercel_status(name: str) -> bool:
-    """Match the names used by Vercel's legacy commit-status integrations."""
+    """Match Vercel deployment contexts without swallowing review bots."""
     normalized = name.strip().casefold()
-    return normalized == "vercel" or normalized.startswith(("vercel ", "vercel-", "vercel/"))
+    if normalized in {"vercel agent review", "vercel code review"}:
+        return False
+    return normalized == "vercel" or normalized.startswith((
+        "vercel preview",
+        "vercel production",
+        "vercel-",
+        "vercel/",
+        "vercel -",
+        "vercel –",
+    ))
 
 
 if __name__ == "__main__":
