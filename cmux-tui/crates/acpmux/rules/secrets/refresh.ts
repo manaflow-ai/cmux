@@ -12,11 +12,12 @@
 //   negative examples (Apache-2.0), XORed and base64-encoded so no committed file holds a
 //   string a secret scanner (or GitHub push protection, which decodes base64) would flag.
 //
-// It only downloads rule files; it never runs or verifies a secret.
+// Needs Bun 1.2.21 or newer (Bun.YAML). It only downloads rule files; it never runs or
+// verifies a secret.
 
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
-const here = dirname(new URL(import.meta.url).pathname);
+const here = import.meta.dir;
 const gitleaksTag = process.argv[2] ?? "v8.30.1";
 const noseyTag = process.argv[3] ?? "v0.24.0";
 /** Each example's bytes are XORed with this (`secret_scan_tests.rs` reads it back). */
@@ -85,7 +86,8 @@ for (const [id, text] of labels) {
 // Nosey Parker's rules live as YAML files in its source tree.
 const tree = (await (
   await get(`https://api.github.com/repos/praetorian-inc/noseyparker/git/trees/${noseyTag}?recursive=1`)
-).json()) as { tree: { path: string }[] };
+).json()) as { tree: { path: string }[]; truncated: boolean };
+if (tree.truncated) throw new Error("the Nosey Parker tree listing is truncated");
 const prefix = "crates/noseyparker/data/default/builtin/rules/";
 const noseyRaw = `https://raw.githubusercontent.com/praetorian-inc/noseyparker/${noseyTag}`;
 type NoseyRule = { id: string; name: string; examples?: string[]; negative_examples?: string[] };
@@ -103,7 +105,7 @@ for (const { path } of tree.tree.filter((entry) => entry.path.startsWith(prefix)
     });
   }
 }
-examples.sort((a, b) => a.id.localeCompare(b.id));
+examples.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 await Bun.write(
   join(here, "noseyparker-examples.json"),
   `${JSON.stringify(

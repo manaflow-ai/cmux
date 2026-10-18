@@ -154,8 +154,9 @@ struct Rule {
 struct Rules {
     rules: Vec<Rule>,
     global: Vec<Allow>,
-    /// cmux's own: hex (git SHAs, hashes) and UUIDs are ids, not secrets, unless a
-    /// provider's own rule says otherwise (a Heroku API key is a UUID).
+    /// cmux's own: hex (git SHAs, hashes) and UUIDs are ids, not secrets, as the
+    /// value of a `NAME=value` whose name does not say secret or password
+    /// (`GIT_COMMIT=<sha>`). A rule that names a header or a key keeps them.
     ids: Allow,
 }
 
@@ -313,15 +314,23 @@ fn looks_random(s: &[u8]) -> bool {
         && entropy(s) >= 4.3
 }
 
-/// A placeholder or a reference, not a value: `$TOKEN`, `${{ secrets.X }}`,
-/// `<your key>`, `#{password}`, `process.env.TOKEN`, a `Password:` label.
+/// A placeholder or a reference, not a value: `$TOKEN`, `${TOKEN}`,
+/// `${{ secrets.X }}`, `<your key>`, `#{password}`, a mask (`[secret]`, or the
+/// `[Shopify` a later scan reads of `[Shopify private app access token]`),
+/// `process.env.TOKEN`, a `Password:` label. A value that only starts with
+/// `$` or `#` (`$up3rS3cret9`) is still a value.
 fn is_placeholder(value: &str) -> bool {
     let v = value.trim_matches(['"', '\'']);
-    v.starts_with(['$', '<', '[', '#'])
+    v.starts_with('<')
         || v.ends_with(':')
         || v.chars().all(|c| c == '*' || c == 'x' || c == 'X')
+        || PLACEHOLDER.is_match(v.as_bytes())
         || CODE_PATH.is_match(v.as_bytes())
 }
+
+static PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
+    compile(r"^(?:\$\{\{.*|\$\{?(?:[A-Z_][A-Z0-9_]*|[a-z_][a-z0-9_]*)\}?|#\{[^}]*\}|\[[A-Za-z][A-Za-z .-]*\]?)$").expect("constant pattern") // crash-allow: constant pattern
+});
 
 /// `process.env.TOKEN`, `config.password`, `os.environ`: a name, not a value.
 static CODE_PATH: LazyLock<Regex> = LazyLock::new(|| {
@@ -330,16 +339,19 @@ static CODE_PATH: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// An assignment's value that can be a secret: not a placeholder, not a
-/// path (`secret_scan::mask`, `/en/docs`), and, unless its name says secret
-/// or password, with a letter and a digit, so a count (`max_tokens: 100000`)
-/// or a word (`token: expired`) is left alone.
-fn is_value(value: &[u8], strong: bool) -> bool {
+/// path (`secret_scan::mask`, `/en/docs`), not a call (`compute_secret(x)`),
+/// and with a letter and a digit, so a count (`max_tokens: 100000`) or a word
+/// (`token: expired`) is left alone. A name that says secret or password
+/// (`strong`) takes a word too when it is assigned (`password = open_sesame`)
+/// or quoted, but not a type (`password: String`) or the name again
+/// (`passwordLabel: "Password"`).
+fn is_value(value: &[u8], strong: bool, assigned: bool) -> bool {
     let v = String::from_utf8_lossy(value);
     let v = v.trim_matches(['"', '\'']);
-    !is_placeholder(v)
-        && !v.starts_with([':', '/'])
-        && (strong
-            || v.bytes().any(|b| b.is_ascii_alphabetic()) && v.bytes().any(|b| b.is_ascii_digit()))
+    let lower = v.to_ascii_lowercase();
+    let mixed = v.bytes().any(|b| b.is_ascii_alphabetic()) && v.bytes().any(|b| b.is_ascii_digit());
+    let word = strong && assigned && !lower.contains("passw") && !lower.contains("secret");
+    !is_placeholder(v) && !v.starts_with([':', '/']) && !v.contains('(') && (mixed || word)
 }
 
 /// An assignment whose name says secret or password (`GITHUB_SECRET=`,
@@ -395,20 +407,19 @@ pub fn find(text: &str) -> Vec<Found> {
             if rule.entropy > 0.0 && entropy(s) <= rule.entropy {
                 continue;
             }
-            if rule.id.starts_with("generic") && !s.iter().any(u8::is_ascii_digit) {
-                continue;
-            }
-            let strong = rule.id == "cmux-assignment"
-                && strong_name(&whole.as_bytes()[..secret.start() - whole.start()]);
-            if rule.id == "cmux-assignment" && !is_value(s, strong) {
+            let assignment = rule.id == "cmux-assignment";
+            let name = &whole.as_bytes()[..secret.start() - whole.start()];
+            let strong = assignment && strong_name(name);
+            let assigned = name.contains(&b'=') || name.ends_with(b"\"") || name.ends_with(b"'");
+            if assignment && !is_value(s, strong, assigned) {
                 continue;
             }
             let line = &bytes[line_of(bytes, &secret.range())];
             if rule.allow.iter().chain(&rules.global).any(|a| a.allows(s, whole.as_bytes(), line)) {
                 continue;
             }
-            let loose = rule.id.starts_with("generic") || rule.id.starts_with("cmux-");
-            if loose && !strong && rules.ids.allows(s, whole.as_bytes(), line) {
+            // Only a bare `NAME=value` drops an id: a header's or a key's hex is its secret.
+            if assignment && !strong && rules.ids.allows(s, whole.as_bytes(), line) {
                 continue;
             }
             let range = on_chars(text, secret.range());

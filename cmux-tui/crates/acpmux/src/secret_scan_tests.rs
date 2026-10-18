@@ -156,7 +156,11 @@ fn secret_assignments_mask_the_value_and_keep_the_name() {
 #[test]
 fn hex_and_uuid_secrets_behind_a_header_or_a_name_are_masked() {
     let hex = "4f3c2a1b9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c2a1b9e";
-    assert_masked(&format!("Authorization: Bearer {hex}"), &[hex], "Authorization: Bearer [auth token]");
+    assert_masked(
+        &format!("Authorization: Bearer {hex}"),
+        &[hex],
+        "Authorization: Bearer [auth token]",
+    );
     let uuid = "6f9619ff-8b86-d011-b42d-00c04fc964ff";
     assert_masked(&format!("x-api-key: {uuid}"), &[uuid], "x-api-key: [auth token]");
     let short = "9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c";
@@ -173,9 +177,13 @@ fn a_secret_that_starts_with_a_sigil_is_masked() {
 #[test]
 fn every_vendored_allowlist_regex_compiles() {
     let config: Config = toml::from_str(GITLEAKS).expect("gitleaks.toml parses");
-    let lists = std::iter::once(&config.allowlist).chain(config.rules.iter().flat_map(|r| &r.allowlists));
-    let broken: Vec<&str> =
-        lists.flat_map(|a| &a.regexes).filter(|p| compile(p).is_none()).map(String::as_str).collect();
+    let lists =
+        std::iter::once(&config.allowlist).chain(config.rules.iter().flat_map(|r| &r.allowlists));
+    let broken: Vec<&str> = lists
+        .flat_map(|a| &a.regexes)
+        .filter(|p| compile(p).is_none())
+        .map(String::as_str)
+        .collect();
     assert!(broken.is_empty(), "allowlist regexes the regex crate rejects: {broken:?}");
 }
 
@@ -308,10 +316,10 @@ fn nosey_parker_examples_are_caught_and_its_negatives_left_alone() {
     );
 }
 
-/// Measured on gitleaks v8.30.1 and Nosey Parker v0.24.0 (278 of 413 caught, 49 of 135 flagged);
+/// Measured on gitleaks v8.30.1 and Nosey Parker v0.24.0 (282 of 413 caught, 49 of 135 flagged);
 /// move them when a change catches more. Most misses are not secrets a prompt holds (ARNs,
 /// password hashes, Kerberos tickets) or hex and words with no name saying secret. Most
 /// flagged negatives are secrets under another rule's name (a Slack user token among the bot
 /// token's negatives) or values assigned to a password: masking them is right here.
-const MIN_RECALL_PERCENT: usize = 67;
+const MIN_RECALL_PERCENT: usize = 68;
 const MAX_FLAGGED_NEGATIVES: usize = 49;
