@@ -55,6 +55,9 @@ export interface VirtualRowMeasurementState {
   heights: Map<number, number>;
   measured: { current: { total: number; count: number } };
   estimate: { current: number };
+  /** ResizeObserver callbacks reuse the latest viewport anchor instead of rescanning every row. */
+  anchorIndex?: { current: number };
+  anchorCount?: { current: number };
   scrollRef: { current: HTMLElement | null };
   bumpVersion: () => void;
 }
@@ -64,7 +67,9 @@ export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, st
   const prev = state.heights.get(index);
   if (Math.abs((prev ?? state.estimate.current) - next) <= 1) return false;
 
-  const firstVisible = virtualFirstVisibleIndex(state.count, state.heights, state.scrollRef.current?.scrollTop ?? 0, state.estimate.current);
+  const firstVisible = state.anchorIndex && state.anchorCount?.current === state.count
+    ? state.anchorIndex.current
+    : virtualFirstVisibleIndex(state.count, state.heights, state.scrollRef.current?.scrollTop ?? 0, state.estimate.current);
   const delta = scrollCompensationDelta(index, firstVisible, prev, next, state.estimate.current);
   state.heights.set(index, next);
   const measured = state.measured.current;
@@ -93,6 +98,8 @@ export function useVirtualTurns(count: number, enabled = true) {
   const observers = useRef(new Map<number, ResizeObserver>());
   const cleanups = useRef(new Map<number, () => void>());
   const measureCallbacks = useRef(new Map<number, (node: HTMLDivElement | null) => void>());
+  const anchorIndex = useRef(0);
+  const anchorCount = useRef(-1);
   const measureCacheKey = useRef({ count, enabled });
   const countRef = useRef(count);
   countRef.current = count;
@@ -114,6 +121,8 @@ export function useVirtualTurns(count: number, enabled = true) {
     heights.current.clear();
     estimate.current = 260;
     measured.current = { total: 0, count: 0 };
+    anchorIndex.current = 0;
+    anchorCount.current = -1;
     setVersion((v) => v + 1);
   }, [count, enabled]);
   useLayoutEffect(() => {
@@ -122,7 +131,11 @@ export function useVirtualTurns(count: number, enabled = true) {
     const scroll = root?.closest<HTMLElement>("#messages, .gallery-transcript");
     if (!scroll) return;
     scrollRef.current = scroll;
-    const update = () => setViewport({ top: scroll.scrollTop, height: scroll.clientHeight || 900 });
+    const update = () => {
+      anchorIndex.current = virtualFirstVisibleIndex(count, heights.current, scroll.scrollTop, estimate.current);
+      anchorCount.current = count;
+      setViewport({ top: scroll.scrollTop, height: scroll.clientHeight || 900 });
+    };
     update();
     scroll.addEventListener("scroll", update, { passive: true });
     const resize = new ResizeObserver(update);
@@ -158,6 +171,8 @@ export function useVirtualTurns(count: number, enabled = true) {
         heights: heights.current,
         measured,
         estimate,
+        anchorIndex,
+        anchorCount,
         scrollRef,
         bumpVersion: () => setVersion((v) => v + 1),
       };
