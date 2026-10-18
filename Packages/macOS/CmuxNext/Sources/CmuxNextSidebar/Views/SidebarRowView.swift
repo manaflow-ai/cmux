@@ -92,8 +92,11 @@ class SidebarRowView: NSView {
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
     @objc dynamic func hoverChanged() {
-        fadesNextFill = true
-        fadesNextHover = true
+        // Hover entry is immediate; only clearing a row may use the short
+        // exit transition. A pointer sweep should never leave a delayed
+        // highlight behind the row the pointer is currently over.
+        fadesNextFill = !isHovered
+        fadesNextHover = !isHovered
         needsDisplay = true
     }
 
