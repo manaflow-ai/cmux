@@ -404,6 +404,7 @@ async fn dispatch_request(
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
                 provenance,
+                after_turn: None,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }

@@ -2,7 +2,7 @@
 //! relay host went dark for 24 minutes and every Codex turn streaming through it failed with
 //! "stream disconnected"; each chat then sat idle until a person typed "continue".
 //!
-//! When a turn fails with a transport error ([`is_transport_error`]), the hub waits, then sends
+//! When a turn fails with a transport error ([`super::turn_errors::is_transport_error`]), the hub waits, then sends
 //! the same chat one prompt that tells the agent its last turn was cut off and to check what
 //! finished before it goes on. The prompt runs through the ordinary prompt path, so the agent is
 //! started or resumed as for any prompt (Claude `--resume`, Codex `thread/resume`, else the
@@ -40,39 +40,6 @@ const SUFFIX: &str = "~resume-";
 
 /// Longest error text quoted to the agent, in characters.
 const MAX_ERROR_CHARS: usize = 300;
-
-/// Does an agent error mean the connection to the model dropped, not that the prompt or the
-/// account was at fault? Limit and sign-in errors are excluded: another account solves those.
-pub fn is_transport_error(message: &str) -> bool {
-    if super::turns::is_limit_error(message) {
-        return false;
-    }
-    let m = message.to_lowercase();
-    const PHRASES: &[&str] = &[
-        "stream disconnected",
-        "connection error",
-        "connection reset",
-        "connection refused",
-        "connection closed",
-        "connection aborted",
-        "econnreset",
-        "econnrefused",
-        "etimedout",
-        "socket hang up",
-        "fetch failed",
-        "network error",
-        "error sending request",
-        "broken pipe",
-        "bad gateway",
-        "service unavailable",
-        "gateway timeout",
-        "upstream connect error",
-        "request timed out",
-    ];
-    PHRASES.iter().any(|p| m.contains(p))
-        || (m.contains("websocket")
-            && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
-}
 
 /// The prompt a continuation answers for, and the attempt it is (0 for a prompt of its own).
 fn split_attempt(prompt_id: &str) -> (&str, usize) {
@@ -131,6 +98,18 @@ pub(super) fn superseded() -> RpcError {
     .with_data(json!({"reason": "auto_resume.superseded"}))
 }
 
+/// `Err(superseded)` for a continuation (`after`) whose chat moved on, or that would wait.
+pub(super) fn check_cut(
+    session: &Session,
+    after: Option<&str>,
+    waiting: bool,
+) -> Result<(), RpcError> {
+    match after {
+        Some(cut) if waiting || !still_cut(session, cut) => Err(superseded()),
+        _ => Ok(()),
+    }
+}
+
 /// Up to a fifth more than `delay`, the same for a chat each time.
 fn staggered(delay: u64, session_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -143,7 +122,7 @@ impl Hub {
     /// Schedules the next continuation of a turn that failed with a transport error. Nothing
     /// for any other failure, or once the configured attempts are used.
     pub(super) fn schedule_auto_resume(self: &Arc<Self>, session: &Arc<Session>, cut: CutTurn<'_>) {
-        if !is_transport_error(cut.error) {
+        if !super::turn_errors::is_transport_error(cut.error) {
             return;
         }
         let (root, done) = split_attempt(cut.prompt_id);
@@ -268,29 +247,6 @@ impl Hub {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn transport_errors_are_told_from_limits_and_bugs() {
-        for m in [
-            "stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)",
-            "API Error: Connection error.",
-            "request to https://api.anthropic.com failed, reason: socket hang up",
-            "WebSocket handshake failed: 502",
-            "upstream connect error or disconnect/reset before headers",
-            "read ECONNRESET",
-        ] {
-            assert!(is_transport_error(m), "{m}");
-        }
-        for m in [
-            "You've reached your usage limit for this account",
-            "Selected model is at capacity. overloaded",
-            "simulated internal error",
-            "agent process closed",
-            "Invalid API key",
-        ] {
-            assert!(!is_transport_error(m), "{m}");
-        }
-    }
 
     #[test]
     fn attempts_are_counted_from_the_prompt_id() {

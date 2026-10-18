@@ -898,11 +898,13 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 mod nested_env;
+pub(crate) use nested_env::is_nested_claude_key;
+#[cfg(windows)]
+pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
     scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
 };
-pub(crate) use nested_env::{is_nested_claude_key, nested_claude_keys};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};

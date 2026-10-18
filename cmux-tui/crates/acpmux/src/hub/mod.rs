@@ -8,6 +8,7 @@ mod adoption;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
+mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 mod bookmarks;
 mod cancel;
@@ -47,7 +48,7 @@ mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
-pub(crate) use turns::is_limit_error;
+pub(crate) use turn_errors::is_limit_error;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -89,12 +90,11 @@ mod transfer_out;
 mod transfer_watch;
 mod turn_usage;
 mod turns;
-mod warm;
-mod xai;
-pub(crate) use turns::merge_mux_meta;
 pub(crate) mod views;
+mod warm;
 mod web_control;
 mod web_token;
+mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
 pub use web_token::WebToken;
@@ -914,4 +914,23 @@ fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
+    }
 }

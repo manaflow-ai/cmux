@@ -244,14 +244,10 @@ impl Hub {
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
         }
-        // An automatic continuation runs only while the chat still ends on the cut turn: no await
-        // between this check and `queue_slot`'s choice, so it never joins the queue.
+        // An automatic continuation runs only while its chat still ends on the cut turn: no await
+        // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
-        if let Some(after) = &after_turn
-            && !super::auto_resume::still_cut(session, after)
-        {
-            return Err(super::auto_resume::superseded());
-        }
+        super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -269,11 +265,9 @@ impl Hub {
             Err(done) => return done,
         };
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
-        if let Some(after) = &after_turn
-            && (waiting || !super::auto_resume::still_cut(session, after))
-        {
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
             drop(guard);
-            return Err(super::auto_resume::superseded());
+            return Err(e);
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
@@ -1028,45 +1022,4 @@ impl Hub {
             self.set_status(session, SessionStatus::Idle);
         }
     }
-}
-
-/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
-/// agent sent.
-pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
-    let Some(obj) = v.as_object_mut() else { return };
-    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
-    if !meta.is_object() {
-        *meta = json!({});
-    }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
-    if !mux.is_object() {
-        *mux = json!({});
-    }
-    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
-        for (k, v) in src {
-            dst.insert(k.clone(), v.clone());
-        }
-    }
-}
-
-/// Does an agent error mean the account cannot serve, not that the prompt
-/// was wrong? Usage and rate limits, and missing or rejected credentials:
-/// all of them are solved by another account, which the fallback provides.
-pub fn is_limit_error(message: &str) -> bool {
-    let m = message.to_lowercase();
-    m.contains("not logged in")
-        || m.contains("/login")
-        || m.contains("unauthorized")
-        || m.contains("authentication")
-        || m.contains("invalid api key")
-        || m.contains("401")
-        || (m.contains("reached your") && m.contains("limit"))
-        || m.contains("usage limit")
-        || m.contains("rate limit")
-        || m.contains("rate_limit")
-        || m.contains("out of credits")
-        || m.contains("insufficient credits")
-        || m.contains("quota")
-        || m.contains("overloaded")
-        || m.contains("429")
 }
