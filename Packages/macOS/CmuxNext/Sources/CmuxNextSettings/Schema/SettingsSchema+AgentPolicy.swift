@@ -126,6 +126,7 @@ extension SettingsSchema {
         "focusRing.width",
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
+        "appearance.statusIndicator.animation",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",

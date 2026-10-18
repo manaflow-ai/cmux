@@ -32,6 +32,7 @@ writes the same lines as plain text into the build's appcast <description>.
 
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
+  release-notes.py prs --head SHA [--since SHA] [--repo O/R] [--limit N]   the GitHub release's "PRs in this build"
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
   release-notes.py backfill --index I --base URL... --public-key K --out DIR   adds summary/items to old notes
   release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
@@ -44,6 +45,7 @@ from pathlib import Path
 HIGHLIGHTS = "release-notes/next/highlights"
 MAX_CHANGES = 200
 SUMMARY_LIMIT = 8
+PR_LIMIT = 40
 GROUP_TITLES = {"new": "New", "fixed": "Fixed", "changed": "Changed"}
 # Conventional types that never reach a person.
 INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "style", "build", "lint", "release-note",
@@ -240,10 +242,46 @@ def write_community_summary(digest, args):
             out.write(text)
 
 
+def commits_with_authors(since, head, limit=MAX_CHANGES):
+    """(subject, author) of each non-merge commit in the span, newest first, at most `limit` (None: all)."""
+    span = rev_range(since, head)
+    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
+    return [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:limit]
+
+
+def pr_lines(items, repo, limit=PR_LIMIT):
+    """The GitHub release body's "PRs in this build" section: one line per PR (newest first, each
+    PR once), at most `limit`, then "and K more"; commits without a "(#1234)" suffix are counted."""
+    seen, prs = set(), []
+    for item in items:
+        if "pr" in item and item["pr"] not in seen:
+            seen.add(item["pr"])
+            prs.append(item)
+    without = sum(1 for item in items if "pr" not in item)
+    if not prs and not without:
+        return ""
+    lines = ["### PRs in this build", ""]
+    # A subject's "@login" would ping that person and a "<" could open an HTML comment.
+    escape = lambda text: text.replace("&", "&amp;").replace("<", "&lt;").replace("@", "&#64;")
+    lines += [f'- [#{i["pr"]}](https://github.com/{repo}/pull/{i["pr"]}) {escape(i["title"])}' for i in prs[:limit]]
+    if len(prs) > limit:
+        lines.append(f"- and {len(prs) - limit} more")
+    if not prs:
+        lines.append("No PRs.")
+    if without:
+        lines += ["", f"{without} commit{'s' if without != 1 else ''} without a PR number not listed."]
+    return "\n".join(lines) + "\n"
+
+
+def prs(args):
+    # The whole span, not MAX_CHANGES: "and K more" and the no-PR count must cover every commit.
+    commits = commits_with_authors(args.since, args.head, limit=None)
+    print(pr_lines([change_item(s, a) for s, a in commits], args.repo, args.limit), end="")
+
+
 def build(args):
     span = rev_range(args.since, args.head)
-    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
-    commits = [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:MAX_CHANGES]
+    commits = commits_with_authors(args.since, args.head)
     changes = [subject for subject, _ in commits]
     items = [change_item(subject, author) for subject, author in commits]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
@@ -402,6 +440,11 @@ def main():
     a.add_argument("--appcasts", required=True)
     a.add_argument("--build", required=True)
     a.add_argument("--feeds", nargs="+", required=True)
+    p = sub.add_parser("prs")
+    p.add_argument("--head", required=True)
+    p.add_argument("--since", default="")
+    p.add_argument("--repo", default="manaflow-ai/cmux")
+    p.add_argument("--limit", type=int, default=PR_LIMIT)
     i = sub.add_parser("index")
     i.add_argument("--notes", required=True)
     i.add_argument("--previous")
@@ -424,7 +467,7 @@ def main():
     v.add_argument("--public-key", required=True)
     v.add_argument("file")
     args = parser.parse_args()
-    return {"build": build, "appcast": appcast, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
+    return {"build": build, "appcast": appcast, "prs": prs, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":
