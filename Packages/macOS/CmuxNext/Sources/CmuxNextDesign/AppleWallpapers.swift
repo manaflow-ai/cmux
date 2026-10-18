@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The wallpapers macOS ships, read where macOS keeps them; cmux copies none.
 ///
@@ -118,16 +119,37 @@ public nonisolated struct AppleWallpapers: Sendable {
 
     /// The aerials' names from idleassetsd's `entries.json`, by asset id.
     public func aerialNames() -> [String: String] {
-        struct Entries: Decodable {
-            struct Asset: Decodable {
-                let id: String
-                let accessibilityLabel: String?
-            }
-            let assets: [Asset]
+        let file = aerials.appendingPathComponent("entries.json")
+        let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let key = "\(file.path)|\(modified?.timeIntervalSince1970 ?? 0)"
+        if let cached = Self.parsedAerials.withLock({ $0[key] }) { return cached }
+        let names = Self.parseAerialNames(file)
+        Self.parsedAerials.withLock { $0 = [key: names] }
+        return names
+    }
+
+    /// The last entries.json read, by path and modification time: a page lists about a hundred
+    /// aerials and names each, so the file is parsed once, not once per row.
+    private static let parsedAerials = Mutex<[String: [String: String]]>([:])
+
+    /// Each asset on its own, so one without an id or a name drops only itself; an id that is
+    /// not letters, digits and dashes (it names a file) is dropped too.
+    static func parseAerialNames(_ file: URL) -> [String: String] {
+        guard let data = try? Data(contentsOf: file),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let assets = root["assets"] as? [Any] else { return [:] }
+        var names: [String: String] = [:]
+        for case let asset as [String: Any] in assets {
+            guard let id = asset["id"] as? String, isSafeAerialID(id),
+                  let name = asset["accessibilityLabel"] as? String, !name.isEmpty, names[id] == nil else { continue }
+            names[id] = name
         }
-        guard let data = try? Data(contentsOf: aerials.appendingPathComponent("entries.json")),
-              let entries = try? JSONDecoder().decode(Entries.self, from: data) else { return [:] }
-        return Dictionary(entries.assets.compactMap { asset in asset.accessibilityLabel.map { (asset.id, $0) } }) { first, _ in first }
+        return names
+    }
+
+    /// An aerial id that is safe to name a file with: 1 to 64 letters, digits or dashes.
+    static func isSafeAerialID(_ id: String) -> Bool {
+        (1...64).contains(id.count) && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
     }
 
     /// Whether `path` names a video.
