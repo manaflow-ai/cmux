@@ -2040,7 +2040,7 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (ThemeTokens.opaqueOverlayFill); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlaySurface.swift (OverlaySurfaceView.applyTheme); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:40-42 (ChromeTunables.opaqueOverlayLift)"
   },
   "glassTintStrength": {
-   "value": 1,
+   "value": 1.25,
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)",
    "appliesTo": "OverlaySurface surfaces (materials.overlay.appliesTo). Raw Glass.makePanel panels use token:glassTint unscaled."
   },

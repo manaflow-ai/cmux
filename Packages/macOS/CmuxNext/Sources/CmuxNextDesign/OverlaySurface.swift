@@ -82,6 +82,8 @@ public final class OverlaySurfaceView: NSView {
     }
 
     private func rebuild() {
+        // Moving the content out of the window resigns a focused field in it; it takes the keys back after.
+        let focused = (window?.firstResponder as? NSView).flatMap { $0.isDescendant(of: contentView) ? $0 : nil }
         materialView?.removeFromSuperview()
         contentView.removeFromSuperview()
         tintView = nil
@@ -121,8 +123,10 @@ public final class OverlaySurfaceView: NSView {
             tintView?.frame = view.bounds
             contentView.frame = view.bounds
         }
-        addSubview(view)
+        // Below any view a caller added on the surface itself (the floating chat's grip).
+        addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
+        if let focused, let window = focused.window { window.makeFirstResponder(focused) }
         applyShape()
         applyTheme()
         // Content colors may depend on the material (a veil that only
@@ -161,7 +165,8 @@ public final class OverlaySurfaceView: NSView {
     }
 
     /// The theme's glass tint, its alpha scaled by the overlay tint
-    /// strength tunable (1, the default, is the theme tint unchanged).
+    /// strength tunable (default 1.25, a little denser than the theme
+    /// tint so text over busy content stays readable; 1 is unchanged).
     private var overlayTint: NSColor {
         let tint = Palette.glassTint
         let strength = ChromeTunables.glassOverlayTintStrength.value
