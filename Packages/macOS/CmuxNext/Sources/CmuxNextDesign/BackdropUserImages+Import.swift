@@ -1,6 +1,7 @@
 public import Foundation
 import AVFoundation
 import ImageIO
+import CmuxNextCompat
 import UniformTypeIdentifiers
 
 /// Bringing a background in (cx-t2x.8, backgrounds plan phase 3): a file is checked before it is
@@ -57,7 +58,7 @@ extension BackdropUserImages {
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let file = folder.appendingPathComponent("download")
-            let mimeType = try await LinkDownload(file: file, configuration: configuration).run(link)
+            let mimeType = try await LinkDownload(file: file).run(link, configuration: configuration)
             let named = try named(file, link: link, mimeType: mimeType)
             let size = (try? named.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
             guard size <= (AppleWallpapers.isVideo(named.path) ? maximumVideoBytes : maximumImageBytes) else { throw ImportError.tooLarge }
@@ -123,44 +124,72 @@ extension BackdropUserImages {
 }
 
 /// One link download into `file`: a data task whose delegate checks the declared length and the
-/// running count against the cap for the declared type, refuses a redirect off https, and writes
-/// the body as it arrives. Timeouts are a minute without data and ten minutes in all.
-private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let file: URL
-    private let configuration: URLSessionConfiguration
-    private let lock = NSLock()
-    private var handle: FileHandle?
-    private var written: Int64 = 0
-    private var cap = BackdropUserImages.maximumVideoBytes
-    private var mimeType: String?
-    private var refusal: BackdropUserImages.ImportError?
-    private var continuation: CheckedContinuation<String?, any Error>?
+/// running count against the cap for what the body is (the declared type, or a picture's own
+/// signature in its first bytes), refuses a redirect off https, and writes the body as it arrives.
+/// Timeouts are a minute without data and ten minutes in all.
+private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, Sendable {
+    private struct State: ~Copyable {
+        var handle: FileHandle?
+        var written: Int64 = 0
+        var cap = BackdropUserImages.maximumVideoBytes
+        var sniffed = false
+        var mimeType: String?
+        var refusal: BackdropUserImages.ImportError?
+        var continuation: CheckedContinuation<String?, any Error>?
+        var task: URLSessionDataTask?
+        var cancelled = false
+    }
 
-    init(file: URL, configuration: URLSessionConfiguration) {
+    private let file: URL
+    private let state = Mutex(State())
+
+    init(file: URL) {
         self.file = file
+    }
+
+    /// The server's media type once the body is on disk.
+    func run(_ link: URL, configuration: URLSessionConfiguration) async throws -> String? {
+        try Task.checkCancellation()
         let configuration = configuration.copy() as? URLSessionConfiguration ?? .ephemeral
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.urlCache = nil
-        self.configuration = configuration
-    }
-
-    /// The server's media type once the body is on disk.
-    func run(_ link: URL) async throws -> String? {
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                lock.withLock { self.continuation = continuation }
-                session.dataTask(with: link).resume()
+                let task = session.dataTask(with: link)
+                // A cancel that came before the task existed cancels it now: it then completes
+                // at once, cancelled, and resumes the continuation.
+                let cancelled = state.withLock { state in
+                    state.continuation = continuation
+                    state.task = task
+                    return state.cancelled
+                }
+                if cancelled { task.cancel() }
+                task.resume()
             }
         } onCancel: {
-            session.invalidateAndCancel()
+            let task = state.withLock { state in
+                state.cancelled = true
+                return state.task
+            }
+            task?.cancel()
         }
     }
 
     private func refuse(_ error: BackdropUserImages.ImportError) {
-        lock.withLock { if refusal == nil { refusal = error } }
+        state.withLock { if $0.refusal == nil { $0.refusal = error } }
+    }
+
+    /// Whether `data` starts like a picture (PNG, JPEG, GIF, WebP), whatever the server called it.
+    static func looksLikePicture(_ data: Data) -> Bool {
+        let bytes = [UInt8](data.prefix(12))
+        func starts(_ prefix: [UInt8], at offset: Int = 0) -> Bool {
+            bytes.count >= offset + prefix.count && Array(bytes[offset..<offset + prefix.count]) == prefix
+        }
+        return starts([0x89, 0x50, 0x4E, 0x47]) || starts([0xFF, 0xD8, 0xFF]) || starts(Array("GIF8".utf8))
+            || (starts(Array("RIFF".utf8)) && starts(Array("WEBP".utf8), at: 8))
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -186,35 +215,42 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         }
         let opened: FileHandle? = FileManager.default.createFile(atPath: file.path, contents: nil)
             ? try? FileHandle(forWritingTo: file) : nil
-        lock.withLock {
-            self.cap = cap
-            mimeType = response.mimeType
-            handle = opened
+        state.withLock { state in
+            state.cap = cap
+            state.mimeType = response.mimeType
+            state.handle = opened
         }
         if opened == nil { refuse(.downloadFailed) }
         completionHandler(opened == nil ? .cancel : .allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let (handle, over) = lock.withLock { () -> (FileHandle?, Bool) in
-            written += Int64(data.count)
-            return (self.handle, written > cap)
+        let over = state.withLock { state -> Bool in
+            // A picture sent as anything else still gets a picture's cap.
+            if !state.sniffed {
+                state.sniffed = true
+                if Self.looksLikePicture(data) { state.cap = min(state.cap, BackdropUserImages.maximumImageBytes) }
+            }
+            state.written += Int64(data.count)
+            guard state.written <= state.cap else { return true }
+            do { try state.handle?.write(contentsOf: data) } catch {
+                if state.refusal == nil { state.refusal = .downloadFailed }
+                return true
+            }
+            return false
         }
-        guard !over else {
+        if over {
             refuse(.tooLarge)
-            return dataTask.cancel()
-        }
-        do { try handle?.write(contentsOf: data) } catch {
-            refuse(.downloadFailed)
             dataTask.cancel()
         }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        let (continuation, refusal, mimeType, handle) = lock.withLock {
-            let taken = (self.continuation, self.refusal, self.mimeType, self.handle)
-            self.continuation = nil
-            self.handle = nil
+        let (continuation, refusal, mimeType, handle) = state.withLock { state in
+            let taken = (state.continuation, state.refusal, state.mimeType, state.handle)
+            state.continuation = nil
+            state.handle = nil
+            state.task = nil
             return taken
         }
         try? handle?.close()
