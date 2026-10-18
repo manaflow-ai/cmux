@@ -417,6 +417,35 @@ export type ConfiguredHostLeaseAdapters = {
   }>;
 };
 
+/**
+ * Build provider clients for the web composition root from deployment
+ * configuration. Provider credentials stay in the process environment and
+ * are only used by the HTTPS gateway client; they never enter broker payloads
+ * or persisted receipts.
+ */
+export function createConfiguredHostLeaseAdaptersFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): ReadonlyMap<VmHostLeaseProvider, VmHostLeaseProviderAdapter> {
+  const adapters = new Map<VmHostLeaseProvider, VmHostLeaseProviderAdapter>();
+  const hugeUrl = env.HUGE_BLUE_HOST_LEASE_URL?.trim();
+  const hugeToken = (env.HUGE_BLUE_HOST_LEASE_TOKEN?.trim() || env.HUGE_BLUE_API_TOKEN?.trim());
+  if (hugeUrl && hugeToken) {
+    adapters.set("huge-blue", createHugeBlueHostLeaseAdapter(createHugeBlueHostLeaseHttpClient({
+      baseUrl: hugeUrl,
+      token: () => hugeToken,
+    })));
+  }
+  const freestyleUrl = env.FREESTYLE_HOST_LEASE_URL?.trim();
+  const freestyleToken = (env.FREESTYLE_HOST_LEASE_TOKEN?.trim() || env.FREESTYLE_API_TOKEN?.trim());
+  if (freestyleUrl && freestyleToken) {
+    adapters.set("freestyle", createFreestyleHostLeaseAdapter(createFreestyleHostLeaseHttpClient({
+      baseUrl: freestyleUrl,
+      token: () => freestyleToken,
+    })));
+  }
+  return adapters;
+}
+
 /** Adapt the configured Freestyle SDK facade without importing credentials here. */
 export function createFreestyleHostLeaseClient(config: { readonly sdk: FreestyleHostLeaseSdk }): VmHostLeaseProviderClient {
   if (!config.sdk?.hostLeases) throw new VmHostLeaseError("provider_mismatch", "Freestyle host lease SDK is not configured");

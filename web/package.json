@@ -51,6 +51,7 @@
     "test:instant": "playwright test -c playwright.instant.config.ts",
     "test:social-images": "bash scripts/test-social-image-delivery.sh",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
+    "test:broker:db": "bash scripts/run-broker-db-gate.sh",
     "typecheck": "tsgo --noEmit",
     "lint": "eslint",
     "lint:complexity": "bun scripts/check-complexity.mjs",

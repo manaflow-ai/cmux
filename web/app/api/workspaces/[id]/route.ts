@@ -4,9 +4,9 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../services/vms/routeHelpers";
 import {
-  persistentWorkspaceService,
   PersistentWorkspaceError,
 } from "../../../../services/vms/persistentWorkspace";
+import { persistentWorkspaceServiceForRequest } from "../../../../services/vms/persistentWorkspaceComposition";
 
 function errorResponse(error: unknown): Response {
   if (error instanceof PersistentWorkspaceError) {
@@ -28,12 +28,11 @@ export async function GET(request: Request, { params }: WorkspaceParams): Promis
     { "cmux.vm.operation": "workspace_get" },
     "/api/workspaces/[id] GET failed",
     async ({ user }) => {
-      const service = persistentWorkspaceService();
-      if (!service) return jsonResponse({ error: "workspace_unavailable", message: "Persistent workspace service is not configured." }, 503);
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       const { id } = await params;
       try {
+        const service = persistentWorkspaceServiceForRequest({ user, entitlements: account.entitlements });
         return jsonResponse(await service.get({ runtimeId: id, ownerId: user.id, tenantId: account.entitlements.billingTeamId ?? user.billingTeamId }));
       } catch (error) {
         return errorResponse(error);
@@ -50,8 +49,6 @@ export async function POST(request: Request, { params }: WorkspaceParams): Promi
     { "cmux.vm.operation": "workspace_lifecycle" },
     "/api/workspaces/[id] POST failed",
     async ({ user }) => {
-      const service = persistentWorkspaceService();
-      if (!service) return jsonResponse({ error: "workspace_unavailable", message: "Persistent workspace service is not configured." }, 503);
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       const { id } = await params;
@@ -66,6 +63,7 @@ export async function POST(request: Request, { params }: WorkspaceParams): Promi
       }
       const lookup = { runtimeId: id, ownerId: user.id, tenantId: account.entitlements.billingTeamId ?? user.billingTeamId };
       try {
+        const service = persistentWorkspaceServiceForRequest({ user, entitlements: account.entitlements });
         if (action === "resume") return jsonResponse(await service.resume(lookup));
         if (action === "suspend") return jsonResponse(await service.suspend(lookup));
         if (action === "stop") return jsonResponse(await service.stop(lookup));

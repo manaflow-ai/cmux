@@ -130,10 +130,10 @@ describe("remote broker and VM host leases on a live database", () => {
         const first = await brokerRepository.enqueueJob(envelope, new Date(`2026-10-17T10:00:0${index}.000Z`));
         const replay = await brokerRepository.enqueueJob(envelope);
         expect(replay.id).toBe(first.id);
-        const firstLease = await brokerRepository.claimJob({ workerId: `${hostClass}-worker-a`, hostClass, ttlMs: 1_000, now: new Date("2026-10-17T10:00:10.000Z") });
+        const firstLease = await brokerRepository.claimJob({ workerId: `${hostClass}-worker-a`, hostClass, ttlMs: 5_000, now: new Date("2026-10-17T10:00:10.000Z") });
         expect(firstLease?.job.id).toBe(first.id);
         if (!firstLease) throw new Error(`no lease returned for ${hostClass}`);
-        const takeover = await brokerRepository.claimJob({ workerId: `${hostClass}-worker-b`, hostClass, ttlMs: 1_000, now: new Date("2026-10-17T10:00:12.000Z") });
+        const takeover = await brokerRepository.claimJob({ workerId: `${hostClass}-worker-b`, hostClass, ttlMs: 5_000, now: new Date("2026-10-17T10:00:16.000Z") });
         expect(takeover?.leaseGeneration).toBe(firstLease.leaseGeneration + 1);
         if (!takeover) throw new Error(`no takeover returned for ${hostClass}`);
         await expect(brokerRepository.completeJob({
@@ -141,12 +141,14 @@ describe("remote broker and VM host leases on a live database", () => {
           leaseToken: firstLease.leaseToken,
           leaseGeneration: firstLease.leaseGeneration,
           result: { stale: true },
+          now: new Date("2026-10-17T10:00:17.000Z"),
         })).rejects.toBeInstanceOf(brokerRepository.AgentBrokerLeaseConflictError);
         await brokerRepository.completeJob({
           jobId: first.id,
           leaseToken: takeover.leaseToken,
           leaseGeneration: takeover.leaseGeneration,
           result: { hostClass, ok: true },
+          now: new Date("2026-10-17T10:00:18.000Z"),
         });
         const receipts = await brokerRepository.listJobReceipts({ jobId: first.id, tenantId });
         expect(receipts.receipts.map((receipt) => receipt.state)).toEqual(["queued", "leased", "leased", "completed"]);
@@ -175,7 +177,7 @@ describe("remote broker and VM host leases on a live database", () => {
           hostId: fixture.hostId,
           ownerId,
           generation: 1,
-          ttlMs: 1_000,
+          ttlMs: 5_000,
           effectKey: `acquire-${fixture.provider}-${randomUUID()}`,
           nowMs: 1_000,
         } as const;

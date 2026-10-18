@@ -4,9 +4,9 @@ import {
   withAuthedVmApiRoute,
 } from "../../../services/vms/routeHelpers";
 import {
-  persistentWorkspaceService,
   PersistentWorkspaceError,
 } from "../../../services/vms/persistentWorkspace";
+import { persistentWorkspaceServiceForRequest } from "../../../services/vms/persistentWorkspaceComposition";
 import type { PersistentWorkspaceProviderInput } from "../../../services/vms/persistentWorkspace";
 
 function errorResponse(error: unknown): Response {
@@ -52,8 +52,6 @@ export async function POST(request: Request): Promise<Response> {
     { "cmux.vm.operation": "workspace_create" },
     "/api/workspaces POST failed",
     async ({ user }) => {
-      const service = persistentWorkspaceService();
-      if (!service) return jsonResponse({ error: "workspace_unavailable", message: "Persistent workspace provisioning is not configured." }, 503);
       const idempotencyKey = request.headers.get("idempotency-key")?.trim() || request.headers.get("x-cmux-idempotency-key")?.trim() || "";
       if (!idempotencyKey) return jsonResponse({ error: "workspace_idempotency_required", message: "Idempotency-Key is required." }, 400);
       let body: Record<string, unknown> | null = null;
@@ -62,6 +60,7 @@ export async function POST(request: Request): Promise<Response> {
       const scope = await resolveVmProvisioningAccountScope(user, request);
       if (!scope.ok) return scope.response;
       try {
+        const service = persistentWorkspaceServiceForRequest({ user, entitlements: scope.entitlements });
         const workspace = await service.create({
           tenantId: scope.entitlements.billingTeamId ?? user.billingTeamId,
           ownerId: user.id,

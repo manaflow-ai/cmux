@@ -9,6 +9,7 @@ const dbTest = enabled ? test : test.skip;
 const runtime = enabled ? makeDatabaseRuntime({
   url: Redacted.make(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!),
   maxConnections: 2,
+  connectTimeout: process.env.CMUX_DB_TEST_CONNECT_TIMEOUT === "10 seconds" ? "10 seconds" : "750 millis",
   applicationName: "cmux-effect-runtime-test",
 }) : undefined;
 
