@@ -24,6 +24,7 @@ parser.add_argument("--app", required=True, help="the `cmux DEV <tag>.app` bundl
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--rounds", type=int, default=8)
 parser.add_argument("--cua", default=os.path.expanduser("~/.local/bin/cua-driver"))
+parser.add_argument("--diag", action="store_true")
 opts = parser.parse_args()
 
 spec = importlib.util.spec_from_file_location("perf_gate", os.path.join(os.path.dirname(__file__), "perf-gate.py"))
@@ -85,6 +86,15 @@ def main():
     rows, failed = [], 0
     try:
         app.launch()
+        if opts.diag:  # data shapes only (no input): a split by action, then what the reads see
+            app.action("splitRight", {})
+            perf_gate.wait(lambda: len(panes(app)) > 1, 15)
+            time.sleep(2)  # test script: the new shell starts
+            tabs = [t for w in app.topology().get("workspaces") or [] for sc in w.get("screens") or []
+                    for p in sc.get("panes") or [] for t in p.get("tabs") or []]
+            print(json.dumps(tabs)[:1500], flush=True)
+            print(json.dumps({str(k): v[-4:] for k, v in screens(app).items()})[:1500], flush=True)
+            return 0
         pid = app.process.pid
         windows = cua("list_windows", {"pid": pid}).get("windows") or []
         area = lambda w: (w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0)
