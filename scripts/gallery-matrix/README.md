@@ -51,7 +51,7 @@ whose stylesheet changed), then the matrix renders those entries x variants x bo
 x both compact and normal pane widths x both engines at the merge-base and at the head, with the
 head rendered a second time.
 
-`pr.ts` (with `compare.ts` and `report.ts`) compares each state and writes `diff/`:
+`pr.ts` (with `compare.ts` and `report.ts`) compares each state and writes `diff/`. Normal report builds require `--capture-manifest` alongside `--base-manifest` and `--head-manifest`; it must be the exact union manifest used to render the matrix, including base-only and head-only cases.
 
 - `index.html`: changed states first, each as a highlight overlay (changed regions boxed), a before/after slider and an onion skin; then new, removed, broken (the head stage did not mount) and nondeterministic states; unchanged states folded. The Entry filter narrows broad host changes to one gallery entry without discarding the measured states.
 - `comment.md`: the sticky PR comment ("7 states changed: agent-pane.composer/streaming, ...") with before/after thumbnails of the changed regions.
