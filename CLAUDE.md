@@ -64,6 +64,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
+  A bug-fix PR body names that command, its failure on the base and its pass on the head,
+  then an `### Observed / Not run` section: what you ran and saw, then what you only read
+  or didn't run. `gh-merge-green` warns when a fix PR lacks it; it does not block.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
   Add `full-ci` only for a user-requested or agreed broad validation plan,
   naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
