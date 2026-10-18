@@ -17,8 +17,15 @@ protocol FocusEffectApplying: AnyObject {
 /// re-entered. While effects run, `isApplying` is true and responder
 /// reports caused by the applier's own `makeFirstResponder` are dropped.
 final class FocusCoordinator {
-    /// The read view of the machine's state (refreshed from each reply).
-    private(set) var state = FocusState()
+    /// The read view of the machine's state (refreshed from each reply), with a pending topology
+    /// reduced first (`setNeedsTopology`).
+    var state: FocusState {
+        reducePendingTopologies()
+        return reduced
+    }
+    private var reduced = FocusState()
+    /// Topologies their owners marked changed, built when next needed (`setNeedsTopology`).
+    private var pendingTopologies: [(owner: ObjectIdentifier, build: @MainActor () -> FocusTopology?)] = []
     /// The state and rules (`cmux-focus-core`); the view above mirrors it.
     private let machine = FocusMachine()
     private var appliedCloseFocus: CloseFocusPolicy?
@@ -60,6 +67,8 @@ final class FocusCoordinator {
             observer?(.refusedByRun(event))
             return
         }
+        // A changed topology goes first: the event (and its effects) see the current panes and tabs.
+        if case .topology = event {} else { reducePendingTopologies() }
         queue.append(event)
         guard !isRunning else { return }
         isRunning = true
@@ -69,7 +78,7 @@ final class FocusCoordinator {
             // A topology equal to the one the machine holds is not an event:
             // nothing is sent, recorded or applied (the window re-reports
             // its panes after every daemon delta and selection echo).
-            if case .topology(let topology) = event, topology == state.topology { continue }
+            if case .topology(let topology) = event, topology == reduced.topology { continue }
             // `layout.closeFocus` is read per event: a settings change
             // applies to the next close.
             let policy = closeFocus()
@@ -77,8 +86,8 @@ final class FocusCoordinator {
                 appliedCloseFocus = policy
                 machine.setCloseFocus(mostRecent: policy == .mostRecent)
             }
-            let previous = state
-            guard let result = machine.send(event, into: &state) else {
+            let previous = reduced
+            guard let result = machine.send(event, into: &reduced) else {
                 // The ABI refused the event: a wire mismatch between the app
                 // and the linked FFI. Keep the state rather than lose focus.
                 assertionFailure("focus machine refused \(event)")
@@ -86,33 +95,69 @@ final class FocusCoordinator {
             }
             let effects = result.effects
             record(event)
-            observer?(.reduced(event, before: previous, after: state, changed: result.changed || !effects.isEmpty))
+            observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
             guard !effects.isEmpty, let applier else { continue }
             isApplying = true
-            applier.apply(effects, state: state)
+            applier.apply(effects, state: reduced)
             isApplying = false
         }
-        settledObserver?(state)
+        settledObserver?(reduced)
     }
 
     /// The focus history of `workspace` (nil: the shown one), newest first:
     /// the successor of a closed pane and the tie-breaker of directional
     /// focus (focus.md section 4a). Read from the machine on request.
     func recentPanes(in workspace: String? = nil) -> [String] {
-        machine.recentPanes(in: workspace)
+        reducePendingTopologies()
+        return machine.recentPanes(in: workspace)
     }
 
     /// The last focused pane of each workspace (restored on switching back).
-    func rememberedPanes() -> [String: String] { machine.remembered() }
+    func rememberedPanes() -> [String: String] {
+        reducePendingTopologies()
+        return machine.remembered()
+    }
 
     /// The machine's whole state, for the input journal's checkpoints.
-    func checkpoint() -> FocusCheckpoint { machine.checkpoint() }
+    func checkpoint() -> FocusCheckpoint {
+        reducePendingTopologies()
+        return machine.checkpoint()
+    }
+
+    /// `owner`'s topology changed (a pane's tabs or selection). All changes of one main-actor turn
+    /// (every pane of a restore, of one daemon batch) build and send ONE topology per owner: at the
+    /// end of the turn, or at once before anything reads this coordinator's state or sends it an
+    /// event, so no reader and no event sees the older one (I4). `build` returns nil when the owner
+    /// sends none now (parked, or inside an apply that sends its own at its end).
+    func setNeedsTopology(owner: AnyObject, _ build: @escaping @MainActor () -> FocusTopology?) {
+        let id = ObjectIdentifier(owner)
+        guard !pendingTopologies.contains(where: { $0.owner == id }) else { return }
+        pendingTopologies.append((id, build))
+        guard pendingTopologies.count == 1 else { return }
+        // task-owner: the coordinator (weak); one per burst, ends after one reduction
+        Task { @MainActor [weak self] in self?.reducePendingTopologies() }
+    }
+
+    /// `owner` sends its current topology itself: its pending one is that one.
+    func topologySent(by owner: AnyObject) {
+        let id = ObjectIdentifier(owner)
+        pendingTopologies.removeAll { $0.owner == id }
+    }
+
+    private func reducePendingTopologies() {
+        guard !pendingTopologies.isEmpty else { return }
+        let pending = pendingTopologies
+        pendingTopologies.removeAll()
+        for entry in pending {
+            if let topology = entry.build() { send(.topology(topology)) }
+        }
+    }
 
     /// Starts a user intent that lands later (split, new tab). Pass the
     /// returned generation to `expect`.
     func beginIntent() -> UInt64 {
         send(.beginIntent)
-        return state.generation
+        return reduced.generation
     }
 
     /// Focuses `key` when it exists unless a newer intent happened since
@@ -121,7 +166,7 @@ final class FocusCoordinator {
     /// window minted (``TabModel/isClientMinted``): those take `.tab`.
     func expect(_ key: FocusState.Expectation.Key, target: FocusState.Target = .content, awayFrom: String? = nil,
                 generation: UInt64? = nil) {
-        send(.expect(key, target: target, awayFrom: awayFrom, generation: generation ?? state.generation))
+        send(.expect(key, target: target, awayFrom: awayFrom, generation: generation ?? reduced.generation))
     }
 
     /// A user moved `tab` out of `pane` (shortcut, menu, CLI): focus
