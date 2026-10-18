@@ -134,8 +134,10 @@ cmux config validate ~/dotfiles/cmux/cmux-next.json
   the schema and edits the file in place. A refused value changes nothing and
   exits 1 with the accepted values.
 - `validate` needs no running app. It reports the problems cmux would show for
-  a file and exits 1 if there are any, so you can run it in a dotfiles repo's
-  CI before you sync.
+  a file, with what each refused key accepts, and exits 1 if there are any, so
+  you can run it in a dotfiles repo's CI before you sync. Without a FILE it
+  checks your settings file; a missing one is valid (every key has its
+  default).
 - A few keys (privacy, permissions and quitting) can't be changed through the
   CLI or the socket alone: add `--confirm`, and cmux asks you on screen first.
   The schema marks these keys with `"x-cmux-agent-settable": false`.
