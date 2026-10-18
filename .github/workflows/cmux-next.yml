@@ -1955,7 +1955,44 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
-          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests
+
+      # Cloud bring-back round trips launch two daemons and mutate shared
+      # AppKit/registry state. Run each case in a fresh process so a prior
+      # round trip cannot starve the next case's 60-second action deadline.
+      - name: Run CloudBringBack cases in fresh processes
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests')) }}
+        timeout-minutes: 40
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "900"
+          SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
+        run: |
+          set -euo pipefail
+          status=0
+          for test in \
+            CloudBringBackTests.aCLIBringBackEndsWithTheChatInALocalTabAndTheMachineTabClosed \
+            CloudBringBackTests.aRevokeThatFailsIsTriedAgainUntilItIsDone \
+            CloudBringBackTests.aFileAskFromAMovedChatShowsACardAndOnlyThePersonsClickAnswersIt \
+            CloudBringBackTests.aSecretAskTakesWhatThePersonTypesOnStdinOnlyAndNoFileHoldsIt \
+            CloudBringBackTests.aFileDroppedInAMovedChatGoesToItsMachineFromThisMacsPastesFolderOnly \
+            CloudBringBackTests.aSyncConflictKeepsTheMachineTabAndShowsTheConflict \
+            CloudBringBackTests.anOutdatedMachineIsNamedAndTheChatStaysOnIt \
+            CloudBringBackTests.updateMachineUpdatesAnOutdatedMachineThenBringsTheChatBack \
+            CloudBringBackTests.aGuardRefusalKeepsTheMachineTabWithAClearMessage \
+            CloudBringBackTests.aGuardRefusalOffersAskFirstThenBringsTheChatBack \
+            CloudBringBackTests.aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch \
+            CloudBringBackTests.aSyncPullThatThrowsKeepsTheBringBackRetryable; do
+            echo "Running isolated CloudBringBack case: $test"
+            if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$test"; then
+              :
+            else
+              case_status=$?
+              (( status == 0 )) && status=$case_status
+              echo "Cloud bring-back case failed: $test (status $case_status)"
+            fi
+          done
+          exit "$status"
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
