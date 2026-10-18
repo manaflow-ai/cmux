@@ -2,6 +2,8 @@ import type { Domain, OpFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
+import { TeamVmOwnerDriver } from "./team-vm-api-route.ts"
+import { teamVmCreationTransport, teamVmCreateSpec } from "./team-vm-api-config.ts"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
 import { fromBase64, isStream, journalCaller, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
@@ -37,7 +39,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   /** The bind (vm-image.md 6b, team-vm-bind-run.ts): one pass at a time; the alarm retries a failed one. */
   private runnerStore: BindRunner | null = null
   private get binder(): BindRunner {
-    const deps = { env: this.env, driver: () => teamVmDriver(this.env, this.sqlStore), state: () => this.boundEngine?.currentState, submitSystem: (op: string, p: unknown, k: string) => this.submitSystem(op, p, k), now: () => Date.now() }
+    const deps = { env: this.env, driver: () => this.ownerDriver(), state: () => this.boundEngine?.currentState, submitSystem: (op: string, p: unknown, k: string) => this.submitSystem(op, p, k), now: () => Date.now() }
     if (!this.runnerStore) this.runnerStore = new BindRunner(this.sqlStore, deps, () => this.boundEngine && this.scheduleAlarm())
     return this.runnerStore
   }
@@ -45,6 +47,16 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   private get vmLedger(): TeamVmLedger {
     if (!this.ledgerStore) this.ledgerStore = new TeamVmLedger(this.sqlStore)
     return this.ledgerStore
+  }
+
+  private ownerDriver(): TeamVmOwnerDriver | null {
+    const team = this.boundEngine?.currentState.team
+    if (!team || providerRefusal(this.env)) return null
+    this.backfillLedger()
+    return new TeamVmOwnerDriver(this.env, this.sqlStore, this.vmLedger, team, (row) => {
+      const state = this.boundEngine?.currentState
+      return state?.team === row.team && state.pending?.action === "create" && state.epoch + 1 === row.epoch && Object.values(state.leases).some((l) => l.expires_at > Date.now())
+    })
   }
 
   private get journal(): TeamJournal {
@@ -118,7 +130,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
 
   // Taint after a member removal (cx-q4f3): team-vm-taint-run.ts.
   private get taintDeps(): ExportRunDeps {
-    const driver = () => (providerRefusal(this.env) ? null : teamVmDriver(this.env, this.sqlStore))
+    const driver = () => this.ownerDriver()
     return { state: () => this.boundEngine?.currentState, driver, refusal: () => providerRefusal(this.env), submitSystem: (op, p, k) => this.submitSystem(op, p, k), deleteVm: (id, by) => this.deleteVm(this.boundEngine!.stream.slice("team_vm:".length), id, by), reconcile: () => this.reconcile(), exportTickets: () => new ExportTickets(this.sqlStore) }
   }
 
@@ -236,7 +248,10 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS team_vm_create_attempt (epoch INTEGER PRIMARY KEY, slug TEXT NOT NULL)`)
     const tried = this.sqlStore.exec<{ slug: string }>(`SELECT slug FROM team_vm_create_attempt WHERE epoch = ?`, epoch)[0]
     const slug = tried?.slug ?? teamVmSlug(prefix, team, epoch)
-    this.vmLedger.recordIntent({ name: slug, env: this.env.ENVIRONMENT ?? "unknown", team, epoch, created_by: createdBy, now: Date.now() })
+    const transport = tried ? "direct" : teamVmCreationTransport(this.env)
+    const spec = transport === "vm-api" ? teamVmCreateSpec(this.env) : null
+    if (!transport || (transport === "vm-api" && !spec)) throw new DriverError("team_vm.not_configured", "no team VM transport is configured for this deployment", true)
+    this.vmLedger.recordIntent({ name: slug, env: this.env.ENVIRONMENT ?? "unknown", team, epoch, created_by: createdBy, now: Date.now(), transport, ...(spec ? { api_spec: spec } : {}) })
     this.enqueueRegistry("intent", team, slug, null)
     return slug
   }
@@ -245,10 +260,11 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   private backfillLedger(): void {
     this.outbox.seed(this.vmLedger.rows())
     const state = this.boundEngine?.currentState
-    if (!state?.vm || !state.team) return
-    const wrote = this.vmLedger.backfill({ id: state.vm, name: state.slug ?? state.vm, env: this.env.ENVIRONMENT ?? "unknown", team: state.team, epoch: state.epoch, now: Date.now() })
-    if (wrote) this.enqueueRegistry("backfilled", state.team, state.slug ?? state.vm, state.vm)
-    if (wrote) console.log(JSON.stringify({ msg: "team vm ledger backfill", team: state.team, vm: state.vm, epoch: state.epoch }))
+    if (!state?.team) return
+    const records = [...(state.vm ? [{ vm: state.vm, slug: state.slug, epoch: state.epoch }] : []), ...(state.retired ?? [])]
+    for (const r of records) {
+      if (this.vmLedger.backfill({ id: r.vm, name: r.slug ?? r.vm, env: this.env.ENVIRONMENT ?? "unknown", team: state.team, epoch: r.epoch, now: Date.now() })) this.enqueueRegistry("backfilled", state.team, r.slug ?? r.vm, r.vm)
+    }
   }
 
   /** RPC (tests, operators, the staging backfill): the team's ledger rows, after the backfill. */
@@ -271,7 +287,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     const open = state?.pending?.action === "create" ? state.epoch + 1 : null
     const rows = this.vmLedger.unconfirmed().filter((r) => r.epoch !== open)
     const counts = { confirmed: 0, absent: 0, unresolved: 0 }
-    const driver = providerRefusal(this.env) ? null : teamVmDriver(this.env, this.sqlStore)
+    const driver = this.ownerDriver()
     for (const row of rows) {
       if (!driver) {
         counts.unresolved++
@@ -314,7 +330,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     // The current VM, and any VM for a later epoch (the next create finds it by name and makes it current), are in use.
     if (!state || state.vm === providerId || row.epoch > state.epoch) return { ok: false, code: "team_vm.in_use", message: "the team's current or next VM is deleted only with its owner" }
     const refusal = providerRefusal(this.env)
-    const driver = refusal ? null : teamVmDriver(this.env, this.sqlStore)
+    const driver = this.ownerDriver()
     if (!driver) return { ok: false, code: refusal ?? "team_vm.not_configured", message: "no team VM provider is configured for this deployment" }
     await driver.deleteVm(providerId)
     this.vmLedger.markDeleted(providerId, Date.now())
@@ -353,7 +369,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
         this.submitSystem("team_vm.driver_result", { action: pending.action, epoch: state.epoch, ok: false, error: { code: refusal, message: "team VMs are not available on this deployment until the plan gate lands" }, final: true }, key)
         return
       }
-      const driver = teamVmDriver(this.env, this.sqlStore)
+      const driver = this.ownerDriver()
       if (!driver) {
         this.submitSystem("team_vm.driver_result", { action: pending.action, epoch: state.epoch, ok: false, error: { code: "team_vm.not_configured", message: "no team VM provider is configured for this deployment" }, final: true }, key)
         return
@@ -362,7 +378,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
         if (pending.action === "create") {
           // The prefix names NEW VMs only: an existing VM is always reached by its stored id (state.vm), so a
           // prefix change (FREESTYLE-NAMES) never renames, adopts or loses the VM a team already has.
-          const prefix = (driver instanceof FakeDriver ? driver.slugPrefix() : null) ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
+          const prefix = driver.slugPrefix() ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
           const slug = this.createSlug(state.team, state.epoch + 1, prefix, `tvm:${pending.requested_by ?? "unknown"}`)
           const vm = await driver.ensureVm(slug, state.team, state.epoch + 1)
           this.submitSystem("team_vm.driver_result", { action: "create", epoch: state.epoch, ok: true, vm: vm.id, slug, observed: vm.state }, key)

@@ -1634,3 +1634,31 @@ async fn identity_refuses_foreign_or_unrecognized_receipts_without_retry() {
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
 }
+
+#[tokio::test]
+async fn identity_checks_presence_only_when_requested_and_requires_a_receipt() {
+    for presence in [Some("present"), Some("missing"), None, Some("unknown")] {
+        let server = MockServer::start().await;
+        let mut receipt =
+            json!({"id": VM_ID, "scheme": "sha256-v1", "fingerprint": "a".repeat(64)});
+        if let Some(value) = presence {
+            receipt["presence"] = json!(value);
+        }
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/identity")))
+            .and(wiremock::matchers::query_param("checkPresence", "true"))
+            .and(authorized())
+            .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(&server, &["--json", "identity", VM_ID, "--check-presence"]).await;
+        if matches!(presence, Some("present" | "missing")) {
+            assert_eq!(out.code, exit::OK, "{}", out.stderr);
+            assert_eq!(json_stdout(&out), receipt);
+        } else {
+            assert_ne!(out.code, exit::OK);
+            assert!(out.stdout.is_empty());
+        }
+    }
+}

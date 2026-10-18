@@ -456,10 +456,14 @@ const listVms = (params: {
 
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
   handlers
-    .handle("getVmInstanceIdentity", ({ path }) => withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) => Effect.gen(function* () {
+    .handle("getVmInstanceIdentity", ({ path, urlParams }) => withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) => Effect.gen(function* () {
       const upstream = yield* UpstreamClient;
       const fingerprint = yield* upstream.instanceFingerprint(vm, proofs);
-      return new VmInstanceIdentity({ id: vm.value, scheme: INSTANCE_IDENTITY_SCHEME, fingerprint });
+      const presence = urlParams.checkPresence === "true" ? yield* upstream.getVm(vm, proofs).pipe(
+        Effect.map(() => "present" as const),
+        Effect.catchAll((error) => error.status === 404 ? Effect.succeed("missing" as const) : Effect.fail(unavailable())),
+      ) : undefined;
+      return new VmInstanceIdentity({ id: vm.value, scheme: INSTANCE_IDENTITY_SCHEME, fingerprint, ...(presence === undefined ? {} : { presence }) });
     })))
     .handle("retireVm", ({ path }) => audited("vm.retire", auditableVmId(path.vmId), retireVm(path.vmId)))
     .handle("getVm", ({ path }) =>

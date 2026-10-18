@@ -97,6 +97,9 @@ impl<'a> Printer<'a> {
                 value[field].as_str().unwrap_or_default()
             ))?;
         }
+        if let Some(presence) = value["presence"].as_str() {
+            self.line(&format!("presence     {presence}"))?;
+        }
         Ok(())
     }
 

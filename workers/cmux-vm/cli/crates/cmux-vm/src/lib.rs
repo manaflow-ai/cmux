@@ -84,8 +84,8 @@ enum Command {
     Resize(ResizeArgs),
     /// Show a VM
     Get(VmArg),
-    /// Show the canonical allocation fingerprint (does not query or wake the guest)
-    Identity(VmArg),
+    /// Show the canonical allocation fingerprint, optionally checking whether the VM still exists
+    Identity(IdentityArgs),
     /// List the team's VMs
     List(ListArgs),
     /// Start a stopped VM
@@ -237,6 +237,14 @@ struct ApiKeyRevokeArgs {
 struct VmArg {
     /// VM id (vm_...)
     vm_id: String,
+}
+
+#[derive(Args, Debug)]
+struct IdentityArgs {
+    vm_id: String,
+    /// Read provider presence without starting the VM
+    #[arg(long)]
+    check_presence: bool,
 }
 
 #[derive(Args, Debug)]
@@ -526,14 +534,30 @@ async fn dispatch(
             let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
             out.vm(&vm)
         }
-        Command::Identity(VmArg { vm_id }) => {
+        Command::Identity(IdentityArgs {
+            vm_id,
+            check_presence,
+        }) => {
             let id = vm_id
                 .parse::<types::VmId>()
                 .map_err(|_| CliError::usage("invalid VM id"))?;
-            let body = fetch_body(client.vms_get_vm_instance_identity(id.as_str(), None)).await?;
+            let presence = parse_opt(
+                "--check-presence",
+                check_presence.then(|| "true".to_owned()),
+            )?;
+            let body = fetch_body(client.vms_get_vm_instance_identity(
+                id.as_str(),
+                presence.as_ref(),
+                None,
+            ))
+            .await?;
             let receipt: serde_json::Value = serde_json::from_slice(&body)
                 .map_err(|_| CliError::unexpected("the VM instance identity is unconfirmed"))?;
-            if receipt["id"] != id.as_str() || receipt["scheme"] != "sha256-v1" {
+            if receipt["id"] != id.as_str()
+                || receipt["scheme"] != "sha256-v1"
+                || (check_presence
+                    && !matches!(receipt["presence"].as_str(), Some("present" | "missing")))
+            {
                 return Err(CliError::unexpected(
                     "the VM instance identity is unconfirmed",
                 ));

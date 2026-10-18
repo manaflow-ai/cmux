@@ -30,7 +30,7 @@ export interface paths {
         };
         /**
          * Read a VM allocation's instance fingerprint
-         * @description Read a VM allocation's instance fingerprint. Requires the vm:read scope. Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. This reads the ownership record, not the guest: it does not prove liveness or grant access. A binding owner must still validate the guest signature, a single-use nonce and its current epoch. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         * @description Read a VM allocation's instance fingerprint. Requires the vm:read scope. Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. By default this reads only the ownership record. checkPresence=true also reads provider state without waking the guest and returns present or missing; only a caller that owns the allocation can receive missing, while an inaccessible allocation remains 404. Neither result grants access. Binding still requires a guest signature, single-use nonce and current epoch. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
          */
         get: operations["vms.getVmInstanceIdentity"];
         put?: never;
@@ -888,6 +888,11 @@ export interface components {
             scheme: "sha256-v1";
             /** @description a string matching the pattern ^[0-9a-f]{64}$ */
             fingerprint: string;
+            /**
+             * @description Present only when checkPresence=true. Missing means this caller owns the allocation but its VM is gone; an inaccessible allocation remains 404.
+             * @enum {string}
+             */
+            presence?: "present" | "missing";
         };
         Unauthorized: {
             message: string;
@@ -1654,7 +1659,9 @@ export interface operations {
     };
     "vms.getVmInstanceIdentity": {
         parameters: {
-            query?: never;
+            query?: {
+                checkPresence?: "true";
+            };
             header?: {
                 /** @description a string at most 128 character(s) long */
                 "x-cmux-team-id"?: string;

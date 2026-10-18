@@ -96,6 +96,12 @@ export interface Env {
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
   readonly TEAM_VM_DRIVER?: string
+  /** Operator opt-in for NEW intents only. Existing ledger rows retain their transport. */
+  readonly TEAM_VM_TRANSPORT?: string
+  readonly TEAM_VM_API_ORIGIN?: string
+  readonly TEAM_VM_API_SERVICE_KEY?: string
+  readonly TEAM_VM_API_IMAGE?: string
+  readonly TEAM_VM_API_IMAGE_REVISION?: string
   /** One CloudDO per team: Cloud machines, the provider-call ledger and plan checks (state-placement.md 5). */
   readonly CLOUD_DO: DurableObjectNamespace<CloudDO>
   /**
