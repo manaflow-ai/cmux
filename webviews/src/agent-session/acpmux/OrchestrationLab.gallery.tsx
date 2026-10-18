@@ -103,6 +103,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                 key={strategy.id}
                 className={`orchestration-gallery-route${selectedRoute ? " is-selected" : ""}`}
                 type="button"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- buttons provide the keyboard interaction for this radio group.
                 role="radio"
                 aria-checked={selectedRoute}
                 onClick={() => setSelectedId(strategy.id)}
