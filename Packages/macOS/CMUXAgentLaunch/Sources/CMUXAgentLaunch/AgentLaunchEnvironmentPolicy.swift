@@ -74,6 +74,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_CUSTOM_AMP_PATH",
         "CMUX_CUSTOM_CODEX_PATH",
+        "CMUX_CUSTOM_ANTIGRAVITY_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -105,6 +106,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_LOG_NO_COLOR",
         "KIMI_CODE_HOME",
         "KIMI_SHARE_DIR",
+        "MUSE_AUTH_PATH",
+        "MUSE_CHANNEL",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",
         "OLLAMA_EDITOR",
@@ -158,6 +161,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         }
         if normalizedKind != "codex" {
             result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
+        if normalizedKind != "antigravity" {
+            result.removeValue(forKey: "CMUX_CUSTOM_ANTIGRAVITY_PATH")
         }
         if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
@@ -285,9 +291,62 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         }
     }
 
+    /// One NODE_OPTIONS argument: `value` is what Node sees after unquoting,
+    /// `raw` is the original text, kept so re-serialization preserves quoting.
+    private struct NodeOptionsToken {
+        var value: String
+        var raw: String
+    }
+
+    /// Tokenizes NODE_OPTIONS the way Node does (ParseNodeOptionsEnvVar):
+    /// whitespace separates arguments, double quotes group text containing
+    /// whitespace and are stripped from the value, and inside quotes a
+    /// backslash makes the next character literal. Unterminated quotes and a
+    /// trailing backslash are handled leniently rather than rejected.
+    private func nodeOptionsTokens(_ rawValue: String) -> [NodeOptionsToken] {
+        var tokens: [NodeOptionsToken] = []
+        var current: NodeOptionsToken?
+        var isInString = false
+        var isEscaped = false
+        for character in rawValue {
+            if isEscaped {
+                current?.value.append(character)
+                current?.raw.append(character)
+                isEscaped = false
+                continue
+            }
+            if !isInString, character.isWhitespace {
+                if let token = current {
+                    tokens.append(token)
+                    current = nil
+                }
+                continue
+            }
+            if current == nil {
+                current = NodeOptionsToken(value: "", raw: "")
+            }
+            current?.raw.append(character)
+            if isInString, character == "\\" {
+                isEscaped = true
+            } else if character == "\"" {
+                isInString.toggle()
+            } else {
+                current?.value.append(character)
+            }
+        }
+        if isEscaped {
+            current?.value.append("\\")
+        }
+        if let token = current {
+            tokens.append(token)
+        }
+        return tokens
+    }
+
     private func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue.map { nodeOptionsTokens($0) } ?? []
-        guard !tokens.isEmpty else { return nil }
+        let parsed = nodeOptionsTokens(rawValue ?? "")
+        guard !parsed.isEmpty else { return nil }
+        let tokens = parsed.map(\.value)
 
         var sanitized: [String] = []
         var index = 0
@@ -315,46 +374,12 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
                 continue
             }
 
-            sanitized.append(token)
+            sanitized.append(parsed[index].raw)
             index += 1
         }
 
         let joined = sanitized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         return joined.isEmpty ? nil : joined
-    }
-
-    /// Splits `NODE_OPTIONS` the way Node does: on whitespace outside double quotes,
-    /// with backslash escapes inside quotes. Tokens keep their quotes so an
-    /// unmatched token rejoins unchanged, e.g. `--require="/Users/a b/x.cjs"`.
-    private func nodeOptionsTokens(_ rawValue: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var inQuotes = false
-        var escaped = false
-        for character in rawValue {
-            if escaped {
-                current.append(character)
-                escaped = false
-            } else if inQuotes, character == "\\" {
-                current.append(character)
-                escaped = true
-            } else if character == "\"" {
-                current.append(character)
-                inQuotes.toggle()
-            } else if !inQuotes, character.isWhitespace {
-                if !current.isEmpty {
-                    tokens.append(current)
-                    current = ""
-                }
-            } else {
-                current.append(character)
-            }
-        }
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-        return tokens
     }
 
     private func normalizedValue(_ value: String?) -> String? {

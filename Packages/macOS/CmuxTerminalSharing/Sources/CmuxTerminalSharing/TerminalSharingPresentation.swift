@@ -232,7 +232,7 @@ public struct TerminalSharingPresentation: Sendable {
     public var panelParticipants: [TerminalSizingParticipantState] {
         let rows = state.participants
         guard state.policy.mode == .priority else { return rows }
-        let order = state.policy.priority
+        let order = state.policy.migratingLegacyPriorityKeys(rows.map(\.participant)).priority
         return rows.enumerated().sorted { lhs, rhs in
             let l = order.firstIndex(of: lhs.element.priorityKey) ?? Int.max
             let r = order.firstIndex(of: rhs.element.priorityKey) ?? Int.max

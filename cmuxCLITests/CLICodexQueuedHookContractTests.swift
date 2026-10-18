@@ -135,6 +135,78 @@ struct CLICodexQueuedHookContractTests {
         #expect(!stop.timedOut, Comment(rawValue: stop.stderr))
         #expect(stop.status == 0, Comment(rawValue: stop.stderr))
         #expect(stop.stdout == "{}\n")
+
+        // The agent message handlers run on every prompt and stop, so a
+        // missing app must not surface as a failed hook in Codex.
+        for event in ["UserPromptSubmit", "Stop"] {
+            let configuration = try injectedConfiguration(event: event, arguments: arguments)
+            let companionCommand = try #require(injectedCommands(configuration: configuration).last)
+            #expect(FileManager.default.isExecutableFile(atPath: companionCommand))
+            let companion = runCodexHookProcess(
+                executablePath: companionCommand,
+                arguments: [],
+                environment: environment,
+                standardInput: payload,
+                timeout: 2
+            )
+            #expect(!companion.timedOut, Comment(rawValue: companion.stderr))
+            #expect(companion.status == 0, Comment(rawValue: "\(event): \(companion.stderr)"))
+            #expect(companion.stdout == "{}\n", Comment(rawValue: event))
+        }
+    }
+
+    @Test("Codex prompt submit and stop also run the direct agent message handlers")
+    func wrapperInjectionAddsInboxCompanions() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-codex-inbox-companions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": root.appendingPathComponent(".codex").path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 3
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let arguments = result.stdout.split(separator: "\0").map(String.init)
+
+        for (event, main, companion) in [
+            ("UserPromptSubmit", "prompt-submit", "inbox-drain"),
+            ("Stop", "stop", "inbox-stop"),
+        ] {
+            let configuration = try injectedConfiguration(event: event, arguments: arguments)
+            let commands = injectedCommands(configuration: configuration)
+            #expect(commands.count == 2, Comment(rawValue: configuration))
+            let bodies = try commands.map { command -> String in
+                FileManager.default.fileExists(atPath: command)
+                    ? try String(contentsOfFile: command, encoding: .utf8)
+                    : command
+            }
+            #expect(bodies.first?.contains("hooks enqueue codex \(main)") == true)
+            let companionBody = try #require(bodies.last)
+            #expect(companionBody.contains("hooks codex \(companion)"))
+            #expect(!companionBody.contains("hooks enqueue"))
+        }
+        for event in ["SessionStart", "PreToolUse", "PostToolUse", "PermissionRequest"] {
+            let configuration = try injectedConfiguration(event: event, arguments: arguments)
+            #expect(injectedCommands(configuration: configuration).count == 1, Comment(rawValue: configuration))
+        }
+    }
+
+    private func injectedCommands(configuration: String) -> [String] {
+        configuration.components(separatedBy: "command='''").dropFirst().compactMap { part in
+            part.range(of: "'''").map { String(part[..<$0.lowerBound]) }
+        }
     }
 
     private func injectedConfiguration(event: String, arguments: [String]) throws -> String {

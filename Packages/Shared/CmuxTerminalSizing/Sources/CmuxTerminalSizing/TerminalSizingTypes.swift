@@ -38,6 +38,9 @@ public struct TerminalSizingParticipant: Codable, Hashable, Sendable, Identifiab
     public var displayName: String?
     public var deviceKind: TerminalDeviceKind
     public var deviceName: String?
+    /// Stable per-install id of the device (one Mac app install, one phone
+    /// install, one cmux-tui host). Tells two Macs of the same user apart.
+    public var deviceID: String?
     /// Participant id of the relay that forwards this view, if any.
     public var via: String?
     /// Last reported viewport; nil until the viewer reports one.
@@ -51,6 +54,7 @@ public struct TerminalSizingParticipant: Codable, Hashable, Sendable, Identifiab
         displayName: String? = nil,
         deviceKind: TerminalDeviceKind,
         deviceName: String? = nil,
+        deviceID: String? = nil,
         via: String? = nil,
         viewport: TerminalGridSize? = nil,
         countsOverride: Bool? = nil
@@ -60,14 +64,30 @@ public struct TerminalSizingParticipant: Codable, Hashable, Sendable, Identifiab
         self.displayName = displayName
         self.deviceKind = deviceKind
         self.deviceName = deviceName
+        self.deviceID = deviceID
         self.via = via
         self.viewport = viewport?.clamped
         self.countsOverride = countsOverride
     }
 
-    /// Stable key used by priority lists: `<user_id or anon:id>/<device_kind>`.
+    /// Stable key used by priority lists:
+    /// `<user_id or anon:id>/<device_kind>/<device_id>`, or the legacy
+    /// `<user_id or anon:id>/<device_kind>` when the device has no id.
     public var priorityKey: String {
+        guard let deviceID, !deviceID.isEmpty else { return legacyPriorityKey }
+        return "\(legacyPriorityKey)/\(deviceID)"
+    }
+
+    /// The two-segment key older policies stored. A policy entry in this form
+    /// matches every device of that kind for that user.
+    public var legacyPriorityKey: String {
         "\(userID ?? "anon:\(id)")/\(deviceKind.rawValue)"
+    }
+
+    /// Whether a priority list entry names this participant: its own key, or
+    /// the legacy key of its user and device kind.
+    public func matchesPriorityKey(_ key: String) -> Bool {
+        key == priorityKey || key == legacyPriorityKey
     }
 
     enum CodingKeys: String, CodingKey {
@@ -76,6 +96,7 @@ public struct TerminalSizingParticipant: Codable, Hashable, Sendable, Identifiab
         case displayName = "display_name"
         case deviceKind = "device_kind"
         case deviceName = "device_name"
+        case deviceID = "device_id"
         case countsOverride = "counts_override"
     }
 
@@ -86,6 +107,7 @@ public struct TerminalSizingParticipant: Codable, Hashable, Sendable, Identifiab
         try c.encode(displayName, forKey: .displayName)
         try c.encode(deviceKind, forKey: .deviceKind)
         try c.encode(deviceName, forKey: .deviceName)
+        try c.encode(deviceID, forKey: .deviceID)
         try c.encode(via, forKey: .via)
         try c.encode(viewport, forKey: .viewport)
         try c.encode(countsOverride, forKey: .countsOverride)
@@ -275,5 +297,29 @@ public enum TerminalDetachReason: Hashable, Sendable {
         case "superseded": self = .superseded
         default: self = .network
         }
+    }
+}
+
+extension TerminalSizingPolicy {
+    /// The same policy with each legacy two-segment priority key
+    /// (`<user>/<device_kind>`) replaced, in place, by the per-device keys of
+    /// the given participants it matches. Keys that match no participant, and
+    /// keys already per device, stay. Size panels apply this before an edit,
+    /// so a stored policy moves to per-device keys the first time it changes.
+    ///
+    /// - Parameter participants: the attached participants, in host order.
+    /// - Returns: the migrated policy, without duplicate keys.
+    public func migratingLegacyPriorityKeys(_ participants: [TerminalSizingParticipant]) -> TerminalSizingPolicy {
+        var keys: [String] = []
+        var seen = Set<String>()
+        for key in priority {
+            let expanded = participants
+                .filter { $0.priorityKey != $0.legacyPriorityKey && $0.legacyPriorityKey == key }
+                .map(\.priorityKey)
+            for next in expanded.isEmpty ? [key] : expanded where seen.insert(next).inserted {
+                keys.append(next)
+            }
+        }
+        return TerminalSizingPolicy(mode: mode, priority: keys, fixed: fixed)
     }
 }

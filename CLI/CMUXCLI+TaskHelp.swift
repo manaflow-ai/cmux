@@ -195,13 +195,19 @@ extension CMUXCLI {
         new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
         local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]
         tmux attach [session] [options]                         (local-tmux alias)
+        local-zellij <start|attach|list|status|close> [session] [options]
         surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         """
     }
 
     private var agentsCommandsHelp: String {
         return """
+        \(String(localized: "cli.help.agents.message", defaultValue: "agent message <target> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.reply", defaultValue: "agent message --reply-to <id> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.inbox", defaultValue: "agent inbox [--surface <target>] [--state <state>] [--mark-read]"))
+        \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
+        agent-hibernation <hibernate|wake> <surface>
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]
@@ -298,7 +304,7 @@ extension CMUXCLI {
         import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-        sidebar <validate|reload|select|open> [name]
+        sidebar <templates|try|new|validate|reload|select|open> [name] [options]
         help
         """
     }
@@ -318,13 +324,15 @@ extension CMUXCLI {
         paste [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--submit] [text | -]
         send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
         send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-        notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--desktop <true|false>] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         list-notifications
         dismiss-notification (--id <uuid> | --all-read)
         mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
         open-notification --id <uuid>
         jump-to-unread
+        jump-to-last-prompt
         clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        \(String(localized: "cli.help.command.pr", defaultValue: "pr <url|number> [flags] | pr clear [flags]"))
         set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
         clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
@@ -354,6 +362,7 @@ extension CMUXCLI {
         browser url|get-url
         browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
         browser eval <script>
+        browser repl [--session <name>] [--workspace <id|ref>] [--eval <code>|-] [<code>]   (see: browser repl guide)
         browser wait [--selector <css>] [--text <text>] [--url-contains <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>]
         browser click|dblclick|hover|focus|check|uncheck|scroll-into-view <selector> [--snapshot-after]
         browser type <selector> <text> [--snapshot-after]
@@ -367,7 +376,7 @@ extension CMUXCLI {
         browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
         browser frame <selector|main>
         browser dialog <accept|dismiss> [text]
-        browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
+        browser download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>]
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]
@@ -389,7 +398,7 @@ extension CMUXCLI {
         return """
         auth <status|login|logout|team>
         login | logout                                      (aliases for auth login/logout)
-        vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+        vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|restart|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
         remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
         \(simulatorCommandUsageLine)
         \(iosCommandUsageLine)
@@ -397,7 +406,7 @@ extension CMUXCLI {
         mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
         session move <session-id> --to <ssh-destination|local> [--from <ssh-destination>] [--name <title>] [--no-code] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus]
-        ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus] [--new-window]
+        ssh-tmux <destination> [list|ls [--json] | attach <session>] [options]
         ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
         ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
         ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

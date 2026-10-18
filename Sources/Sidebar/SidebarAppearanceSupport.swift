@@ -454,6 +454,8 @@ func sidebarWorkspaceRowBackgroundStyle(
     colorScheme: ColorScheme,
     sidebarSelectionColorHex: String?,
     subtleSelection: Bool = false,
+    brightenInDarkMode: Bool = true,
+    unselectedFillOpacity: Double = 0.7,
     isEmphasized: Bool = true,
     increaseContrast: Bool = false,
     accent: CmuxAccentColor = CmuxAccentColor()
@@ -489,7 +491,8 @@ func sidebarWorkspaceRowBackgroundStyle(
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle == .leftRail,
+            brightenInDarkMode: brightenInDarkMode
         )
     }
 
@@ -516,9 +519,11 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         if let customBackground {
+            // `workspaceColors.unselectedFillOpacity`; multi-selected rows use half.
+            let fillOpacity = unselectedFillOpacity.isFinite ? min(max(unselectedFillOpacity, 0), 1) : 0.7
             return SidebarWorkspaceRowBackgroundStyle(
                 color: customBackground,
-                opacity: isMultiSelected ? 0.35 : 0.7
+                opacity: isMultiSelected ? fillOpacity / 2 : fillOpacity
             )
         }
         if isMultiSelected {

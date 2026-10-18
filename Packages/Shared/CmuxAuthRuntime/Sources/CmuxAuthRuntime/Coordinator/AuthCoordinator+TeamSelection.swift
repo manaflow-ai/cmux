@@ -67,9 +67,11 @@ public extension AuthCoordinator {
               isAuthenticated else {
             throw AuthError.unauthorized
         }
-        var refreshed = try await runPhase(.listTeams, timeout: timeouts.network) {
+        // The team already exists; a failed membership read must not fail the
+        // create, or a retry would make a second team.
+        var refreshed = (try? await runPhase(.listTeams, timeout: timeouts.network) {
             try await client.listTeams()
-        }
+        }) ?? availableTeams
         guard generation == sessionGeneration,
               mutationGeneration == teamMutationGeneration,
               isAuthenticated else {
@@ -81,5 +83,14 @@ public extension AuthCoordinator {
         availableTeams = refreshed
         try await persistTeamSelection(id: created.id)
         return created
+    }
+
+    /// Re-reads team membership from Stack Auth after a membership change made
+    /// outside the selection path (leaving a team, an invitation accepted in
+    /// the browser). Keeps the current selection when it is still a member
+    /// team and falls back like sign-in does otherwise.
+    func refreshTeams() async {
+        guard isAuthenticated else { return }
+        await refreshTeams(generation: sessionGeneration)
     }
 }

@@ -23,74 +23,26 @@ try {
       }
     } else {
       const requireFromWeb = createRequire(path.join(webDir, "package.json"));
-      const { readMigrationFiles } = requireFromWeb("drizzle-orm/migrator");
-      const { getMigrationsToRun } = requireFromWeb("drizzle-orm/migrator.utils");
-      const migrationsFolder = path.join(webDir, "db/migrations");
-      const migrations = readMigrationFiles({ migrationsFolder });
-
-      // Drizzle wraps all migrations in one transaction. PostgreSQL forbids
-      // CREATE INDEX CONCURRENTLY in a transaction, so run each migration in
-      // its own transaction and leave concurrent-index migrations outside one.
-      await pool.query("CREATE SCHEMA IF NOT EXISTS drizzle");
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
-          id SERIAL PRIMARY KEY,
-          hash text NOT NULL,
-          created_at bigint,
-          name text,
-          applied_at timestamp with time zone DEFAULT now()
-        )
-      `);
-      const applied = await pool.query("select id, hash, created_at, name from drizzle.__drizzle_migrations");
-      const pending = getMigrationsToRun({ localMigrations: migrations, dbMigrations: applied.rows });
-      for (const migration of pending) {
-        const run = async (client) => {
-          for (const statement of migration.sql) await client.query(statement);
-          await client.query(
-            "insert into drizzle.__drizzle_migrations (hash, created_at, name) values ($1, $2, $3)",
-            [migration.hash, migration.folderMillis, migration.name ?? null],
-          );
-        };
-        const concurrent = migration.sql.some((statement) => /CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
-        if (concurrent) {
-          const indexStatement = migration.sql.find((statement) => /CREATE\s+INDEX\s+CONCURRENTLY/i.test(statement));
-          const indexName = indexStatement?.match(/CREATE\s+INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"([^"]+)"/i)?.[1];
-          if (indexName) {
-            const existing = await pool.query(
-              "select n.nspname as schema_name, c.relname as index_name, i.indisvalid from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_index i on i.indexrelid = c.oid where c.relname = $1",
-              [indexName],
-            );
-            const invalid = existing.rows.find((row) => row.indisvalid === false);
-            if (invalid) {
-              const quoteIdentifier = (value) => `"${String(value).replaceAll('"', '""')}"`;
-              await pool.query(
-                `drop index concurrently if exists ${quoteIdentifier(invalid.schema_name)}.${quoteIdentifier(invalid.index_name)}`,
-              );
-            }
-          }
-          await run(pool);
-          continue;
-        }
-        const client = await pool.connect();
-        try {
-          await client.query("begin");
-          await run(client);
-          await client.query("commit");
-        } catch (error) {
-          await client.query("rollback");
-          throw error;
-        } finally {
-          client.release();
-        }
-      }
+      const { drizzle } = requireFromWeb("drizzle-orm/node-postgres");
+      const { migrate } = requireFromWeb("drizzle-orm/node-postgres/migrator");
+      await migrate(drizzle({ client: pool }), { migrationsFolder: path.join(webDir, "db/migrations") });
     }
   } finally {
     await pool.end();
   }
   console.log(`${project.label} PlanetScale ${checkOnly ? "connection verified (read only)" : "migration applied"}`);
 } catch (error) {
-  // Driver errors may contain credentials, SQL, or customer rows.
-  console.error(error instanceof PlanetScaleOperatorConfigError ? error.message :
-    `${project.label} PlanetScale ${checkOnly ? "connection check" : "migration"} failed; check target credentials, access, and migration state.`);
+  // Keep credentials, SQL text, and customer rows out of logs while exposing
+  // the stable driver fields needed to repair a failed managed migration.
+  if (error instanceof PlanetScaleOperatorConfigError) {
+    console.error(error.message);
+  } else {
+    const cause = error?.cause && typeof error.cause === "object" ? error.cause : error;
+    const code = typeof cause?.code === "string" ? cause.code : "unknown_code";
+    const detail = typeof cause?.message === "string"
+      ? cause.message.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 300)
+      : typeof error?.message === "string" ? error.message.slice(0, 300) : "unknown database error";
+    console.error(`${project.label} PlanetScale ${checkOnly ? "connection check" : "migration"} failed (${code}): ${detail}`);
+  }
   process.exitCode = 1;
 }

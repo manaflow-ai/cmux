@@ -18,7 +18,9 @@ public struct AutomationSection: View {
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
+    @State private var agentAutoResumeModel: DefaultsValueModel<Bool>
     @State private var canonicalAgentScratchModel: DefaultsValueModel<Bool>
+    @State private var agentMessagesModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
     @State private var geminiModel: DefaultsValueModel<Bool>
@@ -36,10 +38,7 @@ public struct AutomationSection: View {
     @State private var automationRulesActionMessage: String?
     @State private var automationRulesActionIsError = false
     @State private var automationRulesRefreshID = 0
-    private struct SocketPasswordStatus: Equatable {
-        let message: String
-        let isError: Bool
-    }
+    private struct SocketPasswordStatus: Equatable { let message: String; let isError: Bool }
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
@@ -75,7 +74,9 @@ public struct AutomationSection: View {
         ))
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
+        _agentAutoResumeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentAutoResume))
         _canonicalAgentScratchModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.canonicalAgentScratch))
+        _agentMessagesModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentMessages.enabled))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
         _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
@@ -97,7 +98,9 @@ public struct AutomationSection: View {
             autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
+            agentAutoResumeCard
             canonicalAgentScratchCard
+            AgentMessagesSettingsCard(isEnabled: agentMessagesModel.current, setEnabled: { agentMessagesModel.set($0) })
             ampCard
             cursorCard
             geminiCard
@@ -135,7 +138,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, canonicalAgentScratchModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -507,6 +510,21 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.canonicalAgentScratch.note", defaultValue: "Opt in to organize new Claude, Codex, and OpenCode panel scratch files under ~/.local/state/cmux/agent-artifacts. Provider transcripts and existing files are not moved."))
+        }
+    }
+    @ViewBuilder
+    private var agentAutoResumeCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.agentAutoResume"),
+                String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors"),
+                subtitle: String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentAutoResumeModel.current }, set: { agentAutoResumeModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentAutoResumeToggle")
+            }
         }
     }
     @ViewBuilder

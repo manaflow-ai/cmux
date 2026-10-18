@@ -1,12 +1,12 @@
 import { readTeamJson } from "../../../../../services/teams/http";
 import { inviteTeamMembers } from "../../../../../services/teams/invitations";
-import { teamInviteAcceptUrl } from "../../../../../services/teams/origin";
+import { teamInviteLinkUrl } from "../../../../../services/teams/origin";
 import { teamJson, withTeamAccessRoute, type TeamRouteParams } from "../../../../../services/teams/route";
 import { inviteBody } from "../../../../../services/teams/schemas";
 
 type RouteContext = { params: TeamRouteParams };
 
-/** Invite up to 20 emails. Stack sends each email; the role is stored by cmux. */
+/** Invite up to 20 emails. cmux sends each email through Resend. */
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   const { teamId } = await context.params;
   return withTeamAccessRoute(
@@ -20,7 +20,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       const result = await inviteTeamMembers(access, {
         emails: body.value.emails,
         role: body.value.role,
-        callbackUrl: teamInviteAcceptUrl(request),
+        acceptUrl: (token) => teamInviteLinkUrl(request, token),
       });
       return teamJson(result);
     },

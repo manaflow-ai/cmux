@@ -45,7 +45,8 @@ extension CmuxTuiSurfaceProvider {
             diskUsedMb: stats?.diskUsedMb,
             remoteWorkspaces: remoteWorkspaces,
             privateAddress: summary.preferredPrivateAddress,
-            portDiscoveryState: portDiscoveryState
+            portDiscoveryState: portDiscoveryState,
+            cpus: stats?.cpus
         )
     }
 

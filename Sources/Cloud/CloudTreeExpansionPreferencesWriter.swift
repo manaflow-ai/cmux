@@ -8,6 +8,6 @@ actor CloudTreeExpansionPreferencesWriter {
 
     @discardableResult
     func flush() -> Bool {
-        CFPreferencesAppSynchronize(applicationID.map { $0 as CFString } ?? kCFPreferencesCurrentApplication)
+        CFPreferencesAppSynchronize(applicationID.map { $0 as CFString } ?? ProcessDefaultsDomain.cfApplicationID)
     }
 }

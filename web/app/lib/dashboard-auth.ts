@@ -3,11 +3,13 @@ import { redirect, unstable_rethrow } from "next/navigation";
 
 import {
   type DashboardSessionUser,
+  DASHBOARD_SESSION_TRANSIENT_MESSAGE,
   DashboardSessionMissingError,
   DashboardSessionUnavailableError,
   readDashboardSessionUser,
 } from "./dashboard-session";
 import { isStackConfigured } from "./stack";
+import { isTransientStackFailure } from "../../services/vms/authErrors";
 import {
   DASHBOARD_RETURN_PATH_HEADER,
   normalizeDashboardReturnPath,
@@ -84,14 +86,34 @@ export async function loadDashboardSection(
   }
 }
 
-/** The signed-in user for chrome that must render for signed-out visitors too. */
-export async function optionalDashboardUser(): Promise<DashboardSessionUser | null> {
-  if (!isStackConfigured()) return null;
+function isTransientDashboardSessionFailure(error: unknown): boolean {
+  return (error instanceof Error && error.message === DASHBOARD_SESSION_TRANSIENT_MESSAGE) ||
+    isTransientStackFailure(error);
+}
+
+export type JoinViewer =
+  | { readonly kind: "user"; readonly user: DashboardSessionUser }
+  | { readonly kind: "signed_out" }
+  | { readonly kind: "unavailable" };
+
+/**
+ * The viewer of a page that signs visitors in itself (team invite links).
+ * Only a missing session is "signed out". A Stack throttle, 5xx or timeout is
+ * "unavailable": treating it as signed out would send a signed-in user to
+ * sign-in, which sends them straight back. Other failures are thrown.
+ */
+export async function readJoinViewer(): Promise<JoinViewer> {
+  if (!isStackConfigured()) return { kind: "signed_out" };
   try {
-    return await readDashboardSessionUser();
+    return { kind: "user", user: await readDashboardSessionUser() };
   } catch (error) {
     unstable_rethrow(error);
-    return null;
+    if (error instanceof DashboardSessionMissingError) return { kind: "signed_out" };
+    // Only a Stack throttle, 5xx or timeout gets the retry state. The marker
+    // is in the message because errors leaving the private cache scope lose
+    // their prototype and cause. Anything else keeps its real handling.
+    if (isTransientDashboardSessionFailure(error)) return { kind: "unavailable" };
+    throw error;
   }
 }
 

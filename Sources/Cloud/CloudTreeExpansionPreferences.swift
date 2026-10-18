@@ -9,7 +9,7 @@ struct CloudTreeExpansionPreferences: CloudTreeExpansionPersistence {
     private let applicationID: String?
     private let writer: CloudTreeExpansionPreferencesWriter
 
-    /// A nil domain passes Core Foundation's current-application sentinel intact.
+    /// A nil domain means the domain `UserDefaults.standard` uses.
     init(applicationID: String? = nil) {
         self.applicationID = applicationID
         writer = CloudTreeExpansionPreferencesWriter(applicationID: applicationID)
@@ -32,6 +32,6 @@ struct CloudTreeExpansionPreferences: CloudTreeExpansionPersistence {
     func flush() async -> Bool { await writer.flush() }
 
     private var domain: CFString {
-        applicationID.map { $0 as CFString } ?? kCFPreferencesCurrentApplication
+        applicationID.map { $0 as CFString } ?? ProcessDefaultsDomain.cfApplicationID
     }
 }

@@ -175,7 +175,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        applyCreationTitleAsCustomTitle: Bool = true
+        applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool? = nil
     ) -> Tab? {
         guard let host else { return nil }
         // nil resolves to the stored global default at call time, matching the
@@ -187,14 +188,15 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let emptyHeaderId = group.isEmpty ? group.anchorWorkspaceId : nil
         let cwd = group.liveAnchorWorkspaceId
             .flatMap { anchorId in model.tabs.first(where: { $0.id == anchorId })?.currentDirectory }
+        let workingDirectory = inheritWorkingDirectory == false ? nil : cwd
         guard let newWorkspace = host.createWorkspaceForGroup(
             title: title,
-            workingDirectory: cwd,
+            workingDirectory: workingDirectory,
             initialSurface: initialSurface,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            inheritWorkingDirectory: cwd == nil,
+            inheritWorkingDirectory: inheritWorkingDirectory ?? (cwd == nil),
             select: select,
             applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         ) else { return nil }
@@ -274,9 +276,14 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             }
         }
         guard currentIndex != targetIndex else { return }
-        let workspace = model.tabs.remove(at: currentIndex)
         let insertAt = currentIndex < targetIndex ? targetIndex - 1 : targetIndex
-        model.tabs.insert(workspace, at: max(0, min(insertAt, model.tabs.count)))
+        model.replaceTabs { currentTabs in
+            var reordered = currentTabs
+            let workspace = reordered.remove(at: currentIndex)
+            let destination = max(0, min(insertAt, reordered.count))
+            reordered.insert(workspace, at: destination)
+            return reordered
+        }
     }
 
     // MARK: - Membership

@@ -23,7 +23,7 @@ import Testing
 
     @Test func controlModeArgumentsOverrideHostRemoteCommandAndKeepForcedTTY() {
         let host = RemoteTmuxHost(destination: "user@host")
-        let args = host.controlModeArguments(sessionName: "work", createIfMissing: false)
+        let args = host.controlModeArguments(sessionName: "work", mode: .attach)
         #expect(consecutive(args, "-o", "RemoteCommand=none"))
         // The remote `tmux attach` still needs its forced PTY.
         #expect(args.first == "-tt")

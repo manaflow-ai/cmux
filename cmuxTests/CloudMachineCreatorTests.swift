@@ -149,4 +149,65 @@ struct CloudMachineCreatorTests {
         #expect(unnamedCreator["userId"] as? String == "user-b")
         #expect(unnamedCreator["displayName"] is NSNull)
     }
+
+    /// Every hop above carries the author and the sidebar still does not show
+    /// it, which is the whole complaint: on a team the fleet reads as a list of
+    /// generated three-word names with no way to tell whose is whose. The row's
+    /// second line already holds the machine's other identity facts (its id,
+    /// its kind, its age) and the tooltip repeats that line, so the author
+    /// belongs there rather than behind a new control.
+    @Test("the machine row says who made it")
+    func rowSubtitleNamesTheAuthor() {
+        let content = CloudTreeMachineRowContent(machine: Self.machine(
+            createdBy: VMCreator(userId: "user-a", displayName: "Ada Lovelace")
+        ))
+        #expect(content.subtitle.contains("by Ada Lovelace"))
+        // The tooltip is how a single-line row reaches the same facts, so the
+        // default preset must not be the one that hides the author.
+        #expect(content.toolTip.contains("by Ada Lovelace"))
+        // Still the machine's own line: the author is added to the identity
+        // facts, not put in place of them.
+        #expect(content.subtitle.contains("vm-1"))
+        #expect(content.subtitle.contains("Base"))
+    }
+
+    /// The two ways there is no name to show. A known account with no recorded
+    /// name is the interesting one: the account id is not a name, and a row
+    /// reading "by 7f3a91c2" is one more generated token in the pile this is
+    /// meant to clear, so the row says nothing rather than something opaque.
+    @Test("a machine with no named author says nothing about one")
+    func rowStaysQuietWithoutAName() {
+        let unnamed = CloudTreeMachineRowContent(machine: Self.machine(
+            createdBy: VMCreator(userId: "7f3a91c2", displayName: nil)
+        ))
+        #expect(unnamed.subtitle.contains("by ") == false)
+        #expect(unnamed.subtitle.contains("7f3a91c2") == false)
+
+        let anonymous = CloudTreeMachineRowContent(machine: Self.machine(createdBy: nil))
+        #expect(anonymous.subtitle.contains("by ") == false)
+        // The separator is not left dangling either way.
+        #expect(anonymous.subtitle.hasSuffix("·") == false)
+    }
+
+    @Test("a name of only whitespace is not a name")
+    func blankNameShowsNoAuthor() {
+        #expect(CloudMachineCreatorLabel.text(creator: VMCreator(userId: "u", displayName: "   ")) == nil)
+        #expect(CloudMachineCreatorLabel.text(creator: nil) == nil)
+        #expect(CloudMachineCreatorLabel.text(creator: VMCreator(userId: "u", displayName: "Ada")) == "by Ada")
+    }
+
+    /// Labelled, so the subtitle also carries the id, and old enough that the
+    /// relative age is a stable string rather than "in 0 seconds".
+    private static func machine(createdBy: VMCreator?) -> MachineSnapshot {
+        MachineSnapshot(
+            id: "vm-1",
+            provider: "fixture",
+            image: "devbox",
+            isDesktop: false,
+            activity: .ready,
+            createdAt: Date(timeIntervalSinceNow: -3 * 60 * 60),
+            createdBy: createdBy,
+            label: "build box"
+        )
+    }
 }

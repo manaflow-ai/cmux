@@ -40,6 +40,12 @@ mock.module("../services/teams/repository", () => ({
   },
   withTeamAdminLock: noLock,
 }));
+const seatFacts: string[] = [];
+const realSeatSync = await import("../services/teams/seatSync");
+mock.module("../services/teams/seatSync", () => ({
+  ...realSeatSync,
+  defaultTeamSeatSync: { membershipChanged: async (teamId: string) => { seatFacts.push(teamId); } },
+}));
 const realPro = await import("../services/billing/pro");
 mock.module("../services/billing/pro", () => ({
   ...realPro,

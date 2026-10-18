@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CmuxCloud
 import CmuxAuthRuntime
 import Foundation
 import Testing
@@ -16,10 +17,7 @@ struct TeamChangeRejectedError: Error {}
 /// until the test releases it, so a test can start a second change mid-flight.
 /// It can also refuse the next create or switch.
 actor TeamChangeAuthClient: AuthClient {
-    private var teams = [
-        CMUXAuthTeam(id: "team-a", displayName: "Team A"),
-        CMUXAuthTeam(id: "team-b", displayName: "Team B"),
-    ]
+    private var teams: [CMUXAuthTeam]
     private(set) var createCount = 0
     private(set) var selectCount = 0
     private var holdsNextCreate = false
@@ -28,6 +26,13 @@ actor TeamChangeAuthClient: AuthClient {
     private var heldSelect: CheckedContinuation<Void, Never>?
     private var failsNextCreate = false
     private var failsNextSelect = false
+
+    init(firstTeamName: String = "Team A") {
+        teams = [
+            CMUXAuthTeam(id: "team-a", displayName: firstTeamName),
+            CMUXAuthTeam(id: "team-b", displayName: "Team B"),
+        ]
+    }
 
     func holdNextCreate() { holdsNextCreate = true }
     func holdNextSelect() { holdsNextSelect = true }
@@ -93,7 +98,10 @@ actor TeamChangeAuthClient: AuthClient {
 
 extension HostAccountFlow {
     /// A signed-in flow over `client`, with `team-a` confirmed.
-    static func makeForTeamChangeTests(client: TeamChangeAuthClient) async throws -> HostAccountFlow {
+    static func makeForTeamChangeTests(
+        client: TeamChangeAuthClient,
+        billingPlanClient: BillingPlanClient = BillingPlanClient()
+    ) async throws -> HostAccountFlow {
         let defaults = try #require(UserDefaults(suiteName: "HostAccountFlowTeamChangeTests.\(UUID())"))
         let anchor = AuthPresentationContextProvider()
         let coordinator = AuthCoordinator(
@@ -133,7 +141,11 @@ extension HostAccountFlow {
             callbackScheme: { "cmux-test" },
             openExternalURL: { _ in false }
         )
-        let flow = HostAccountFlow(coordinator: coordinator, browserSignIn: browserSignIn)
+        let flow = HostAccountFlow(
+            coordinator: coordinator,
+            browserSignIn: browserSignIn,
+            billingPlanClient: billingPlanClient
+        )
         try #require(flow.confirmedTeamID == "team-a")
         return flow
     }

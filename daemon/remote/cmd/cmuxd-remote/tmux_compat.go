@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/sys/unix"
 )
@@ -1223,7 +1224,7 @@ func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) (*tmuxSplitAnch
 
 		// Right-column anchors can outlive the pane they pointed at.
 		// Drop stale state and rebuild from the caller surface instead.
-		_ = withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
 			if current, ok := store.MainVerticalLayouts[workspaceId]; ok &&
 				current.LastColumnSurfaceId == staleLastColumn {
 				current.LastColumnSurfaceId = ""
@@ -1231,7 +1232,15 @@ func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) (*tmuxSplitAnch
 				delete(store.LastSplitSurface, workspaceId)
 			}
 			return nil
-		})
+		}); err != nil {
+			return nil, err
+		}
+		// The cleanup may have raced with a close or another split. Reload the
+		// post-cleanup snapshot before choosing a main-surface fallback.
+		store, err = loadTmuxCompatStore()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	candidateAnchors := []string{tmuxCallerSurfaceHandle()}
@@ -1270,8 +1279,9 @@ func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) (*tmuxSplitAnch
 // --- TmuxCompatStore (local JSON state) ---
 
 type mainVerticalState struct {
-	MainSurfaceId       string `json:"mainSurfaceId"`
-	LastColumnSurfaceId string `json:"lastColumnSurfaceId,omitempty"`
+	MainSurfaceId          string   `json:"mainSurfaceId"`
+	LastColumnSurfaceId    string   `json:"lastColumnSurfaceId,omitempty"`
+	MainPaneWidthFraction  *float64 `json:"mainPaneWidthFraction,omitempty"`
 }
 
 type tmuxCompatStore struct {
@@ -1767,11 +1777,6 @@ func tmuxNewWindow(rc *rpcContext, args []string) error {
 func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	p := parseTmuxArgs(args, []string{"-c", "-F", "-l", "-t"}, []string{"-P", "-b", "-d", "-h", "-v"})
 
-	targetWs, _, targetSurface, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
-	if err != nil {
-		return err
-	}
-
 	direction := "down"
 	if p.hasFlag("-h") {
 		direction = "right"
@@ -1785,18 +1790,22 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	// Anchor splits to the leader surface for agent teams.
 	callerWorkspace := tmuxCallerWorkspaceHandle()
 	anchoredCallerSurface := ""
+	var targetWs, targetSurface string
+	var err error
 	if callerWorkspace != "" {
-		if wsId, err := tmuxResolveWorkspaceId(rc, callerWorkspace); err == nil {
-			anchored, err := tmuxAnchoredSplitTarget(rc, wsId)
-			if err != nil {
-				return err
-			}
-			if anchored != nil {
+		if wsId, resolveErr := tmuxResolveWorkspaceId(rc, callerWorkspace); resolveErr == nil {
+			if anchored, anchorErr := tmuxAnchoredSplitTarget(rc, wsId); anchorErr == nil && anchored != nil {
 				targetWs = wsId
 				targetSurface = anchored.targetSurfaceId
 				direction = anchored.direction
 				anchoredCallerSurface = anchored.callerSurfaceId
 			}
+		}
+	}
+	if targetWs == "" {
+		targetWs, _, targetSurface, err = tmuxResolveSurfaceTarget(rc, p.value("-t"))
+		if err != nil {
+			return err
 		}
 	}
 
@@ -1810,13 +1819,44 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 
 	focusNewPane := !p.hasFlag("-d")
-	created, err := rc.call("surface.split", map[string]any{
+	commandText := strings.TrimSpace(strings.Join(p.positional, " "))
+	isOMXHud := tmuxCommandLooksLikeAgentHud(p.positional)
+	startupScriptPath := ""
+	params := map[string]any{
 		"workspace_id": targetWs,
 		"surface_id":   targetSurface,
 		"direction":    direction,
 		"focus":        focusNewPane,
-	})
+	}
+	if cwd := strings.TrimSpace(p.value("-c")); cwd != "" {
+		if resolved := tmuxNormalizePath(cwd); resolved != "" {
+			params["working_directory"] = resolved
+		}
+	}
+	if commandText != "" {
+		params["tmux_start_command"] = commandText
+		if isOMXHud {
+			startupScript, scriptErr := tmuxStartupScript(p.positional, p.value("-c"))
+			if scriptErr != nil {
+				return scriptErr
+			}
+			params["initial_command"] = startupScript
+			startupScriptPath = startupScript
+		}
+	}
+	if targetCells, ok := tmuxSplitSizeCells(p.value("-l")); ok {
+		paneID, paneErr := tmuxPaneIdForSurface(rc, targetWs, targetSurface)
+		if paneErr == nil {
+			if divider, dividerOK := tmuxInitialDividerPosition(rc, targetWs, paneID, direction, targetCells); dividerOK {
+				params["initial_divider_position"] = divider
+			}
+		}
+	}
+	created, err := rc.call("surface.split", params)
 	if err != nil {
+		if startupScriptPath != "" {
+			_ = os.Remove(startupScriptPath)
+		}
 		return err
 	}
 	surfaceId, _ := created["surface_id"].(string)
@@ -1855,12 +1895,14 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		"orientation":  "vertical",
 	})
 
-	if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
-		rc.call("surface.send_text", map[string]any{
-			"workspace_id": targetWs,
-			"surface_id":   surfaceId,
-			"text":         text,
-		})
+	if !isOMXHud {
+		if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
+			rc.call("surface.send_text", map[string]any{
+				"workspace_id": targetWs,
+				"surface_id":   surfaceId,
+				"text":         text,
+			})
+		}
 	}
 
 	if p.hasFlag("-P") {
@@ -1876,6 +1918,148 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		fmt.Println(tmuxRenderFormat(p.value("-F"), ctx, fallback))
 	}
 	return nil
+}
+
+func tmuxSplitSizeCells(raw string) (int, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || strings.Contains(trimmed, "%") {
+		return 0, false
+	}
+	value := 0
+	if _, err := fmt.Sscan(trimmed, &value); err != nil || value <= 0 {
+		return 0, false
+	}
+	return value, true
+}
+
+func tmuxInitialDividerPosition(rc *rpcContext, workspaceID, paneID, direction string, targetCells int) (float64, bool) {
+	if targetCells <= 0 || paneID == "" {
+		return 0, false
+	}
+	payload, err := rc.call("pane.list", map[string]any{"workspace_id": workspaceID})
+	if err != nil {
+		return 0, false
+	}
+	panes, _ := payload["panes"].([]any)
+	for _, raw := range panes {
+		pane, _ := raw.(map[string]any)
+		if pane == nil || stringFromAnyGo(pane["id"]) != paneID {
+			continue
+		}
+		currentCells := intFromAnyGo(pane["rows"])
+		if direction == "left" || direction == "right" {
+			currentCells = intFromAnyGo(pane["columns"])
+		}
+		if currentCells <= 0 {
+			return 0, false
+		}
+		requested := targetCells
+		if max := currentCells - 1; requested > max {
+			requested = max
+		}
+		if requested < 1 {
+			requested = 1
+		}
+		rawPosition := float64(requested) / float64(currentCells)
+		if direction != "left" && direction != "up" {
+			rawPosition = float64(currentCells-requested) / float64(currentCells)
+		}
+		return minMaxDividerPosition(rawPosition), true
+	}
+	return 0, false
+}
+
+func minMaxDividerPosition(value float64) float64 {
+	if value < 0.1 {
+		return 0.1
+	}
+	if value > 0.9 {
+		return 0.9
+	}
+	return value
+}
+
+func tmuxPaneIdForSurface(rc *rpcContext, workspaceID, surfaceID string) (string, error) {
+	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceID})
+	if err != nil {
+		return "", err
+	}
+	surfaces, _ := payload["surfaces"].([]any)
+	for _, raw := range surfaces {
+		surface, _ := raw.(map[string]any)
+		if surface != nil && stringFromAnyGo(surface["id"]) == surfaceID {
+			if paneID := stringFromAnyGo(surface["pane_id"]); paneID != "" {
+				return paneID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("surface %s has no pane", surfaceID)
+}
+
+func tmuxCommandLooksLikeAgentHud(commandTokens []string) bool {
+	commandText := strings.Join(commandTokens, " ")
+	if !tmuxCommandTextContainsWord(commandText, "hud") {
+		return false
+	}
+	env := os.Getenv
+	if env("CMUX_OMX_CMUX_BIN") != "" ||
+		env("CMUX_OMP_CMUX_BIN") != "" ||
+		strings.EqualFold(env("CMUX_AGENT_LAUNCH_KIND"), "omx") ||
+		strings.EqualFold(env("CMUX_AGENT_LAUNCH_KIND"), "omp") {
+		return true
+	}
+	return tmuxCommandTextContainsWord(commandText, "omx") ||
+		tmuxCommandTextContainsWord(commandText, "oh-my-codex") ||
+		tmuxCommandTextContainsWord(commandText, "omp") ||
+		tmuxCommandTextContainsWord(commandText, "oh-my-pi")
+}
+
+func tmuxCommandTextContainsWord(text, word string) bool {
+	want := strings.ToLower(word)
+	for _, token := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-')
+	}) {
+		if token == want {
+			return true
+		}
+	}
+	return false
+}
+
+func tmuxStartupScript(commandTokens []string, cwd string) (string, error) {
+	commandText := strings.TrimSpace(strings.Join(commandTokens, " "))
+	if commandText == "" {
+		return "", fmt.Errorf("tmux startup script requires a command")
+	}
+	file, err := os.CreateTemp("", "cmux-tmux-command-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("create tmux startup script: %w", err)
+	}
+	path := file.Name()
+	cleanup := func() {
+		file.Close()
+		_ = os.Remove(path)
+	}
+	lines := []string{"#!/bin/sh", `rm -f -- "$0" 2>/dev/null || true`}
+	if trimmed := strings.TrimSpace(cwd); trimmed != "" {
+		if resolved := tmuxNormalizePath(trimmed); resolved != "" {
+			lines = append(lines, "cd -- "+tmuxShellQuote(resolved)+" || exit $?")
+		}
+	}
+	lines = append(lines, `exec "${SHELL:-/bin/sh}" -lc `+tmuxShellQuote(commandText))
+	if _, err := file.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		cleanup()
+		return "", fmt.Errorf("write tmux startup script: %w", err)
+	}
+	if err := file.Chmod(0o700); err != nil {
+		cleanup()
+		return "", fmt.Errorf("chmod tmux startup script: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("close tmux startup script: %w", err)
+	}
+	return path, nil
 }
 
 func tmuxSelectWindow(rc *rpcContext, args []string) error {
@@ -2307,6 +2491,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 			}
 		}
 		panes, _ := panePayload["panes"].([]any)
+		currentFraction := 0.0
 		for _, pp := range panes {
 			pane, _ := pp.(map[string]any)
 			if pane == nil {
@@ -2323,7 +2508,24 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 						targetPoints = float64(target)*cellPoints + residual
 					}
 				}
+				if isPercentage {
+					if frame, ok := pane["pixel_frame"].(map[string]any); ok {
+						paneWidth := floatFromAny(frame["width"])
+						containerWidth := floatFromAny(func() any {
+							frame, _ := panePayload["container_frame"].(map[string]any)
+							return frame["width"]
+						}())
+						if paneWidth > 0 && containerWidth > 0 {
+							currentFraction = paneWidth / containerWidth
+						}
+					}
+				}
 				break
+			}
+		}
+		if isPercentage && target == 30 && currentFraction > 0 {
+			if !tmuxShouldApplyMainVerticalLeaderWidth(rc, wsId, paneId, currentFraction, 0.30) {
+				return nil
 			}
 		}
 		params := map[string]any{
@@ -2408,6 +2610,61 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// Claude's main-vertical flow repeats `resize-pane -x 30%` after every
+// teammate. Remember the first automatic width and treat later repeats as
+// layout bookkeeping, while adopting a width changed by the user.
+func tmuxShouldApplyMainVerticalLeaderWidth(
+	rc *rpcContext,
+	workspaceID string,
+	paneID string,
+	currentFraction float64,
+	targetFraction float64,
+) bool {
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		return true
+	}
+	layout, ok := store.MainVerticalLayouts[workspaceID]
+	if !ok || layout.MainSurfaceId == "" {
+		return true
+	}
+	mainSurfaceID, err := tmuxCanonicalSurfaceId(rc, layout.MainSurfaceId, workspaceID)
+	if err != nil {
+		return true
+	}
+	mainPaneID, err := tmuxPaneIdForSurface(rc, workspaceID, mainSurfaceID)
+	if err != nil || mainPaneID != paneID {
+		return true
+	}
+
+	shouldApply := true
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		layout, ok := store.MainVerticalLayouts[workspaceID]
+		if !ok {
+			return nil
+		}
+		const epsilon = 0.02
+		if math.Abs(targetFraction-0.30) <= epsilon {
+			if remembered := layout.MainPaneWidthFraction; remembered != nil {
+				if math.Abs(currentFraction-*remembered) > epsilon {
+					updated := currentFraction
+					layout.MainPaneWidthFraction = &updated
+					store.MainVerticalLayouts[workspaceID] = layout
+				}
+				shouldApply = false
+				return nil
+			}
+		}
+		remembered := targetFraction
+		layout.MainPaneWidthFraction = &remembered
+		store.MainVerticalLayouts[workspaceID] = layout
+		return nil
+	}); err != nil {
+		return true
+	}
+	return shouldApply
 }
 
 func tmuxWaitFor(_ *rpcContext, args []string) error {
@@ -2516,16 +2773,19 @@ func tmuxSelectLayout(rc *rpcContext, args []string) error {
 		if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" {
 			if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
 				existingColumn := ""
+				var existingMainPaneWidthFraction *float64
 				if existing, ok := store.MainVerticalLayouts[wsId]; ok {
 					existingColumn = existing.LastColumnSurfaceId
+					existingMainPaneWidthFraction = existing.MainPaneWidthFraction
 				}
 				seedColumn := existingColumn
 				if seedColumn == "" {
 					seedColumn = store.LastSplitSurface[wsId]
 				}
 				store.MainVerticalLayouts[wsId] = mainVerticalState{
-					MainSurfaceId:       callerSurface,
-					LastColumnSurfaceId: seedColumn,
+					MainSurfaceId:         callerSurface,
+					LastColumnSurfaceId:   seedColumn,
+					MainPaneWidthFraction: existingMainPaneWidthFraction,
 				}
 				return nil
 			}); err != nil {

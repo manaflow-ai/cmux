@@ -40,7 +40,10 @@ export type ReadyTeamBillingView = {
   readonly seats: number | null;
   /** Current members, or null when Stack could not list them. */
   readonly memberCount: number | null;
-  /** Soft seat limit: more members than paid seats. Joining is never blocked. */
+  /**
+   * More members than paid seats: the reconciler has not caught up yet, or
+   * its last Stripe write failed. Joining is never blocked.
+   */
   readonly overSeat: boolean;
   readonly paymentPastDue: boolean;
 };

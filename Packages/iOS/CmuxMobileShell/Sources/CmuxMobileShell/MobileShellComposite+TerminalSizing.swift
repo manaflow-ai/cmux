@@ -150,6 +150,7 @@ extension MobileShellComposite {
         let identity = terminalDeviceIdentity
         params["device_kind"] = identity.kind.rawValue
         params["device_name"] = identity.name
+        if let deviceID = identity.deviceID { params["device_id"] = deviceID }
         if let viewport = reportedTerminalViewportSizesBySurfaceID[surfaceID] {
             params["viewport_columns"] = viewport.columns
             params["viewport_rows"] = viewport.rows

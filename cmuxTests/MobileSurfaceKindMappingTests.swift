@@ -24,6 +24,7 @@ import Testing
         .project: "project",
         .extensionBrowser: "extensionBrowser",
         .workspaceTodo: "todo",
+        .coderouterGuide: "coderouterGuide",
         .notifications: "notifications",
         .cloudVMLoading: "cloudVMLoading",
         .mobilePairing: "mobilePairing",
