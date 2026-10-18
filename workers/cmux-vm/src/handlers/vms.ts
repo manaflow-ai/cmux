@@ -38,7 +38,7 @@ import {
   type NotFound,
   type ServiceUnavailable,
 } from "../errors.ts";
-import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type SnapshotId, type VmId } from "../lib/ids.ts";
+import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type SnapshotId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
