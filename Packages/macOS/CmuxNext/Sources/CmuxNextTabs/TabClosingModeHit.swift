@@ -35,7 +35,7 @@ struct TabClosingModeHit {
         return strip.displayed.compactMap { item in
             guard let place = strip.placed[item.id], place.width > 0.5 else { return nil }
             let height = strip.tabsClip.bounds.height
-            return (item.id, CGRect(x: mapping.viewX(m.x.target, isPinned: item.isPinned), y: 0, width: m.width.target, height: height))
+            return (item.id, CGRect(x: mapping.viewX(place.x, isPinned: item.isPinned), y: 0, width: place.width, height: height))
         }
     }
 }

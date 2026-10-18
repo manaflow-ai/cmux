@@ -47,6 +47,10 @@ parser.add_argument("--base", action="store_true")
 # debug.motion recording, with every kind on; writes OUT/loop.json with the per-frame main-thread
 # work of the clock and each animator (`work`), its spans and the sidebar's travel samples.
 parser.add_argument("--loop", type=int, default=0)
+# perf-tabs (cx-8w027.4): after the gestures, open this many terminal tabs (a crowded strip that
+# scrolls) and record Move Tab Right/Left, Next Tab, Cmd-9/Cmd-1 (a reveal that scrolls the strip)
+# and a close there.
+parser.add_argument("--crowded", type=int, default=0)
 opts = parser.parse_args()
 WIDTH, HEIGHT = (int(v) for v in opts.size.split("x"))
 BINARY = os.path.join(opts.app, "Contents/MacOS",
@@ -269,7 +273,30 @@ def run_config(name, settings):
         results["gestures"].append(strip(f"close-{gesture}", os.path.join(out, f"close-{gesture}"), "w", ["command"], content="panes"))
         wait(lambda: pane_count() <= panes, 5)
         time.sleep(0.6)  # test harness wait
+    if opts.crowded:
+        results["gestures"] += crowded_strip(out)
     return results
+
+
+def crowded_strip(out):
+    """Strip gestures in a crowded strip; the tabs it opened are closed again."""
+    opened = 0
+    for _ in range(opts.crowded):
+        before = tab_count()
+        action("newSurface")
+        if wait(lambda: tab_count() > before, 8):
+            opened += 1
+    time.sleep(1.5)  # test harness wait: the new terminals' first paint
+    gestures = []
+    for name, key_name, mods in (("move-right", "]", ["shift", "option", "command"]), ("move-left", "[", ["shift", "option", "command"]),
+                                 ("next-tab", "tab", ["control"]), ("select-first", "1", ["command"]), ("select-last", "9", ["command"]),
+                                 ("close-crowded", "w", ["command"])):
+        gestures.append(strip(f"crowded-{name}", os.path.join(out, f"crowded-{name}"), key_name, mods))
+        time.sleep(0.5)  # test harness wait: the strip settles before the next gesture
+    for _ in range(max(0, opened - 1)):
+        key("w", ["command"])
+        time.sleep(0.15)  # test harness wait
+    return gestures
 
 
 def idle_cpu(pid):
