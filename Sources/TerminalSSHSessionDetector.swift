@@ -125,6 +125,15 @@ struct DetectedSSHSession: Equatable, Sendable {
     ) throws -> [String] {
         try uploadDroppedFilesSync(fileURLs, operation: operation)
     }
+
+    func runProcessForTesting(
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) throws -> ProcessOverrideResultForTesting {
+        let result = try runProcess(executable: executable, arguments: arguments, timeout: timeout)
+        return (status: result.status, stdout: result.stdout, stderr: result.stderr)
+    }
 #endif
 
     func uploadDroppedFilesSync(
