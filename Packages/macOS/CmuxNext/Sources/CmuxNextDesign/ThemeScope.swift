@@ -106,6 +106,16 @@ public final class ThemeScope {
         }
     }
 
+    /// Changes which text the glass keeps readable over art (``ArtLegibility``) for every
+    /// window, and repaints every backdrop: the tint floor over art moves with it.
+    public func setArtLegibility(_ legibility: ArtLegibility) {
+        ThemeRepaint.batch {
+            guard ArtLegibility.current != legibility else { return }
+            ArtLegibility.store(legibility)
+            repaintBackdropArt()
+        }
+    }
+
     /// Changes live tuning without changing theme colors or persisted settings.
     public func setAppearanceTuning(_ tuning: AppearanceTuning) {
         ThemeRepaint.batch {
@@ -133,6 +143,7 @@ public final class ThemeScope {
         var tint: Double?
         var surfaces: SurfaceBackgrounds
         var tuning: AppearanceTuning
+        var legibility = ArtLegibility.current
     }
     private var displayedBackdrop: BackdropKey?
 
