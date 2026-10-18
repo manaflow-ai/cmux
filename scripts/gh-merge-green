@@ -177,11 +177,38 @@ if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository 2>/dev/null); then
-  refuse \
-    "not green: cannot read $ref" \
-    'check the repository, pull request number, GitHub login, and network access'
+
+# gh pr view/merge use GraphQL internally. Keep the REST escape hatch narrow:
+# only an explicit GraphQL rate-limit response may fall back, and all other
+# transport/auth/query failures remain hard refusals. REST metadata is
+# normalized to the fields used below so fork and exact-head checks are kept.
+graphql_quota_error() {
+  grep -Eiq 'api rate limit|secondary rate limit|rate limit exceeded|graphql[^[:space:]]*(rate limit|quota)|(rate limit|quota)[^[:space:]]*graphql' "$1"
+}
+
+rest_pull_request_metadata() {
+  local raw
+  raw=$(gh api "repos/$repo/pulls/$num") || return 1
+  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // "")))}' <<<"$raw"
+}
+
+graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository 2>"$graphql_error_file"); then
+  if graphql_quota_error "$graphql_error_file"; then
+    if ! pr_json=$(rest_pull_request_metadata 2>"$graphql_error_file"); then
+      rm -f "$graphql_error_file"
+      refuse \
+        "not green: GraphQL metadata was rate-limited and REST metadata failed for $ref" \
+        'restore GitHub API access, then retry the same exact head'
+    fi
+  else
+    rm -f "$graphql_error_file"
+    refuse \
+      "not green: cannot read $ref" \
+      'check the repository, pull request number, GitHub login, and network access'
+  fi
 fi
+rm -f "$graphql_error_file"
 if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
   refuse \
     "not green: GitHub returned invalid metadata for $ref" \
@@ -865,11 +892,24 @@ if [ -n "$override_reason" ]; then
       "not green: could not post the --override reason on $ref" \
       'restore GitHub comment permission or network access, then retry without changing the head'
   fi
-  if ! posted=$(gh pr view "$num" --repo "$repo" --json headRefOid,state 2>/dev/null); then
-    refuse \
-      "not green: could not verify $ref after posting --override" \
-      'check the pull request is still open at the same head, then retry'
+  graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+  if ! posted=$(gh pr view "$num" --repo "$repo" --json headRefOid,state 2>"$graphql_error_file"); then
+    if graphql_quota_error "$graphql_error_file"; then
+      if ! posted_raw=$(gh api "repos/$repo/pulls/$num" 2>"$graphql_error_file") || \
+         ! posted=$(jq -c '{headRefOid:(.head.sha // ""),state:(.state // "")}' <<<"$posted_raw"); then
+        rm -f "$graphql_error_file"
+        refuse \
+          "not green: GraphQL verification was rate-limited and REST verification failed for $ref" \
+          'restore GitHub API access, then retry the same exact head'
+      fi
+    else
+      rm -f "$graphql_error_file"
+      refuse \
+        "not green: could not verify $ref after posting --override" \
+        'check the pull request is still open at the same head, then retry'
+    fi
   fi
+  rm -f "$graphql_error_file"
   posted_sha=$(jq -r '.headRefOid // ""' <<<"$posted")
   posted_state=$(jq -r '.state // ""' <<<"$posted" | tr '[:upper:]' '[:lower:]')
   if [ "$posted_sha" != "$sha" ] || [ "$posted_state" != open ]; then
@@ -878,16 +918,82 @@ if [ -n "$override_reason" ]; then
       'retry the exact current head with a fresh reason'
   fi
 fi
-if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"; then
-  refuse \
-    "not green: GitHub refused to merge $ref" \
-    'read the GitHub refusal, repair the named issue, and retry the exact head'
+
+rest_merge_method() {
+  local method='' arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --squash|--merge|--rebase)
+        [ -z "$method" ] || return 1
+        method="${arg#--}"
+        ;;
+      --match-head-commit)
+        [ "$#" -ge 2 ] && [ "$2" = "$sha" ] || return 1
+        shift
+        ;;
+      --match-head-commit=*)
+        [ "${arg#*=}" = "$sha" ] || return 1
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+    shift
+  done
+  [ -n "$method" ] || method=squash
+  printf '%s\n' "$method"
+}
+
+merge_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@" 2>"$merge_error_file"; then
+  if graphql_quota_error "$merge_error_file"; then
+    if ! merge_method=$(rest_merge_method "$@" --match-head-commit "$sha"); then
+      rm -f "$merge_error_file"
+      refuse \
+        "not green: GraphQL merge was rate-limited and REST fallback has unsupported merge flags" \
+        'retry after the GraphQL quota resets, or use only --squash, --merge, or --rebase'
+    fi
+    if ! merge_response=$(gh api --method PUT "repos/$repo/pulls/$num/merge" \
+        -f "sha=$sha" -f "merge_method=$merge_method" 2>"$merge_error_file") || \
+       ! jq -e '.merged == true and (.sha // "") != ""' <<<"$merge_response" >/dev/null 2>&1; then
+      rm -f "$merge_error_file"
+      refuse \
+        "not green: GraphQL merge was rate-limited and REST merge failed for $ref" \
+        'restore GitHub API access, then retry the same exact head'
+    fi
+  else
+    merge_error=$(cat "$merge_error_file")
+    rm -f "$merge_error_file"
+    [ -n "$merge_error" ] && printf '%s\n' "$merge_error" >&2
+    refuse \
+      "not green: GitHub refused to merge $ref" \
+      'read the GitHub refusal, repair the named issue, and retry the exact head'
+  fi
 fi
+rm -f "$merge_error_file"
 [ -n "$releases" ] || exit 0
 landed=''
+read_landed_sha() {
+  local error_file view raw
+  error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+  if view=$(gh pr view "$num" --repo "$repo" --json state,mergeCommit 2>"$error_file"); then
+    rm -f "$error_file"
+    jq -r 'select(.state == "MERGED") | .mergeCommit.oid // empty' <<<"$view"
+    return 0
+  fi
+  if graphql_quota_error "$error_file"; then
+    if raw=$(gh api "repos/$repo/pulls/$num" 2>"$error_file"); then
+      rm -f "$error_file"
+      jq -r 'select((.state // "") | ascii_upcase == "MERGED") | .merge_commit.sha // empty' <<<"$raw"
+      return 0
+    fi
+  fi
+  rm -f "$error_file"
+  return 1
+}
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  landed=$(gh pr view "$num" --repo "$repo" --json state,mergeCommit 2>/dev/null \
-    | jq -r 'select(.state == "MERGED") | .mergeCommit.oid // empty' 2>/dev/null || true)
+  landed=$(read_landed_sha 2>/dev/null || true)
   [ -n "$landed" ] && break
   sleep 3
 done
