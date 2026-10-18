@@ -1,5 +1,6 @@
 #if DEBUG
 public import AppKit
+import CmuxNextWakeups
 
 /// `debug.text_weight` (DEBUG; text-weight-e2e.py, cx-8w027.12): the glyph coverage of
 /// ``ChromeLabel`` and ``ChromeTextLayer`` next to a stock `NSTextField` with the same text, font
@@ -16,7 +17,8 @@ public struct TextWeightProbe {
 
     private static let text = "Workspace notes 0123 quick brown fox"
     private static let fonts: [(String, NSFont)] = [
-        ("13r", .systemFont(ofSize: 13)), ("12m", .systemFont(ofSize: 12, weight: .medium)), ("11r", .systemFont(ofSize: 11)),
+        ("13r", .systemFont(ofSize: TypeScale.body)), ("12m", .systemFont(ofSize: TypeScale.detail, weight: .medium)),
+        ("11r", .systemFont(ofSize: TypeScale.caption)),
     ]
     private static let rowHeight: CGFloat = 22
     /// Space around the grid: a window's edge draws a hairline that is no row's ink.
@@ -53,12 +55,18 @@ public struct TextWeightProbe {
                                y: root.bounds.height - Self.margin - Self.rowHeight * CGFloat(index / 3 + 1) + 2,
                                width: width - 24, height: 18)
             switch index % 3 {
-            case 0, 1:
-                let field = index % 3 == 0 ? NSTextField(labelWithString: Self.text) : ChromeLabel(labelWithString: Self.text)
+            case 0:
+                let field = NSTextField(labelWithString: Self.text)
                 field.font = font
                 field.textColor = row.ink
                 field.frame = frame
                 root.addSubview(field)
+            case 1:
+                let label = ChromeLabel(labelWithString: Self.text)
+                label.font = font
+                label.textColor = row.ink
+                label.frame = frame
+                root.addSubview(label)
             default:
                 let host = NSView(frame: frame)
                 host.wantsLayer = true
@@ -75,12 +83,13 @@ public struct TextWeightProbe {
             }
         }
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        // close, not only orderOut: willClose invalidates the window's FrameScheduler (its link and observer).
+        defer { window.close() }
         // The window server shows the rows some frames after the commit (later on a loaded host):
         // read them once two captures a few frames apart agree.
         var shown: CGImage?
         for _ in 0..<20 {
-            await FrameWaiter(frames: 3).wait(in: window)
+            await Self.frames(3, of: window)
             let next = window.compositedSnapshot() // perf-gate-ok: debug.text_weight probe window
             if let next, let previous = shown, Self.same(previous, next) { break }
             shown = next
@@ -148,26 +157,20 @@ public struct TextWeightProbe {
     }
 }
 
-/// Resumes after `frames` display frames of a window.
-private final class FrameWaiter: NSObject {
-    private var remaining: Int
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    init(frames: Int) { remaining = frames }
-
-    func wait(in window: NSWindow) async {
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            window.displayLink(target: self, selector: #selector(tick(_:))).add(to: .main, forMode: .common)
+extension TextWeightProbe {
+    /// Resumes after `count` frames of `window`'s FrameScheduler (a stalled link still ticks).
+    fileprivate static func frames(_ count: Int, of window: NSWindow) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var remaining = count
+            // The scheduler holds the active client; it drops it after the last frame.
+            let client = FrameClient(owner: "debug.text_weight", isAnimation: false, on: FrameScheduler.forWindow(window)) { _ in
+                remaining -= 1
+                guard remaining <= 0 else { return true }
+                continuation.resume()
+                return false
+            }
+            client.activate()
         }
-    }
-
-    @objc private func tick(_ link: CADisplayLink) {
-        remaining -= 1
-        guard remaining <= 0, let continuation else { return }
-        link.invalidate()
-        self.continuation = nil
-        continuation.resume()
     }
 }
 #endif
