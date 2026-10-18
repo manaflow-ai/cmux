@@ -194,14 +194,7 @@ final class NotificationCenterService {
             note("reply refused: \(banner) is not the tab's unread notification")
             return
         }
-        let target = located.tab.surface
-        // The tab's own machine: a Cloud terminal's input goes over its link.
-        services.daemon(for: located.pane).send("notification-reply") { connection in
-            try await connection.send(target, text: text, paste: true)
-            try await connection.send(target, text: "\r")
-        }
-        note("reply \(located.tab.id)")
-        acknowledge(located.tab)
+        type(text, into: located)
     }
 
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.

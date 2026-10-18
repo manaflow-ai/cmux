@@ -47,7 +47,7 @@ final class ChiefPetBubblePanel: NSPanel {
     }
 
     /// Centered over `pet`, `gap` above it; below it when the screen's top is too close.
-    static func frame(height: CGFloat, over pet: CGRect, in visible: CGRect) -> CGRect {
+    static func frame(height: CGFloat, over pet: CGRect, in visible: CGRect, width: CGFloat = ChiefPetBubblePanel.width) -> CGRect {
         var frame = CGRect(x: pet.midX - width / 2, y: pet.maxY + gap, width: width, height: height)
         if frame.maxY > visible.maxY { frame.origin.y = pet.minY - gap - height }
         frame.origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
