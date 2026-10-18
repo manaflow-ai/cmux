@@ -178,8 +178,9 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,760"}
-if os.environ.get("CMUX_NEXT_PROBE_CGS"):
-    env["CMUX_NEXT_PROBE_CGS"] = os.environ["CMUX_NEXT_PROBE_CGS"]
+for probe in ("CMUX_NEXT_PROBE_CGS", "CMUX_NEXT_PROBE_IMMOVABLE"):
+    if os.environ.get(probe):
+        env[probe] = os.environ[probe]
 if opts.hang_ms:
     env["CMUX_NEXT_HANG_THRESHOLD_MS"] = str(opts.hang_ms)
 teardown = TagTeardown(APP)

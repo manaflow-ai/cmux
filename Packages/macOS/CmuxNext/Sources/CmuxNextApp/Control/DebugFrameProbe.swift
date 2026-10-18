@@ -42,6 +42,10 @@ final class DebugFrameProbe {
     private func start() {
         intervals.removeAll(keepingCapacity: true)
         last = 0
+        // PROBE ONLY: a window the window server may not drag computes no drag shapes (hypothesis).
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_IMMOVABLE"] == "1" {
+            for window in NSApp.windows { window.isMovable = false }
+        }
         CGSTransactionProbe.install()
         CGSTransactionProbe.stacks = [:]
         CGSTransactionProbe.calls = 0
@@ -92,6 +96,7 @@ final class DebugFrameProbe {
             // When the missed vsyncs happened: ms from the first frame to the end of each (at most 16).
             "missed_at_ms": .array(missedOffsets.prefix(16).map { .number($0.rounded()) }),
             "cgs": CGSTransactionProbe.json,
+            "drag_margin_resets": JSONValue(CGSTransactionProbe.stacks.filter { $0.key.contains("_resetDragMargins") }.map(\.value).max() ?? 0),
         ]
     }
 }

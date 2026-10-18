@@ -75,7 +75,10 @@ public final class PointerHover: NSObject {
     }
 
     /// Recomputes this target only (its eligibility changed).
-    public func refresh() { update() }
+    public func refresh() {
+        Self.index.place(self)
+        update()
+    }
 
     private func update() {
         let hovering = computeHovering()
@@ -85,8 +88,10 @@ public final class PointerHover: NSObject {
         onChange?(hovering)
     }
 
-    /// The window the index files this target under (nil: no window when last seen).
+    /// The window the index files this target under (nil: no window when last seen), and the
+    /// target's creation order (refreshes run targets in it).
     fileprivate var indexedWindow: ObjectIdentifier?
+    fileprivate var order: UInt64 = 0
     fileprivate var viewWindow: NSWindow? { view?.window }
 
     private func computeHovering() -> Bool {
@@ -185,7 +190,11 @@ public final class PointerHover: NSObject {
         while !queue.isEmpty, passes < 8 {
             passes += 1
             let current = queue.removeFirst()
-            for target in index.candidates(in: current) {
+            let (targets, moved) = index.candidates(in: current)
+            // A target found in another window now: that window refreshes too (a view that moved
+            // there under a still pointer).
+            for other in moved where other !== current && !queue.contains(where: { $0 === other }) { queue.append(other) }
+            for target in targets {
                 if target.isHovering || target.viewWindow === current { target.update() }
             }
             queue.append(contentsOf: pending)
@@ -249,9 +258,9 @@ private final class KeyWindowObserver {
 /// `PointerHover`'s targets filed by window (cx-8w027.10 item c): a refresh reads one window's
 /// targets, the targets without a window and the targets that hover now. A target is filed under
 /// the window its view is in when the index last saw it: at a refresh that visits it, at its own
-/// enter or exit, and at every key-window change. A refresh files each visited target again, so a
-/// view that left the window moves to `unplaced`, and one that came in from `unplaced` is filed
-/// under its window.
+/// enter, exit or `refresh()`, and at every key-window change. A refresh files each visited target
+/// again, so a view that left the window moves to `unplaced`, one that came in from `unplaced` is
+/// filed under its window, and one found in another window refreshes that window too.
 @MainActor
 private final class TargetIndex {
     private struct Weak {
@@ -268,8 +277,11 @@ private final class TargetIndex {
     private var unplaced: [ObjectIdentifier: Weak] = [:]
     /// Targets that hover now (a handful).
     private var hovering: [ObjectIdentifier: Weak] = [:]
+    private var nextOrder: UInt64 = 0
 
     func insert(_ target: PointerHover) {
+        nextOrder &+= 1
+        target.order = nextOrder
         target.indexedWindow = nil
         unplaced[ObjectIdentifier(target)] = Weak(value: target)
         place(target)
@@ -279,42 +291,48 @@ private final class TargetIndex {
         hovering[ObjectIdentifier(target)] = hovers ? Weak(value: target) : nil
     }
 
-    /// Files `target` under the window its view is in now.
-    func place(_ target: PointerHover) {
+    /// Files `target` under the window its view is in now; returns that window when the target
+    /// moved into it.
+    @discardableResult
+    func place(_ target: PointerHover) -> NSWindow? {
         let key = ObjectIdentifier(target)
         let window = target.viewWindow
         let now = window.map(ObjectIdentifier.init)
-        guard now != target.indexedWindow || (now == nil && unplaced[key] == nil) else { return }
+        let filed = now.map { buckets[$0]?.window === window && buckets[$0]?.targets[key] != nil } ?? (unplaced[key] != nil)
+        guard now != target.indexedWindow || !filed else { return nil }
         if let old = target.indexedWindow {
             buckets[old]?.targets[key] = nil
             if buckets[old]?.targets.isEmpty == true { buckets[old] = nil }
-        } else {
-            unplaced[key] = nil
         }
+        unplaced[key] = nil
         target.indexedWindow = now
-        if let window, let now {
-            // A bucket whose window was freed and whose identifier a new window reuses starts over.
-            if buckets[now]?.window !== window { buckets[now] = Bucket(window: window) }
-            buckets[now]?.targets[key] = Weak(value: target)
-        } else {
+        guard let window, let now else {
             unplaced[key] = Weak(value: target)
+            return nil
         }
+        // A window identifier reused by a new window: the old window's targets go back to `unplaced`.
+        if let bucket = buckets[now], bucket.window !== window { dropBucket(now) }
+        if buckets[now] == nil { buckets[now] = Bucket(window: window) }
+        buckets[now]?.targets[key] = Weak(value: target)
+        return window
     }
 
     /// Every target filed under its window again; freed targets and closed windows drop out.
     func placeAll() {
+        for (key, bucket) in buckets where bucket.window == nil { dropBucket(key) }
         let all = buckets.values.flatMap { $0.targets.values.compactMap(\.value) } + unplaced.values.compactMap(\.value)
-        buckets = buckets.filter { $0.value.window != nil }
         for (key, bucket) in buckets { buckets[key]?.targets = bucket.targets.filter { $0.value.value != nil } }
         unplaced = unplaced.filter { $0.value.value != nil }
         for target in all { place(target) }
     }
 
-    /// The targets a refresh of `window` reads, each filed again; freed targets drop out.
-    func candidates(in window: NSWindow) -> [PointerHover] {
+    /// The targets a refresh of `window` reads, in creation order with the hovering ones first
+    /// (a hover that ends runs before one that starts), each filed again; and the other windows
+    /// a visited target was found in. Freed targets drop out.
+    func candidates(in window: NSWindow) -> (targets: [PointerHover], moved: [NSWindow]) {
         let key = ObjectIdentifier(window)
+        if let bucket = buckets[key], bucket.window !== window { dropBucket(key) }
         var found: [ObjectIdentifier: PointerHover] = [:]
-        if let bucket = buckets[key], bucket.window !== window { buckets[key] = nil }
         for (id, entry) in buckets[key]?.targets ?? [:] {
             if let target = entry.value { found[id] = target } else { buckets[key]?.targets[id] = nil }
         }
@@ -324,8 +342,22 @@ private final class TargetIndex {
         for (id, entry) in hovering {
             if let target = entry.value { found[id] = target } else { hovering[id] = nil }
         }
-        for target in found.values { place(target) }
-        // A hover that ends runs its change before one that starts (a stable exit-then-enter order).
-        return found.values.sorted { $0.isHovering && !$1.isHovering }
+        var moved: [NSWindow] = []
+        for target in found.values {
+            if let other = place(target), other !== window, !moved.contains(where: { $0 === other }) { moved.append(other) }
+        }
+        let targets = found.values.sorted { ($0.isHovering ? 0 : 1, $0.order) < ($1.isHovering ? 0 : 1, $1.order) }
+        return (targets, moved)
+    }
+
+    /// Drops the bucket under `key` (its window closed, or a new window reuses the identifier):
+    /// its live targets go back to `unplaced`, to be filed again where their views are.
+    private func dropBucket(_ key: ObjectIdentifier) {
+        guard let bucket = buckets.removeValue(forKey: key) else { return }
+        for (id, entry) in bucket.targets {
+            guard let target = entry.value else { continue }
+            target.indexedWindow = nil
+            unplaced[id] = entry
+        }
     }
 }
