@@ -61,6 +61,8 @@ export function SummaryCard({
   const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
+  // Every hook runs before the hidden card returns: opening it must not add one (Lucas 2026-10-18).
+  const threadDetails = useThreadTitle();
   if (!shown) return null;
   const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
   const counts = [
@@ -69,7 +71,6 @@ export function SummaryCard({
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
-  const threadDetails = useThreadTitle();
   const title = threadDetails ? t("summary.threadDetails") : t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   return (
