@@ -22,6 +22,11 @@ public struct LabelParityProbe {
         /// Every value of each pair (the first 2000 pairs).
         public var rows: [[String: String]] = []
         public var imagesWritten = 0
+
+        /// The report as JSON objects (the debug socket's answer).
+        public var foundation: [String: Any] {
+            ["checked": checked, "mismatch_count": mismatchCount, "mismatches": mismatches, "rows": rows]
+        }
     }
 
     private enum Factory: String, CaseIterable { case label, wrapping, font }

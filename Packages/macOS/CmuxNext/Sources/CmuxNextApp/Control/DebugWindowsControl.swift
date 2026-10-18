@@ -16,12 +16,7 @@ enum DebugWindowsControl {
             // Chrome text weight vs a stock label (text-weight-e2e.py).
             .async("debug.text_weight") { call in .object(await TextWeightProbe(dark: call.params["dark"]?.boolValue ?? true).measure().mapValues { .number($0) }) },
             // ChromeLabel layout, ink, layer drawing and accessibility vs a stock label (text-weight-e2e.py).
-            .mainActor("debug.label_parity") { call in
-                let report = LabelParityProbe(imageDirectory: call.params["dir"]?.stringValue.map { URL(fileURLWithPath: $0) }).measure()
-                return .value(.object(["checked": .number(Double(report.checked)), "mismatch_count": .number(Double(report.mismatchCount)),
-                                       "mismatches": .array(report.mismatches.map { .string($0) }),
-                                       "rows": .array(report.rows.map { .object($0.mapValues { .string($0) }) })]))
-            },
+            .mainActor("debug.label_parity") { call in .value(JSONValue(foundation: LabelParityProbe(imageDirectory: call.params["dir"]?.stringValue.map { URL(fileURLWithPath: $0) }).measure().foundation) ?? .null) },
             // Window membership and the window invariants (no window
             // without a workspace), with what each window's record saves.
             .mainActor("debug.windows") { [weak services] _ in
