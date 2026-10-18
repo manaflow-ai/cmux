@@ -71,7 +71,7 @@ final class SidebarNowPlayingPlayButton: NSButton {
 /// reports no audio levels. Each bar loops on its own period as one Core
 /// Animation, so the render server runs it and the app takes no wakeups.
 /// Paused, under Reduce Motion or with animations off, they rest still at
-/// low heights; nothing flashes.
+/// low heights, also when Reduce Motion turns on mid-track; nothing flashes.
 final class SidebarNowPlayingLevels: NSView {
     static let size = NSSize(width: 13, height: 11)
     static let levelsKey = "levels"
@@ -98,10 +98,18 @@ final class SidebarNowPlayingLevels: NSView {
             layer?.addSublayer(bar)
         }
         setAccessibilityElement(false)
+        // Reduce Motion (the system's or cmux's own) or the animation speed changed mid-track:
+        // start or still the bars at once. Selector observers, which AppKit drops with the view.
+        NotificationCenter.default.addObserver(self, selector: #selector(motionChanged), name: Motion.reduceMotionDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(motionChanged), name: Motion.speedDidChange, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(motionChanged),
+                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func motionChanged() { update() }
 
     func show(playing: Bool) {
         guard playing != isPlaying else { return }

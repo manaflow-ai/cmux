@@ -72,6 +72,22 @@ import Testing
         #expect(h.loops.isEmpty, "a hidden card keeps its bars moving")
     }
 
+    /// Turning Reduce Motion on mid-track stills the bars at once, and off starts them again.
+    @Test func theBarsFollowAReduceMotionChangeMidTrack() {
+        let h = Harness()
+        defer {
+            h.close()
+            Motion.reduceMotionOverride = nil
+        }
+        Motion.reduceMotionOverride = false
+        h.show(playing: true)
+        #expect(h.loops.count == 3, "the bars do not move while motion is allowed")
+        Motion.reduceMotionOverride = true
+        #expect(h.loops.isEmpty, "turning Reduce Motion on mid-track left the bars moving")
+        Motion.reduceMotionOverride = false
+        #expect(h.loops.count == 3, "turning Reduce Motion off mid-track left the bars still")
+    }
+
     @Test func playOrPauseIsTheFilledControl() throws {
         let h = Harness()
         defer { h.close() }
