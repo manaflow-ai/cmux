@@ -13718,6 +13718,13 @@ struct CMUXCLI {
         if case let .attach(session) = invocation.action {
             params["session"] = session
         }
+        if case let .new(session, workingDirectory) = invocation.action {
+            params["session"] = session
+            if let workingDirectory, !workingDirectory.isEmpty {
+                params["remote_cwd"] = workingDirectory
+            }
+            params["new_window"] = newWindow
+        }
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
         }
@@ -13728,7 +13735,15 @@ struct CMUXCLI {
         }
 
         // Retry interactive authentication once; never spin on auth-required.
-        let method = newWindow ? "remote.tmux.window" : "remote.tmux.mirror"
+        // Reuse one JSON-RPC request id across that retry so the app can distinguish
+        // it from an independent `new` request for the same remote session.
+        let requestID = UUID().uuidString
+        let method: String
+        if case .new = invocation.action {
+            method = "remote.tmux.new"
+        } else {
+            method = newWindow ? "remote.tmux.window" : "remote.tmux.mirror"
+        }
         var didAuthenticate = false
         while true {
             let progress = jsonOutput
@@ -13739,6 +13754,7 @@ struct CMUXCLI {
                 result = try client.sendV2(
                     method: method,
                     params: params,
+                    requestID: requestID,
                     // Attach owns its inactivity deadline; ongoing login output
                     // may legitimately keep it active without a wall-clock cap.
                     waitUntilCompletion: true
@@ -22278,11 +22294,19 @@ struct CMUXCLI {
                   --new-window        Open the mirror in a dedicated new window
                 """
             )
+            let newSessionHelp = String(
+                localized: "cli.help.ssh-tmux.newSession",
+                defaultValue: """
+                Subcommands:
+                  attach <session>                   Mirror one existing named session (fails if missing)
+                  new <session> [-c <remote-cwd>]    Create a named detached session, then mirror it
+                """
+            )
             let helperPathHelp = String(
                 localized: "cli.help.ssh-tmux.helperPath",
                 defaultValue: "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
             )
-            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
+            return "\(help)\n\n\(newSessionHelp)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "local-zellij":

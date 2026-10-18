@@ -36,6 +36,11 @@ final class RemoteTmuxController {
     /// the same endpoint+session reuse the existing connection.
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
+    /// Named sessions created by `remote.tmux.new` whose mirror has not completed yet. The
+    /// request identity is retained so only an authentication retry of the creating request
+    /// can reuse the session; an independent `new` still performs strict creation.
+    private var pendingNewSessionOwners: [String: String] = [:]
+    private var pendingNewSessionCreationTasks: [String: Task<Void, Error>] = [:]
     /// Per-session channels scoping a shared multiplexed view connection down to a
     /// single tmux session, keyed like ``connectionsByHostSession``. Non-private so
     /// the ``RemoteTmuxController+Multiplexer`` extension (a separate file) can wire
@@ -110,6 +115,75 @@ final class RemoteTmuxController {
     /// Discovers the tmux sessions on a host.
     func listSessions(host: RemoteTmuxHost) async throws -> [RemoteTmuxSession] {
         try await transport(for: host).listSessions()
+    }
+
+    /// Creates a detached named session through the host's shared SSH transport.
+    ///
+    /// The command intentionally uses tmux's strict `new-session -s` form, so an
+    /// existing name is reported as a command failure and never becomes an
+    /// implicit attach. The caller can then mirror the exact name through the
+    /// normal ``attachHost(host:windowTarget:activate:workspaceName:sessionName:)`` path.
+    @discardableResult
+    func createRemoteSession(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        workingDirectory: String? = nil,
+        requestID: String
+    ) async throws -> Bool {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        if pendingNewSessionOwners[key] == requestID {
+            return false
+        }
+        let requestKey = "\(key)\u{1}\(requestID)"
+        if let creationTask = pendingNewSessionCreationTasks[requestKey] {
+            try await creationTask.value
+            return false
+        }
+        let remoteTransport = transport(for: host)
+        let creationTask = Task { try await remoteTransport.createSession(
+            named: sessionName,
+            workingDirectory: workingDirectory
+        ) }
+        pendingNewSessionCreationTasks[requestKey] = creationTask
+        do {
+            try await creationTask.value
+            pendingNewSessionCreationTasks.removeValue(forKey: requestKey)
+            pendingNewSessionOwners[key] = requestID
+            return true
+        } catch {
+            pendingNewSessionCreationTasks.removeValue(forKey: requestKey)
+            throw error
+        }
+    }
+
+    /// Validates that a remote-tmux attach can resolve its local window before any remote mutation.
+    func validateAttachWindowTarget(
+        _ windowTarget: RemoteTmuxAttachWindowTarget,
+        host: RemoteTmuxHost
+    ) throws {
+        guard windowTarget != .dedicatedNewWindow else { return }
+        guard let appDelegate = AppDelegate.shared else {
+            throw RemoteTmuxError.unreachable("app not ready")
+        }
+        let existingMirrorWindowID = existingMirrorManager(for: host)
+            .flatMap { appDelegate.windowId(for: $0) }
+        let activeWindowID = appDelegate.tabManager
+            .flatMap { appDelegate.windowId(for: $0) }
+        guard windowTarget.resolve(
+            existingMirrorWindowID: existingMirrorWindowID,
+            activeWindowID: activeWindowID,
+            isLive: { appDelegate.tabManagerFor(windowId: $0) != nil }
+        ) != nil else {
+            throw RemoteTmuxError.unreachable("app not ready")
+        }
+    }
+
+    /// Marks the exact named session as mirrored, allowing a future `new` request to create it
+    /// again only after the previous request completed successfully.
+    func completeRemoteSessionCreation(host: RemoteTmuxHost, sessionName: String, requestID: String) {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        guard pendingNewSessionOwners[key] == requestID else { return }
+        pendingNewSessionOwners.removeValue(forKey: key)
     }
 
     /// Tears down a host's shared SSH master (used when removing a host).
