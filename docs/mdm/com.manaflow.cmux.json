@@ -1960,6 +1960,17 @@
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
     },
+    "notifications.dockBounce" : {
+      "default" : "once",
+      "description" : "When a notification alerts while cmux isn't the active app.",
+      "enum" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "title" : "Bounce Dock Icon",
+      "type" : "string"
+    },
     "notifications.mutedWorkspaces" : {
       "default" : [
 
@@ -2332,6 +2343,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.nowPlaying.enabled" : {
+      "default" : true,
+      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "title" : "Show Now Playing",
+      "type" : "boolean"
     },
     "sidebar.numbering" : {
       "default" : "allItems",
