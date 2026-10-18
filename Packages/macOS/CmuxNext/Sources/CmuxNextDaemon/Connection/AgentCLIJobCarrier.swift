@@ -33,6 +33,23 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
     /// Observes the original terminal on this same transport with a bounded wait.
     /// Cancelling observation never ends the owner's process or creates a new intent.
     public func observe(_ job: AgentCLIJobReceipt) async throws -> AgentCLIJobStatus {
-        throw DaemonError.missingCapabilities(["agent-cli-update-job-v1"])
+        try Task.checkCancellation()
+        guard job.machine == machine, job.session == session else {
+            throw DaemonError.malformedResponse("Job receipt did not match the captured owner and session")
+        }
+        let params: [String: JSONValue] = [
+            "machine": .string(machine.rawValue),
+            "session": .string(session.rawValue),
+            "terminal": .string(job.path.terminalID.rawValue),
+            "timeout_ms": .string("5000"),
+        ]
+        let response = try await transport.request(cmd: "terminal.wait_exit", timeout: .seconds(8)) { id in
+            try ResourceRequestEnvelope(id: id, operation: "terminal.wait_exit", params: params).line()
+        }
+        let status = try ResourceRequestEnvelope.decodeResult(AgentCLIJobStatus.self, from: response.line)
+        guard status.terminalID == job.path.terminalID else {
+            throw DaemonError.malformedResponse("Job status did not match the original terminal")
+        }
+        return status
     }
 }
