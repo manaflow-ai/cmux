@@ -2,14 +2,15 @@
 //! Stable intent is independent of registry versions and mutable argv.
 
 use sha2::{Digest, Sha256};
+use std::fmt;
 
 use super::*;
 
 #[derive(Debug)]
 pub(crate) struct AgentCLIJobBusy;
 
-impl std::fmt::Display for AgentCLIJobBusy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for AgentCLIJobBusy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("an agent update job is being prepared")
     }
 }
