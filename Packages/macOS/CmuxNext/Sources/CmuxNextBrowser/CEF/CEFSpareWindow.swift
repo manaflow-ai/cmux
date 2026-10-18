@@ -85,6 +85,8 @@ final class CEFSpareWindow {
         taken.rekey(Self.spareKey())
         runtime.hosts[taken.key] = taken
         host = taken
+        // The pane that showed it is gone: tabs Chromium places must not follow it here.
+        if runtime.lastShownHost === taken { runtime.lastShownHost = nil }
     }
 
     /// Chromium put `browser` into the spare's window before a tab took it.
