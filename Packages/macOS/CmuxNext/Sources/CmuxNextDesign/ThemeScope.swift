@@ -107,12 +107,12 @@ public final class ThemeScope {
     }
 
     /// Changes which text the glass keeps readable over art (``ArtLegibility``) for every
-    /// window, and repaints every backdrop: the tint floor over art moves with it.
-    public func setArtLegibility(_ legibility: ArtLegibility) {
+    /// window, and repaints every backdrop from the root scope: the tint floor over art moves with it.
+    public static func setArtLegibility(_ legibility: ArtLegibility) {
         ThemeRepaint.batch {
             guard ArtLegibility.current != legibility else { return }
             ArtLegibility.store(legibility)
-            repaintBackdropArt()
+            app.repaintBackdropArt()
         }
     }
 

@@ -27,8 +27,8 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     public var art: BackdropArt? = nil
     /// Optional bundled or system image beneath the material.
     public var selection: BackdropSelection? = nil
-    /// The least tint over art at which every text role stays legible
-    /// (``ThemeTokens/legibleTintOpacity(over:requested:)``); 0 without art. Neither the opacity setting
+    /// The least tint over art at which the text ``ArtLegibility/current`` names stays legible
+    /// (``ThemeTokens/legibleTintOpacity(over:requested:legibility:)``); 0 without art. Neither the opacity setting
     /// nor the tuner thins the glass below it.
     public var legibleTintOpacity: Double = 0
     /// The art's own opacity: 1, or ``windowGlassArtOpacity`` under Window Glass (the Clear Glass
