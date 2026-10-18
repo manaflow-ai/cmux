@@ -9,6 +9,7 @@ import { marqueeKeyframes, marqueeTiming, titleFade, titleFadeMask } from "../..
 import { tunableValue } from "../../../experiments/tunable";
 import { cssBezier } from "../../../ui/cubicBezier";
 import { treeMarqueeEasing, treeNameFadeCurve } from "./treeMotion.experiment";
+import { isAgentMotionOff } from "../../shared/motion";
 
 const ROWS = '[data-type="item"]';
 const CONTENT = '[data-item-section="content"]';

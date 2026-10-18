@@ -25,6 +25,7 @@ import {
   type FolderMotion,
   type TreeArm,
 } from "./treeMotion";
+import { isAgentMotionOff } from "../../shared/motion";
 
 type Snapshot = {
   time: number;
