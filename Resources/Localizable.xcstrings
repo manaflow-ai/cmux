@@ -655906,6 +655906,48 @@
           }
         }
       }
+    },
+    "surfaceResumeApproval.environment.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Environment:" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Umgebung:" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Environnement :" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "البيئة:" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Entorno:" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "環境：" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "环境：" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "환경:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "環境:" } }
+      }
+    },
+    "surfaceResumeApproval.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review Approval…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Genehmigung prüfen…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Examiner l’autorisation…" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "مراجعة الموافقة…" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Revisar autorización…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢視核准…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "查看批准…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "승인 검토…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認内容を確認…" } }
+      }
+    },
+    "surfaceResumeApproval.review.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The resume proposal changed or could not be approved. No replacement command was registered. Review the current proposal and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der vorgeschlagene Wiederaufnahmebefehl wurde geändert oder konnte nicht genehmigt werden. Es wurde kein Ersatzbefehl registriert. Prüfen Sie den aktuellen Vorschlag und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La proposition de reprise a changé ou n’a pas pu être autorisée. Aucune commande de remplacement n’a été enregistrée. Examinez la proposition actuelle et réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تغيّر اقتراح الاستئناف أو تعذّرت الموافقة عليه. لم يُسجَّل أي أمر بديل. راجع الاقتراح الحالي وحاول مرة أخرى." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La propuesta de reanudación cambió o no se pudo autorizar. No se registró ningún comando de reemplazo. Revisa la propuesta actual e inténtalo de nuevo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "繼續執行的提案已變更或無法核准。未登記任何替代命令。請檢視目前的提案後再試一次。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复执行的提案已更改或无法批准。未登记任何替代命令。请查看当前提案后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "재개 제안이 변경되었거나 승인할 수 없습니다. 대체 명령은 등록되지 않았습니다. 현재 제안을 검토한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再開の提案が変更されたか、承認できませんでした。代わりのコマンドは登録されていません。現在の提案を確認して、もう一度お試しください。" } }
+      }
     }
   },
   "version": "1.0"
