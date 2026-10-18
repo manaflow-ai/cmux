@@ -6,9 +6,8 @@
 //!
 //! The bearer token is only ever placed in the `authorization` header (HTTP
 //! calls and the socket upgrade; Workers invocation logs record every header
-//! but Authorization, cx-dgsp); errors never include it. Only a Worker that
-//! does not yet read Authorization on the upgrade (its 401 lacks
-//! `x-cmux-wire-auth`) gets the legacy `bearer.<token>` subprotocol, once.
+//! but Authorization, cx-dgsp); errors never include it. The legacy
+//! `bearer.<token>` subprotocol is retired: a 401 on the upgrade is final.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,16 +35,6 @@ const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// One ranged attachment read (at most 4 MiB).
 const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
-/// A Worker that reads the upgrade's Authorization header names it on every wire 401.
-const WIRE_AUTH_HEADER: &str = "x-cmux-wire-auth";
-
-/// How the upgrade carries the token.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WireAuth {
-    Header,
-    LegacySubprotocol,
-}
-
 pub(crate) struct RemoteCloudBackend {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
@@ -211,28 +200,11 @@ impl CloudBackend for RemoteCloudBackend {
         bearer: &str,
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
-        match self.handshake(url, bearer, client_version, WireAuth::Header) {
-            // A Worker from before cx-dgsp ignores Authorization on the upgrade.
-            Err(Refusal::Legacy) => {
-                self.handshake(url, bearer, client_version, WireAuth::LegacySubprotocol)
-            }
-            other => other,
-        }
-        .map_err(|refusal| match refusal {
-            Refusal::Legacy => ConnectError::Unauthenticated,
-            Refusal::Error(error) => error,
-        })
-        .map(|stream| {
+        self.handshake(url, bearer, client_version).map(|stream| {
             Box::new(RemoteWire { handle: self.runtime.handle().clone(), stream })
                 as Box<dyn CloudWire>
         })
     }
-}
-
-enum Refusal {
-    /// 401 without `x-cmux-wire-auth`: the Worker reads only the legacy subprotocol.
-    Legacy,
-    Error(ConnectError),
 }
 
 impl RemoteCloudBackend {
@@ -241,26 +213,18 @@ impl RemoteCloudBackend {
         url: &str,
         bearer: &str,
         client_version: Option<&str>,
-        auth: WireAuth,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Refusal> {
-        let unavailable = |detail: String| Refusal::Error(ConnectError::Unavailable(detail));
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ConnectError> {
+        let unavailable = ConnectError::Unavailable;
         let mut request = url
             .into_client_request()
             .map_err(|error| unavailable(format!("bad stream URL: {error}")))?;
         let invalid = || unavailable("the token is not a valid header value".into());
-        let protocols = match auth {
-            WireAuth::Header => {
-                let authorization =
-                    HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
-                request.headers_mut().insert("authorization", authorization);
-                HeaderValue::from_static("cmux.wire.v1")
-            }
-            WireAuth::LegacySubprotocol => {
-                HeaderValue::from_str(&format!("cmux.wire.v1, bearer.{bearer}"))
-                    .map_err(|_| invalid())?
-            }
-        };
-        request.headers_mut().insert("sec-websocket-protocol", protocols);
+        let authorization =
+            HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
+        request.headers_mut().insert("authorization", authorization);
+        request
+            .headers_mut()
+            .insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
         if let Some(version) =
             client_version.and_then(|version| HeaderValue::from_str(version).ok())
         {
@@ -272,13 +236,8 @@ impl RemoteCloudBackend {
         match handshake {
             Err(_) => Err(unavailable("handshake timed out".into())),
             Ok(Err(WsError::Http(response))) => Err(match response.status().as_u16() {
-                401 if auth == WireAuth::Header
-                    && !response.headers().contains_key(WIRE_AUTH_HEADER) =>
-                {
-                    Refusal::Legacy
-                }
-                401 => Refusal::Error(ConnectError::Unauthenticated),
-                403 | 404 => Refusal::Error(ConnectError::Forbidden),
+                401 => ConnectError::Unauthenticated,
+                403 | 404 => ConnectError::Forbidden,
                 status => unavailable(format!("handshake answered HTTP {status}")),
             }),
             Ok(Err(error)) => Err(unavailable(error.to_string())),
@@ -548,7 +507,7 @@ mod tests {
         assert!(first.contains("authorization: bearer tok.en"), "{first}");
         assert!(first.contains("sec-websocket-protocol: cmux.wire.v1\r\n"), "{first}");
         assert!(
-            seen.recv_timeout(std::time::Duration::from_millis(500)).is_err(),
+            seen.recv_timeout(Duration::from_millis(500)).is_err(),
             "the client must not retry"
         );
     }
