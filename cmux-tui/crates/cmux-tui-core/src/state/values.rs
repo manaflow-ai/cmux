@@ -82,6 +82,18 @@ fn workspace_extra(
     if let Some(path) = super::agent_folder::agent_folder(connection, workspace_id)? {
         fields.insert("agent_folder".into(), json!(path));
     }
+    // The workspace's key: what its terminals and agent chats carry as
+    // `CMUX_WORKSPACE_ID` (cx-ncc.96: `cmux agents chat` scopes chats by it).
+    let key = connection
+        .query_row(
+            "SELECT workspace_key FROM resource_workspaces WHERE public_id = ?1",
+            [workspace_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(key) = key {
+        fields.insert("key".into(), json!(key));
+    }
     Ok(fields)
 }
 
