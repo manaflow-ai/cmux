@@ -122,6 +122,18 @@ it("keeps current scopes, service identity and team restrictions on withdrawn-im
   expect(allocations()).toHaveLength(1);
 });
 
+it("binds the initial network intent and still requires its scope on recovered retries", async () => {
+  const networkKey = await h.addServiceKey({ id: "cloud-driver", labels: { role: "cloud" }, scopes: ["vm:write", "vm:network"] });
+  const body = { initialNetwork: { publicEgress: true } };
+  expect((await create(body, "retained-image", networkKey)).status).toBe(201);
+  withdraw();
+  const replay = await create(body, "retained-image", networkKey); expect(replay.status).toBe(201);
+  expect(await replay.json()).toMatchObject({ bootImage: IMAGE, initialNetwork: { publicEgress: true } });
+  expect((await create(body)).status).toBe(403);
+  expect((await create({ initialNetwork: { publicEgress: false } }, "retained-image", networkKey)).status).toBe(409);
+  expect(allocations()).toHaveLength(1);
+});
+
 it.each(["provider", "source", "request", "labels"])("refuses changed recovery evidence after withdrawal: %s", async (changed) => {
   h.recordFault.before = 1;
   expect((await create()).status).toBe(503);

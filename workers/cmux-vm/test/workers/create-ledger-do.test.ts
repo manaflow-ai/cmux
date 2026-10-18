@@ -16,6 +16,10 @@ it("keeps the admitted client request binding through native RPC, completion and
   expect(await Effect.runPromise(limits.begin(tenant, "image", "resolved-image", "client-request"))).toMatchObject({ state: "resume", progress: { phase: "done" } });
   // An older Worker can still replay using its original resolved fingerprint.
   expect(await stub.begin("image", "resolved-image", now + 2)).toMatchObject({ state: "resume", progress: { phase: "done" } });
+  await stub.begin("legacy-image", "legacy-resolved", now);
+  expect(await stub.advance("legacy-image", { phase: "done", vmId: "vm_00000000000000000000000002" }, now + 1)).toBe(true);
+  expect(await Effect.runPromise(limits.begin(tenant, "legacy-image", "legacy-resolved", "unproven-client"))).toMatchObject({ state: "resume" });
+  expect((await Effect.runPromise(limits.inspect(tenant, "legacy-image")))?.clientFingerprint).toBeUndefined();
 });
 
 it("persists recovery identity and retained quota through the real SQLite-backed Durable Object RPC", async () => {
