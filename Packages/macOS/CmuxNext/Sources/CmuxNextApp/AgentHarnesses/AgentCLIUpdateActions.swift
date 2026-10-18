@@ -123,7 +123,7 @@ final class AgentCLIUpdateActions {
     }
 
     private func runRegistry(_ invocation: ActionInvocation, scope: DaemonCommandScope, registry: ActionRegistry) async throws -> JSONValue {
-        let work = DaemonCommandScope.$current.withValue(scope) {
+        let work = DaemonCommandScope.$current.withValueInTask(scope) {
             registry.capturingWork { registry.perform("agent.harness.updateAll", invocation: invocation) }
         }
         guard !work.isEmpty else { throw PageError.unavailable(AgentHarnessStrings.unsupported) }
