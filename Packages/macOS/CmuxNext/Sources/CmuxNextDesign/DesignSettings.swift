@@ -68,6 +68,10 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
+    /// `appearance.backgroundVideo`, `appearance.backgroundVideoOnBattery` and
+    /// `appearance.backgroundAvoidPanes`: when a video background plays, and whether a painting
+    /// keeps its subject clear of the panes (backgrounds plan phase 5).
+    public var backdropPlayback = BackdropPlaybackSettings()
     /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
     /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
     public var classicHome = false

@@ -87,6 +87,29 @@ import Testing
         #expect(h.video.url == nil && h.video.isHidden && h.video.playerLayer.player == nil, "a still wallpaper keeps the video")
     }
 
+    /// `appearance.backgroundVideo` and `appearance.backgroundVideoOnBattery` (backgrounds plan
+    /// phase 5): Still Picture never plays and gives its decoder back; Only While cmux Is Active
+    /// plays only then; Pause on battery pauses on battery and plays on power.
+    @Test func thePlaybackSettingsHoldTheVideo() async throws {
+        let clip = try await Self.clip()
+        let players = BackdropVideoPlayers()
+        let h = make(.file(path: clip.path), players: players)
+        defer { h.close() }
+        let url = try #require(h.video.url)
+        #expect(h.video.isPlaying)
+        h.video.playbackOverride = BackdropPlaybackSettings(video: .still)
+        #expect(!h.video.isPlaying && !h.video.canBeSeen, "a still picture plays or keeps its decoder")
+        players.releaseIfUnseen(url)
+        #expect(players.isReleased(url))
+        h.video.playbackOverride = BackdropPlaybackSettings(video: .whenActive)
+        #expect(h.video.isPlaying == NSApp.isActive, "Only While cmux Is Active does not follow the app")
+        h.video.playbackOverride = BackdropPlaybackSettings(onBattery: .pause)
+        h.video.batteryOverride = true
+        #expect(!h.video.isPlaying, "Pause on battery plays on battery")
+        h.video.batteryOverride = false
+        #expect(h.video.isPlaying, "Pause on battery stays paused on power")
+    }
+
     @Test func windowsShowingOneVideoShareOneDecoderAndAClosedWindowLetsItGo() async throws {
         let clip = try await Self.clip()
         let players = BackdropVideoPlayers()

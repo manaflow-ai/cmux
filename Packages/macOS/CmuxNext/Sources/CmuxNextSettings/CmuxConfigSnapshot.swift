@@ -118,6 +118,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var appearanceTuning = AppearanceTuningSetting.fallback
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
+    /// `appearance.backgroundVideo`, `.backgroundVideoOnBattery`, `.backgroundAvoidPanes`.
+    public var backdropPlayback = BackdropPlaybackSettings()
     /// `status.*`.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
@@ -272,6 +274,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backdropPlayback = BackdropPlaybackConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
         CmuxConfigSnapshot.parseBrowser(root, into: &snapshot)
