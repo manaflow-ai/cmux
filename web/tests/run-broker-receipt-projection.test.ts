@@ -11,6 +11,7 @@ const job = {
   effectKey: "effect-1",
   sourceSha: "source-1",
   scopeRevision: "scope-1",
+  leaseGeneration: 1,
 } as AgentBrokerJob;
 
 function receipt(sequence: number, state: AgentBrokerReceipt["state"] = "leased", result: Record<string, unknown> | null = { ok: true }): AgentBrokerReceipt {
@@ -47,6 +48,18 @@ describe("broker receipt projection", () => {
   test("rejects credential-like receipt fields before ingestion", async () => {
     const seen: Array<Record<string, unknown>> = [];
     await expect(projectBrokerReceipts(input, dependencies([receipt(1, "leased", { providerLeaseId: "secret-handle" })], seen))).rejects.toBeInstanceOf(BrokerReceiptProjectionError);
+    expect(seen).toHaveLength(0);
+  });
+
+  test("rejects stale or future broker lease generations", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const future = { ...receipt(1), leaseGeneration: 2 };
+    await expect(projectBrokerReceipts(input, dependencies([future], seen))).rejects.toMatchObject({ code: "sequence_conflict" });
+  });
+
+  test("rejects unsafe receipt errors before ingestion", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    await expect(projectBrokerReceipts(input, dependencies([{ ...receipt(1), error: "authorization=Bearer super-secret" }], seen))).rejects.toMatchObject({ code: "unsafe_receipt" });
     expect(seen).toHaveLength(0);
   });
 });

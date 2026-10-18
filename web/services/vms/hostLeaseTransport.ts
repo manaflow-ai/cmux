@@ -117,6 +117,47 @@ export class VmHostLeaseError extends Error {
   }
 }
 
+const FORBIDDEN_METADATA_KEY = /(?:token|secret|password|authorization|credential|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|private.?key)/i;
+const FORBIDDEN_METADATA_VALUE = /(?:\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]+\b|\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}\b|(?:token|secret|password|authorization|credential|api[_-]?key|access[_-]?token|refresh[_-]?token)\s*[:=]\s*[^\s,;]+)/i;
+const MAX_METADATA_DEPTH = 5;
+const MAX_METADATA_STRING = 2_048;
+
+function safeMetadataValue(value: unknown, depth: number): unknown {
+  if (typeof value === "string") {
+    if (value.length > MAX_METADATA_STRING || /[\u0000-\u001f\u007f]/.test(value) || FORBIDDEN_METADATA_VALUE.test(value)) {
+      throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata contains an unsafe string");
+    }
+    return value;
+  }
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata contains an invalid number");
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 256) throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata array is too large");
+    return value.map((entry) => safeMetadataValue(entry, depth + 1));
+  }
+  if (typeof value === "object") return safeMetadata(value, depth + 1);
+  throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata is not safe JSON data");
+}
+
+function safeMetadata(value: unknown, depth = 0): Readonly<Record<string, unknown>> {
+  if (depth > MAX_METADATA_DEPTH || !value || typeof value !== "object" || Array.isArray(value)) {
+    throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata is not safe JSON data");
+  }
+  const output: Record<string, unknown> = {};
+  const entries = Object.entries(value);
+  if (entries.length > 256) throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata has too many fields");
+  for (const [key, child] of entries) {
+    if (!key || key.length > 128 || FORBIDDEN_METADATA_KEY.test(key)) {
+      throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt metadata contains a forbidden field");
+    }
+    output[key] = safeMetadataValue(child, depth);
+  }
+  return output;
+}
+
 function validateToken(label: string, value: string): string {
   if (typeof value !== "string" || value.length < 1 || value.length > 256 || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new VmHostLeaseError("invalid_input", `${label} must be 1 to 256 characters without control characters`);
@@ -176,7 +217,7 @@ function normalizeProviderResult(
     throw new VmHostLeaseError("receipt_mismatch", "provider lease receipt returned an invalid expiry", { expiresAtMs: result.expiresAtMs });
   }
   if (result.providerLeaseId !== undefined && result.providerLeaseId !== null) validateToken("providerLeaseId", result.providerLeaseId);
-  return result;
+  return { ...result, metadata: safeMetadata(result.metadata ?? {}) };
 }
 
 function recordFrom(
@@ -469,7 +510,7 @@ async function requestHostLeaseGateway(
   } catch (cause) {
     throw new VmHostLeaseError("receipt_mismatch", "host lease gateway returned invalid JSON", cause);
   }
-  if (!response.ok) throw new VmHostLeaseError("provider_mismatch", `host lease gateway rejected ${input.operation}`, { status: response.status, payload });
+  if (!response.ok) throw new VmHostLeaseError("provider_mismatch", `host lease gateway rejected ${input.operation}`, { status: response.status });
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new VmHostLeaseError("receipt_mismatch", "host lease gateway returned a non-object receipt");
   const value = payload as Record<string, unknown>;
   return {

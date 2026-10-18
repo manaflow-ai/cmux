@@ -9,6 +9,7 @@ import { ingestRunEvent } from "./repository";
 import type { RunEventKind } from "./model";
 
 const FORBIDDEN_KEY = /(?:token|secret|password|authorization|credential|cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|provider(?:lease|vm|workspace|terminal)id|leaseid)/i;
+const FORBIDDEN_VALUE = /(?:\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]+\b|\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}\b|(?:token|secret|password|authorization|credential|api[_-]?key|access[_-]?token|refresh[_-]?token)\s*[:=]\s*[^\s,;]+)/i;
 const MAX_RESULT_DEPTH = 6;
 const MAX_RESULT_STRING = 8_192;
 
@@ -58,6 +59,14 @@ function requireSafeText(value: string, label: string): string {
   return value;
 }
 
+function requireSafeReceiptText(value: string | null, label: string, maxLength = MAX_RESULT_STRING): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length > maxLength || /[\u0000-\u001f\u007f]/.test(value) || FORBIDDEN_VALUE.test(value)) {
+    throw new BrokerReceiptProjectionError("unsafe_receipt", `broker receipt ${label} is unsafe`);
+  }
+  return value;
+}
+
 function assertCorrelation(job: AgentBrokerJob, input: BrokerReceiptProjectionInput): void {
   const pairs: readonly [string, string, string][] = [
     ["job id", job.id, input.jobId],
@@ -71,6 +80,10 @@ function assertCorrelation(job: AgentBrokerJob, input: BrokerReceiptProjectionIn
   for (const [label, actual, expected] of pairs) {
     if (actual !== expected) throw new BrokerReceiptProjectionError("correlation_mismatch", `broker ${label} does not match the run projection`);
   }
+}
+
+function optionalReceiptField(receipt: AgentBrokerReceipt, field: string): unknown {
+  return (receipt as unknown as Record<string, unknown>)[field];
 }
 
 function safeValue(value: unknown, depth = 0): unknown {
@@ -112,9 +125,9 @@ function eventPayload(receipt: AgentBrokerReceipt): Record<string, unknown> {
       attempt: receipt.attempt,
       leaseGeneration: receipt.leaseGeneration,
       hostClass: receipt.hostClass,
-      effectKey: receipt.effectKey,
+      effectKey: requireSafeReceiptText(receipt.effectKey, "effectKey", 256),
       result: safeResult(receipt.result),
-      error: receipt.error,
+      error: requireSafeReceiptText(receipt.error, "error"),
     },
   };
 }
@@ -132,6 +145,7 @@ export async function projectBrokerReceipts(
   assertCorrelation(job, input);
   const page = await dependencies.listJobReceipts({ jobId: input.jobId, tenantId: input.tenantId, afterSequence: input.afterSequence, limit: input.limit });
   let previous = input.afterSequence ?? 0;
+  let previousLeaseGeneration = 0;
   const events: Awaited<ReturnType<typeof ingestRunEvent>>[] = [];
   for (const receipt of page.receipts) {
     if (receipt.jobId !== input.jobId || receipt.owner !== input.owner || receipt.hostClass !== input.hostClass || receipt.effectKey !== input.effectKey) {
@@ -140,7 +154,17 @@ export async function projectBrokerReceipts(
     if (!Number.isSafeInteger(receipt.sequence) || receipt.sequence <= previous) {
       throw new BrokerReceiptProjectionError("sequence_conflict", "broker receipt sequence is stale or reordered");
     }
+    if (!Number.isSafeInteger(receipt.leaseGeneration) || receipt.leaseGeneration < previousLeaseGeneration || receipt.leaseGeneration > job.leaseGeneration) {
+      throw new BrokerReceiptProjectionError("sequence_conflict", "broker receipt lease generation is stale or from the future");
+    }
+    for (const [field, expected] of [["tenantId", input.tenantId], ["sourceSha", input.sourceSha], ["scopeRevision", input.scopeRevision]] as const) {
+      const actual = optionalReceiptField(receipt, field);
+      if (actual !== undefined && actual !== expected) {
+        throw new BrokerReceiptProjectionError("correlation_mismatch", `broker receipt ${field} does not match the run projection`);
+      }
+    }
     previous = receipt.sequence;
+    previousLeaseGeneration = receipt.leaseGeneration;
     const event = await dependencies.ingestRunEvent({
       runId: input.runId,
       attemptId: input.attemptId,

@@ -75,6 +75,15 @@ export type AttemptPromotionRuntimePort = {
   readonly promote: (input: PromotionRuntimeInput) => Promise<PromotionRuntimeResult>;
 };
 
+/**
+ * Evidence verification is a trusted server-side operation.  It must verify
+ * the artifact bytes/manifest or an equivalent provider receipt; booleans in a
+ * run result or artifact metadata are deliberately not accepted as proof.
+ */
+export type AttemptPromotionEvidenceVerifier = {
+  readonly verify: (input: { readonly source: AttemptPromotionSource }) => Promise<boolean>;
+};
+
 export type PromotionAttachView = {
   readonly transport: string;
   readonly capability: "terminal.attach";
@@ -142,6 +151,7 @@ export type AttemptPromotionDependencies = {
   readonly source: AttemptPromotionSourcePort;
   readonly store: AttemptPromotionStorePort;
   readonly runtime: AttemptPromotionRuntimePort;
+  readonly evidence?: AttemptPromotionEvidenceVerifier;
 };
 
 export class PromotionNotFoundError extends Error {}
@@ -167,30 +177,6 @@ function stableSessionId(providerTerminalId: string): string {
   return `session_${digest}`;
 }
 
-function metadataVerified(metadata: Record<string, unknown> | null | undefined): boolean {
-  if (!metadata) return false;
-  if (metadata.verified === true || metadata.evidenceVerified === true) return true;
-  return metadata.verification === "verified" || metadata.verificationState === "verified";
-}
-
-function artifactVerified(artifact: PromotionArtifact): boolean {
-  return /^sha256:[0-9a-f]{64}$/i.test(artifact.digest)
-    && (artifact.verified === true || metadataVerified(artifact.metadata));
-}
-
-/** Evidence may be a verifier's explicit result bit or a fully verified manifest. */
-export function promotionEvidenceReady(source: Pick<AttemptPromotionSource, "result" | "artifacts">): boolean {
-  const result = source.result;
-  if (result?.evidenceReady === true || result?.evidenceVerified === true || result?.verificationState === "verified") return true;
-  const evidence = result?.evidence;
-  if (evidence && typeof evidence === "object" && !Array.isArray(evidence)) {
-    const verified = (evidence as Record<string, unknown>).verified;
-    const state = (evidence as Record<string, unknown>).state;
-    if (verified === true || state === "verified") return true;
-  }
-  return source.artifacts.length > 0 && source.artifacts.every(artifactVerified);
-}
-
 function terminalRetained(source: AttemptPromotionSource, now = Date.now()): boolean {
   const retainedUntil = iso(source.terminalRetainUntil);
   return !!retainedUntil && Date.parse(retainedUntil) > now;
@@ -205,9 +191,6 @@ function assertPromotable(source: AttemptPromotionSource, now = Date.now()): {
   if (source.status !== "succeeded") {
     throw new PromotionNotReadyError("the winning attempt has not completed successfully");
   }
-  if (!promotionEvidenceReady(source)) {
-    throw new PromotionNotReadyError("verified run evidence is required before promotion");
-  }
   if (!terminalRetained(source, now)) {
     throw new PromotionProviderHandlesMissingError("the completed terminal is no longer retained");
   }
@@ -220,6 +203,12 @@ function assertPromotable(source: AttemptPromotionSource, now = Date.now()): {
     providerTerminalId: source.providerTerminalId,
     sessionId: stableSessionId(source.providerTerminalId),
   };
+}
+
+function assertEvidenceVerified(evidenceVerified: boolean): void {
+  if (!evidenceVerified) {
+    throw new PromotionNotReadyError("verified run evidence is required before promotion");
+  }
 }
 
 function viewFromRuntime(input: {
@@ -320,6 +309,10 @@ export async function promoteRunAttempt(input: {
   if (!source || source.userId !== input.userId || source.runId !== input.runId || source.attemptId !== input.attemptId) {
     throw new PromotionNotFoundError("run attempt not found");
   }
+  const evidenceVerified = input.dependencies.evidence
+    ? await input.dependencies.evidence.verify({ source })
+    : false;
+  assertEvidenceVerified(evidenceVerified);
   const handles = assertPromotable(source, input.now ?? Date.now());
   const reserved = await input.dependencies.store.reserve({ userId: input.userId, runId: input.runId, attemptId: input.attemptId, requestKey });
   const outcome = reservationResult({ runId: input.runId, attemptId: input.attemptId, reserved });

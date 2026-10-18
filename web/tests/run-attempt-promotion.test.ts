@@ -88,6 +88,7 @@ function makeDependencies(
   const dependencies: AttemptPromotionDependencies = {
     source: { find: async ({ userId, runId, attemptId }) => userId === attempt.userId && runId === attempt.runId && attemptId === attempt.attemptId ? attempt : null },
     store: new MemoryPromotionStore(),
+    evidence: { verify: async ({ source }) => source.artifacts.length > 0 },
     runtime: {
       promote: async (input) => {
         calls.push(input);
@@ -144,6 +145,12 @@ describe("run attempt promotion service", () => {
   test("rejects a completed attempt whose provider handles are incomplete", async () => {
     const { dependencies } = makeDependencies(source({ providerTerminalId: null }));
     await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "missing-handles", dependencies })).rejects.toBeInstanceOf(PromotionProviderHandlesMissingError);
+  });
+
+  test("does not treat a run result boolean as server-side evidence", async () => {
+    const { dependencies } = makeDependencies(source({ result: { evidenceVerified: true } }));
+    const { evidence: _evidence, ...withoutEvidence } = dependencies;
+    await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "self-asserted", dependencies: withoutEvidence })).rejects.toBeInstanceOf(PromotionNotReadyError);
   });
 });
 

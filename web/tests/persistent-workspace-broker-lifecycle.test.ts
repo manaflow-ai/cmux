@@ -182,6 +182,26 @@ describe("persistent workspace broker and host lease wiring", () => {
     expect(fixture.broker.requests).toHaveLength(0);
   });
 
+  test("rejects credential-bearing provider metadata", async () => {
+    const leaseClient = {
+      acquire: async () => ({ metadata: { accessToken: "secret-value" } }),
+      renew: async () => ({}),
+      release: async () => ({}),
+    };
+    const transport = new VmHostLeaseTransport(
+      new MemoryVmHostLeaseStore(),
+      new Map([["freestyle", createFreestyleHostLeaseAdapter(leaseClient)]]),
+    );
+    await expect(transport.acquire({
+      provider: "freestyle",
+      leaseId: "lease-1",
+      hostId: "host-1",
+      ownerId: "owner-1",
+      generation: 1,
+      effectKey: "effect-1",
+    })).rejects.toMatchObject({ code: "receipt_mismatch" });
+  });
+
   test("promotion adopts retained handles through the same broker and lease path", async () => {
     const fixture = providerFixture();
     const service = createPersistentWorkspaceService({ store: storeFixture(), provider: fixture.provider });
