@@ -22,6 +22,16 @@ installGalleryClock();
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);
 const root = document.documentElement;
+const stageRoot = document.getElementById("root");
+
+// A frame can be opened directly while the shell is still loading unrelated gallery modules.
+// Keep that wait explicit so a slow sibling never looks like a broken white page.
+const requestedId = params.get("entry");
+if (requestedId && stageRoot) {
+  stageRoot.textContent = `Loading ${requestedId}…`;
+  stageRoot.style.cssText =
+    "display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box;font:13px system-ui;color:#888";
+}
 
 function fail(message: string): never {
   root.dataset.galleryReady = "error";
@@ -35,18 +45,22 @@ const byName = new Map(themes.map((theme) => [theme.name, theme]));
 const themeNamed = (name: string, fallback: string): GhosttyTheme =>
   byName.get(name) ?? byName.get(fallback) ?? fail(`No Ghostty theme named ${JSON.stringify(name)}`);
 
-// Every entry file loads on its own (entryStore.ts): a broken sibling file does not stop this stage.
-const settled = await entryStore.settled();
-const entryState = settled.find((state) => state.entry?.id === params.get("entry"));
+// A frame renders one requested entry. Resolve it as soon as that entry loads; a broken or slow
+// sibling must never leave a valid stage blank while the shell is still auditing the full registry.
+// A missing entry still falls back to the full settled list so the error can name the bad sources.
+const match = requestedId ? await entryStore.find(requestedId) : undefined;
+const settled = match?.entry ? undefined : await entryStore.settled();
+const entryState = match?.state ?? settled?.find((state) => state.entry?.id === requestedId);
 // The live dev server: a save of this stage's entry file (or of any file, while it does not load)
 // reloads this stage alone; compile errors in stage code show inside the stage (liveErrors.ts).
 watchStageErrors(entryState?.path);
 const entry: GalleryEntry =
-  readyEntries(settled).find((candidate) => candidate.id === params.get("entry")) ??
+  match?.entry ??
+  (settled ? readyEntries(settled).find((candidate) => candidate.id === requestedId) : undefined) ??
   fail(
     [
-      `No gallery entry ${JSON.stringify(params.get("entry"))}.`,
-      ...settled
+      `No gallery entry ${JSON.stringify(requestedId)}.`,
+      ...(settled ?? [])
         .filter((state) => state.status === "error")
         .map((state) => `\n${state.path} does not load:\n${errorText(state.error)}`),
     ].join("\n"),
@@ -121,6 +135,11 @@ const context: StageContext = {
   appearance: diffAppearance(pair, { family: env.fontFamily || undefined, size: env.fontSize || undefined }),
   log: (method, params) => log.push({ method, params }),
 };
+
+if (stageRoot) {
+  stageRoot.textContent = "";
+  stageRoot.removeAttribute("style");
+}
 
 function markReady(): void {
   if (window.cmuxGalleryPlayReport) root.dataset.galleryPlay = window.cmuxGalleryPlayReport.status;
