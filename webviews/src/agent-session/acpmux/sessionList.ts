@@ -161,11 +161,12 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
 function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const raw = value as Record<string, unknown>;
+  const sequence = raw.sequence;
   if (typeof raw.id !== "string" || !raw.id) return undefined;
-  if (!Number.isSafeInteger(raw.sequence) || raw.sequence < 1) return undefined;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) return undefined;
   if (typeof raw.state !== "string" || !raw.state) return undefined;
   if (typeof raw.source !== "string" || !raw.source) return undefined;
-  return { id: raw.id, sequence: raw.sequence, state: raw.state, source: raw.source };
+  return { id: raw.id, sequence, state: raw.state, source: raw.source };
 }
 
 function pullRequest(value: any): SessionPullRequest | undefined {
