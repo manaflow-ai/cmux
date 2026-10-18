@@ -667,7 +667,8 @@ export function ModelPicker(props: ModelPickerProps) {
         className="acpmux-picker-button"
         data-menu={modelText}
         aria-label={modelText}
-        title={usage ? `${chipLabel} · ${usage}` : undefined}
+        /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+        title={usage ? `${chipLabel} · ${usage}` : chipLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -686,7 +687,7 @@ export function ModelPicker(props: ModelPickerProps) {
         {...press}
       >
         <AgentMark agent={chipHarness} size={15} />
-        <span className="acpmux-model-name">{chipLabel}</span>
+        <span className="acpmux-model-name">{switchingTo ? chipLabel : withoutVendor(chipLabel, chipHarness)}</span>
         <ChevronIcon />
       </PickerButton>
       {open && (
@@ -990,4 +991,14 @@ export function ModelPicker(props: ModelPickerProps) {
       )}
     </span>
   );
+}
+
+/** A model name as the chip shows it, without the vendor its mark already draws ("Claude Opus 5.5"
+ * under Claude's mark reads "Opus 5.5"; Leo 2026-10-13: the footer "tells too much"). Only Claude's
+ * names lead with a vendor word that says nothing else ("Gemini 2.5 Pro" would read as a bare
+ * number), and another harness's mark (a gateway's) does not say the vendor. The title keeps the
+ * full name. */
+export function withoutVendor(name: string, mark?: string): string {
+  if (!mark?.toLowerCase().startsWith("claude")) return name;
+  return name.replace(/^Claude\s+(?=\S)/, "");
 }
