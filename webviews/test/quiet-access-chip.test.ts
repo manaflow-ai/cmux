@@ -79,6 +79,9 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
     if (!(await page.locator("[role=menuitemradio]").count())) await page.locator(trigger).click();
     await page.locator('[role=menuitemradio]:has-text("Full access")').first().click();
     await page.locator(".acpmux-access.acpmux-unrestricted").waitFor();
+    // The menu hands focus back to its chip after its close fade; blur after that, so the chip shows
+    // its resting color, not its focus step.
+    await page.waitForTimeout(500);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(2, 2);
     await page.waitForTimeout(400);
