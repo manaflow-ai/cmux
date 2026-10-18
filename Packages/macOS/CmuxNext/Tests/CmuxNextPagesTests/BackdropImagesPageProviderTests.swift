@@ -51,4 +51,19 @@ import Testing
         #expect(try await call("remove", ["id": .string(own)])["bytes"]?.doubleValue == 0)
         await #expect(throws: PageError.self) { try await call("nothing", [:]) }
     }
+
+    @Test func adjustPlacesThePictureOrSaysThereIsNone() async throws {
+        var shows = false, asked = 0
+        let provider = BackdropImagesPageProvider(images: BackdropUserImages(folder: FileManager.default.temporaryDirectory),
+                                                  use: { _ in "" }, adjust: { asked += 1; return shows })
+        do {
+            _ = try await provider.call(BackdropImagesPageProvider.prefix + "adjust", params: [:], context: Self.context)
+            Issue.record("adjust with no picture did not refuse")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.backdrop.not_adjustable")
+        }
+        shows = true
+        _ = try await provider.call(BackdropImagesPageProvider.prefix + "adjust", params: [:], context: Self.context)
+        #expect(asked == 2)
+    }
 }

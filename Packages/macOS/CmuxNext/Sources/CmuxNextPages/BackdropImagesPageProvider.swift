@@ -11,6 +11,8 @@ public import Foundation
 ///   the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
 /// - `cmux.settings.backdrop.image.reveal {id?}`: shows the image, or the folder, in Finder.
 /// - `cmux.settings.backdrop.image.usage`: `{bytes}` the folder's own images take.
+/// - `cmux.settings.backdrop.image.adjust`: places the picture a window shows by hand
+///   (``BackdropAdjustOverlay``); `cmux.settings.backdrop.not_adjustable` when none shows one.
 ///
 /// Errors carry ``BackdropUserImages/ImportError`` codes, which the page words.
 @MainActor
@@ -22,13 +24,16 @@ public final class BackdropImagesPageProvider: PageProvider {
     private let use: @MainActor (URL) async throws -> String
     private let reveal: @MainActor ([URL]) -> Void
     private let inUse: @MainActor () -> BackdropSelection?
+    private let adjust: @MainActor () -> Bool
 
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
     /// `inUse` is the background the app shows now, which remove refuses.
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
                 inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
-                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
+                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) },
+                adjust: @escaping @MainActor () -> Bool = BackdropImagesPageProvider.adjustFrontWindow) {
+        self.adjust = adjust
         self.images = images
         self.use = use
         self.inUse = inUse
@@ -68,6 +73,11 @@ public final class BackdropImagesPageProvider: PageProvider {
             return .object([:])
         case Self.prefix + "usage":
             return try await usage()
+        case Self.prefix + "adjust":
+            guard adjust() else {
+                throw PageError(code: "cmux.settings.backdrop.not_adjustable", message: "no window shows a picture to place")
+            }
+            return .object([:])
         default:
             throw PageError.unknownOp(op)
         }
@@ -85,6 +95,14 @@ public final class BackdropImagesPageProvider: PageProvider {
         let images = images
         let bytes = await Task.detached { images.usage() }.value
         return ["bytes": .number(Double(bytes))]
+    }
+
+    /// Places the picture in the frontmost window that shows one, and brings it forward.
+    public static func adjustFrontWindow() -> Bool {
+        guard let window = NSApp.orderedWindows.first(where: { $0.isVisible && WindowMaterialView.backdrop(of: $0)?.adjustable != nil }),
+              BackdropAdjustOverlay.begin(in: window) else { return false }
+        window.makeKeyAndOrderFront(nil)
+        return true
     }
 
     private static func error(_ refused: BackdropUserImages.ImportError) -> PageError {

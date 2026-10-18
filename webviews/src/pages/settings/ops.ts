@@ -330,6 +330,9 @@ export type SettingsOps = {
   "cmux.settings.backdrop.image.remove": [{ id: string }, { bytes: number }];
   /** Native: show one of the person's images, or the backgrounds folder, in Finder. */
   "cmux.settings.backdrop.image.reveal": [{ id?: string }, Record<string, never>];
+  /** Native: place the picture a window shows by hand (drag, zoom); refused with
+   * cmux.settings.backdrop.not_adjustable when no window shows a still picture. */
+  "cmux.settings.backdrop.image.adjust": [Record<string, never>, Record<string, never>];
   /** Native: the bytes the person's own background images take. */
   "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
