@@ -48,6 +48,11 @@ final class ThemeCoordinator {
     var dayObservers: [any NSObjectProtocol] = []
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
+    /// Counts `apply` calls; `forcedRevision` is the last one with `forceSurfaces`.
+    private var revision = 0, forcedRevision = 0
+    /// The `revision` each live terminal last took its theme at, and each content was last shown at.
+    private let caughtUp = NSMapTable<TerminalEntry, NSNumber>.weakToStrongObjects()
+    private let shownAt = NSMapTable<WorkspaceContentController, NSNumber>.weakToStrongObjects()
 
     init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
          workspaceOpacities: WorkspaceBackgroundStore? = nil) {
@@ -173,17 +178,34 @@ final class ThemeCoordinator {
         setTheme(of: controller.themeScope, to: roomTheme(controller.state.profileID))
     }
 
-    /// A workspace content was created or shown in `controller`'s window.
+    /// A workspace content was created or shown in `controller`'s window: it and the terminals in
+    /// its panes take the themes of every `apply` they missed while parked.
     func contentDidShow(_ content: WorkspaceContentController) {
+        // A terminal not caught up yet came after the content's last show, current as of it.
+        let since = shownAt.object(forKey: content)?.intValue ?? -1
+        shownAt.setObject(NSNumber(value: revision), forKey: content)
         setTheme(of: content.themeScope, to: workspaceTheme(content.workspace.id))
         applyWorkspaceBackground(content)
+        for pane in content.panes.values {
+            for id in pane.orderedIDs {
+                guard let entry = services.cache.existingTerminal(id.rawValue) else { continue }
+                let seen = caughtUp.object(forKey: entry)?.intValue ?? since
+                if seen < revision { refresh(entry, force: seen < forcedRevision) }
+            }
+        }
     }
 
     /// A terminal surface was created for a tab.
     func terminalDidMount(_ entry: TerminalEntry) {
+        refresh(entry, force: false)
+    }
+
+    /// `entry` takes its theme as of this `revision`; `force` re-applies its surface config.
+    private func refresh(_ entry: TerminalEntry, force: Bool) {
+        caughtUp.setObject(NSNumber(value: revision), forKey: entry)
         entry.themeBinding.coordinator = self
         setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
-        entry.themeBinding.syncSurface(force: false)
+        entry.themeBinding.syncSurface(force: force)
     }
 
     // MARK: Sources
@@ -222,17 +244,16 @@ final class ThemeCoordinator {
 
     // MARK: Apply
 
-    /// Re-reads every theme. `forceSurfaces` re-applies surface configs
-    /// even when unchanged (after a Ghostty config reload reset them).
+    /// Re-reads every theme of what the windows show (I5): each room and each shown workspace with
+    /// the terminals in its panes. A parked workspace and its terminals catch up when they show
+    /// (`contentDidShow`). `forceSurfaces` re-applies surface configs even when unchanged (after a
+    /// Ghostty config reload reset them).
     func apply(forceSurfaces: Bool = false) {
+        revision += 1
+        if forceSurfaces { forcedRevision = revision }
         for controller in services.windows.controllers {
             windowDidChange(controller)
-            for content in controller.mountedContents { contentDidShow(content) }
-        }
-        for entry in services.cache.terminals.values.map({ $0 }) {
-            entry.themeBinding.coordinator = self
-            setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
-            if forceSurfaces { entry.themeBinding.syncSurface(force: true) }
+            if let content = controller.content { contentDidShow(content) }
         }
     }
 
