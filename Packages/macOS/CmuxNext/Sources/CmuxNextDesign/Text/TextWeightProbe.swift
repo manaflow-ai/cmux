@@ -19,6 +19,8 @@ public struct TextWeightProbe {
         ("13r", .systemFont(ofSize: 13)), ("12m", .systemFont(ofSize: 12, weight: .medium)), ("11r", .systemFont(ofSize: 11)),
     ]
     private static let rowHeight: CGFloat = 22
+    /// Space around the grid: a window's edge draws a hairline that is no row's ink.
+    private static let margin: CGFloat = 16
 
     /// `<ink>.<font>.label` and `<ink>.<font>.layer`: coverage over stock; `scale`: the backing scale.
     public func measure() async -> [String: Double] {
@@ -34,7 +36,8 @@ public struct TextWeightProbe {
             }
         }
         let width: CGFloat = 340, lines = rows.count / 3
-        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: width * 3, height: Self.rowHeight * CGFloat(lines)),
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: width * 3 + Self.margin * 2,
+                                                  height: Self.rowHeight * CGFloat(lines) + Self.margin * 2),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = appearance
@@ -46,7 +49,8 @@ public struct TextWeightProbe {
         let scale = window.backingScaleFactor
         for (index, row) in rows.enumerated() {
             let font = Self.fonts[(index / 3) % Self.fonts.count].1
-            let frame = NSRect(x: width * CGFloat(index % 3) + 12, y: root.bounds.height - Self.rowHeight * CGFloat(index / 3 + 1) + 2,
+            let frame = NSRect(x: Self.margin + width * CGFloat(index % 3) + 12,
+                               y: root.bounds.height - Self.margin - Self.rowHeight * CGFloat(index / 3 + 1) + 2,
                                width: width - 24, height: 18)
             switch index % 3 {
             case 0, 1:
@@ -129,8 +133,10 @@ public struct TextWeightProbe {
                               ground.2 + (ink.2 - ground.2) * ink.3) * 255
         guard abs(shown - background) > 1 else { return 0 }
         // Row 0 of the bitmap is the top of the window.
-        let top = Int((CGFloat(cell.row) * rowHeight * scale).rounded()), bottom = min(height, Int((CGFloat(cell.row + 1) * rowHeight * scale).rounded()))
-        let left = Int((CGFloat(cell.column) * cellWidth * scale).rounded()), right = min(width, Int((CGFloat(cell.column + 1) * cellWidth * scale).rounded()))
+        let top = Int(((margin + CGFloat(cell.row) * rowHeight) * scale).rounded())
+        let bottom = min(height, Int(((margin + CGFloat(cell.row + 1) * rowHeight) * scale).rounded()))
+        let left = Int(((margin + CGFloat(cell.column) * cellWidth) * scale).rounded())
+        let right = min(width, Int(((margin + CGFloat(cell.column + 1) * cellWidth) * scale).rounded()))
         var sum = 0.0
         for y in top..<bottom {
             for x in left..<right {
