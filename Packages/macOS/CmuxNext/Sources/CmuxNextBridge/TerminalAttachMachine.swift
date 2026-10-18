@@ -165,6 +165,12 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         reportedSize = pending.size
         claimed = false
         var effects = announce(.connected)
+        // Hidden while it attached (a background tab, a re-attach while parked): the size its attach
+        // reported does not count toward the grid.
+        if !visible {
+            hiddenOn = link
+            effects.append(.hide(link))
+        }
         effects += syncGeometry(link)
         effects += queuedInput.map { .send(link, $0) }
         queuedInput = []
@@ -276,7 +282,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         // replay. Input typed meanwhile queues until that replay.
         let pending = newPending(failures: failures + 1)
         phase = .reattaching(pending)
-        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return [.detach(link), .open(attempt: pending.attempt, size: pending.size)]
     }
 
@@ -325,7 +331,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private mutating func disconnect(_ reason: DisconnectReason, after pending: Pending?) -> [Effect] {
         let failed = pending?.reconnects.map { $0 + 1 } ?? 0
         phase = .disconnected(Disconnected(reason: reason, failedReconnects: failed))
-        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         if visible, reason != .fellBehind, autoReconnects < Self.maxAutoReconnects {
             autoReconnects += 1
             return reconnect(byEvent: false)
@@ -348,7 +354,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         droppedInputBytes += queuedInputBytes
         queuedInput = []
         queuedInputBytes = 0
-        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return (link.map { [Effect.detach($0)] } ?? []) + announce(.exited)
     }
 
@@ -429,7 +435,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         droppedInputBytes += queuedInputBytes
         queuedInput = []
         queuedInputBytes = 0
-        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return (link.map { [Effect.detach($0)] } ?? []) + [.finish]
     }
 }
