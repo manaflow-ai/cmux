@@ -1811,12 +1811,14 @@ namespace for the ids is a later step.
 #### Client-minted split ids
 
 With `split-client-split-id-v1`, `split` accepts `split_id` (`split_` and 32
-lowercase hex digits): the public id of the split it makes. Every split node
-of a layout (`list-workspaces`, `layout`, `screen-changed`, `layout-changed`)
-carries its split's public id as `split_id`, beside the numeric `split`, so a
-frontend that shows the split before the reply keys it by the id the daemon
-will use, and the daemon's layout names the split the frontend already shows
-(plans/cmux-next/perf-speed-of-light.md, I3). The id is fixed when the
+lowercase hex digits): the public id of the split it makes. A split node of a
+layout carries its split's public id as `split_id`, beside the numeric `split`,
+so a frontend that shows the split before the reply keys it by the id the
+daemon will use, and the daemon's layout names the split the frontend already
+shows (plans/cmux-next/perf-speed-of-light.md, I3). `layout-changed` and
+`screen-changed` name every split of their screen; `list-workspaces` and
+`layout` carry `split_id` for every split the daemon has named, which is each
+split a `split` made and each split of a screen it has sent. The id is fixed when the
 creation is prepared; without `split_id` the daemon picks one then. An id that
 names an existing or deleted resource is refused with `split_id_exists: <id>`,
 and a malformed id with `bad request: ...`, before anything is created. Public
