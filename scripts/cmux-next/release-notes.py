@@ -7,7 +7,8 @@ a signed `notes/index.json` listing recent builds for the full history.
 
 The notes also carry the build's What's New digest ("whatsNew", decision
 WHATS-NEW-AFTER-UPDATE W3; scripts/whats-new/digest.py) built from the same
-highlight files, when they validate.
+highlight files, when they validate, or from the short user-facing summary
+when the build has no valid highlight digest.
 
 Highlights are human-written: one Markdown file per highlight under
 release-notes/next/highlights/. A highlight belongs to the first build whose
@@ -17,8 +18,8 @@ matter (lines before the first blank line):
     title: Updates you barely notice
     action: palette.checkForUpdates | Try it      (optional "Try it" button)
 
-The rest is the body (Markdown). A build with no new highlight file ships
-only its commit subjects (full history, no what's-new card). Each commit is
+The rest is the body (Markdown). A build with no new highlight file uses its
+user-facing summary for the What's New digest. Each commit is
 also an item {title, author, pr} (newest first; pr from a "(#1234)" suffix)
 for the update card's "What's changed" popover; older notes without items
 still decode, and the app then reads the PR from each subject.
@@ -190,6 +191,44 @@ def whats_new_digest(args):
     return document if document["entries"] else None
 
 
+def summary_whats_new_digest(args, lines):
+    """A validated nightly digest when there are summary lines but no highlight digest."""
+    if not lines:
+        return None
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    import validate
+
+    def bounded(text, limit):
+        text = " ".join(text.split()).rstrip(". ")
+        if len(text) > limit:
+            text = text[:limit - 1].rsplit(" ", 1)[0].rstrip(". ") + "…"
+        return text
+
+    document = {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
+                "headline": {"en": "Fixes and improvements"}, "entries": []}
+    categories = {"new": "new", "fixed": "fixed", "changed": "improved"}
+    for index, line in enumerate(lines):
+        title = bounded(line.get("title", ""), validate.LIMITS["title"])
+        if not title or line.get("group") not in categories:
+            continue
+        entry = {"id": f"summary-{index}", "category": categories[line["group"]],
+                 "title": {"en": title}, "summary": {"en": line["title"].strip()},
+                 "platforms": ["macos"], "audience": "all", "docs": "https://cmux.com/docs/changelog"}
+        problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
+        if problems:
+            print(f"whats-new summary: dropped {entry['id']}:\n" + "\n".join(problems), file=sys.stderr)
+            continue
+        document["entries"].append(entry)
+    if not document["entries"]:
+        return None
+    document["headline"] = {"en": bounded(document["entries"][0]["title"]["en"], validate.LIMITS["headline"])}
+    problems = validate.validate_document(f"{args.short}.json", document)
+    if problems:
+        print("whats-new summary skipped:\n" + "\n".join(problems), file=sys.stderr)
+        return None
+    return document
+
+
 def write_community_summary(digest, args):
     """notes/community-<build>.md: a short Discord/X summary a human posts (K2); the
     release-notes artifact keeps it and the R2 upload publishes it with the notes."""
@@ -216,6 +255,8 @@ def build(args):
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
     digest = whats_new_digest(args)
+    if digest is None:
+        digest = summary_whats_new_digest(args, notes["summary"])
     if digest is not None:
         notes["whatsNew"] = digest
         write_community_summary(digest, args)
