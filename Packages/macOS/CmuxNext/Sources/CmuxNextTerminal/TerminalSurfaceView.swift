@@ -134,6 +134,9 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        // The drawable follows the size this view sets, not its bounds: while
+        // a pane's size moves, the last frame stays (TerminalSurfaceSizeSettle).
+        ghostty_surface_set_host_sized(surface, true)
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
@@ -220,7 +223,7 @@ public final class TerminalSurfaceView: NSView {
     /// A new view size reaches the surface at once for a live window resize
     /// (the owner's grid follows the edge), the first size in a window or a
     /// view out of a window; else once the size is still
-    /// (`TerminalSurfaceSizeSettle`): a drag frame does not resize the
+    /// (`TerminalSurfaceSizeSettle`): a drag frame does not draw, resize the
     /// terminal or report its grid.
     private func sizeFollowsFrame() {
         if Motion.isLiveResizing || window == nil || sizesAtOnce {

@@ -4,12 +4,13 @@ import CmuxNextWakeups
 /// Gives a terminal surface its new size once the view's size is still
 /// (perf I7). While a divider drag, a sidebar width animation or a layout
 /// spring changes a pane's size every frame, `ghostty_surface_set_size` and
-/// the grid report to the owner wait: the surface resizes its terminal and
-/// reports its grid once when the size stops. The drawable still follows the
-/// layer's bounds every frame (Ghostty's Metal renderer sizes its target
-/// from the layer and redraws on a bounds change); the old grid draws from
-/// the top-left with the background beside it, as a locked grid's padding.
-/// Keeping the last frame on the GPU for the drag needs a Ghostty change.
+/// the grid report to the owner wait. The surface is host-sized
+/// (`ghostty_surface_set_host_sized`): its drawable keeps the held size, so
+/// no frame of the drag allocates or draws; the layer shows the last frame
+/// from its top-left corner (`contentsGravity`), clipped by the host, with
+/// the host's terminal background beside it, and new output still draws.
+/// When the size stops the surface draws once, resizes its terminal and
+/// reports its grid.
 ///
 /// A live window resize is not deferred (`TerminalSurfaceView` applies it at
 /// once): the owner's grid follows the window edge there, one in flight
