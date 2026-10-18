@@ -110,7 +110,17 @@ final class CreationInputCoordinator {
         if !force {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
-            guard Self.responderTakesKeys(controller, window: window) else { return }
+            guard Self.responderTakesKeys(controller, window: window) else {
+                // A cold surface can be installed one main-actor turn after focus settles. Keep
+                // the hold alive and retry until the buffer's existing holdLimit expiry rather
+                // than dropping the keys on the first pre-responder check.
+                Task { @MainActor [weak self, weak window] in
+                    try? await Task.sleep(for: .milliseconds(20))
+                    guard let self, let window, self.buffers[window.windowNumber] != nil else { return }
+                    self.flush(in: window)
+                }
+                return
+            }
         }
         buffers[window.windowNumber] = nil
         let pending = buffer.take()
