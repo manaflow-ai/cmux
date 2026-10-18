@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: familiar-intent-review-${{ github.event.pull_request.number }}
@@ -18,6 +17,9 @@ concurrency:
 jobs:
   warn:
     # pull_request_target runs for outside authors too: GitHub-hosted only.
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

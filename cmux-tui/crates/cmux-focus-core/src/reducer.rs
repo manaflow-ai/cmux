@@ -1,8 +1,6 @@
-//! The focus transition function (plans/cmux-next/focus.md section 4):
-//! `(state, event) -> (state, effects)`, applied in place to the state the
-//! window's handle owns. No platform calls, no side effects; the app applies
-//! the effects after it returns. The state's `derived` must be current on
-//! entry (every reduction and `FocusState::import` leave it current).
+//! The pure focus transition function (plans/cmux-next/focus.md section 4):
+//! `(state, event) -> (state, effects)`. No platform calls, no side
+//! effects; the app applies the effects after it returns.
 
 use crate::close_focus;
 use crate::event::{DragOutcome, FocusEffect, FocusEvent, Responder, Source};
@@ -11,27 +9,12 @@ use crate::state::{
 };
 use crate::topology::{Column, Kind, Topology};
 
-/// What `finish` compares against: the focus before the event.
-struct Before {
-    pane: Option<String>,
-    resolved: Resolved,
-    context: crate::state::Context,
-}
-
-/// Reduces one event into `state`, writing its effects to `effects`
-/// (cleared first). `state.derived` is current afterwards. False when the
-/// event could change nothing and returned before any work.
-pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<FocusEffect>) -> bool {
-    effects.clear();
-    if is_noop_responder(state, event) {
-        return false;
-    }
-    let old = Before {
-        pane: state.pane.clone(),
-        resolved: state.derived.resolved.clone(),
-        context: state.derived.context,
-    };
-    let next = state;
+/// Reduces one event. The returned state's `derived` is current.
+pub fn reduce(state: &FocusState, event: &FocusEvent) -> (FocusState, Vec<FocusEffect>) {
+    let mut old = state.clone();
+    old.derive();
+    let mut next = old.clone();
+    let mut effects = Vec::new();
     let mut force_responder = false;
     let mut force_context = false;
     if overrides_drag(event)
@@ -41,22 +24,22 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
     }
 
     match event {
-        FocusEvent::Topology { topology } => apply_topology(topology.clone(), next, effects),
+        FocusEvent::Topology { topology } => apply_topology(topology, &mut next, &mut effects),
         FocusEvent::RestoredPane { pane, workspace } => {
             if !next.remembered.contains_key(workspace)
                 && Some(workspace) != next.topology.workspace.as_ref()
             {
-                remember(pane, workspace, next);
+                remember(pane, workspace, &mut next);
             }
         }
         FocusEvent::FocusPane { pane, workspace, source } => {
             if source.is_user_intent() {
-                bump(next);
+                bump(&mut next);
             }
             if let Some(workspace) = workspace
                 && Some(workspace) != next.topology.workspace.as_ref()
             {
-                remember(pane, workspace, next);
+                remember(pane, workspace, &mut next);
             } else if next.topology.contains_pane(pane) {
                 next.pane = Some(pane.clone());
                 next.target = Target::Content {};
@@ -65,13 +48,13 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
         }
         FocusEvent::SelectTab { pane, tab, workspace, source } => {
             if source.is_user_intent() {
-                bump(next);
+                bump(&mut next);
             }
             if let Some(workspace) = workspace
                 && Some(workspace) != next.topology.workspace.as_ref()
             {
                 effects.push(FocusEffect::Select { pane: pane.clone(), tab: tab.clone() });
-                remember(pane, workspace, next);
+                remember(pane, workspace, &mut next);
             } else if !next.topology.contains_pane(pane) {
                 // A pane this window does not show: remembered selection only.
                 effects.push(FocusEffect::Select { pane: pane.clone(), tab: tab.clone() });
@@ -90,7 +73,7 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
                 break 'arm;
             }
             if source.is_user_intent() {
-                bump(next);
+                bump(&mut next);
             }
             if target.is_chrome()
                 && next.topology.selected_kind(next.pane.as_deref()) != Some(Kind::Browser)
@@ -102,7 +85,7 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
         }
         FocusEvent::Responder { responder, source } => {
             if next.overlays.is_empty() {
-                force_responder = accept(responder, *source, next);
+                force_responder = accept(responder, *source, &mut next);
             }
         }
         FocusEvent::WindowKey { key } => {
@@ -118,7 +101,7 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
                 force_responder = next.overlays.is_empty();
             }
         }
-        FocusEvent::BeginIntent {} => bump(next),
+        FocusEvent::BeginIntent {} => bump(&mut next),
         FocusEvent::Expect { key, target, away_from, generation } => {
             if *generation == next.generation {
                 next.expectation = Some(Expectation {
@@ -127,7 +110,7 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
                     away_from: away_from.clone(),
                     generation: *generation,
                 });
-                land(next, effects);
+                land(&mut next, &mut effects);
             }
         }
         FocusEvent::DragBegan { tabs, pane } => {
@@ -166,7 +149,7 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
                     force_responder = true;
                 }
                 DragOutcome::Dropped { tabs, away_from } => {
-                    bump(next);
+                    bump(&mut next);
                     if let Some(tab) = tabs.first() {
                         next.expectation = Some(Expectation {
                             key: ExpectationKey::Tab { id: tab.clone() },
@@ -174,7 +157,7 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
                             away_from: away_from.clone(),
                             generation: next.generation,
                         });
-                        land(next, effects);
+                        land(&mut next, &mut effects);
                     }
                 }
                 DragOutcome::MovedAway {} => {}
@@ -183,9 +166,9 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
         FocusEvent::ContentPresented { pane } => force_responder = Some(pane) == next.pane.as_ref(),
         FocusEvent::ToggleBrowserFocusMode { tab } => {
             // Only a tab this window shows (F6).
-            let tab = tab.clone().or_else(|| browser_tab(next));
+            let tab = tab.clone().or_else(|| browser_tab(&next));
             if let Some(tab) = tab
-                && next.topology.contains_tab(&tab)
+                && next.topology.all_tab_ids().contains(&tab)
             {
                 if !next.browser_focus_mode.remove(&tab) {
                     next.browser_focus_mode.insert(tab.clone());
@@ -203,65 +186,18 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
         }
     }
 
-    finish(&old, next, effects, force_responder, force_context);
-    true
+    finish(&old, &mut next, &mut effects, force_responder, force_context);
+    (next, effects)
 }
 
 // MARK: Topology
 
-/// A topology report (the `Topology` event without a copy of the topology).
-/// A topology equal to the current one changes nothing and returns at once
-/// (false).
-pub fn set_topology(
-    state: &mut FocusState,
-    topology: Topology,
-    effects: &mut Vec<FocusEffect>,
-) -> bool {
-    effects.clear();
-    if is_settled_on(state, &topology) {
-        return false;
-    }
-    let old = Before {
-        pane: state.pane.clone(),
-        resolved: state.derived.resolved.clone(),
-        context: state.derived.context,
-    };
-    apply_topology(topology, state, effects);
-    finish(&old, state, effects, false, false);
-    true
-}
-
-/// `topology` is the one the state already holds and the state already
-/// settled on it, so reducing it again would change nothing: its pane is in
-/// it and remembered, no expectation waits, no chrome target on a tab that
-/// is not a browser, and the shown history and focus-mode tabs are all in
-/// it. A reduced state always is; an imported one may not be.
-fn is_settled_on(state: &FocusState, topology: &Topology) -> bool {
-    if state.expectation.is_some() || state.topology != *topology {
-        return false;
-    }
-    let settled_pane = match (topology.workspace.as_deref(), state.pane.as_deref()) {
-        (_, None) => topology.panes.is_empty(),
-        (Some(workspace), Some(pane)) => {
-            topology.contains_pane(pane) && is_remembered(pane, workspace, state)
-        }
-        (None, Some(pane)) => topology.contains_pane(pane),
-    };
-    settled_pane
-        && !(matches!(state.target, Target::AddressBar {} | Target::FindBar {})
-            && topology.selected_kind(state.pane.as_deref()) != Some(Kind::Browser))
-        && state.recent_panes().iter().all(|p| topology.contains_pane(p))
-        && state.browser_focus_mode.iter().all(|t| topology.contains_tab(t))
-}
-
-fn apply_topology(topology: Topology, state: &mut FocusState, effects: &mut Vec<FocusEffect>) {
-    let old = std::mem::replace(&mut state.topology, topology);
-    let topology = &state.topology;
+fn apply_topology(topology: &Topology, state: &mut FocusState, effects: &mut Vec<FocusEffect>) {
+    let old = std::mem::replace(&mut state.topology, topology.clone());
     if old.workspace != topology.workspace {
         if let (Some(workspace), Some(pane)) = (old.workspace.as_ref(), state.pane.clone()) {
             state.remembered.insert(workspace.clone(), pane);
         }
-        let topology = &state.topology;
         state.pane = topology
             .workspace
             .as_ref()
@@ -276,8 +212,7 @@ fn apply_topology(topology: Topology, state: &mut FocusState, effects: &mut Vec<
     } else if let Some(pane) = state.pane.clone()
         && !topology.contains_pane(&pane)
     {
-        state.pane =
-            successor(&pane, state.recent_panes(), &old, &state.topology, state.close_focus);
+        state.pane = successor(&pane, &state.recent_panes(), &old, topology, state.close_focus);
         if state.target.is_pane_scoped() {
             state.target = Target::Content {};
         }
@@ -291,27 +226,25 @@ fn apply_topology(topology: Topology, state: &mut FocusState, effects: &mut Vec<
         state.target = Target::Content {};
     }
     // Closed (or moved away) panes leave the shown workspace's history.
-    if let Some(workspace) = state.topology.workspace.as_ref()
-        && let Some(recent) = state.history.get_mut(workspace)
+    if let Some(workspace) = topology.workspace.clone()
+        && let Some(recent) = state.history.get(&workspace)
     {
-        let topology = &state.topology;
-        recent.retain(|p| topology.contains_pane(p));
-        if recent.is_empty() {
-            state.history.remove(workspace);
+        let kept: Vec<String> =
+            recent.iter().filter(|p| topology.contains_pane(p)).cloned().collect();
+        if kept.len() != recent.len() {
+            if kept.is_empty() {
+                state.history.remove(&workspace);
+            } else {
+                state.history.insert(workspace, kept);
+            }
         }
     }
-    if !state.browser_focus_mode.is_empty() {
-        let topology = &state.topology;
-        let dead: Vec<String> = state
-            .browser_focus_mode
-            .iter()
-            .filter(|t| !topology.contains_tab(t))
-            .cloned()
-            .collect();
-        for tab in dead {
-            state.browser_focus_mode.remove(&tab);
-            effects.push(FocusEffect::BrowserFocusMode { tab, active: false });
-        }
+    let live = topology.all_tab_ids();
+    let dead: Vec<String> =
+        state.browser_focus_mode.iter().filter(|t| !live.contains(*t)).cloned().collect();
+    for tab in dead {
+        state.browser_focus_mode.remove(&tab);
+        effects.push(FocusEffect::BrowserFocusMode { tab, active: false });
     }
     land(state, effects);
 }
@@ -355,36 +288,17 @@ pub fn successor(
 // MARK: Helpers
 
 /// `pane` is now the focused pane of `workspace`: restored on switching
-/// back, and newest in that workspace's history. Edits in place; no
-/// allocation when it already is.
+/// back, and newest in that workspace's history.
 fn remember(pane: &str, workspace: &str, state: &mut FocusState) {
-    if is_remembered(pane, workspace, state) {
+    state.remembered.insert(workspace.to_owned(), pane.to_owned());
+    let mut recent = state.history.get(workspace).cloned().unwrap_or_default();
+    if recent.first().map(String::as_str) == Some(pane) {
         return;
     }
-    match state.remembered.get_mut(workspace) {
-        Some(remembered) if remembered == pane => {}
-        Some(remembered) => pane.clone_into(remembered),
-        None => {
-            state.remembered.insert(workspace.to_owned(), pane.to_owned());
-        }
-    }
-    match state.history.get_mut(workspace) {
-        Some(recent) => {
-            if recent.first().map(String::as_str) != Some(pane) {
-                recent.retain(|p| p != pane);
-                recent.insert(0, pane.to_owned());
-                recent.truncate(HISTORY_LIMIT);
-            }
-        }
-        None => {
-            state.history.insert(workspace.to_owned(), vec![pane.to_owned()]);
-        }
-    }
-}
-
-fn is_remembered(pane: &str, workspace: &str, state: &FocusState) -> bool {
-    state.remembered.get(workspace).map(String::as_str) == Some(pane)
-        && state.history.get(workspace).and_then(|r| r.first()).map(String::as_str) == Some(pane)
+    recent.retain(|p| p != pane);
+    recent.insert(0, pane.to_owned());
+    recent.truncate(HISTORY_LIMIT);
+    state.history.insert(workspace.to_owned(), recent);
 }
 
 /// A user intent that did not come from the drag's own mouse events.
@@ -431,100 +345,49 @@ fn land(state: &mut FocusState, effects: &mut Vec<FocusEffect>) {
     state.target = expectation.target;
 }
 
-/// What a platform responder report means for the state.
-enum Accepted {
-    /// A view left the window (or a hidden sidebar or a pane this window
-    /// does not show has it): re-apply the target.
-    Reapply,
-    /// The report names the current focus: nothing to do.
-    Same,
-    /// The user put the keyboard there.
-    Move(Option<String>, Target),
-}
-
-fn accepted(responder: &Responder, source: Source, state: &FocusState) -> Accepted {
-    let (pane, target) = match responder {
-        Responder::WindowOrNone {} => return Accepted::Reapply,
+/// Accepts a platform responder change as the user's choice. Returns
+/// whether the responder must be re-applied (a view left the window).
+fn accept(responder: &Responder, source: Source, state: &mut FocusState) -> bool {
+    let mut pane = state.pane.clone();
+    let target = match responder {
+        Responder::WindowOrNone {} => return true,
         Responder::Content { pane: reported }
         | Responder::AddressBar { pane: reported }
         | Responder::FindBar { pane: reported }
         | Responder::DevTools { pane: reported } => {
             if !state.topology.contains_pane(reported) {
-                return Accepted::Reapply;
+                return true;
             }
-            let target = match responder {
+            pane = Some(reported.clone());
+            match responder {
                 Responder::Content { .. } => Target::Content {},
                 Responder::AddressBar { .. } => Target::AddressBar {},
                 Responder::FindBar { .. } => Target::FindBar {},
                 _ => Target::DevTools {},
-            };
-            if state.pane.as_ref() == Some(reported) && state.target == target {
-                return Accepted::Same;
             }
-            (Some(reported.clone()), target)
         }
         Responder::Sidebar {} | Responder::SidebarField {} => {
             // A hidden sidebar cannot hold the keyboard: re-apply the target.
             if state.sidebar_hidden {
-                return Accepted::Reapply;
+                return true;
             }
-            let target = if matches!(responder, Responder::Sidebar {}) {
+            if matches!(responder, Responder::Sidebar {}) {
                 Target::Sidebar { keyboard: source == Source::Keyboard }
             } else {
                 Target::SidebarField {}
-            };
-            (state.pane.clone(), target)
+            }
         }
-        Responder::TextField {} => (state.pane.clone(), Target::TextField {}),
+        Responder::TextField {} => Target::TextField {},
     };
     if pane == state.pane && target == state.target {
-        Accepted::Same
-    } else {
-        Accepted::Move(pane, target)
-    }
-}
-
-/// Accepts a platform responder change as the user's choice. Returns
-/// whether the responder must be re-applied (a view left the window).
-fn accept(responder: &Responder, source: Source, state: &mut FocusState) -> bool {
-    match accepted(responder, source, state) {
-        Accepted::Reapply => true,
-        Accepted::Same => false,
-        Accepted::Move(pane, target) => {
-            if source.is_user_intent() {
-                bump(state);
-            }
-            state.pane = pane;
-            state.target = target;
-            false
-        }
-    }
-}
-
-/// A responder report of the focus the state already has (the platform
-/// confirming the applier's own move, or a click into the focused pane):
-/// it changes nothing and has no effects, so it returns before any work.
-/// Exact: the full reduction would leave the state as it is.
-fn is_noop_responder(state: &FocusState, event: &FocusEvent) -> bool {
-    let FocusEvent::Responder { responder, source } = event else { return false };
-    if state.drag.is_some() && overrides_drag(event) {
         return false;
     }
-    if state.overlays.is_empty() && !matches!(accepted(responder, *source, state), Accepted::Same) {
-        return false;
+    if source.is_user_intent() {
+        bump(state);
     }
-    // `finish` would neither drop a chrome target nor remember anything new.
-    if matches!(state.target, Target::AddressBar {} | Target::FindBar {})
-        && state.topology.selected_kind(state.pane.as_deref()) != Some(Kind::Browser)
-    {
-        return false;
-    }
-    match (state.topology.workspace.as_deref(), state.pane.as_deref()) {
-        (Some(workspace), Some(pane)) if state.topology.contains_pane(pane) => {
-            is_remembered(pane, workspace, state)
-        }
-        _ => true,
-    }
+    state.pane = pane;
+    state.target = target;
+    false
 }
 
 fn browser_tab(state: &FocusState) -> Option<String> {
@@ -540,7 +403,7 @@ fn browser_tab(state: &FocusState) -> Option<String> {
 /// Diffs old and new state into the generic effects, and recomputes the
 /// new state's `derived`.
 fn finish(
-    old: &Before,
+    old: &FocusState,
     new: &mut FocusState,
     effects: &mut Vec<FocusEffect>,
     force_responder: bool,
@@ -553,24 +416,22 @@ fn finish(
     {
         new.target = Target::Content {};
     }
-    if let (Some(workspace), Some(pane)) = (new.topology.workspace.as_deref(), new.pane.as_deref())
-        && new.topology.contains_pane(pane)
-        && !is_remembered(pane, workspace, new)
+    if let (Some(workspace), Some(pane)) = (new.topology.workspace.clone(), new.pane.clone())
+        && new.topology.contains_pane(&pane)
     {
-        let (workspace, pane) = (workspace.to_owned(), pane.to_owned());
         remember(&pane, &workspace, new);
     }
-    if let Some(pane) = new.pane.as_ref()
-        && (Some(pane) != old.pane.as_ref() || force_responder)
-        && new.topology.contains_pane(pane)
+    if let Some(pane) = new.pane.clone()
+        && (Some(&pane) != old.pane.as_ref() || force_responder)
+        && new.topology.contains_pane(&pane)
     {
-        effects.push(FocusEffect::RevealPane { pane: pane.clone() });
+        effects.push(FocusEffect::RevealPane { pane });
     }
     new.derive();
-    if new.derived.resolved != old.resolved || force_responder {
+    if new.derived.resolved != old.derived.resolved || force_responder {
         effects.push(FocusEffect::MoveResponder { resolved: new.derived.resolved.clone() });
     }
-    if new.derived.context != old.context || force_context {
+    if new.derived.context != old.derived.context || force_context {
         effects.push(FocusEffect::PublishContext { context: new.derived.context });
     }
 }

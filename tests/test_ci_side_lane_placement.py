@@ -196,11 +196,12 @@ class CmuxNextWiring(unittest.TestCase):
                 # A live side label remains preferred; no live side label routes to the std pool.
                 self.assertEqual(evaluate(runs_on, self.context(runner=SIDE)), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.context(runner=STD)), on(name, STD))
-                # Skipped or unreadable placement keeps today's configured route.
-                self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), on(name, SIDE))
-                self.assertEqual(evaluate(runs_on, self.context("2")), on(name, SIDE))
-                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), on(name, SIDE))
-                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), on(name, SIDE))
+                # Skipped or unreadable placement falls back to the cloud runner;
+                # only a live placement output may select an owned GUI label.
+                self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("2")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), FALLBACK)
                 # The rescue's third attempt is the measured overflow route.
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
@@ -260,9 +261,10 @@ class CmuxNextWiring(unittest.TestCase):
                                  "another owner": other_owner, "owned pools off": owned_off}.items():
                 context["needs"] = {}  # the skipped placement has no outputs
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
-            # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
+            # A skipped placement leaves the Mac jobs running (!cancelled()) and
+            # its empty output routes them to the cloud fallback.
             self.assertTrue(evaluate(jobs[name]["if"].replace("!cancelled() && ", ""), self.context()))
-            self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), on(name, SIDE))
+            self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), FALLBACK)
 
     def test_the_watch_marker_follows_the_placement(self):
         steps = self.workflow()["jobs"][self.PLACEMENT]["steps"]

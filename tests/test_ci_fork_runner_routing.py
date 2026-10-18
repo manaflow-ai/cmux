@@ -199,6 +199,14 @@ FORK_GATE_EXEMPT = {
         "its hosted 6vcpu pool without reading this default, and every runs-on "
         "reads its output"
     ),
+    ("gallery-pr.yml", "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"): (
+        "render is same-repository gated; compare requires render success, so fork PRs "
+        "never start these jobs and cannot read the owned runner fallback"
+    ),
+    ("gallery-advisory.yml", "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"): (
+        "capture is same-repository gated, so fork PRs never start it and cannot read "
+        "the owned runner fallback"
+    ),
 }
 
 

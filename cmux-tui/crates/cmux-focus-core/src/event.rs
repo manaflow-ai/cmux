@@ -64,7 +64,7 @@ pub enum DragOutcome {
     MovedAway {},
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FocusEvent {
     /// Daemon delta, workspace switch, selection or content change.

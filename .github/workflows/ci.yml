@@ -383,6 +383,7 @@ jobs:
               for trusted_path in \
                 scripts/ci/detect_ci_change_areas.py \
                 scripts/ci/select_package_tests.py \
+                scripts/ci/package-test-lane.sh \
                 scripts/ci/workloads/ci-guard.sh \
                 .github/workflows/ci.yml \
                 .github/workflows/ci-guards.yml \
@@ -404,7 +405,7 @@ jobs:
                 trusted_inputs=()
                 while IFS= read -r trusted_path; do
                   trusted_inputs+=("$trusted_path")
-                done < <(git ls-tree -r --name-only "$trusted_base" -- cmux.xcodeproj/project.pbxproj Packages | grep -E '(^cmux\.xcodeproj/project\.pbxproj$|^Packages/[^/]+/[^/]+/Package\.swift$)')
+                done < <(git ls-tree -r --name-only "$trusted_base" -- cmux.xcodeproj/project.pbxproj Packages | grep -E '(^cmux\.xcodeproj/project\.pbxproj$|^(Packages/[^/]+/[^/]+|vendor/.+)/Package\.swift$)')
                 if [ "${#trusted_inputs[@]}" -gt 0 ]; then
                   git --literal-pathspecs archive "$trusted_base" -- "${trusted_inputs[@]}" \
                     | tar -x -C "$trusted_root" || true
