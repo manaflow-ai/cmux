@@ -7,9 +7,7 @@ import Testing
 /// at 13% over whatever is behind (the wallpaper on a wallpaper theme), as the agent composer's
 /// `--acpmux-composer-bg`. The Update Ready card drew an opaque elevated fill that hid the
 /// wallpaper, and the notice and tip cards drew Liquid Glass under a veil: three different cards.
-@MainActor @Suite struct SidebarCardSurfaceTests {
-    static func hasTransparency() -> Bool { !ReduceTransparency.shared.isEnabled }
-
+@MainActor @Suite(.serialized) struct SidebarCardSurfaceTests {
     /// The backmost fill that covers the whole card. Each covering layer draws first (it would on
     /// the next display pass), in the card's theme.
     static func fill(of card: NSView) -> NSColor? {
@@ -54,8 +52,9 @@ import Testing
                 "the \(name) card's fill \(drawn) is not the theme's text \(expected)")
     }
 
-    @Test(.enabled("Reduce Transparency must be off for translucent card inspection") { await Self.hasTransparency() })
-    func theUpdateReadyCardSitsOnTheComposersSurface() throws {
+    @Test func theUpdateReadyCardSitsOnTheComposersSurface() throws {
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = nil }
         let card = SidebarUpdateCardView(frame: NSRect(x: 0, y: 0, width: 216, height: 120))
         card.configure(SidebarUpdateCard(title: "Update Ready", detail: "nightly 3845050 · Oct 13", buttonTitle: "Restart to Update",
                                          automaticUpdatesTitle: "Automatic Updates", automaticUpdates: true,
@@ -63,8 +62,9 @@ import Testing
         try Self.expectComposerSurface(card, "Update Ready")
     }
 
-    @Test(.enabled("Reduce Transparency must be off for translucent card inspection") { await Self.hasTransparency() })
-    func aNoticeOrTipCardSitsOnTheComposersSurface() throws {
+    @Test func aNoticeOrTipCardSitsOnTheComposersSurface() throws {
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = nil }
         let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: 80),
                                          reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()))
         card.configure(SidebarNoticeCard(id: "tip", eyebrow: "Tip", title: "Drag a tab to split the pane"))
