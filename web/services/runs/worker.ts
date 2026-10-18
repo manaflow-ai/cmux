@@ -162,6 +162,7 @@ async function transitionRunAttempt(input: {
       where run_id = ${input.runId}::uuid and id = ${input.attemptId}::uuid
         and status = 'running' and lease_id = ${input.leaseId}::uuid
         and lease_until > ${now}
+        ${input.status === "cancelled" ? sql`` : sql`and exists (select 1 from runs where id = ${input.runId}::uuid and status <> 'cancelled')`}
       returning id
     `) as readonly Record<string, unknown>[];
     if (rows.length === 0) return false;
@@ -222,7 +223,7 @@ export async function runOneRunAttempt(input: {
   try {
     const result = await input.execute(claimed);
     const applied = await finishRunAttempt({ ...claimed, status: "succeeded", ...result });
-    return { status: applied ? "succeeded" : "failed", runId: claimed.runId, attemptId: claimed.attemptId, applied };
+    return { status: applied ? "succeeded" : "cancelled", runId: claimed.runId, attemptId: claimed.attemptId, applied };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const applied = await finishRunAttempt({ ...claimed, status: "failed", error: message });
