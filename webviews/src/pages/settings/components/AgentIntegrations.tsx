@@ -158,7 +158,9 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
       >
         <summary className="group-title cursor-default select-none" data-integrations-toggle="">
           {t("settingsWindow.agentIntegrations.title")}{" "}
-          <span className="row-help inline">{t("settingsWindow.agentIntegrations.optional")}</span>
+          <span className="row-help ml-1 inline font-normal normal-case tracking-normal">
+            {t("settingsWindow.agentIntegrations.optional")}
+          </span>
         </summary>
         <div className="row-help">{t("settingsWindow.agentIntegrations.help")}</div>
         <div className="row-help">{t("settingsWindow.agentIntegrations.untilClick")}</div>
