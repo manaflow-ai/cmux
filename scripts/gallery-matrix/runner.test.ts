@@ -281,3 +281,15 @@ test("allocation failure waits for late VM ids before finally cleanup", async ()
   await run;
   expect(paused).toEqual(["vm-late"]);
 });
+
+test("duplicate capture cells cannot replace a missing scenario", () => {
+  const cases = [{ id: "a", path_or_url: "frame.html" }, { id: "b", path_or_url: "frame.html" }];
+  const duplicate = { id: "a", engine: "chromium", ready: "1" };
+  const receipt = captureReceipt(cases, [duplicate, duplicate], "capture", undefined, 2);
+  expect(receipt.results.status).toBe("partial");
+  expect(receipt.quality).toBe("fail");
+});
+
+test("an empty capture never reports passing quality", () => {
+  expect(captureReceipt([], [], "empty").quality).toBe("fail");
+});

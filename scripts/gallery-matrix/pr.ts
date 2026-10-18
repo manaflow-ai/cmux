@@ -104,10 +104,10 @@ export function comparisonReceipt(
     schemaVersion: 1,
     comparisonId: createHash("sha256").update(input).digest("hex").slice(0, 16),
     createdAt: new Date().toISOString(),
-    current: head ? { ...head, role: "candidate", sha: heads.head } : undefined,
+    freshness: { status: head ? "unverified" : "missing", reason: "current means live PR-head verification, which this receipt does not perform" },
+    candidate: head ? { ...head, role: "candidate", sha: heads.head } : undefined,
     baseline: base ? { ...base, role: "baseline", sha: heads.base } : undefined,
     repeat: repeat ? { ...repeat, role: "determinism-check", sha: heads.head } : undefined,
-    supersedes: base?.captureId ? { captureId: base.captureId, reason: "candidate comparison replaces baseline view" } : undefined,
   };
 }
 

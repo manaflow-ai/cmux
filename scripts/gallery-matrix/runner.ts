@@ -44,8 +44,9 @@ export function captureReceipt(
   expectedResults?: number,
 ): CaptureReceipt {
   const expected = expectedResults ?? cases.length * new Set(results.map((result) => result.engine).filter(Boolean)).size;
-  const complete = results.length === expected && expected > 0;
-  const quality = results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
+  const identities = new Set(results.map((result) => `${String(result.id ?? "")}:${String(result.engine ?? "")}`));
+  const complete = results.length === expected && identities.size === expected && expected > 0;
+  const quality = !complete || results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
     ? "fail"
     : "pass";
   return {

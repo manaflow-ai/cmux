@@ -78,15 +78,18 @@ test("PR reports reject shared IDs whose controls differ between sides", () => {
   }
 });
 
-test("comparison receipts identify current, baseline, repeat, and superseded captures", () => {
+test("a comparison records candidate evidence without claiming current or superseding its baseline", () => {
   const receipt = comparisonReceipt(
     { captureId: "base-capture", scenarioFingerprint: "scenario-a" },
     { captureId: "head-capture", scenarioFingerprint: "scenario-a", quality: "pass" },
-    { captureId: "repeat-capture", scenarioFingerprint: "scenario-a" },
+    undefined,
     { base: "base-a", head: "head-a" },
   );
-  expect(receipt.current).toMatchObject({ captureId: "head-capture", role: "candidate", sha: "head-a" });
-  expect(receipt.baseline).toMatchObject({ captureId: "base-capture", role: "baseline", sha: "base-a" });
-  expect(receipt.repeat).toMatchObject({ captureId: "repeat-capture", role: "determinism-check", sha: "head-a" });
-  expect(receipt.supersedes).toEqual({ captureId: "base-capture", reason: "candidate comparison replaces baseline view" });
+  expect(receipt).toMatchObject({
+    freshness: { status: "unverified" },
+    candidate: { captureId: "head-capture", role: "candidate", sha: "head-a" },
+    baseline: { captureId: "base-capture", role: "baseline", sha: "base-a" },
+  });
+  expect(receipt).not.toHaveProperty("current");
+  expect(receipt).not.toHaveProperty("supersedes");
 });
