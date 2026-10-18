@@ -77,13 +77,9 @@ extension TabCell {
             // A part made at a later sample shows nothing before it.
             let first = samples.lazy.compactMap { $0.parts[id] }.first ?? Part(position: part.position, size: part.bounds.size, opacity: 0)
             var values = samples.map { $0.parts[id] ?? Part(position: first.position, size: first.size, opacity: 0) }
-            // A part's visibility changes at most once on the path: shown now and at the end, it
-            // stays shown; hidden now and at the end, it stays hidden. A form that fits only between
-            // the ends (the x leaves before the width does; the selected tab shows its x before its
-            // icon fits beside it) is a transient of the sampling, not a state to show.
-            if let end = values.last?.opacity, shownNow.contains(id) == (end > 0.001) {
-                for index in values.indices { values[index].opacity = end }
-            }
+            // A part hidden on screen now and at the end stays hidden: a form that fits only between
+            // the ends (the x leaves before the width does) is a transient of the sampling.
+            if !shownNow.contains(id), values.last?.opacity == 0 { for index in values.indices { values[index].opacity = 0 } }
             addKeyframes(values, times: times, steps: steps, to: part)
         }
         // The title shows where its samples have it, but never only between the ends: a crowded tab
