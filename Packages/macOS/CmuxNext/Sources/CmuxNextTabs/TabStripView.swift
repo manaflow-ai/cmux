@@ -74,7 +74,8 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
-    var motion: [TabID: TabMotion] = [:]
+    /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
+    var placed: [TabID: TabPlace] = [:]
     var dying: Set<TabID> = []
     /// A closing tab's left neighbour when it closed (nil entry: it was the first tab); `pinClosingTabs`
     /// pins the closing tab to that tab's slot, so a tab opened meanwhile cannot move it a slot.
@@ -82,7 +83,16 @@ public final class TabStripView: NSView {
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
-    var scroll = Spring(value: 0, token: .scroll, kind: .position)
+    /// The strip's scroll offset (its target; a reveal's spring is a Core Animation move).
+    var scrollOffset: CGFloat = 0
+    /// The last strip move's generation (`TabStripMove`).
+    var moveGeneration = 0
+    /// A closing tab's or chip's last move: it goes when that move ends (`moveEnded`).
+    var lastMove: [TabID: Int] = [:]
+    /// Tabs whose occlusion mask a move animates, by generation: the mask comes off when it ends.
+    var occlusionMoves: [TabID: Int] = [:]
+    /// Widening tabs clipped for a move, by generation.
+    var clipMoves: [TabID: Int] = [:]
     var closingModeWidth: CGFloat?
     var closingHit = TabClosingModeHit()
     /// Closing mode's exit: the pointer leaving the strip's extended area (`TabClosingModeWatch`).
@@ -94,10 +104,8 @@ public final class TabStripView: NSView {
     var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    /// Springs and drag autoscroll step on the window's one `MotionClock`,
-    /// with the window's other chrome springs.
+    /// Drag autoscroll steps on the window's one `MotionClock`; nothing else in the strip does.
     weak var motionClock: MotionClock?
-    var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 

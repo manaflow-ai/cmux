@@ -23,7 +23,7 @@ extension TabCell {
             layoutLayers()
             closingVisibility = visibility
         }
-        layer.masksToBounds = isClosing
+        layer.masksToBounds = isClosing || clipsMotion
         layoutLayers()
     }
 
@@ -37,14 +37,9 @@ extension TabCell {
     /// Hides the part of this tab under `cover` (the selected pill passing
     /// over it, in this cell's coordinates): the translucent selection fill
     /// would otherwise show both tabs' content where they cross.
-    func occlude(by cover: CGRect?) {
-        let visible = cover.flatMap { cover -> CGRect? in
-            let cover = cover.intersection(bounds)
-            guard !cover.isNull, cover.width > 0 else { return nil }
-            let leading = CGRect(x: 0, y: 0, width: cover.minX, height: bounds.height)
-            let trailing = CGRect(x: cover.maxX, y: 0, width: max(0, bounds.width - cover.maxX), height: bounds.height)
-            return leading.width >= trailing.width ? leading : trailing
-        }
+    /// `always`: `cover` is the visible part itself (a move's last keyframe), kept even when it is the whole tab.
+    func occlude(by cover: CGRect?, always: Bool = false) {
+        let visible = always ? cover : cover.flatMap { TabOcclusion.visible(frame: CGRect(origin: .zero, size: bounds.size), cover: $0) }
         guard let visible else {
             if layer.mask != nil, layer.mask === occlusionMask { layer.mask = nil }
             return
@@ -62,20 +57,92 @@ extension TabCell {
 /// hides the part under the selected pill. At rest no tab overlaps
 /// another, so every mask comes off.
 enum TabOcclusion {
+    /// Where a cell and its pill show now, in its layer's coordinates: a move starts there.
+    struct Shown {
+        var frame: CGRect
+        var pill: CGRect
+    }
+
+    /// Samples along a move: a mask's path is straight between them (the cover enters, then flips sides).
+    static let samples = 12
+
+    /// Every cell's frame and pill as on screen now (presentation layers, every move in flight included).
+    @MainActor
+    static func start(cells: [TabID: TabCell]) -> [TabID: Shown] {
+        cells.mapValues { cell in
+            Shown(frame: (cell.layer.presentation() ?? cell.layer).frame,
+                  pill: (cell.backgroundLayer.presentation() ?? cell.backgroundLayer).frame)
+        }
+    }
+
+    /// The part of a cell `frame` wide to keep visible under `cover` (both in the cell's layer), in the
+    /// cell's coordinates: the larger side the pill leaves; nil when the pill does not cover it.
+    static func visible(frame: CGRect, cover: CGRect) -> CGRect? {
+        let cover = cover.offsetBy(dx: -frame.minX, dy: -frame.minY).intersection(CGRect(origin: .zero, size: frame.size))
+        guard !cover.isNull, cover.width > 0 else { return nil }
+        let leading = CGRect(x: 0, y: 0, width: cover.minX, height: frame.height)
+        let trailing = CGRect(x: cover.maxX, y: 0, width: max(0, frame.width - cover.maxX), height: frame.height)
+        return leading.width >= trailing.width ? leading : trailing
+    }
+
     /// `band`: the fixed pinned band (`TabScrollMapping.band`). With one, pinned and unpinned tabs never
     /// cross (the unpinned ones scroll under the band, clipped), so a pill covers only its own region's tabs.
-    static func apply(cells: [TabID: TabCell], selected: TabID?, in clip: CALayer?, band: CGFloat = 0) {
-        let cover = selected.flatMap { id -> (rect: CGRect, isPinned: Bool)? in
+    static func crosses(_ cell: TabCell, _ id: TabID, selected: TabID, cover: TabCell, band: CGFloat) -> Bool {
+        id != selected && !cell.isLifted && (band <= 0 || cell.item.isPinned == cover.item.isPinned)
+    }
+
+    /// At rest: the tabs under the selected pill now hide that part; the others show whole. `skipping`:
+    /// tabs whose mask a move animates (`animate`), left as they are.
+    @MainActor
+    static func apply(cells: [TabID: TabCell], selected: TabID?, in clip: CALayer?, band: CGFloat = 0, skipping: (TabID) -> Bool = { _ in false }) {
+        let cover = selected.flatMap { id -> (cell: TabCell, rect: CGRect)? in
             guard let cell = cells[id], cell.frame.width > 0 else { return nil }
-            return (cell.layer.convert(cell.pillFrameInCell, to: clip), cell.item.isPinned)
+            return (cell, cell.layer.convert(cell.pillFrameInCell, to: clip))
         }
-        for (id, cell) in cells {
+        for (id, cell) in cells where !skipping(id) {
             // The selected tab itself is never covered, even one selected mid-crossing.
-            let crossing = cover.flatMap { cover in
-                id != selected && !cell.isLifted && (band <= 0 || cell.item.isPinned == cover.isPinned)
-                    && cell.frame.intersects(cover.rect) ? cover.rect : nil
+            let crossing = cover.flatMap { cover -> CGRect? in
+                guard let selected, crosses(cell, id, selected: selected, cover: cover.cell, band: band), cell.frame.intersects(cover.rect) else { return nil }
+                return clip?.convert(cover.rect, to: cell.layer) ?? cover.rect
             }
-            cell.occlude(by: crossing.map { clip?.convert($0, to: cell.layer) ?? $0 })
+            cell.occlude(by: crossing)
         }
+    }
+
+    /// A move: each tab the selected pill crosses on the way (from `start`, where everything showed,
+    /// to the frames now) hides the part under it, as keyframes along the move's progress; the mask
+    /// comes off when the move ends (`TabStripView.moveEnded`). The two run on one curve from one
+    /// frame, so their frames are straight lines in that progress. Returns the tabs it masks.
+    @MainActor
+    static func animate(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, from start: [TabID: Shown], move: TabStripMove) -> Set<TabID> {
+        guard let selected, let cover = cells[selected], let coverStart = start[selected] else { return [] }
+        let coverEnd = Shown(frame: cover.frame, pill: cover.pillFrameInCell)
+        func lerp(_ a: CGRect, _ b: CGRect, _ t: CGFloat) -> CGRect {
+            CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t,
+                   width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)
+        }
+        func pill(_ shown: Shown) -> CGRect { shown.pill.offsetBy(dx: shown.frame.minX, dy: shown.frame.minY) }
+        var masked: Set<TabID> = []
+        for (id, cell) in cells {
+            guard crosses(cell, id, selected: selected, cover: cover, band: band), cell.layer.superlayer === cover.layer.superlayer,
+                  let from = start[id] else { continue }
+            var rects: [CGRect] = []
+            var crossed = false
+            for step in 0...samples {
+                let t = CGFloat(step) / CGFloat(samples)
+                let frame = lerp(from.frame, cell.frame, t)
+                let rect = visible(frame: frame, cover: lerp(pill(coverStart), pill(coverEnd), t))
+                crossed = crossed || rect != nil
+                rects.append(rect ?? CGRect(origin: .zero, size: frame.size))
+            }
+            guard crossed, let last = rects.last,
+                  let positions = move.motion.keyframes("position", values: rects.map { NSValue(point: CGPoint(x: $0.midX, y: $0.midY)) }),
+                  let sizes = move.motion.keyframes("bounds.size", values: rects.map { NSValue(size: $0.size) }) else { continue }
+            cell.occlude(by: last, always: true)
+            move.add(positions, to: cell.occlusionMask, as: "occlusion.position")
+            move.add(sizes, to: cell.occlusionMask, as: "occlusion.size")
+            masked.insert(id)
+        }
+        return masked
     }
 }

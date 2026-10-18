@@ -3,9 +3,9 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 /// One tab, drawn entirely with CALayers inside the strip's single view (no
-/// NSView per tab). The strip owns all mouse handling and sets `frame` every
-/// animation frame; `layoutLayers()` repositions the sublayers synchronously
-/// so width animations never lag behind the content.
+/// NSView per tab). The strip owns all mouse handling and sets `frame` once
+/// per change (its target); `layoutLayers()` repositions the sublayers
+/// synchronously, and the strip's move animates both on one curve.
 final class TabCell {
     /// Root layer, a sublayer of the strip's tab clip layer.
     let layer = CALayer()
@@ -37,6 +37,9 @@ final class TabCell {
     /// (`TabCell+Motion`).
     var isClosing = false { didSet { if oldValue != isClosing { closingChanged() } } }
     var closingVisibility: TabChromeVisibility?
+    /// Set while a strip move widens this tab: the content, laid out at the new width at once,
+    /// clips to the bounds as they grow (`TabStripView.applyFrames`).
+    var clipsMotion = false { didSet { if oldValue != clipsMotion { layer.masksToBounds = isClosing || clipsMotion } } }
     /// Created on the first occlusion (`occlude(by:)`).
     lazy var occlusionMask = CALayer()
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
@@ -350,8 +353,9 @@ final class TabCell {
             closeBackgroundLayer.cornerRadius = max(0, m.cornerRadius - Metrics.space1)
             let inset = (closeRect.width - m.closeGlyphSize) / 2
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
-            closeGlyphLayer.frame = bounds
-            closeGlyphLayer.path = Self.closeGlyphPath(in: glyph)
+            // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
+            closeGlyphLayer.frame = glyph
+            closeGlyphLayer.path = Self.closeGlyphPath(in: CGRect(origin: .zero, size: glyph.size))
             if appearing, animatesCloseChange {
                 for layer in [closeBackgroundLayer, closeGlyphLayer] as [CALayer] {
                     Motion.set(layer, "opacity", to: Float(1), fade: .hover, from: Float(0))
