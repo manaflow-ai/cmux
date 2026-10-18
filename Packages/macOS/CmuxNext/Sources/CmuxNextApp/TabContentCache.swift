@@ -37,10 +37,11 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
-    /// Browser pages' hover card thumbnails, captured when a page leaves the
-    /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
-    /// apart from `previews`, whose full-size page images hibernation shows.
+    /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
+    /// each, with the page version each shows (`pageVersion`): a page is captured again only when
+    /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    var pageThumbnailVersions: [String: Int] = [:]
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this
     /// deadline use the shared 30 s test configuration.
@@ -400,6 +401,7 @@ final class TabContentCache {
         browserTabs.untrack(key)
         previews.remove(key)
         pageThumbnails.remove(key)
+        pageThumbnailVersions[key] = nil
         shownPages.remove(key)
         presentationChanges.notify(changed: [key])
     }

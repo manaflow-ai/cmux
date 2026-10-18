@@ -71,8 +71,10 @@ extension PaneContentView {
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // Hidden views do not follow pane resizes; `install` sets the frame.
-        view.autoresizingMask = []
+        // A hidden page stays sized with the pane, so showing it again needs no redraw at a new size
+        // (`AgentPageRedraw.awaits`). A hidden terminal does not follow (no grid work while hidden):
+        // `install` sets its frame and it takes the size at once.
+        if view is TerminalHostView { view.autoresizingMask = [] }
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()
