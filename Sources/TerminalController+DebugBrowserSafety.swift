@@ -187,12 +187,14 @@ extension TerminalController {
             }
             let local = NSPoint(x: x, y: pageView.isFlipped ? y : pageView.bounds.height - y)
             let screenPoint = hostWindow.convertPoint(toScreen: pageView.convert(local, to: nil))
-            // The app's window on top at the point: what a real click there hits.
-            let topNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
-            let target = NSApp.window(withWindowNumber: topNumber)
-                ?? NSApp.windows
-                    .filter { $0.isVisible && $0.frame.contains(screenPoint) }
-                    .min { $0.orderedIndex < $1.orderedIndex }
+            // The app's window on top at the point, what a real click there
+            // hits: the front window, then its topmost child there (a
+            // Chromium page window sits above its pane as a child window).
+            func shown(_ window: NSWindow) -> Bool { window.isVisible && window.frame.contains(screenPoint) }
+            var target = NSApp.orderedWindows.first(where: shown) ?? (shown(hostWindow) ? hostWindow : nil)
+            while let window = target, let child = (window.childWindows ?? []).last(where: shown) {
+                target = child
+            }
             guard let target else {
                 return .err(code: "not_found", message: "No cmux window at the point", data: nil)
             }
