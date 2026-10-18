@@ -115,6 +115,19 @@ export function SummaryCard({
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
         <div className="acpmux-summary-card__head">
+          {tab && !card.column && (
+            // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
+            <button
+              type="button"
+              className="acpmux-summary-card__fold"
+              aria-expanded={!card.collapsed}
+              aria-label={foldLabel}
+              title={foldLabel}
+              onClick={() => card.fold(!card.collapsed)}
+            >
+              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+            </button>
+          )}
           {tab ? (
             // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
             <div className="acpmux-summary-tabs">
