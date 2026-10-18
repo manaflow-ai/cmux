@@ -105,7 +105,7 @@ final class TabHoverCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    private static func caption() -> NSTextField {
+    private static func caption() -> ChromeLabel {
         let field = ChromeLabel(labelWithString: "")
         field.font = Typography.caption
         field.lineBreakMode = .byTruncatingTail
@@ -171,7 +171,7 @@ final class TabHoverCardView: NSView {
     }
 
     /// A row shows only with text; a stack row that hides gives up its line.
-    private func set(_ label: NSTextField, _ text: String?) {
+    private func set(_ label: ChromeLabel, _ text: String?) {
         label.stringValue = text ?? ""
         label.isHidden = (text ?? "").isEmpty
         rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : Metrics.space1
@@ -217,7 +217,7 @@ extension TabHoverCardView: HoverCardTextReporting {
     /// The card's shown lines, top to bottom (`debug.hover_cards`, tests).
     var reportedLines: [String] {
         [titleLabel.stringValue] + rows.arrangedSubviews.compactMap { view in
-            guard !view.isHidden, let field = view as? NSTextField, !field.stringValue.isEmpty else { return nil }
+            guard !view.isHidden, let field = view as? any ShownText, !field.stringValue.isEmpty else { return nil }
             return field.stringValue
         }
     }

@@ -340,9 +340,12 @@ cmd_parity_vt() {
              <("$nm" --just-symbol-name "$ref" | grep -E '^_ghostty_' | sort -u) > "$XC_ROOT/vt/missing-$t.txt"
     local minos; minos=$("$LLVM_BIN/llvm-objdump" --macho --private-headers "$lib" 2>/dev/null \
       | awk '/cmd LC_BUILD_VERSION|cmd LC_VERSION_MIN_MACOSX/{c=1} c&&/^ *(minos|version) /{print $2; c=0}' | sort -u | tr '\n' ' ')
-    # The archive's objects must carry the daemon's deployment target, not Zig's default.
-    if [[ "$minos" != "${MIN_OS[$t]} " ]]; then
-      echo "FAIL libghostty-vt-$t: member minimum macOS is '$minos', the daemon links at ${MIN_OS[$t]}"; status=1
+    # The archive's objects must carry Ghostty's macOS minimum (osVersionMin in
+    # src/build/Config.zig), the minimum ghostty-vt-sys names for zig on every host.
+    local vt_min; vt_min=$(awk '/pub fn osVersionMin\(/{f=1} f&&/\.macos =>/{m=1} m&&/\.major =/{gsub(/[^0-9]/,"");a=$0} m&&/\.minor =/{gsub(/[^0-9]/,"");print a"."$0; exit}' \
+      "${CMUX_GHOSTTY_SRC:-$repo_root/ghostty-next}/src/build/Config.zig")
+    if [[ -z "$vt_min" || "$minos" != "$vt_min " ]]; then
+      echo "FAIL libghostty-vt-$t: member minimum macOS is '$minos', Ghostty's minimum is '$vt_min'"; status=1
     fi
     if [[ -s "$XC_ROOT/vt/missing-$t.txt" ]]; then
       echo "FAIL libghostty-vt-$t: $(wc -l < "$XC_ROOT/vt/missing-$t.txt") API symbols of the Mac daemon missing: $(head -5 "$XC_ROOT/vt/missing-$t.txt" | tr '\n' ' ')"; status=1

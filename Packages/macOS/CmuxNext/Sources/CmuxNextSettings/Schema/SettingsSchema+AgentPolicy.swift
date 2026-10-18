@@ -240,6 +240,8 @@ extension SettingsSchema {
         "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
+        // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
+        "sessions.keepAwake": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]
