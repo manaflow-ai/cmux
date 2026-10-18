@@ -10,6 +10,11 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
     let transport: LineTransport
     let identity: DaemonIdentity
 
+    /// Resolves the original key without preparing or starting an update.
+    public func resolveUpdate(cli: AgentCLIFamily, idempotencyKey: String) async throws -> AgentCLIJobResolution {
+        throw DaemonError.notConnected
+    }
+
     /// Reads family evidence on this captured transport before an explicit update.
     public func inventory() async throws -> AcpmuxHarnessInventory {
         try MachineAgentInventoryRequest.requireServed(by: identity)
