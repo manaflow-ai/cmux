@@ -174,14 +174,17 @@ import SwiftUI
         #expect(workspace.focusedPanelId == cloudPanel.id)
         #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
 
-        // Middle-click uses GhosttyNSView's separate AppKit path. It must make
-        // the same eager convergence before its portal callback can rebind, and
-        // release the reparent guard that would otherwise suppress that focus.
+        // Middle-click uses GhosttyNSView's separate AppKit path, which runs
+        // convergeFocusForMiddleMouseDown(). It must make the same eager
+        // convergence before its portal callback can rebind, and release the
+        // reparent guard that would otherwise suppress that focus. A synthesized
+        // otherMouseDown crashes in this windowless harness, so the test drives
+        // the convergence step directly.
         workspace.focusPanel(localPanelID)
         let hostedView = cloudPanel.surface.hostedView
         hostedView.suppressReparentFocus()
         #expect(hostedView.isSuppressingReparentFocusForLayoutFollowUp())
-        pointerView.otherMouseDown(with: try Self.middleMouseDownEvent())
+        pointerView.convergeFocusForMiddleMouseDown()
         #expect(workspace.focusedPanelId == cloudPanel.id)
         #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
         #expect(!hostedView.isSuppressingReparentFocusForLayoutFollowUp())
@@ -955,20 +958,6 @@ import SwiftUI
         let deadline = ContinuousClock.now + .seconds(5)
         while workspace.cloudMaterializationFailures[panelID] == nil, ContinuousClock.now < deadline { await Task.yield() }
         return try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
-    }
-
-    @MainActor
-    private static func middleMouseDownEvent() throws -> NSEvent {
-        let cgEvent = try #require(
-            CGEvent(
-                mouseEventSource: nil,
-                mouseType: .otherMouseDown,
-                mouseCursorPosition: .zero,
-                mouseButton: .center
-            )
-        )
-        cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-        return try #require(NSEvent(cgEvent: cgEvent))
     }
 
     @MainActor

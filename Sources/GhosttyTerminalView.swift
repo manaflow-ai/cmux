@@ -9564,14 +9564,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             reason: "otherMouseDown.preflight",
             forceButtons: Set([.middle])
         )
-        // Middle-click follows a separate AppKit path from left/right clicks.
-        // Converge the workspace pane before the portal callback can lag, so a
-        // Cloud manual mirror beside a local pane cannot accept the click while
-        // the local pane keeps the focus ring.
-        if let terminalSurface {
-            activateContainerFocusFromPointerDown()
-            terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
-        }
+        convergeFocusForMiddleMouseDown()
         terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
@@ -9586,6 +9579,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             mods: mouseState.mods
         )
         _ = markGhosttyMouseButtonPressed(.middle)
+    }
+
+    /// Middle-click follows a separate AppKit path from left/right clicks.
+    /// Converge the workspace pane before the portal callback can lag, so a
+    /// Cloud manual mirror beside a local pane cannot accept the click while
+    /// the local pane keeps the focus ring.
+    func convergeFocusForMiddleMouseDown() {
+        guard let terminalSurface else { return }
+        activateContainerFocusFromPointerDown()
+        terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
     }
 
     override func otherMouseUp(with event: NSEvent) {
