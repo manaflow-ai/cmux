@@ -3,7 +3,7 @@
   "regenerate": "python3 scripts/ci/defaults_guard.py snapshot",
   "version": 1,
   "defaults": {
-    "flag.CmuxNextApp/Handlers/PaneSplitCommand.optimisticSplitEnabled": true,
+    "flag.CmuxNextDaemonService/PaneSplitCommand.optimisticSplitEnabled": true,
     "flag.CmuxNextDesign/Motion/MotionTrace.isEnabled": false,
     "flag.CmuxNextSidebar/Views/SidebarListView+RowHold.rowHoldEnabled": false,
     "ghostty.super+alt+shift+w": "unbind",
