@@ -182,8 +182,11 @@ struct FeedWaiterRegistryTests {
     }
 
     @Test func lateAcceptedItemsCannotReplaceSessionInvalidation() throws {
-        for (requestID, status) in [("resolved", WorkstreamStatus.resolved),
-                                    ("expired", WorkstreamStatus.expired)] {
+        let lateStatuses: [(String, WorkstreamStatus)] = [
+            ("resolved", .resolved(.permission(.once), at: Date())),
+            ("expired", .expired(at: Date())),
+        ]
+        for (requestID, status) in lateStatuses {
             let registry = FeedWaiterRegistry()
             let registration = try #require(registry.register(requestID: requestID, event: event()))
             let reply = try #require(registry.invalidate(
