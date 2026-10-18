@@ -17125,6 +17125,7 @@ struct TabItemView: View, Equatable {
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
             brightenInDarkMode: settings.brightenInDarkMode,
+            unselectedFillOpacity: settings.unselectedFillOpacity,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
