@@ -1,56 +1,9 @@
-//! Remote agent session attach (`agent-session-attach-v1`): a client that
-//! shows an agent chat tab of THIS daemon's store streams the tab's acpmux
-//! session (history replay and live records) and types into it, through
-//! this daemon, which is a local client of this machine's acpmux unix
-//! socket. It is how an app on another Mac shows a chat that runs here
-//! (plans/cmux-next/remote-agent-attach.md); no acpmux port is opened.
-//!
-//! Scope: every verb names a store tab by `surface`. The tab must be an
-//! `agent_session` tab of this store with a bound session, and that session
-//! must exist in this machine's acpmux (the attach resolves it there). The
-//! verbs never take a session id, a cwd, a command, an agent name or an MCP
-//! server from the client: the session comes from the store record.
-//!
-//! Who: trusted local (Unix) connections only. That includes the SSH/server
-//! carrier, whose sidecar connects here over the same uid. The remote relay
-//! (`remote_relay/gate.rs`, the conversations-only `cmux link` entry) runs
-//! before this handler and does not list these verbs (default deny); a
-//! WebSocket client is refused here.
-//!
-//! Verbs (JSON lines, framing of every v12 command; they bypass the ordered
-//! surface queue):
-//! - `agent-session-attach {surface, after_seq?, before_seq?, limit?, kinds?}`
-//!   subscribes the connection to the tab's session and answers acpmux's
-//!   attach page `{session, events, hasMore, lastSeq}`. Again on an attached
-//!   tab it only pages.
-//! - `agent-session-events {surface, after_seq?, before_seq?, limit?, kinds?}`
-//!   pages the log of an attached tab (replay after a disconnect).
-//! - `agent-session-prompt {surface, prompt_id, text}` sends one text prompt
-//!   and answers once acpmux recorded it (`{prompt_id, turn_id, queued}`).
-//! - `agent-session-cancel {surface}` cancels the running turn.
-//! - `agent-session-permission {surface, permission_id, option_id,
-//!   decision_nonce?, person_decision?, answered_by?}` answers a permission
-//!   request acpmux announced on this attachment. The daemon never answers
-//!   one by itself, and never holds a person key: the proof fields go to
-//!   acpmux unchanged, which decides (cx-0q7o).
-//! - `agent-session-detach {surface}`.
-//!
-//! Events: `agent-session-record {surface, record}` (one acpmux record,
-//! `eventStream` form), `agent-session-permission {surface, request}`,
-//! `agent-session-changed {surface, change}` (acpmux `session_changed` of
-//! that session: status, queue), and
-//! `agent-session-closed {surface, reason}` (reasons `lagged`, `overflow`,
-//! `acpmux_closed`, `too_large`, `detached`): what the client received is a
-//! gap-free prefix of the log, so it attaches again with `after_seq` = the
-//! newest seq it holds.
-//!
-//! Bounds: 8 attachments per connection, 64 per daemon, one acpmux link per
-//! attachment with at most 16 calls in flight, pages of at most
-//! [`MAX_PAGE`] records, prompts of at most [`MAX_PROMPT_BYTES`]. Live
-//! records go to the connection's bounded outbound stream without waiting;
-//! a client that does not keep up loses the attachment (`overflow`) and
-//! replays, so nothing buffers without bound and the acpmux link is always
-//! read (acpmux's own lag is reported as `lagged`).
+//! Remote agent session attachment for trusted local Unix clients. It streams
+//! a store tab's bound acpmux session with bounded replay and live records,
+//! and can drive prompts, cancels and permission answers. Every request is
+//! scoped to the tab's stored session; remote relay and WebSocket clients are
+//! refused. Attachments have bounded pages, calls and outbound buffering, and
+//! close with a replay cursor when acpmux or the client falls behind.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -63,6 +16,8 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
+#[path = "agent_session_observe.rs"]
+pub(super) mod agent_session_observe;
 #[path = "agent_session_start.rs"]
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
@@ -191,6 +146,7 @@ struct Attachment {
     /// The session the tab's store record named at attach; the attachment
     /// ends when the record changes or the tab closes.
     record_session: String,
+    read_only: AtomicBool,
     mux: Weak<Mux>,
     link: Arc<AcpmuxLink>,
     writer: MessageWriter,
@@ -385,6 +341,8 @@ pub(crate) enum Refusal {
     /// `agent-session-start` with `require_person_key`: acpmux holds no
     /// person key for the caller's run (cx-0w0jj).
     NeedsKeyedStart,
+    ReadOnly,
+    ModeConflict,
 }
 
 impl Refusal {
@@ -408,6 +366,8 @@ impl Refusal {
             Self::AboveHome => "agent_session.above_home",
             Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
             Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
+            Self::ReadOnly => "agent_session.read_only",
+            Self::ModeConflict => "agent_session.mode_conflict",
         }
     }
 
@@ -439,6 +399,10 @@ impl Refusal {
             Self::NeedsKeyedStart => {
                 "acpmux on this machine holds no person key for this caller; restart it with one first"
             }
+            Self::ReadOnly => "this agent session attachment is read-only",
+            Self::ModeConflict => {
+                "this connection already has the same surface attached in another mode"
+            }
         }
     }
 
@@ -461,6 +425,9 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    if let Some(handled) = agent_session_observe::try_handle(mux, client, message, writer) {
+        return Some(handled);
+    }
     if !message.contains("\"agent-session-") {
         return None;
     }
@@ -489,7 +456,9 @@ pub(super) fn try_handle(
         return Some(refuse(writer, id, Refusal::Unavailable));
     };
     Some(match command {
-        AgentSessionCommand::Attach(params) => attach(mux, client, id, socket, params, writer),
+        AgentSessionCommand::Attach(params) => {
+            attach(mux, client, id, socket, params, false, writer)
+        }
         AgentSessionCommand::Detach(SurfaceParams { surface }) => {
             if let Some(attachment) = sessions.attachment(client, surface) {
                 sessions.remove(&attachment);
@@ -611,11 +580,15 @@ fn attach(
     id: Option<Value>,
     socket: PathBuf,
     params: PageParams,
+    read_only: bool,
     writer: &MessageWriter,
 ) -> bool {
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
-        // Already attached: page only, on the attachment's own link.
+        if attachment.read_only.load(Ordering::Acquire) != read_only {
+            return refuse(writer, id, Refusal::ModeConflict);
+        }
+        // Already attached in the same mode: page only, on the attachment's own link.
         return run_on_worker(mux, attachment, id, AgentSessionCommand::Attach(params), writer);
     }
     let Some(session) = tab_session(mux, params.surface) else {
@@ -653,6 +626,7 @@ fn attach(
                 surface,
                 record_session,
                 acpmux_params,
+                read_only,
                 worker_writer,
             );
         });
@@ -717,6 +691,7 @@ fn connect_and_attach(
     surface: SurfaceId,
     record_session: String,
     params: Value,
+    read_only: bool,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
@@ -784,6 +759,7 @@ fn connect_and_attach(
         surface,
         session: resolved,
         record_session,
+        read_only: AtomicBool::new(read_only),
         mux: Arc::downgrade(&mux),
         link: link.clone(),
         writer: writer.clone(),
@@ -925,6 +901,16 @@ fn run_on_worker(
         mux.control_clients.agent_sessions.remove(&attachment);
         attachment.end(Some("detached"));
         return refuse(writer, id, Refusal::UnknownTab);
+    }
+    if attachment.read_only.load(Ordering::Acquire)
+        && matches!(
+            &command,
+            AgentSessionCommand::Prompt(_)
+                | AgentSessionCommand::Cancel(_)
+                | AgentSessionCommand::Permission(_)
+        )
+    {
+        return refuse(writer, id, Refusal::ReadOnly);
     }
     // A cancel is a notification on the link and never waits.
     if let AgentSessionCommand::Cancel(_) = command {

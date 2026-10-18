@@ -5,6 +5,7 @@
 use crate::config::PermissionPolicy;
 use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::rpc::{Message, RpcError, method};
+use crate::session_identity::SessionReceipt;
 use crate::store::EventRecord;
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
@@ -45,6 +46,8 @@ pub struct Conn {
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
+    /// Server-derived mailbox identities for this connection's local attachments.
+    mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -100,6 +103,21 @@ impl Conn {
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
+    }
+    pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
+        self.mailbox_bindings.lock().unwrap().insert(receipt.mux_session_id.clone(), receipt);
+    }
+    pub(super) fn mailbox_receipt(&self, session_id: &str) -> Option<SessionReceipt> {
+        let key = session_id.strip_prefix("acp:").unwrap_or(session_id);
+        self.mailbox_bindings
+            .lock()
+            .unwrap()
+            .values()
+            .find(|receipt| key == receipt.mux_session_id || key == receipt.qualified_id())
+            .cloned()
+    }
+    pub(super) fn unbind_mailbox_receipt(&self, session_id: &str) {
+        self.mailbox_bindings.lock().unwrap().remove(session_id);
     }
     /// Subscribe with default options; keeps options already set.
     fn subscribe(&self, session_id: &str) -> bool {
@@ -677,6 +695,7 @@ async fn serve_connection_from(
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),
+        mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
