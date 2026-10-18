@@ -1,0 +1,157 @@
+import AppKit
+@testable import CmuxNextNowPlaying
+import CmuxNextSidebar
+import Foundation
+import Observation
+import Testing
+
+/// Other apps on the Now Playing card (Spotify, Music), read from macOS Now Playing through the
+/// MediaRemote adapter's JSON lines: full and diff payloads, cmux's own entries left out, the
+/// controls sent back as adapter commands, and the order among the card's sources.
+@MainActor @Suite struct SystemNowPlayingTests {
+    final class FakeAdapter: SystemNowPlayingAdapter {
+        var onLine: (@MainActor (Data) -> Void)?
+        var starts = 0, stops = 0
+        var sent: [SystemNowPlayingCommand] = []
+        func start(onLine: @escaping @MainActor (Data) -> Void) { starts += 1; self.onLine = onLine }
+        func stop() { stops += 1; onLine = nil }
+        func send(_ command: SystemNowPlayingCommand) { sent.append(command) }
+        func emit(diff: Bool, _ payload: [String: Any]) {
+            let line = try! JSONSerialization.data(withJSONObject: ["type": "data", "diff": diff, "payload": payload])
+            onLine?(line)
+        }
+    }
+
+    @Observable final class FakeSource: NowPlayingSource {
+        var nowPlaying: SidebarNowPlaying?
+        @ObservationIgnored var commands: [SidebarNowPlayingCommand] = []
+        func perform(_ command: SidebarNowPlayingCommand) { commands.append(command) }
+    }
+
+    static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
+    static let spotify: [String: Any] = [
+        "bundleIdentifier": "com.spotify.client", "title": "Weightless", "artist": "Marconi Union", "album": "Weightless",
+        "playing": true, "durationMicros": 480_000_000, "elapsedTimeMicros": 60_000_000,
+        "timestampEpochMicros": 1_800_000_000_000_000, "playbackRate": 1,
+    ]
+
+    static func line(diff: Bool, _ payload: [String: Any]) -> Data {
+        try! JSONSerialization.data(withJSONObject: ["type": "data", "diff": diff, "payload": payload])
+    }
+
+    @Test func aFullPayloadIsWhatPlays() throws {
+        var feed = SystemNowPlayingFeed()
+        #expect(feed.apply(Self.line(diff: false, Self.spotify)))
+        let report = try #require(feed.report)
+        #expect(report.bundleIdentifier == "com.spotify.client" && report.title == "Weightless" && report.artist == "Marconi Union")
+        #expect(report.isPlaying && report.duration == 480 && report.elapsed == 60 && report.rate == 1)
+        #expect(report.timestamp == Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    @Test func aDiffUpdatesAndANullRemoves() throws {
+        var feed = SystemNowPlayingFeed()
+        feed.apply(Self.line(diff: false, Self.spotify))
+        feed.apply(Self.line(diff: true, ["playing": false, "artist": NSNull(), "elapsedTimeMicros": 90_000_000]))
+        let report = try #require(feed.report)
+        #expect(report.title == "Weightless", "a diff dropped the keys it did not name")
+        #expect(!report.isPlaying && report.elapsed == 90 && report.artist.isEmpty)
+        // A full payload with no keys: nothing plays.
+        feed.apply(Self.line(diff: false, [:]))
+        #expect(feed.report == nil)
+    }
+
+    @Test func otherLinesChangeNothing() {
+        var feed = SystemNowPlayingFeed()
+        feed.apply(Self.line(diff: false, Self.spotify))
+        let before = feed
+        #expect(!feed.apply(Data("not json".utf8)))
+        #expect(!feed.apply(Data(#"{"type":"error","payload":{}}"#.utf8)))
+        #expect(feed == before)
+    }
+
+    @Test func linesSplitAcrossChunks() {
+        let splitter = AdapterLineSplitter()
+        #expect(splitter.append(Data("{\"a\":".utf8)).isEmpty)
+        let lines = splitter.append(Data("1}\n{\"b\":2}\n{\"c\"".utf8))
+        #expect(lines.map { String(decoding: $0, as: UTF8.self) } == [#"{"a":1}"#, #"{"b":2}"#])
+    }
+
+    @Test func commandsAreTheAdaptersArguments() {
+        #expect(SystemNowPlayingCommand.togglePlayPause.arguments == ["send", "2"])
+        #expect(SystemNowPlayingCommand.next.arguments == ["send", "4"])
+        #expect(SystemNowPlayingCommand.previous.arguments == ["send", "5"])
+        #expect(SystemNowPlayingCommand.seek(61.5).arguments == ["seek", "61500000"])
+        #expect(SystemNowPlayingCommand.seek(-3).arguments == ["seek", "0"])
+    }
+
+    @Test func anotherAppIsOnTheCardAndItsControlsGoBack() throws {
+        let adapter = FakeAdapter()
+        let source = SystemNowPlaying(adapter: adapter, ignoring: ["com.cmux.next"], labels: Self.labels)
+        source.run(true)
+        source.run(true)
+        #expect(adapter.starts == 1, "running twice started two streams")
+        adapter.emit(diff: false, Self.spotify)
+        let shown = try #require(source.nowPlaying)
+        #expect(shown.title == "Weightless" && shown.artist == "Marconi Union" && shown.isPlaying && shown.canSeek)
+        #expect(shown.position(at: Date(timeIntervalSince1970: 1_800_000_010)) == 70, "the position does not move on from the report")
+        source.perform(.playPause)
+        source.perform(.next)
+        source.perform(.previous)
+        source.perform(.seek(30))
+        #expect(adapter.sent == [.togglePlayPause, .next, .previous, .seek(30)])
+        source.run(false)
+        #expect(adapter.stops == 1 && source.nowPlaying == nil, "stopping kept the last track")
+        adapter.emit(diff: false, Self.spotify)
+        #expect(source.nowPlaying == nil, "a line after stopping showed")
+    }
+
+    @Test func cmuxsOwnEntriesAreLeftOut() {
+        let adapter = FakeAdapter()
+        let source = SystemNowPlaying(adapter: adapter, ignoring: ["com.cmux.next"], labels: Self.labels)
+        source.run(true)
+        var own = Self.spotify
+        own["bundleIdentifier"] = "com.cmux.next"
+        adapter.emit(diff: false, own)
+        #expect(source.nowPlaying == nil, "cmux's own Now Playing came back as another app")
+        own["bundleIdentifier"] = "com.apple.WebKit.GPU"
+        own["parentApplicationBundleIdentifier"] = "com.cmux.next"
+        adapter.emit(diff: false, own)
+        #expect(source.nowPlaying == nil, "a cmux WebKit tab came back as another app")
+        source.perform(.playPause)
+        #expect(adapter.sent.isEmpty, "a control went to cmux's own entry")
+    }
+
+    @Test func theArtworkIsASmallPNG() throws {
+        let adapter = FakeAdapter()
+        let source = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
+        source.run(true)
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 600, pixelsHigh: 600, bitsPerSample: 8,
+                                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                   bytesPerRow: 0, bitsPerPixel: 0))
+        let jpeg = try #require(bitmap.representation(using: .jpeg, properties: [:]))
+        var payload = Self.spotify
+        payload["artworkData"] = jpeg.base64EncodedString()
+        payload["artworkMimeType"] = "image/jpeg"
+        adapter.emit(diff: false, payload)
+        let png = try #require(source.nowPlaying?.artwork)
+        let image = try #require(NSBitmapImageRep(data: png))
+        #expect(image.pixelsWide == 320 && image.pixelsHigh == 320)
+    }
+
+    @Test func aPlayingAppTakesTheCardOnlyFromWhatIsPaused() {
+        let player = MusicPlayer(labels: Self.labels)
+        let tab = FakeSource(), system = FakeSource()
+        let sources = NowPlayingSources(player: player, tabs: tab, system: system)
+        system.nowPlaying = SidebarNowPlaying(title: "Spotify", isPlaying: false, labels: Self.labels)
+        #expect(sources.nowPlaying?.title == "Spotify")
+        tab.nowPlaying = SidebarNowPlaying(title: "Video", isPlaying: false, labels: Self.labels)
+        #expect(sources.nowPlaying?.title == "Video", "a paused app came before a paused tab")
+        system.nowPlaying?.isPlaying = true
+        #expect(sources.nowPlaying?.title == "Spotify", "a playing app stayed behind a paused tab")
+        sources.perform(.next)
+        #expect(system.commands == [.next] && tab.commands.isEmpty, "the control did not reach the app on the card")
+        tab.nowPlaying?.isPlaying = true
+        #expect(sources.nowPlaying?.title == "Video", "a playing tab came after another app")
+        #expect(NowPlayingSources.pick([nil, nil, nil]) == nil)
+    }
+}
