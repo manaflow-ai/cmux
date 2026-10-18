@@ -35,6 +35,9 @@ final class TabContentCache {
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
+    /// Evicted terminals' last frames (volatile IOSurfaces): shown at once when the terminal is
+    /// shown again, pictured on demand for its hover card.
+    var lastFrames: [String: TerminalLastFrame] = [:]
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
@@ -166,6 +169,7 @@ final class TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
+        if let frame = lastFrames.removeValue(forKey: tab.id) { session.showLastFrame(frame) }
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
@@ -401,6 +405,7 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        lastFrames[key] = nil
         pageThumbnails.remove(key)
         pageThumbnailVersions[key] = nil
         shownPages.remove(key)

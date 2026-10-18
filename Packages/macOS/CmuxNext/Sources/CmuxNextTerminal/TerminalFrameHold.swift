@@ -8,10 +8,13 @@ import IOSurface
 /// no frame until its renderer draws one, so a terminal shown again (a tab closed over it, a cold
 /// workspace switched back to) showed an empty pane for 2-3 frames. The old surface's last frame
 /// stays painted over the fresh one until the fresh one presents a frame drawn after the replay
-/// was parsed: the snapshot first, then live.
+/// was parsed: the snapshot first, then live. An evicted terminal shown again (a new session) shows
+/// its last frame (``TerminalLastFrame``) the same way from its first layout, until its first
+/// content is parsed and drawn.
 @MainActor
 final class TerminalFrameHold {
-    /// The longest the old frame stays: a surface that never draws shows as it is after this.
+    /// The longest the old frame stays once the content it waits for is queued: a surface that
+    /// never draws shows as it is after this.
     static let limit: Duration = .milliseconds(500)
 
     private let view = HeldFrameView()
@@ -20,6 +23,8 @@ final class TerminalFrameHold {
     /// captured before the parse can still present on the next tick, so only a change seen two
     /// ticks on counts.
     private var parsed: (frame: AnyObject?, ticks: Int)?
+    /// A last-frame hold whose surface has no content queued yet: it waits for ``contentQueued()``.
+    private var awaitingContent = false
     private var generation = 0
     private let deadline = DemandTimer(owner: "TerminalFrameHold.limit")
     private lazy var frames = FrameClient(owner: "TerminalFrameHold", isAnimation: false, scheduler: { [weak self] in
@@ -37,19 +42,44 @@ final class TerminalFrameHold {
         end()
         // Only a swap on screen: a reveal unsuspends before its geometry claim brings the replay.
         guard WindowDrawPolicy.inputs(for: fresh, suspended: fresh.isRenderingSuspended).draws,
-              let held, let lane = fresh.lane else { return }
+              let held, fresh.lane != nil else { return }
+        show(held, over: fresh, like: old.layer, in: host)
+        waitForDraw()
+    }
+
+    /// Paints `frame` (an evicted terminal's last frame) over `fresh`, a new session's first
+    /// surface, until the first content queued on its lane (``contentQueued()``) is parsed and drawn.
+    func begin(lastFrame frame: IOSurface, over fresh: TerminalSurfaceView, in host: NSView) {
+        end()
+        show(frame, over: fresh, like: fresh.layer, in: host)
+        awaitingContent = true
+    }
+
+    /// The session queued its first content on the surface's lane: a last-frame hold now waits
+    /// for it to be drawn.
+    func contentQueued() {
+        guard awaitingContent else { return }
+        awaitingContent = false
+        waitForDraw()
+    }
+
+    private func show(_ held: Any, over fresh: TerminalSurfaceView, like source: CALayer?, in host: NSView) {
         generation &+= 1
-        let generation = generation
         surface = fresh
-        view.show(held, like: old.layer, frame: fresh.frame)
+        view.show(held, like: source, frame: fresh.frame)
         // Above the surface, under the banner, scroller and find bar over it.
         host.addSubview(view, positioned: .above, relativeTo: fresh)
+    }
+
+    private func waitForDraw() {
+        guard let lane = surface?.lane else { return end() }
+        let generation = generation
         frames.activate()
         deadline.schedule(after: Self.limit) { @MainActor [weak self] in
             guard let self, self.generation == generation else { return }
             self.end()
         }
-        // Runs after the caller queued the replay on the lane: it resumes once that is parsed.
+        // Runs after the caller queued the content on the lane: it resumes once that is parsed.
         Task { [weak self] in
             await lane.drained()
             guard let self, self.generation == generation, let surface = self.surface else { return }
@@ -67,6 +97,7 @@ final class TerminalFrameHold {
         view.clear()
         surface = nil
         parsed = nil
+        awaitingContent = false
     }
 
     private func tick() -> Bool {
