@@ -10,7 +10,6 @@ import CmuxNextSettings
 enum DebugTabSwitch {
     private static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
     static var isRecording: Bool { timer.isRecording }
-
     static func began(_ owner: AnyObject) { timer.began(ObjectIdentifier(owner)) }
     static func shown(_ owner: AnyObject, in window: NSWindow?) { timer.shown(ObjectIdentifier(owner), in: window) }
 
