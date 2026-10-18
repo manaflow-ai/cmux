@@ -8,6 +8,7 @@ import {
   configurePersistentWorkspaceService,
   createPersistentWorkspacePromotionRuntimePort,
   createPersistentWorkspaceService,
+  persistentWorkspaceProviderFromCloudVm,
   type PersistentWorkspaceProvider,
   type PersistentWorkspaceRecord,
   type PersistentWorkspaceStore,
@@ -251,6 +252,30 @@ export type RequestScopedWorkspaceContext = {
 export type RequestScopedWorkspaceProviderFactory = (
   context: RequestScopedWorkspaceContext,
 ) => PersistentWorkspaceProvider | null;
+
+/**
+ * Request-scoped provider assembly inputs. The provisioner is deliberately a
+ * callback supplied by the authenticated route; it must call createVm through
+ * the normal entitlement/model-plane workflow before returning a provider VM.
+ */
+export type RequestScopedWorkspaceProviderInfrastructure = Omit<
+  Parameters<typeof persistentWorkspaceProviderFromCloudVm>[0],
+  "provisionVm"
+> & {
+  readonly provisionVm: (
+    context: RequestScopedWorkspaceContext,
+    request: Parameters<typeof persistentWorkspaceProviderFromCloudVm>[0] extends { provisionVm: (request: infer R) => unknown } ? R : never,
+  ) => Promise<{ readonly providerVmId: string }>;
+};
+
+export function createRequestScopedWorkspaceProviderFactory(
+  infrastructure: RequestScopedWorkspaceProviderInfrastructure,
+): RequestScopedWorkspaceProviderFactory {
+  return (context) => persistentWorkspaceProviderFromCloudVm({
+    ...infrastructure,
+    provisionVm: (request) => infrastructure.provisionVm(context, request),
+  });
+}
 
 /**
  * Construct a persistent workspace service for one authenticated request.
