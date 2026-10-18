@@ -196,7 +196,7 @@ body {
   background: var(--g-panel);
   color: var(--g-text);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-detail);
   text-decoration: none;
   cursor: pointer;
 }
@@ -531,7 +531,7 @@ body {
   margin: 0;
   padding: 0 12px 8px;
   color: var(--g-muted);
-  font-size: 11px;
+  font-size: var(--text-detail);
   line-height: 1.4;
 }
 .gallery-browse-variants {
