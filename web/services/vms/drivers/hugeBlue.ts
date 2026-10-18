@@ -112,6 +112,8 @@ export class HugeBlueProvider implements VMProvider {
       route: bounded(this.env.HUGE_BLUE_CMUX_REMOTE_URL, "HUGE_BLUE_CMUX_REMOTE_URL", 1024),
       token: bounded(this.env.HUGE_BLUE_CMUX_REMOTE_TOKEN, "HUGE_BLUE_CMUX_REMOTE_TOKEN", 1024),
       session: bounded(this.env.HUGE_BLUE_CMUX_REMOTE_SESSION, "HUGE_BLUE_CMUX_REMOTE_SESSION") ?? "cloud",
+      cmuxTuiBin: bounded(this.env.HUGE_BLUE_CMUX_TUI_BIN, "HUGE_BLUE_CMUX_TUI_BIN") ?? "/home/leo/.local/bin/cmux-tui",
+      cmuxAgentBin: bounded(this.env.HUGE_BLUE_CMUX_AGENT_BIN, "HUGE_BLUE_CMUX_AGENT_BIN") ?? "/home/leo/.local/bin/cmux",
     };
   }
 
@@ -154,9 +156,12 @@ export class HugeBlueProvider implements VMProvider {
     if (!vmId || !command || /[\u0000]/.test(command)) throw new ProviderError("huge-blue", "exec requires a VM id and command");
     const config = this.config();
     try {
+      const commandForHost = command
+        .replaceAll("/usr/local/bin/cmux-tui", config.cmuxTuiBin)
+        .replaceAll("/usr/local/bin/cmux", config.cmuxAgentBin);
       return await this.runCommand({
         host: config.host,
-        command,
+        command: commandForHost,
         options: { user: config.user, identityFile: config.identityFile, proxyCommand: config.proxyCommand, timeoutMs: timeout(opts?.timeoutMs), stdin: opts?.stdin ? Buffer.from(opts.stdin.base64(), "base64") : undefined },
       });
     } catch (cause) {
