@@ -898,9 +898,17 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertEqual(job["env"]["CMUX_GHOSTTY_SRC"], "")
         runs = [step.get("run", "") for step in job["steps"]]
         tier = next(i for i, run in enumerate(runs) if "scripts/cmux-next/fast-tier.py" in run)
-        init = next(i for i, run in enumerate(runs) if "git submodule update --init" in run and "ghostty-next" in run)
+        init = next(i for i, run in enumerate(runs)
+                    if "scripts/ci/init-submodule.sh ghostty-next" in run
+                    or ("git submodule update --init" in run and "ghostty-next" in run))
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
         self.assertLess(max(init, zig), tier)
+
+    def test_fast_tier_uses_bounded_ghostty_initialization(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        init = next(step for step in job["steps"]
+                    if "scripts/ci/init-submodule.sh ghostty-next" in step.get("run", ""))
+        self.assertIn("scripts/ci/init-submodule.sh ghostty-next", init["run"])
 
     def test_fast_tier_reuses_ghostty_next_instead_of_deinitializing_every_submodule(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
