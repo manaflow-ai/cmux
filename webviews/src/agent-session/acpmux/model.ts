@@ -69,6 +69,8 @@ export type AcpmuxRow = {
   inFlight?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
+  /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
+  doing?: string;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).

@@ -1015,6 +1015,54 @@ pre.cv-math-source {
   margin-top: 3px;
   margin-left: 2px;
 }
+/* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
+.cv-worked__doing {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-worked__time {
+  flex: none;
+  margin-left: 6px;
+}
+/* The working mark (WorkingMark.tsx): three accent dots that pulse in turn, centred on the 20px
+   line; with Reduce Motion on they hold at full strength. */
+.cv-working-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin-right: 6px;
+}
+.cv-working-mark > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-accent, currentColor);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-working-mark > span {
+    animation: cv-working-dot 1.2s ease-in-out infinite;
+  }
+  .cv-working-mark > span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .cv-working-mark > span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+@keyframes cv-working-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
 @keyframes cv-thinking-sweep {
   from {
