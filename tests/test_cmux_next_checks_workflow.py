@@ -927,6 +927,34 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
                     if "scripts/ci/init-submodule.sh ghostty-next" in step.get("run", ""))
         self.assertIn("scripts/ci/init-submodule.sh ghostty-next", init["run"])
 
+    def test_fast_tier_restores_shared_build_caches_and_only_seeds_on_push(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        steps = job["steps"]
+        restores = [step for step in steps if "cache-restore" in str(step.get("uses", ""))]
+        saves = [step for step in steps if "cache-save" in str(step.get("uses", ""))]
+        self.assertEqual(len(restores), 2)
+        self.assertEqual(len(saves), 2)
+        self.assertTrue(any("Packages/Shared/CmuxHomeRender/.build" in str(step.get("with", {}).get("path", ""))
+                            for step in restores))
+        self.assertTrue(any("cmux-tui/target" in str(step.get("with", {}).get("path", ""))
+                            for step in restores))
+        for step in restores + saves:
+            self.assertIn(step.get("with", {}).get("backend"), ("r2", "${{ vars.CI_CACHE_BACKEND || 'r2' }}"))
+        cargo_steps = [step for step in steps if "Cargo fast-tier cache" in step.get("name", "")]
+        for step in cargo_steps:
+            self.assertIn("!contains(runner.name, '-glaeda')", step.get("if", ""))
+        for save in saves:
+            self.assertIn("github.event_name == 'push'", save.get("if", ""))
+            self.assertIn("refs/heads/feat-cmux-next", save.get("if", ""))
+
+    def test_fast_tier_emits_a_json_timing_receipt(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        run = next(step for step in job["steps"] if "scripts/cmux-next/fast-tier.py" in step.get("run", ""))
+        self.assertIn("--receipt", run["run"])
+        upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", "")))
+        self.assertEqual(upload.get("if"), "always()")
+        self.assertIn("github.run_attempt", upload["with"]["name"])
+
     def test_fast_tier_reuses_ghostty_next_instead_of_deinitializing_every_submodule(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
         checkouts = [step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")]
