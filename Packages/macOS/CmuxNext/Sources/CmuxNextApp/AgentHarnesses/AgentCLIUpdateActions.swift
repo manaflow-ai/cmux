@@ -20,9 +20,18 @@ final class AgentCLIUpdateActions {
         let inventory: @MainActor () async throws -> AcpmuxHarnessInventory
         let start: @MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobReceipt
         let observe: @MainActor (AgentCLIJobReceipt) async throws -> AgentCLIJobStatus
+        var resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)? = nil
+    }
+
+    struct Persistence {
+        let record: @MainActor ([AgentCLIUpdateIntent]) async throws -> Void
+        let list: @MainActor () async throws -> [AgentCLIStoredIntent]
+        let attach: @MainActor (AgentCLIUpdateIntent, AgentCLIJobReceipt) async throws -> Void
     }
 
     private let capture: @MainActor (ActionInvocation) throws -> Route
+    private let persistence: Persistence?
+    private let captureRecovered: @MainActor (ResourceID, ResourceID) throws -> Route
     private var intents: [String: Intent] = [:]
 
     @Observable final class Intent {
@@ -40,8 +49,19 @@ final class AgentCLIUpdateActions {
         }
     }
 
-    init(capture: @escaping @MainActor (ActionInvocation) throws -> Route) {
+    init(capture: @escaping @MainActor (ActionInvocation) throws -> Route, persistence: Persistence? = nil,
+         captureRecovered: @escaping @MainActor (ResourceID, ResourceID) throws -> Route = { _, _ in throw DaemonError.notConnected }) {
         self.capture = capture
+        self.persistence = persistence
+        self.captureRecovered = captureRecovered
+    }
+
+    /// Restores only the original owner/key and reads its creation receipt.
+    func recover() async throws {}
+
+    /// Explicit user consent can resume a previously recorded, unstarted intent.
+    func resumeRetained(key: String, context: PageCallContext, registry: ActionRegistry) async throws -> JSONValue {
+        throw PageError.unavailable(AgentHarnessStrings.unsupported)
     }
 
     func bind(into registry: ActionRegistry) {
