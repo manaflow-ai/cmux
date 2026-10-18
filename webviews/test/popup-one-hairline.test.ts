@@ -157,7 +157,7 @@ describe("web popups draw one hairline edge", () => {
       ".acpmux-effort-menu",
       ".acpmux-chat-menu-popover",
       ".acpmux-pr-status",
-      ".acpmux-summary-card",
+      ".acpmux-summary-card[data-placement=popover]",
       ".lg-palette",
       ".acpmux-file-menu-list",
       ".nt-popover",

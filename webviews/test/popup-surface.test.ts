@@ -124,7 +124,10 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
+<div class="acpmux-shell">
+<div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div>
+<div class="acpmux-summary-card" data-placement="inline" id="summary-inline">Inline summary</div>
+</div>
 <div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
     surfaces: [
@@ -197,6 +200,20 @@ ${tooltips}`,
         const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
         for (const id of ids) seen[id] = await look(id);
         expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));
+        await page.close();
+      });
+
+      test("the inline summary rail stays flat while only the popover uses popup chrome", async () => {
+        const page = await open(browser, pane);
+        const style = await page.$eval("#summary-inline", (node) => {
+          const computed = getComputedStyle(node);
+          return {
+            background: computed.backgroundColor,
+            radius: computed.borderTopLeftRadius,
+            shadow: computed.boxShadow,
+          };
+        });
+        expect(style).toEqual({ background: "rgba(25, 23, 36, 0)", radius: "0px", shadow: "none" });
         await page.close();
       });
 

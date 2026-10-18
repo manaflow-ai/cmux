@@ -6,9 +6,9 @@
 .acpmux-summary-button:hover,.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
+.acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;color:var(--agent-text);font-size:var(--text-control);line-height:18px}
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
-.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 300px;min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg)}
+.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 300px;min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:0;background:var(--agent-page-bg);box-shadow:none}
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
 .acpmux-main[data-summary=inline]{min-width:0}
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */

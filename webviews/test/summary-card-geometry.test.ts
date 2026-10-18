@@ -7,6 +7,9 @@ const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux
 test("summary keeps inline and popover geometry separate", () => {
   expect(css).toContain(".acpmux-summary-card[data-placement=inline]");
   expect(css).toContain(".acpmux-summary-card[data-placement=popover]");
+  expect(css).toContain(".acpmux-summary-card[data-placement=inline]{position:relative");
+  expect(css).toContain("border-radius:0");
+  expect(css).toContain("box-shadow:none");
   expect(css).toContain("@keyframes acpmux-summary-popover-in");
   expect(css).toContain(".acpmux-summary-card[data-placement=inline] .acpmux-summary-card__body");
 });
