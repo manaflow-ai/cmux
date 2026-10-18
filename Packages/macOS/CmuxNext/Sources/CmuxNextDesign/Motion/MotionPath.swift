@@ -88,12 +88,32 @@ public struct MotionPath {
 
     /// A keyframe animation of `values` at `times` (from `times[0]`, which is now, to the last), in
     /// `layer`'s time: linear between frames (`discrete`: each value holds until the next time). Pairs
-    /// with `MotionPath` samples so a dependent layer follows a moving one frame by frame.
-    public static func keyframes(_ keyPath: String, values: [Any], times: [CFTimeInterval], on layer: CALayer, discrete: Bool = false) -> CAKeyframeAnimation? {
+    /// with `MotionPath` samples so a dependent layer follows a moving one frame by frame. `steps`: the
+    /// indices i after which the value jumps instead of moving (a layout that changes form between
+    /// samples i and i + 1 holds value i until time i + 1, as a discrete value does).
+    public static func keyframes(_ keyPath: String, values: [Any], times: [CFTimeInterval], on layer: CALayer, discrete: Bool = false,
+                                 steps: Set<Int> = []) -> CAKeyframeAnimation? {
         guard values.count == times.count, values.count > 1, let first = times.first, let last = times.last, last > first else { return nil }
         let animation = CAKeyframeAnimation(keyPath: keyPath)
         let span = last - first
         let keyTimes = times.map { NSNumber(value: ($0 - first) / span) }
+        if !discrete, !steps.isEmpty {
+            var stepped: [Any] = [], stepTimes: [NSNumber] = []
+            for index in values.indices {
+                stepped.append(values[index])
+                stepTimes.append(keyTimes[index])
+                if steps.contains(index), index + 1 < values.count {
+                    stepped.append(values[index])
+                    stepTimes.append(keyTimes[index + 1])
+                }
+            }
+            animation.values = stepped
+            animation.calculationMode = .linear
+            animation.keyTimes = stepTimes
+            animation.beginTime = layer.convertTime(first, from: nil)
+            animation.duration = span
+            return animation
+        }
         if discrete {
             // One more key time than values: value i holds from time i to time i + 1; the model shows after.
             animation.values = Array(values.dropLast())

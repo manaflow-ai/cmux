@@ -99,7 +99,8 @@ public final class TitleFade {
     /// a relayout per frame would. The text keeps one width the whole way (its glyphs never stretch or
     /// redraw); the mask carries the clip and the fade. Call inside a transaction with actions
     /// disabled, with no marquee running; `apply` ends it (the row at rest).
-    public func follow(_ samples: [Sample?], times: [CFTimeInterval]) {
+    /// `steps`: the samples after which the row changes form (`MotionPath.keyframes`).
+    public func follow(_ samples: [Sample?], times: [CFTimeInterval], steps: Set<Int> = []) {
         stopFollowing()
         guard let target = samples.last(where: { $0 != nil }) ?? nil else { return }
         let shown = samples.compactMap(\.self)
@@ -129,7 +130,7 @@ public final class TitleFade {
         let masks = filled.map { maskFrame($0.geometry) }
         let stops = filled.map { locations($0.geometry) }
         func add(_ keyPath: String, _ values: [Any], to layer: CALayer, changes: Bool) {
-            guard changes, let animation = MotionPath.keyframes(keyPath, values: values, times: times, on: layer) else { return }
+            guard changes, let animation = MotionPath.keyframes(keyPath, values: values, times: times, on: layer, steps: steps) else { return }
             layer.add(animation, forKey: Self.followKey + keyPath)
         }
         add("position", positions.map { NSValue(point: $0) }, to: textLayer, changes: Set(positions.map(\.x)).count > 1 || Set(positions.map(\.y)).count > 1)
