@@ -695,10 +695,10 @@
    shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
 .acpmux-composer-box {
   background: var(--acpmux-composer-surface);
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim, inset 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-box:has(:focus-visible) {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim, inset 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
   background: var(--agent-accent, var(--agent-text));
