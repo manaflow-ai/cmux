@@ -10,7 +10,17 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -424,6 +427,7 @@
+@@ -187,7 +190,8 @@
+         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
+         caretLayer.removeAnimation(forKey: "blink")
+         caretLayer.opacity = 1
+-        if Self.solidCaret { return }
++        // cmux: under Reduce Motion the caret holds solid (cx-sya4n: nothing loops).
++        if Self.solidCaret || MessagesLabHomeView.reducesMotion { return }
+         let a = CAKeyframeAnimation(keyPath: "opacity")
+         a.calculationMode = .discrete
+         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
+@@ -424,6 +428,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -18,7 +28,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -940,11 +944,11 @@
+@@ -940,11 +945,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in

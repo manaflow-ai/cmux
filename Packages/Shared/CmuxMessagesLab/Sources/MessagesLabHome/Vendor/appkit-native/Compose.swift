@@ -190,7 +190,8 @@ final class FieldTextView: NSTextView {
         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
         caretLayer.removeAnimation(forKey: "blink")
         caretLayer.opacity = 1
-        if Self.solidCaret { return }
+        // cmux: under Reduce Motion the caret holds solid (cx-sya4n: nothing loops).
+        if Self.solidCaret || MessagesLabHomeView.reducesMotion { return }
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.calculationMode = .discrete
         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.

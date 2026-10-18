@@ -84,15 +84,17 @@ struct UpdateSheetView: View {
 }
 
 /// The indeterminate-progress symbol effect: rotate on macOS 15 and newer,
-/// pulse on macOS 14 (no rotate effect there).
+/// pulse on macOS 14 (no rotate effect there). Still while loops are off
+/// (Reduce Motion or `ui.animationSpeed` off; cx-sya4n: nothing loops).
 private struct IndeterminateSymbolEffect: ViewModifier {
     let isActive: Bool
 
     func body(content: Content) -> some View {
+        let runs = isActive && Motion.animatesLoops
         if #available(macOS 15, *) {
-            content.symbolEffect(.rotate, isActive: isActive)
+            content.symbolEffect(.rotate, isActive: runs)
         } else {
-            content.symbolEffect(.pulse, isActive: isActive)
+            content.symbolEffect(.pulse, isActive: runs)
         }
     }
 }
