@@ -56,6 +56,10 @@ Runtime test: AgentQueueTests/aFailedTurnHoldsTheQueue() in https://github.com/m
 
 The check re-runs when the description is edited, so adding the lines turns it green.
 
+Until 2026-10-21 00:00 UTC the check is advisory: a missing item is a warning and the check
+passes, so pull requests already in flight have time to add their evidence. After that it blocks
+merge.
+
 ## Ship risky behavior dark
 
 A high-tier change that a user would notice lands behind a setting or Debug toggle that defaults

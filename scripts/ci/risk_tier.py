@@ -122,6 +122,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 GENERATED = (
     "*.xcstrings", "*/Resources/agent-pane/*", "Resources/markdown-viewer/*", "*.lock",
     "*/ci-target-graph.json", "*.pbxproj", "*-lock.json", "*/generated/*", "*.generated.*",
+    "*.sha256", "schemas/settings-export/*", "schemas/settings/settings-schema.json",
 )
 
 PROOF_HEADING = re.compile(r"^##+\s*(proof|screenshots?|evidence)\b", re.I | re.M)
@@ -300,12 +301,13 @@ def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = f
 
 
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
-                   now: float | None = None) -> dict[int, list[str]]:
+                   now: float | None = None, unread: list[str] | None = None) -> dict[int, list[str]]:
     """Pull requests (other than `own`) merged in the last RECENT_DAYS whose change to a file this
     pull request takes back, from `git blame` of the base: {pr number: [paths]}. The base's history
     only needs to reach RECENT_DAYS back; older lines blame to the shallow boundary and are skipped.
     Editing recent lines is ordinary; deleting what a recent commit added and restoring what it
-    replaced is how a stale base undoes someone's work."""
+    replaced is how a stale base undoes someone's work. Files git couldn't read in time are
+    appended to `unread`, so the report can say what went unchecked."""
     cutoff = (now or time.time()) - RECENT_DAYS * 86400
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
@@ -322,8 +324,10 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
         try:
             out = subprocess.run([*args, base_sha, "--", path], capture_output=True, text=True, timeout=30)
         except subprocess.TimeoutExpired:
-            continue
-        if out.returncode != 0:
+            out = None
+        if out is None or out.returncode != 0:
+            if unread is not None:
+                unread.append(path)
             continue
         commits: dict[str, dict[str, str]] = {}
         current = None
@@ -346,6 +350,8 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                 shown = subprocess.run(["git", "-C", repo_dir, "show", "--format=", sha, "--", path],
                                        capture_output=True, text=True, timeout=30).stdout
             except subprocess.TimeoutExpired:
+                if unread is not None:
+                    unread.append(path)
                 continue
             if undoes(patch, shown, added_anywhere):
                 found.setdefault(int(number.group(1)), []).append(path)
@@ -364,12 +370,17 @@ def pr_mode(args: argparse.Namespace) -> int:
     labels = {label["name"] for label in pr.get("labels", [])}
     grade = classify(files, lines)
     if args.repo_dir:
-        undone = recent_reverts(entries, args.repo_dir, pr["base"]["sha"], int(args.number))
+        unread: list[str] = []
+        undone = recent_reverts(entries, args.repo_dir, pr["base"]["sha"], int(args.number), unread=unread)
         for number, paths in sorted(undone.items()):
             grade.reasons.setdefault(f"high: takes back #{number}'s change from the last {RECENT_DAYS} days "
                                      "(a stale base? say so if it's on purpose)", []).extend(paths)
         if undone:
             grade.tier = "high"
+        if unread:
+            # Not a reason to raise the tier, but never silent: the reviewer checks these by hand.
+            grade.reasons.setdefault(f"{grade.tier}: the recent-revert check couldn't read these in time, "
+                                     "so check them by hand", []).extend(sorted(set(unread)))
     missing = missing_evidence(grade.tier, pr.get("body") or "", commits)
     # Only consulted when evidence is missing; a lookup that fails reads as no waiver.
     waiver = None

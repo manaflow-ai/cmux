@@ -40,13 +40,15 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci/risk_tier.py
           sparse-checkout-cone-mode: false
-      # The base's last week of history, without file contents until blame asks for them, for the
-      # check that flags deleting lines another pull request added recently (a stale base).
+      # The base's last 9 days of history, for the check that flags taking back a change another
+      # pull request merged recently (a stale base). Full blobs: a blobless fetch made blame fetch
+      # them one by one, past its timeout on busy files (about 55 s and 278 MB this way, then
+      # blame takes well under a second).
       - name: Fetch the base's recent history
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          git fetch --no-tags --filter=blob:none --shallow-since="9 days ago" origin \
+          git fetch --no-tags --shallow-since="9 days ago" origin \
             "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" || echo "::warning::recent-deletion check skipped: base history unavailable"
       - name: Grade the pull request
         id: grade
@@ -73,10 +75,18 @@ jobs:
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
           done
           grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+      # Advisory until ENFORCE_FROM, so pull requests already in flight can add their evidence:
+      # until then a missing item is a warning and the check passes.
       - name: Require the tier's evidence
         if: steps.grade.outputs.ready != 'true'
         env:
           TIER: ${{ steps.grade.outputs.tier }}
+          ENFORCE_FROM: "2026-10-21T00:00:00Z"
         run: |
+          if [ "$(date -u +%s)" -lt "$(date -u -d "$ENFORCE_FROM" +%s)" ]; then
+            echo "::warning::risk:$TIER needs more evidence in the description; this is advisory until $ENFORCE_FROM, then it blocks merge. The job summary lists it."
+            echo "Advisory until $ENFORCE_FROM: this check passes now and blocks merge after that." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           echo "::error::risk:$TIER needs more evidence in the description before merge; the job summary lists it."
           exit 1
