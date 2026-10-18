@@ -140,10 +140,23 @@ final class CloudMachineProgressView: NSView {
         }
     }
 
+    /// In a window and not hidden (a parked workspace stays in its window): only then it ticks.
+    private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        ticker.cancel()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if isShown, !creation.stage.isFinished, !ticker.isScheduled { tick() }
+    }
+
     /// The elapsed line, once a second while the creation runs.
     private func tick() {
         renderElapsed()
-        guard window != nil, !creation.stage.isFinished else { return }
+        guard isShown, !creation.stage.isFinished else { return }
         ticker.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.tick() }
     }
 
@@ -177,7 +190,7 @@ final class CloudMachineProgressView: NSView {
         buttons.isHidden = stage.failure == nil
         typingLabel.isHidden = stage.failure != nil
         renderElapsed()
-        if stage.isFinished { ticker.cancel() } else if window != nil, !ticker.isScheduled { tick() }
+        if stage.isFinished { ticker.cancel() } else if isShown, !ticker.isScheduled { tick() }
         setAccessibilityLabel([titleLabel.stringValue, CloudStrings.stage(stage), detailLabel.stringValue].joined(separator: ". "))
     }
 

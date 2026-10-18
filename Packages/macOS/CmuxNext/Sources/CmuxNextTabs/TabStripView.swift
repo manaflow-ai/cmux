@@ -290,16 +290,22 @@ public final class TabStripView: NSView {
             tokenObservationTask = nil
             motionClock?.stop(self)
             motionClock = nil
-            groupEditor.hide()
-            overflowHints.hide()
-            groups.holdTask?.cancel()
-            escapeMonitor.remove()
-            closingWatch.end()
-            // Closing mode belongs to this window's pointer; the strip in another window lays out fully.
-            closingModeWidth = nil
-            menuTracking.end()
-            buttonReveal.pointerInStrip = false
+            endPointerState()
         }
+    }
+
+    /// The strip leaves sight (its window, or hidden in it): its editor panel, hint and pointer
+    /// state end, since it gets no exit while hidden. Closing mode belongs to this window's
+    /// pointer; the strip shown again lays out fully.
+    private func endPointerState() {
+        groupEditor.hide()
+        overflowHints.hide()
+        groups.holdTask?.cancel()
+        escapeMonitor.remove()
+        closingWatch.end()
+        closingModeWidth = nil
+        menuTracking.end()
+        buttonReveal.pointerInStrip = false
     }
 
     public override func viewDidHide() {
@@ -323,7 +329,10 @@ public final class TabStripView: NSView {
         hoverCards.unregister(hoverCard)
         windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
-        guard shown else { return }
+        guard shown else {
+            if window != nil { endPointerState() }
+            return
+        }
         hoverCards.register(hoverCard)
         if appearanceIsStale {
             appearanceIsStale = false

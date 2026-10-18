@@ -170,7 +170,7 @@ final class CEFTabContentView: NSView {
     /// The pane shows this parked tab again: it takes the host view.
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        guard let tab, window != nil else { return }
+        guard let tab, window != nil, !isHiddenOrHasHiddenAncestor else { return }
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
     }

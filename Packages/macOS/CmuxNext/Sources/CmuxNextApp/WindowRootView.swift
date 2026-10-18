@@ -318,7 +318,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// leaves the window). Other content leaves the window.
     private func withdraw(_ view: NSView) {
         guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) {
+        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view),
+           !window.makeFirstResponder(nil) {
+            // A field editor that refuses to resign while it validates: end the edit, then resign.
+            window.endEditing(for: nil)
             window.makeFirstResponder(nil)
         }
         view.isHidden = true
