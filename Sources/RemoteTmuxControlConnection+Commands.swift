@@ -84,6 +84,7 @@ extension RemoteTmuxControlConnection {
         // rename (same convention as `rename-session`).
         guard let target = sessionId.map({ "$\($0)" })
             ?? RemoteTmuxHost.controlModeLineSafeName(sessionName)
+                .flatMap(RemoteTmuxHost.exactSessionTarget)
                 .map(RemoteTmuxHost.shellSingleQuoted)
         else { return }
         var pairs = mirrorEnvironment

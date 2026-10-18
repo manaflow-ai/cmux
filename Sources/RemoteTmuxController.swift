@@ -743,7 +743,9 @@ final class RemoteTmuxController {
         // Target by the stable session id when known, so the rename can't race a
         // prior rename's name.
         guard let target = mirror.connection.sessionId.map({ "$\($0)" })
-            ?? RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
+            ?? RemoteTmuxHost.controlModeLineSafeName(oldName)
+                .flatMap(RemoteTmuxHost.exactSessionTarget)
+                .map(RemoteTmuxHost.shellSingleQuoted)
         else { return }
         _ = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
         // Do not re-key local state here. tmux can reject a rename (for example
@@ -1144,7 +1146,7 @@ final class RemoteTmuxController {
                 _ = removeSessionMirror(forKey: key)
                 mirror.detachObserver()
                 detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
-                if let target = mirror.connection.sessionId.map({ "$\($0)" })
+                if let target = (mirror.connection.sessionId ?? mirror.seededSessionId).map({ "$\($0)" })
                     ?? RemoteTmuxHost.exactSessionTarget(mirror.sessionName) {
                     jobs.append((transport(for: host), target))
                 }
@@ -1202,7 +1204,7 @@ final class RemoteTmuxController {
         // chrome must not kill the remote session (#7364).
         let killTarget = Self.workspaceCloseKillTarget(
             connectionExited: mirror.connection.exited,
-            sessionId: mirror.connection.sessionId,
+            sessionId: mirror.connection.sessionId ?? mirror.seededSessionId,
             sessionName: sessionName
         )
         _ = removeSessionMirror(forKey: entry.key)
