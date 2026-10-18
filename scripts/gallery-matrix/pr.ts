@@ -89,7 +89,7 @@ const evidenceReceipt = (dir: string, label: string, manifest?: string, captureM
     if (captureManifest) throw new Error(`${label} matrix has malformed capture receipt`);
     return undefined;
   }
-  if (receipt.quality !== "pass" || receipt.results?.status !== "complete")
+  if (receipt.quality !== "pass" || receipt.results?.status !== "complete" || receipt.results.count !== receipt.results.expected || !receipt.results.expected || receipt.results.expected < 1)
     throw new Error(`${label} capture receipt is not complete quality evidence`);
   const manifestForReceipt = captureManifest ?? manifest;
   const manifestCount = manifestForReceipt ? (JSON.parse(readFileSync(manifestForReceipt, "utf8")) as ManifestCase[]).length : 0;
