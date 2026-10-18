@@ -7,6 +7,7 @@ import { initialNetworkBody } from "./initial-network.ts";
 import { makeUpstreamHttp } from "./live-http.ts";
 import { resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, type UpstreamClientService } from "./client.ts";
 import type { UpstreamConfig } from "./live.ts";
+import { pendingVmCreationEvidenceOf } from "../proofs/vm-creation.ts";
 import { upstreamName } from "./naming.ts";
 
 const Receipt = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields, slug: Schema.String, metadata: Schema.Record({ key: Schema.String, value: Schema.String }), snapshotId: Schema.optional(Schema.NullOr(Schema.String)) });
@@ -36,10 +37,16 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       ...initialNetworkBody(network),
       ...((sourceId ?? imageId ?? baseImageFor(spec.size)) === null ? {} : { snapshotId: sourceId ?? imageId ?? baseImageFor(spec.size) }),
     };
-    metadata["cmux_create"] = yield* digest(JSON.stringify(body));
+    const request = yield* digest(JSON.stringify(body));
+    metadata["cmux_create"] = request;
     const context = yield* digest(JSON.stringify([config.baseUrl, Redacted.value(config.apiKey), body]));
     if (journal.context !== null && journal.context !== context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
-    yield* journal.beforeSend(context);
+    yield* journal.beforeSend(context, {
+      provider: yield* digest(JSON.stringify(["provider", config.baseUrl, Redacted.value(config.apiKey), config.environment])),
+      environment: config.environment,
+      request,
+      ...((sourceId ?? imageId) === null ? {} : { source: yield* digest(JSON.stringify(["source", sourceId ?? imageId])) }),
+    });
     const checked = (vm: typeof Receipt.Type) => {
       if (!vm.id || vm.slug !== slug || !Object.entries(metadata).every(([k, v]) => vm.metadata[k] === v) ||
         ((sourceId ?? imageId) !== null && vm.snapshotId !== (sourceId ?? imageId)) || vm.idleTimeoutSeconds !== spec.idleTimeoutSeconds) return Effect.fail(new UpstreamError({ operation: "createVmReceipt", status: null }));
@@ -80,5 +87,31 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       );
     };
     return { upstreamId: created.id, vm: created, discard, grow };
+  });
+};
+
+/** Recovery performs one exact-slug GET. Absent or unfinished VMs retain their intent and quota. */
+export const makeRecoverCreation = (config: UpstreamConfig): UpstreamClientService["recoverCreation"] => {
+  const http = makeUpstreamHttp(config);
+  return (caller, vm, { pending }) => Effect.gen(function* () {
+    const retained = pendingVmCreationEvidenceOf(pending);
+    const { probe, receipt, floors } = retained.intent;
+    const provider = yield* digest(JSON.stringify(["provider", config.baseUrl, Redacted.value(config.apiKey), config.environment]));
+    if (probe.provider !== provider || probe.environment !== config.environment) return yield* Effect.fail(new UpstreamError({ operation: "recoverCreateContext", status: null }));
+    const slug = `cmux-vm-${config.environment}-${vm.value.replace("_", "-")}`;
+    const found = yield* http.json("recoverCreateVm", "GET", `/v5/vms/${encodeURIComponent(slug)}`).pipe(
+      Effect.flatMap(Schema.decodeUnknown(Receipt)), Effect.map(Option.some),
+      Effect.catchAll((error) => error instanceof UpstreamError && error.status === 404 ? Effect.succeed(Option.none<typeof Receipt.Type>()) : Effect.fail(new UpstreamError({ operation: "recoverCreateVm", status: null }))),
+    );
+    if (Option.isNone(found)) return null;
+    const machine = found.value;
+    if (machine.slug !== slug || machine.metadata["cmux_id"] !== vm.value || machine.metadata["cmux_env"] !== probe.environment
+      || (caller.value.tenantId.length <= 63 && machine.metadata["cmux_tenant"] !== caller.value.tenantId)
+      || (retained.createdBy.length <= 63 && machine.metadata["cmux_actor"] !== retained.createdBy)
+      || machine.metadata["cmux_create"] !== probe.request || machine.idleTimeoutSeconds !== receipt.idleTimeoutSeconds
+      || (probe.source !== undefined && (machine.snapshotId === undefined || machine.snapshotId === null || (yield* digest(JSON.stringify(["source", machine.snapshotId]))) !== probe.source))) {
+      return yield* Effect.fail(new UpstreamError({ operation: "recoverCreateReceipt", status: null }));
+    }
+    return resourceFloorsReached(machine, floors) ? { upstreamId: machine.id } : null;
   });
 };

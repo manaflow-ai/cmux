@@ -33,3 +33,19 @@ it("admits only one simultaneous claimant to the last quota slot on the real sto
   const results = await Promise.all([stub.reserve("vm", 1, 0, 0, "a"), stub.reserve("vm", 1, 0, 0, "b")]);
   expect(results.filter((r) => r.ok)).toHaveLength(1);
 });
+
+
+it("decodes retained creation evidence and settles it after lease expiry across native RPC", async () => {
+  const tenant = TenantId.make(crypto.randomUUID()), stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  const now = Date.now(), vmId = "vm_00000000000000000000000001";
+  await stub.begin("creation", "request", now);
+  await stub.reserve("vm", 1, 0, now, "held");
+  expect(await stub.advance("creation", { phase: "creating", vmId, reservationId: "held", context: "opaque", createdBy: "service:team-vm" }, now + 1)).toBe(true);
+  expect(await stub.settleCreation("creation", "wrong", now + IDEMPOTENCY_TTL_MS)).toBe(false);
+  const layer = durableObjectLimitsLayer(env.TENANT_LIMITS);
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, layer));
+  expect((await Effect.runPromise(limits.inspect(tenant, "creation")))?.progress).toMatchObject({ phase: "creating", vmId });
+  expect(await stub.settleCreation("creation", vmId, now + IDEMPOTENCY_TTL_MS)).toBe(true);
+  expect((await Effect.runPromise(limits.inspect(tenant, "creation")))?.progress).toEqual({ phase: "done", vmId });
+  expect(await stub.reserve("vm", 1, 0, now + IDEMPOTENCY_TTL_MS + 1, "free")).toMatchObject({ ok: true });
+});

@@ -19,6 +19,8 @@ export interface Requirement {
 }
 
 export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
+  { table: "cmux_vm.resources", column: "creation_key", migration: "0010" },
+  { table: "cmux_vm.resources", column: "creation_receipt", migration: "0010" },
   { table: "cmux_vm.resources", migration: "0001" },
   { table: "cmux_vm.api_keys", migration: "0001" },
   { table: "cmux_vm.resources", column: "display_name", migration: "0002" },

@@ -20,6 +20,7 @@ import {
   Unauthorized,
 } from "./errors.ts";
 import { SnapshotId, VmId } from "./lib/ids.ts";
+import { VmCreationsGroupDefinition } from "./api/creations.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
@@ -518,6 +519,7 @@ export class FilesGroup extends HttpApiGroup.make("files")
 export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(HealthGroup)
   .add(VmsGroup)
+  .add(VmCreationsGroupDefinition.middleware(Authentication))
   .add(ExecGroup)
   .add(FilesGroup)
   .add(SnapshotsGroupDefinition.middleware(Authentication))

@@ -48,6 +48,23 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    pub fn creation(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationStatus = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let value: serde_json::Value = decode(body)?;
+        for field in ["state", "id"] {
+            let text = value[field]
+                .as_str()
+                .unwrap_or("unknown")
+                .escape_debug()
+                .to_string();
+            self.line(&format!("{field:<11}{text}"))?;
+        }
+        Ok(())
+    }
+
     pub fn retired(&mut self, body: &[u8], id: &str) -> Result<(), CliError> {
         if self.json {
             self.raw_json(body)

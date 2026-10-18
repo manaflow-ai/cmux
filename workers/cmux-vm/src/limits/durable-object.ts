@@ -8,6 +8,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   TenantLedger,
   type LedgerStorage,
+  type IdempotencyRecord,
   type IdempotencyBegin,
   type IdempotencyProgress,
   type RateClass,
@@ -24,6 +25,13 @@ const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): Ledg
 
 export class TenantLimitsObject extends DurableObject {
   private readonly ledger = new TenantLedger(storageOf(this.ctx.storage));
+
+  inspect(key: string): Promise<IdempotencyRecord | null> { return this.ledger.inspect(key); }
+
+  async settleCreation(key: string, vmId: string, nowMs: number): Promise<boolean> {
+    try { await this.ledger.settleCreation(key, vmId, nowMs); return true; }
+    catch { return false; }
+  }
 
   creationReservation(key: string, vmId: string): Promise<string | null> { return this.ledger.creationReservation(key, vmId); }
 

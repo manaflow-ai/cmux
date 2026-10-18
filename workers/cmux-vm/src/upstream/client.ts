@@ -1,3 +1,5 @@
+import type { PendingVmCreation } from "../proofs/vm-creation.ts";
+import type { VmCreationProbe } from "../domain/vm-creation.ts";
 /**
  * The upstream VM provider, as handlers see it: the service tag, its
  * proof-demanding interface and the provider shapes handlers read. The
@@ -66,7 +68,7 @@ export interface CreateVmSpec {
   /** Private effect journal: persist only the opaque request/context digest before provider I/O. */
   readonly journal?: {
     readonly context: string | null;
-    readonly beforeSend: (context: string) => Effect.Effect<void, UpstreamError>;
+    readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
   };
   readonly cmuxId: VmId;
   readonly idleTimeoutSeconds: number;
@@ -142,6 +144,7 @@ export interface UpstreamClientService {
    * carry the tenant id and the cmux id. With `source`, it boots from that
    * snapshot of the tenant's.
    */
+  readonly recoverCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly pending: PendingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
   readonly createVm: <C, S = never>(
     caller: Named<C, Principal>,
     spec: CreateVmSpec,

@@ -78,6 +78,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Inspect or reconcile an original VM creation without allocating another VM
+    #[command(subcommand)]
+    Creation(CreationCommand),
     /// Create a VM
     Create(CreateArgs),
     /// Grow an existing VM to at least the requested resources
@@ -114,6 +117,21 @@ enum Command {
     /// Read guest file metadata without starting the VM
     #[command(subcommand)]
     File(FileCommand),
+}
+
+#[derive(Subcommand, Debug)]
+enum CreationCommand {
+    /// Read retained creation intent and ownership without provider I/O
+    Get(CreationArgs),
+    /// Recover the original allocation; never creates, starts or grows a VM
+    Reconcile(CreationArgs),
+}
+
+#[derive(Args, Debug)]
+struct CreationArgs {
+    /// The original creation's idempotency key
+    #[arg(long)]
+    idempotency_key: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -502,6 +520,23 @@ async fn dispatch(
                 )));
             }
             out.vm(&response)
+        }
+        Command::Creation(command) => {
+            let body = match command {
+                CreationCommand::Get(args) => {
+                    let key = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_get_vm_creation(&key, None)).await?
+                }
+                CreationCommand::Reconcile(args) => {
+                    let key = parse_key::<types::VmCreationsReconcileVmCreationIdempotencyKey>(
+                        &args.idempotency_key,
+                    )?;
+                    fetch_body(client.vm_creations_reconcile_vm_creation(&key, None)).await?
+                }
+            };
+            out.creation(&body)
         }
         Command::Image(ImageCommand::List) => {
             let images = fetch_body(client.vms_list_vm_images(None)).await?;

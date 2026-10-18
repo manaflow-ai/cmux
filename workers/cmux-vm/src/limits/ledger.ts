@@ -5,9 +5,10 @@
  * run the same code.
  *
  * Nothing here holds a secret, a command or a provider id: idempotency records
- * keep only a request fingerprint and public cmux ids.
+ * keep request/provider digests, public creation intent and public cmux ids.
  */
 import { Schema } from "effect";
+import { RetainedVmCreation } from "../domain/vm-creation.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
 export interface LedgerStorage {
@@ -41,7 +42,7 @@ export type RateDecision = typeof RateDecision.Type;
 const Progress = Schema.Union(
   Schema.Struct({ phase: Schema.Literal("claimed") }),
   Schema.Struct({ phase: Schema.Literal("pending") }),
-  Schema.Struct({ phase: Schema.Literal("creating"), vmId: Schema.String, reservationId: Schema.String, context: Schema.String, createdBy: Schema.String, snapshotId: Schema.optional(Schema.String) }),
+  Schema.Struct({ phase: Schema.Literal("creating"), vmId: Schema.String, reservationId: Schema.String, context: Schema.String, createdBy: Schema.String, snapshotId: Schema.optional(Schema.String), intent: Schema.optional(RetainedVmCreation) }),
   Schema.Struct({ phase: Schema.Literal("snapshotted"), snapshotId: Schema.String }),
   Schema.Struct({ phase: Schema.Literal("done"), vmId: Schema.String }),
   Schema.Struct({ phase: Schema.Literal("snapshotDone"), snapshotId: Schema.String }),
@@ -69,13 +70,15 @@ export type ReserveDecision = typeof ReserveDecision.Type;
 
 const Bucket = Schema.Struct({ tokens: Schema.Number, updatedMs: Schema.Number });
 
-const IdempotencyRecord = Schema.Struct({
+export const IdempotencyRecord = Schema.Struct({
   fingerprint: Schema.String,
   progress: Progress,
   /** While pending: when the claim lapses if its request died. */
   leaseUntilMs: Schema.Number,
   expiresMs: Schema.Number,
 });
+
+export type IdempotencyRecord = typeof IdempotencyRecord.Type;
 
 const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number, retained: Schema.optional(Schema.Boolean) });
 
@@ -102,6 +105,22 @@ export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 
 export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
+
+  /** Read only: inspecting an expired record never drops a retained allocation. */
+  async inspect(key: string): Promise<IdempotencyRecord | null> {
+    return checked(isRecord, await this.storage.get(`idem:${key}`)) ?? null;
+  }
+
+  /** Called only after ownership has committed, including a lost completion receipt. */
+  async settleCreation(key: string, vmId: string, nowMs: number): Promise<void> {
+    await this.storage.transaction(async (storage) => {
+      const record = checked(isRecord, await storage.get(`idem:${key}`));
+      if (record?.progress.phase === "done" && record.progress.vmId === vmId) return;
+      if (record?.progress.phase !== "creating" || record.progress.vmId !== vmId) throw new Error("allocation intent changed");
+      await storage.delete(`reserve:${record.progress.reservationId}`);
+      await storage.put(`idem:${key}`, { ...record, progress: { phase: "done", vmId }, leaseUntilMs: nowMs, expiresMs: Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) });
+    });
+  }
 
   /** Token bucket per class: `perMinute` tokens, refilled continuously. */
   async rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision> {
@@ -198,7 +217,7 @@ export class TenantLedger {
       if (record.leaseUntilMs <= nowMs) throw new Error("idempotency claim expired");
       if (record.progress.phase === "creating") {
         const prior = record.progress;
-        if (progress.phase === "creating" && (progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId || progress.context !== prior.context || progress.createdBy !== prior.createdBy || progress.snapshotId !== prior.snapshotId)) throw new Error("allocation intent changed");
+        if (progress.phase === "creating" && (progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId || progress.context !== prior.context || progress.createdBy !== prior.createdBy || progress.snapshotId !== prior.snapshotId || (prior.intent !== undefined && JSON.stringify(progress.intent) !== JSON.stringify(prior.intent)))) throw new Error("allocation intent changed");
         if (progress.phase !== "creating" && (progress.phase !== "done" || progress.vmId !== prior.vmId)) throw new Error("allocation intent cannot be replaced");
         if (progress.phase === "done") await storage.delete(`reserve:${prior.reservationId}`);
       }

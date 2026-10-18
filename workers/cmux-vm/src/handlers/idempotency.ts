@@ -1,5 +1,6 @@
 /** The tenant ledger keeps digests and public VM ids, never request bodies. */
 import { Effect } from "effect";
+import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import type { Principal } from "../domain/principal.ts";
 import { conflict, unavailable } from "../errors.ts";
 import type { IdempotencyProgress } from "../limits/ledger.ts";
@@ -21,7 +22,7 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
 ) => Effect.gen(function* () {
   if (key === undefined) return yield* run(null, null);
   const limits = yield* TenantLimits;
-  const scoped = `${yield* fingerprint(principal.actor.kind === "service" ? ["service", principal.actor.serviceId, key] : ["key", key])}`;
+  const scoped = yield* scopedCreationKey(principal, key);
   const claim = yield* limits.begin(principal.tenantId, scoped, yield* fingerprint(request)).pipe(Effect.mapError(() => unavailable()));
   switch (claim.state) {
     case "mismatch":

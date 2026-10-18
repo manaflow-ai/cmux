@@ -131,6 +131,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const getKey = createLocalJWKSet({ keys: [jwk] });
 
   const ownership = Layer.succeed(OwnershipStore, {
+    findCreation: (tenantId, key) => Effect.sync(() => {
+      const row = [...resources].reverse().find((r) => r.tenantId === tenantId && r.kind === "vm" && r.creation?.key === key);
+      return row?.creation === undefined ? null : { receipt: row.creation.receipt, labels: row.labels, createdBy: row.createdBy, deleted: deleted.has(row.cmuxId) };
+    }),
     allocationStatus: (tenantId, cmuxId) => Effect.sync(() => {
       const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
       return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : "live" as const;
@@ -142,7 +146,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     record: (resource) => Effect.gen(function* () {
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       const existing = resources.find((r) => r.cmuxId === resource.cmuxId);
-      if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
+      if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || existing.createdBy !== resource.createdBy || existing.displayName !== resource.displayName || JSON.stringify(existing.labels) !== JSON.stringify(resource.labels) || JSON.stringify(existing.creation) !== JSON.stringify(resource.creation) || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
       if (!existing) resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
       if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
     }),

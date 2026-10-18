@@ -18,6 +18,7 @@ import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { idempotent } from "./idempotency.ts";
+import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
 import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
@@ -158,11 +159,19 @@ const createRecorded = <C, S>(
     const cmuxId = parsed.value;
     const createdBy = attempt?.prior?.phase === "creating" ? attempt.prior.createdBy : actorRef(caller.value.actor);
     const limits = yield* TenantLimits;
+    const createdAt = new Date(yield* Clock.currentTimeMillis);
+    let intent: RetainedVmCreation | undefined = attempt?.prior?.phase === "creating" ? attempt.prior.intent : undefined;
     const journal = attempt === undefined ? undefined : {
       context: attempt.prior?.phase === "creating" ? attempt.prior.context : null,
-      beforeSend: (context: string) => limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
-        Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
-      ),
+      beforeSend: (context: string, probe: VmCreationProbe) => {
+        intent ??= { receipt: { id: cmuxId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds,
+          ...(proofs.image === undefined ? {} : { bootImage: vmImageEvidenceOf(proofs.image).receipt }),
+          ...(proofs.network === undefined ? {} : { initialNetwork: vmNetworkEvidenceOf(proofs.network).receipt }),
+        }, probe, floors: spec.size ?? {}, createdAt: createdAt.toISOString() };
+        return limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, intent, ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
+          Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
+        );
+      },
     };
     const created = yield* upstream
       .createVm(
@@ -191,7 +200,6 @@ const createRecorded = <C, S>(
                 : attempt === undefined ? conflict("The VM could not be grown to the requested size; nothing was kept") : unavailable(),
             ),
           );
-    const createdAt = new Date(yield* Clock.currentTimeMillis);
     yield* store
       .record({
         tenantId: caller.value.tenantId,
@@ -199,7 +207,8 @@ const createRecorded = <C, S>(
         cmuxId,
         upstreamId: created.upstreamId,
         createdBy,
-        createdAt,
+        createdAt: intent === undefined ? createdAt : new Date(intent.createdAt),
+        ...(attempt === undefined || intent === undefined ? {} : { creation: { key: attempt.key, receipt: intent.receipt } }),
         displayName: spec.displayName,
         labels: spec.labels,
       })
@@ -240,7 +249,7 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && prior?.phase === "creating" ? { key, vmId: prior.vmId } : undefined;
 
-const cleanupForkSnapshot = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, snapshotId: string) => Effect.gen(function* () {
+export const cleanupForkSnapshot = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, snapshotId: string) => Effect.gen(function* () {
   const parsed = parseSnapshotId(snapshotId);
   if (Option.isNone(parsed)) return;
   yield* name(parsed.value, (snapshot) => Effect.gen(function* () {

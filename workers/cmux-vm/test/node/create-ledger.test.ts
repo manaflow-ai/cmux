@@ -59,3 +59,15 @@ it("does not reinterpret an expired legacy pending record as permission for a ne
   expect(await ledger.begin("legacy", "original", IDEMPOTENCY_TTL_MS + 2)).toEqual({ state: "in_progress" });
   expect(await ledger.begin("legacy", "changed", IDEMPOTENCY_TTL_MS + 2)).toEqual({ state: "mismatch" });
 });
+
+
+it("inspects without claiming or renewing and settles committed ownership after the original lease expired", async () => {
+  const { ledger } = await held();
+  expect((await ledger.inspect("key"))?.leaseUntilMs).toBe(600001);
+  expect(await ledger.inspect("unknown")).toBeNull();
+  await expect(ledger.settleCreation("key", "different", IDEMPOTENCY_TTL_MS + 2)).rejects.toThrow("intent changed");
+  expect(await ledger.reserve("vm", 1, 0, IDEMPOTENCY_TTL_MS + 2, "other")).toEqual({ ok: false });
+  await ledger.settleCreation("key", "vm_00000000000000000000000001", IDEMPOTENCY_TTL_MS + 3);
+  expect((await ledger.inspect("key"))?.progress).toEqual({ phase: "done", vmId: "vm_00000000000000000000000001" });
+  expect(await ledger.reserve("vm", 1, 0, IDEMPOTENCY_TTL_MS + 4, "other")).toMatchObject({ ok: true });
+});

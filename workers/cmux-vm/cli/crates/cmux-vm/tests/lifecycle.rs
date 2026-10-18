@@ -1662,3 +1662,65 @@ async fn identity_checks_presence_only_when_requested_and_requires_a_receipt() {
         }
     }
 }
+
+#[tokio::test]
+async fn creation_status_and_reconcile_send_only_the_original_key() {
+    for (verb, http_method, route) in [
+        ("get", "GET", "/v1/vm-creations/by-key"),
+        ("reconcile", "POST", "/v1/vm-creations/by-key/reconcile"),
+    ] {
+        let server = MockServer::start().await;
+        let receipt = json!({"state":"pending", "id":VM_ID});
+        Mock::given(method(http_method))
+            .and(path(route))
+            .and(authorized())
+            .and(header("idempotency-key", "original-create"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let out = cli(
+            &server,
+            &[
+                "--json",
+                "creation",
+                verb,
+                "--idempotency-key",
+                "original-create",
+            ],
+        )
+        .await;
+        assert_eq!(out.code, exit::OK, "{}", out.stderr);
+        assert_eq!(json_stdout(&out), receipt);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn creation_reconcile_retains_pending_and_reports_missing_without_retry() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vm-creations/by-key/reconcile"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"_tag":"NotFound", "message":"VM creation not found"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "reconcile",
+            "--idempotency-key",
+            "unknown",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::NOT_FOUND, "{}", out.stderr);
+    let invalid = cli(&server, &["creation", "get", "--idempotency-key", ""]).await;
+    assert_eq!(invalid.code, exit::USAGE, "{}", invalid.stderr);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}

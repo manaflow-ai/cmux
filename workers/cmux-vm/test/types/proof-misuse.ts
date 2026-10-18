@@ -1,3 +1,4 @@
+import { pendingVmCreation } from "../../src/proofs/vm-creation.ts";
 /**
  * Compile-time checks, enforced by `tsc` (this file is in tsconfig's include).
  * Each `@ts-expect-error` line is a call the type checker must refuse; if one
@@ -172,5 +173,23 @@ export const resizeMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effe
       // @ts-expect-error another caller's entitlement cannot authorize this resize
       yield* upstream.resizeVm(a, { owns, scope, mayGrow: otherPlan }, { vcpus: 8 });
     }));
+  }));
+});
+
+
+export const creationRecoveryMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effect.gen(function* () {
+  const upstream = yield* UpstreamClient;
+  yield* name(principal, vmA, vmB, (caller, a, b) => Effect.gen(function* () {
+    const pending = yield* pendingVmCreation(caller, a, "intent");
+    const scope = keyHasScope(caller, "vm:write");
+    const read = keyHasScope(caller, "vm:read");
+    if (pending === null || scope === null || read === null) return;
+    yield* upstream.recoverCreation(caller, a, { pending, scope });
+    // @ts-expect-error VM A's intent cannot authorize recovering VM B
+    yield* upstream.recoverCreation(caller, b, { pending, scope });
+    // @ts-expect-error read scope cannot record recovered ownership
+    yield* upstream.recoverCreation(caller, a, { pending, scope: read });
+    // @ts-expect-error ordinary write permission cannot adopt a provider allocation
+    yield* upstream.recoverCreation(caller, a, { scope });
   }));
 });

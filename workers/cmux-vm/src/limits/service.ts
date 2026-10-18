@@ -8,6 +8,7 @@ import type { TenantId } from "../lib/ids.ts";
 import type { TenantLimitsObject } from "./durable-object.ts";
 import {
   IdempotencyBegin,
+  IdempotencyRecord,
   memoryLedgerStorage,
   RateDecision,
   ReserveDecision,
@@ -21,6 +22,8 @@ import {
 export class LimitsUnavailable extends Data.TaggedError("LimitsUnavailable")<{ readonly cause: unknown }> {}
 
 export interface TenantLimitsService {
+  readonly inspect: (tenantId: TenantId, key: string) => Effect.Effect<IdempotencyRecord | null, LimitsUnavailable>;
+  readonly settleCreation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly creationReservation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<string | null, LimitsUnavailable>;
   readonly rate: (tenantId: TenantId, rateClass: RateClass, rule: RateRule) => Effect.Effect<RateDecision, LimitsUnavailable>;
   readonly reserve: (tenantId: TenantId, kind: string, limit: number, liveCount: number) => Effect.Effect<ReserveDecision, LimitsUnavailable>;
@@ -38,6 +41,8 @@ export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimi
 
 /** The ledger operations, whether a Durable Object stub or an in-process ledger. */
 interface LedgerHandle {
+  inspect(key: string): Promise<IdempotencyRecord | null>;
+  settleCreation(key: string, vmId: string, nowMs: number): Promise<void>;
   creationReservation(key: string, vmId: string): Promise<string | null>;
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision>;
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
@@ -55,6 +60,8 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
       Effect.tryPromise({ try: () => run(ledgerFor(tenantId), nowMs), catch: (cause) => new LimitsUnavailable({ cause }) }),
     );
   return {
+    inspect: (tenantId, key) => call((ledger) => ledger.inspect(key))(tenantId),
+    settleCreation: (tenantId, key, vmId) => call((ledger, now) => ledger.settleCreation(key, vmId, now))(tenantId),
     creationReservation: (tenantId, key, vmId) => call((ledger) => ledger.creationReservation(key, vmId))(tenantId),
     rate: (tenantId, rateClass, rule) => call((ledger, now) => ledger.rate(rateClass, rule, now))(tenantId),
     reserve: (tenantId, kind, limit, liveCount) =>
@@ -83,6 +90,10 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
     makeService((tenantId): LedgerHandle => {
       const stub = namespace.get(namespace.idFromName(tenantId));
       return {
+        inspect: (key) => decoded(Schema.NullOr(IdempotencyRecord))(stub.inspect(key)),
+        settleCreation: async (key, vmId, nowMs) => {
+          if (!await decoded(Schema.Boolean)(stub.settleCreation(key, vmId, nowMs))) throw new Error("allocation settlement was not confirmed");
+        },
         creationReservation: (key, vmId) => decoded(Schema.NullOr(Schema.String))(stub.creationReservation(key, vmId)),
         rate: (rateClass, rule, nowMs) => decoded(RateDecision)(stub.rate(rateClass, rule, nowMs)),
         reserve: (kind, limit, liveCount, nowMs, reservationId) =>

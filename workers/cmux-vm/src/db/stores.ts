@@ -5,9 +5,11 @@
  */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { ApiKeyId, ResourceKind, TenantId, UpstreamId } from "../lib/ids.ts";
+import { VmCreationReceipt } from "../api/creations.ts";
 import { SqlClient, StoreError, type SqlParam } from "./sql.ts";
 
 export interface OwnedResource {
+  readonly creation?: { readonly key: string; readonly receipt: VmCreationReceipt };
   readonly tenantId: TenantId;
   readonly kind: ResourceKind;
   readonly cmuxId: string;
@@ -59,6 +61,7 @@ export interface ApiKeyRecord {
 }
 
 export interface OwnershipStoreService {
+  readonly findCreation: (tenantId: TenantId, key: string) => Effect.Effect<{ readonly receipt: VmCreationReceipt; readonly labels: Readonly<Record<string, string>>; readonly createdBy: string; readonly deleted: boolean } | null, StoreError>;
   /** Recovery must distinguish a tombstone from an allocation never recorded. No private IDs leave this read. */
   readonly allocationStatus: (tenantId: TenantId, cmuxId: string) => Effect.Effect<"absent" | "live" | "deleted", StoreError>;
   /** The caller's own resource of this kind, or none. */
@@ -141,6 +144,10 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
     const sql = yield* SqlClient;
 
     const ownership: OwnershipStoreService = {
+      findCreation: (tenantId, key) => sql.query("ownership.findCreation", `SELECT creation_receipt::text AS receipt, labels::text AS labels, created_by, deleted_at IS NOT NULL AS deleted FROM cmux_vm.resources WHERE tenant_id = $1 AND creation_key = $2 AND kind = 'vm' ORDER BY created_at DESC, cmux_id DESC LIMIT 1`, [tenantId, key]).pipe(
+        Effect.flatMap(decodeRows(Schema.Struct({ receipt: Schema.parseJson(VmCreationReceipt), labels: Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.String })), created_by: Schema.String, deleted: Schema.Boolean }), "ownership.findCreation")),
+        Effect.map((rows) => rows[0] === undefined ? null : ({ receipt: rows[0].receipt, labels: rows[0].labels, createdBy: rows[0].created_by, deleted: rows[0].deleted })),
+      ),
       allocationStatus: (tenantId, cmuxId) => sql.query("ownership.allocationStatus", `SELECT deleted_at IS NOT NULL AS deleted FROM cmux_vm.resources WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'vm' LIMIT 1`, [tenantId, cmuxId]).pipe(
         Effect.flatMap(decodeRows(Schema.Struct({ deleted: Schema.Boolean }), "ownership.allocationStatus")),
         Effect.map((rows) => rows[0] === undefined ? "absent" as const : rows[0].deleted ? "deleted" as const : "live" as const),
@@ -169,16 +176,20 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           resource.createdAt.toISOString(),
           resource.displayName,
           JSON.stringify(resource.labels),
+          resource.creation?.key ?? null,
+          resource.creation === undefined ? null : JSON.stringify(resource.creation.receipt),
         ];
         return sql
           .query(
             "ownership.record",
-            `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb)
+            `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels, creation_key, creation_receipt)
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb, $9, $10::text::jsonb)
              ON CONFLICT (cmux_id) DO UPDATE SET cmux_id = EXCLUDED.cmux_id
              WHERE resources.tenant_id = EXCLUDED.tenant_id AND resources.kind = EXCLUDED.kind
                AND resources.upstream_id = EXCLUDED.upstream_id AND resources.created_by = EXCLUDED.created_by
                AND resources.display_name IS NOT DISTINCT FROM EXCLUDED.display_name AND resources.labels = EXCLUDED.labels
+               AND resources.creation_key IS NOT DISTINCT FROM EXCLUDED.creation_key
+               AND resources.creation_receipt IS NOT DISTINCT FROM EXCLUDED.creation_receipt
                AND resources.deleted_at IS NULL
              RETURNING cmux_id`,
             params,
