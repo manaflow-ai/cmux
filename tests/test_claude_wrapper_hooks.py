@@ -94,6 +94,7 @@ def spool_producer_command(agent: str, subcommand: str, fallback: str) -> str:
         [
             "LC_ALL=C",
             f"export {pid_key}=${{{pid_key}:-$PPID}}",
+            "export CMUX_AGENT_HOOK_INVOKER_PID=$PPID",
             'cmux_fallback() { { print -rn -- "$cmux_p"; /bin/cat; } | /bin/sh -c "$1" >&3; exit $?; }',
             'zmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c "$1" >&3',
             "cmux_p= cmux_c= cmux_e=0",
