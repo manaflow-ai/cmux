@@ -971,6 +971,7 @@ import SwiftUI
         return try #require(NSEvent(cgEvent: cgEvent))
     }
 
+    @MainActor
     private struct Harness {
         let appDelegate: AppDelegate
         let windowId: UUID
