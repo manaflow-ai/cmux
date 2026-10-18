@@ -241,16 +241,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 :root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
   --acpmux-composer-edge-focus: transparent;
 }
-.acpmux-composer-box:focus-within {
+.acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-strip,
-.nt-composer:has(.nt-box:focus-within) .acpmux-composer-strip {
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-strip,
+.nt-composer:has(.nt-box :focus-visible) .acpmux-composer-strip {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   box-shadow:
     inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
@@ -277,14 +277,14 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 @media (prefers-contrast: more) {
   .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
-.acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+.acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
 }
 /* Under Increase Contrast the edge is already the text color, so the step above would not show:
    the box takes the shared focus ring, following its rounded corners. */
 @media (prefers-contrast: more) {
-  .acpmux-composer-box:focus-within,
-  .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+  .acpmux-composer-box:has(:focus-visible),
+  .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }

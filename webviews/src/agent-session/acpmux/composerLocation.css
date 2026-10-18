@@ -536,7 +536,7 @@
   background: var(--acpmux-composer-surface);
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer-box:focus-within {
+.acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
@@ -651,7 +651,7 @@
   border-radius: 12px 12px 5px 5px;
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
-:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="bump"] .acpmux-composer:not([data-shell]):not(:has(> .acpmux-composer-strip)):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   --acpmux-queue-edge: var(--acpmux-composer-edge-focus);
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
@@ -675,7 +675,7 @@
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-strip::after { content: none; }
 :root[data-top-strip="plain"] .acpmux-composer-strip .acpmux-composer-context { padding: 0; }
 :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   margin: 0 var(--acpmux-top-strip-edge) var(--acpmux-strip-gap);
   padding: 0;
   border-radius: 0;
@@ -727,7 +727,7 @@
 /* A started chat's queue is the tray: the same inset, tuck, corners, fill and edge. Over a new
    chat's strip it is the tray's top, flush on the strip. */
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue,
-:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   --acpmux-composer-tray: var(--acpmux-top-tray);
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
@@ -735,7 +735,7 @@
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
 }
-:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus);
 }
 :root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
