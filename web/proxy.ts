@@ -144,6 +144,12 @@ function handleHostAndMachineRoutes(
     return NextResponse.next();
   }
 
+  // Server downloads and their 404s are machine responses, independent of
+  // language, sign-in cookies and page canonicalization.
+  if (pathname === "/server" || pathname.startsWith("/server/")) {
+    return NextResponse.next();
+  }
+
   // coderouter has one hostname-independent landing page. In particular,
   // cmux.com/coderouter must not be rewritten to /<locale>/coderouter, because
   // the page deliberately lives outside the localized cmux site tree.
