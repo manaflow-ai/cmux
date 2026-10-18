@@ -24,9 +24,11 @@ public final class SidebarSameTurn {
     /// marks the rows pass, which walks every workspace.
     public func observe<Value: Sendable>(listsRows: Bool = false, _ compute: @escaping @MainActor @Sendable () -> Value,
                                   apply: @escaping @MainActor @Sendable (Value) -> Void) {
-        passes.append((listsRows, { apply(compute()) }))
+        // The rows pass's walk counts as a rebuild (`debug.sidebar_perf`, `debug.new_workspace` walks).
+        let evaluate: @MainActor @Sendable () -> Value = listsRows ? { @MainActor @Sendable in SidebarView.countRebuild(); return compute() } : compute
+        passes.append((listsRows, { apply(evaluate()) }))
         // A trigger: `syncNow` applies outside the stream too, and `apply` compares with what it applied.
-        tasks.append(Task { for await value in ObservationStream({ ObservationTrigger(compute()) }) { apply(value.value) } })
+        tasks.append(Task { for await value in ObservationStream({ ObservationTrigger(evaluate()) }) { apply(value.value) } })
     }
 
     /// Runs the passes in order (rows, then selection) and draws the sidebar now. `rows` false

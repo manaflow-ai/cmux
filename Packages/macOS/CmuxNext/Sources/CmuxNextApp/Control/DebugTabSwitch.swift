@@ -13,12 +13,5 @@ enum DebugTabSwitch {
     static func began(_ owner: AnyObject) { timer.began(ObjectIdentifier(owner)) }
     static func shown(_ owner: AnyObject, in window: NSWindow?) { timer.shown(ObjectIdentifier(owner), in: window) }
 
-    static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        switch params["action"]?.stringValue ?? "read" {
-        case "start": timer.start()
-        case "stop": timer.stop()
-        default: break
-        }
-        return ["recording": .bool(timer.isRecording), "switches": .array(timer.samples.map { .object($0.mapValues { JSONValue.number($0) }) })]
-    }
+    static func handle(_ params: [String: JSONValue]) -> JSONValue { timer.handle(params, key: "switches") }
 }
