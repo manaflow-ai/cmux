@@ -41,7 +41,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .system(let path): return Self.systemTitle(path)
         case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
-        case .collage(let id): return BackdropCollages.default?.collage(id)?.name ?? BackdropCollages.untitled
+        case .collage(let id): return BackdropCollages.default?.name(id).flatMap { $0.isEmpty ? nil : $0 } ?? BackdropCollages.untitled
         }
     }
 

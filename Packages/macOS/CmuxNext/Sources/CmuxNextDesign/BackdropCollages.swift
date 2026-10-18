@@ -1,5 +1,6 @@
 public import Foundation
 public import CoreGraphics
+import CmuxNextCompat
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -41,8 +42,9 @@ public nonisolated struct BackdropCollage: Codable, Equatable, Sendable {
 }
 
 /// The person's collages: `Backgrounds/Collages/<id>.json` and the picture drawn from it,
-/// `<id>.png`, which the window shows like any image. A saved edit gets a new id (and its old
-/// files go), so no cache ever shows an earlier drawing under the same id.
+/// `<id>.png`, which the window shows like any image. A saved edit gets a new id, so no cache
+/// ever shows an earlier drawing under the same id; the old one is removed only once nothing
+/// shows it (the Settings page switches to the new id first).
 public nonisolated struct BackdropCollages: Sendable {
     /// Why a collage cannot be saved; `code` is what the Settings page shows.
     public nonisolated struct SaveError: Error, Equatable, Sendable {
@@ -92,32 +94,54 @@ public nonisolated struct BackdropCollages: Sendable {
         return try? JSONDecoder().decode(BackdropCollage.self, from: data)
     }
 
-    /// Every collage drawn, newest first.
-    public func list(fileManager: FileManager = .default) -> [BackdropSelection] {
-        let files = (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        return files.filter { $0.pathExtension == "png" && Self.isValidID($0.deletingPathExtension().lastPathComponent) }
-            .map { url in (url, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-            .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.lastPathComponent < $1.0.lastPathComponent }
-            .map { BackdropSelection.collage(id: $0.0.deletingPathExtension().lastPathComponent) }
+    /// A collage's name, read once: an id never changes what it names.
+    public func name(_ id: String) -> String? {
+        let key = folder.path + "/" + id
+        if let known = Self.names.withLock({ $0[key] }) { return known }
+        guard let name = collage(id)?.name else { return nil }
+        Self.names.withLock { $0[key] = name }
+        return name
     }
 
-    /// Draws and saves `collage` under a new id, removing `replacing`'s files once it is saved.
-    /// A layer must name a still picture (not a video, the desktop or another collage) and lie on
-    /// the canvas; at most ``maximumLayers``, at least one that draws.
-    public func save(_ collage: BackdropCollage, replacing: String? = nil) throws -> String {
+    private static let names = Mutex<[String: String]>([:])
+
+    /// Every collage drawn, newest first. A drawing without its record (an interrupted save,
+    /// before the record was written) is not a collage.
+    public func list(fileManager: FileManager = .default) -> [BackdropSelection] {
+        let files = (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        var drawn: [(id: String, modified: Date)] = []
+        for url in files where url.pathExtension == "png" {
+            let id = url.deletingPathExtension().lastPathComponent
+            guard Self.isValidID(id), let record = recordURL(id), fileManager.fileExists(atPath: record.path) else { continue }
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            drawn.append((id, modified))
+        }
+        drawn.sort { lhs, rhs in lhs.modified != rhs.modified ? lhs.modified > rhs.modified : lhs.id < rhs.id }
+        return drawn.map { BackdropSelection.collage(id: $0.id) }
+    }
+
+    /// Draws and saves `collage` under a new id: the record first, then the drawing through a
+    /// temporary file, so a listed drawing always has its record. A layer must name a still
+    /// picture (not a video, the desktop or another collage) and lie on the canvas; at most
+    /// ``maximumLayers``, at least one that draws. An edit's old collage stays until removed.
+    public func save(_ collage: BackdropCollage) throws -> String {
         guard collage.layers.count <= Self.maximumLayers, collage.name.count <= 100, Self.color(collage.fill) != nil,
               collage.layers.allSatisfy(Self.isValid) else { throw SaveError.invalid }
         guard let image = Self.render(collage) else { throw SaveError.noPictures }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let id = "c-" + UUID().uuidString.lowercased().prefix(13).replacingOccurrences(of: "-", with: "")
-        guard let png = imageURL(id), let record = recordURL(id),
-              let destination = CGImageDestinationCreateWithURL(png as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+        guard let png = imageURL(id), let record = recordURL(id) else { throw SaveError.invalid }
+        let partial = folder.appendingPathComponent(".\(id).png.partial")
+        guard let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.png.identifier as CFString, 1, nil) else {
             throw SaveError.invalid
         }
         CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        guard CGImageDestinationFinalize(destination) else {
+            try? FileManager.default.removeItem(at: partial)
+            throw CocoaError(.fileWriteUnknown)
+        }
         try JSONEncoder().encode(collage).write(to: record, options: .atomic)
-        if let replacing, replacing != id { try? delete(replacing) }
+        try FileManager.default.moveItem(at: partial, to: png)
         return id
     }
 

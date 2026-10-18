@@ -11,7 +11,7 @@ public import Foundation
 ///   the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
 /// - `cmux.settings.backdrop.image.reveal {id?}`: shows the image, or the folder, in Finder.
 /// - `cmux.settings.backdrop.image.usage`: `{bytes}` the folder's own images take.
-/// - `cmux.settings.backdrop.image.collage.save {collage, replacing?}`: draws and saves a collage
+/// - `cmux.settings.backdrop.image.collage.save {collage}`: draws and saves a collage
 ///   (``BackdropCollages``); `{id}`, the page then sets `collage:<id>` like any choice.
 /// - `cmux.settings.backdrop.image.collage.get {id}` / `.collage.delete {id}` (never the one in use).
 /// - `cmux.settings.backdrop.image.adjust`: places the picture a window shows by hand
@@ -60,8 +60,8 @@ public final class BackdropImagesPageProvider: PageProvider {
             return ["id": .string(try await use(file))]
         case Self.prefix + "remove":
             let selection = try own(params)
-            // Removing the background in use would leave every window blank.
-            guard selection != inUse() else {
+            // Removing a background something shows would leave its windows blank.
+            guard !isShown(selection) else {
                 throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
             }
             let images = images
@@ -82,10 +82,9 @@ public final class BackdropImagesPageProvider: PageProvider {
             let invalid = PageError(code: BackdropCollages.SaveError.invalid.code, message: "not a collage")
             guard let value = params["collage"],
                   let collage = try? JSONDecoder().decode(BackdropCollage.self, from: Data(value.compactText.utf8)) else { throw invalid }
-            let replacing = params["replacing"]?.stringValue
             let collages = collages
             do {
-                return ["id": .string(try await Task.detached { try collages.save(collage, replacing: replacing) }.value)]
+                return ["id": .string(try await Task.detached { try collages.save(collage) }.value)]
             } catch let refused as BackdropCollages.SaveError {
                 throw PageError(code: refused.code, message: refused.code)
             }
@@ -94,7 +93,7 @@ public final class BackdropImagesPageProvider: PageProvider {
             return try JSONValue.parse(JSONEncoder().encode(collage))
         case Self.prefix + "collage.delete":
             guard let id = params["id"]?.stringValue, BackdropCollages.isValidID(id) else { throw PageError.invalidParams("no such collage") }
-            guard inUse() != .collage(id: id) else {
+            guard !isShown(.collage(id: id)) else {
                 throw PageError(code: "cmux.settings.backdrop.in_use", message: "the background in use cannot be removed")
             }
             try collages.delete(id)
@@ -122,6 +121,17 @@ public final class BackdropImagesPageProvider: PageProvider {
         let images = images
         let bytes = await Task.detached { images.usage() }.value
         return ["bytes": .number(Double(bytes))]
+    }
+
+    /// Whether the app's background or any workspace's own background is `selection`. Workspace
+    /// backgrounds are the app's `workspace-backgrounds.json` beside the backgrounds folder
+    /// (`WorkspaceBackgroundStore`): `{"<session>/<workspace>": "<background id>"}`.
+    private func isShown(_ selection: BackdropSelection) -> Bool {
+        if selection == inUse() { return true }
+        let file = images.folder.deletingLastPathComponent().appendingPathComponent("workspace-backgrounds.json")
+        guard let data = try? Data(contentsOf: file),
+              let workspaces = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return workspaces.values.contains { ($0 as? String) == selection.id }
     }
 
     /// The person's collages, beside their own images.
