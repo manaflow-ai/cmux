@@ -69,6 +69,20 @@
 .acpmux-lineage__icon[data-state=failed]::after{background:var(--agent-danger)}
 @keyframes acpmux-summary-popover-in{from{opacity:0;transform:translateX(8px)}}
 @media (prefers-reduced-motion:no-preference){.acpmux-summary-card[data-placement=popover]{animation:acpmux-summary-popover-in var(--ui-popup-open) ease-out}}
+/* Static status indicators (cx-sya4n): a shape per state, not color alone. A subagent dot carries
+   a check when done and a cross when it failed; the lineage badge is a dot while running, ! while
+   it waits, a check, a cross, or a ring when it stopped otherwise. */
+:root[data-status-indicators=static] .acpmux-summary-dot{position:relative}
+:root[data-status-indicators=static] .acpmux-summary-dot::after{position:absolute;inset:0;display:grid;place-items:center;font-size:var(--text-caption);transform:scale(.75);font-weight:700;line-height:1;color:var(--surface-popup)}
+:root[data-status-indicators=static] .acpmux-summary-dot[data-state=done]::after{content:"✓"}
+:root[data-status-indicators=static] .acpmux-summary-dot[data-state=failed]::after{content:"✕"}
+:root[data-status-indicators=static] .acpmux-summary-dot[data-state=running]::after{content:"";inset:4px;border-radius:50%;background:var(--surface-popup)}
+:root[data-status-indicators=static] .acpmux-lineage__icon::after{background:transparent;box-shadow:inset 0 0 0 1.5px var(--agent-muted)}
+:root[data-status-indicators=static] .acpmux-lineage__icon[data-state=running]::after{background:var(--agent-accent);box-shadow:0 0 0 1.5px var(--surface-popup)}
+:root[data-status-indicators=static] .acpmux-lineage__icon:is([data-state=completed],[data-state=done],[data-state=failed],[data-state=waiting])::after{width:8px;height:8px;right:-3px;bottom:-3px;border-radius:0;box-shadow:none;display:grid;place-items:center;font-size:var(--text-caption);transform:scale(.75);font-weight:700;line-height:1;background:var(--surface-popup)}
+:root[data-status-indicators=static] .acpmux-lineage__icon:is([data-state=completed],[data-state=done])::after{content:"✓";color:var(--agent-success,var(--acpmux-add,#3fb950))}
+:root[data-status-indicators=static] .acpmux-lineage__icon[data-state=failed]::after{content:"✕";color:var(--agent-danger)}
+:root[data-status-indicators=static] .acpmux-lineage__icon[data-state=waiting]::after{content:"!";color:var(--acpmux-warning,var(--agent-warning))}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
