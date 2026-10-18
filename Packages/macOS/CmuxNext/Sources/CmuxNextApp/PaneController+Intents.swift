@@ -73,7 +73,7 @@ extension PaneController {
     }
 
     private func armColdSelectionInputHold(_ id: StripTabID, source: FocusEvent.Source) {
-        guard source.isUserIntent, let window = view.window,
+        guard source.isUserIntent, isFocusedInWorkspace, let window = view.window,
               let target = tab(id), target.kind == .pty, !target.dead,
               !services.cache.hasContent(for: id.rawValue) else { return }
         services.keyRouter.creationInputCoordinator.holdUntilShown(in: window)
