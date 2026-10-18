@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextFloating
+import CmuxNextSettings
 import Foundation
 import Testing
 
