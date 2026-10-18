@@ -18,6 +18,9 @@ enum DebugLayoutCounters {
     static var workspaceApplies: UInt64 = 0
     static var topologySends: UInt64 = 0
     static var paneCountChanges: [Int] = []
+    /// Each counted call by kind and call site (`sources`), so a budget breach names its caller.
+    static var sources: [String: Int] = [:]
+    static func note(_ kind: String, _ file: StaticString, _ line: UInt) { sources["\(kind) \(file):\(line)", default: 0] += 1 }
     private static var paneCounts: [ObjectIdentifier: Int] = [:]
 
     static func notePanes(_ count: Int, of view: AnyObject) {
@@ -34,12 +37,14 @@ enum DebugLayoutCounters {
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
             "topology_sends": JSONValue(Int(truncatingIfNeeded: topologySends)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
+            "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
         if params["reset"]?.boolValue == true {
             paneSnapshots = 0
             workspaceApplies = 0
             topologySends = 0
             paneCountChanges.removeAll()
+            sources.removeAll()
         }
         return report
     }
