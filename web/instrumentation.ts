@@ -58,7 +58,7 @@ export async function register() {
     // Runtime/provider credentials are opt-in. Missing or malformed config
     // leaves the route seams fail-closed instead of starting a partial graph.
     const { configureRuntimeCompositionFromEnv } = await import("./services/runtimeComposition");
-    const composition = configureRuntimeCompositionFromEnv();
+    const composition = await configureRuntimeCompositionFromEnv();
     if (!composition.configured && process.env.NODE_ENV !== "test") {
       console.warn("[runtime-composition] disabled", composition.reason);
     }

@@ -66,12 +66,12 @@ describe("runtime composition", () => {
     expect(composition.promotionDependencies).toBe(runAttemptPromotionDependencies());
   });
 
-  test("keeps both seams disabled when credential-bearing config is incomplete", () => {
+  test("keeps both seams disabled when credential-bearing config is incomplete", async () => {
     delete process.env.CMUX_PERSISTENT_WORKSPACE_IMAGE;
     delete process.env.CMUX_RUNTIME_HOST_LEASE_URL;
     delete process.env.CMUX_RUNTIME_HOST_LEASE_TOKEN;
     delete process.env.CMUX_RUNTIME_WORKER_ID;
-    const result = configureRuntimeCompositionFromEnv();
+    const result = await configureRuntimeCompositionFromEnv();
     expect(result.configured).toBe(false);
     expect(persistentWorkspaceService()).toBeNull();
     expect(() => runAttemptPromotionDependencies()).toThrow("not configured");
