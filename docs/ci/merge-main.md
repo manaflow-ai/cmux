@@ -52,3 +52,17 @@ failure's origin is unknown or the guard run ended without step results.
 If your push is rejected because the branch moved, run `git pull --no-rebase`
 and push again. Never force-push over a merge-main commit. The local command
 is the only supported branch catch-up path.
+
+## gh-merge-green status classification
+
+The merge helper evaluates checks against the immutable pull-request head SHA.
+When the base does not publish an aggregate ci-status, it also reads legacy
+commit statuses. Vercel and Netlify preview contexts are advisory only for
+heads whose changed files do not touch a deployed web surface (web/, webviews/,
+frontend roots, or a Vercel configuration); a web change keeps those contexts
+strict. A branch-protection-required context remains strict even when its
+name is a preview provider. Unknown contexts remain blocking, and an
+advisory-only response is rejected because it provides no required evidence.
+Failures to read changed files or branch rules are fail-closed. Neutral and
+skipped conclusions are accepted only after a required check has reported for
+the same exact head.

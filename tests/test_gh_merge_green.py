@@ -701,16 +701,17 @@ class InstalledHelperRegression(unittest.TestCase):
 class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
-    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, extra_args=()):
+    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, required_contexts=(), app_workflow=False, files=None, workflow_body=None,
+                 raw_content=None, app_workflow_body=None, files_error=False, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
             queries = directory / "queries"
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
-                       "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
-                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
+                       "statuses": statuses or [], "required_contexts": list(required_contexts), "app_workflow": app_workflow, "files": files or [],
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
+                       "files_error": files_error}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -743,7 +744,10 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     print(json.dumps([{'check_runs': x['checks']}]))
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
                     print(json.dumps([x['statuses']]))
+                elif a[0] == 'api' and any('/rules/branches/' in arg for arg in a):
+                    print(json.dumps([{"parameters": {"required_status_checks": [{"context": name} for name in x["required_contexts"]]}}]))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
+                    if x.get('files_error'): sys.exit(1)
                     if '.[].filename' in a: print('\n'.join(x['files']))
                 else:
                     sys.exit(2)
@@ -763,7 +767,10 @@ class WorkflowPresenceRegression(unittest.TestCase):
     def test_no_ci_workflow_accepts_neutral_and_skipped_checks(self):
         for conclusion in ("neutral", "skipped"):
             with self.subTest(conclusion=conclusion):
-                result, merged, _ = self.run_case(checks=[{"id": 1, "name": "Vercel Agent Review", "status": "completed", "conclusion": conclusion}])
+                result, merged, _ = self.run_case(checks=[
+                    {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                    {"id": 2, "name": "Vercel Agent Review", "status": "completed", "conclusion": conclusion},
+                ])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(merged)
 
@@ -792,6 +799,62 @@ class WorkflowPresenceRegression(unittest.TestCase):
             extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
+
+    def test_non_web_head_ignores_pending_vercel_status(self):
+        result, merged, _ = self.run_case(
+            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+            files=["build-fleet/internal/agentledger/consumer.go"],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        self.assertIn("ignored for non-web", result.stderr)
+
+    def test_web_head_requires_vercel_status(self):
+        result, merged, _ = self.run_case(
+            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+            files=["web/app/page.tsx"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("Vercel", result.stderr)
+
+    def test_required_vercel_context_stays_strict_for_non_web_head(self):
+        result, merged, _ = self.run_case(
+            required_contexts=["Vercel"],
+            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+            files=["build-fleet/internal/agentledger/consumer.go"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("Vercel", result.stderr)
+
+    def test_unknown_pending_status_still_blocks_non_web_head(self):
+        result, merged, _ = self.run_case(
+            statuses=[{"id": 2, "context": "review", "state": "pending"}],
+            files=["build-fleet/internal/agentledger/consumer.go"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("review", result.stderr)
+
+    def test_advisory_only_statuses_do_not_count_as_required_evidence(self):
+        result, merged, _ = self.run_case(
+            checks=[{"id": 1, "name": "Vercel Agent Review", "status": "completed", "conclusion": "neutral"}],
+            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+            files=["build-fleet/internal/agentledger/consumer.go"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("no required checks", result.stderr)
+
+    def test_changed_files_failure_fails_closed(self):
+        result, merged, _ = self.run_case(
+            statuses=[{"id": 2, "context": "Vercel", "state": "pending"}],
+            files_error=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("cannot list changed files", result.stderr)
 
     def test_workflow_probe_failure_is_not_absence(self):
         for code in (403, 500):

@@ -155,13 +155,28 @@ if [ -n "$override_reason" ]; then
       'explain the concrete red check and why this exact head is safe to merge'
   fi
 fi
-skip_vercel=0
-if [ -n "$override_reason" ] && [[ "$override_reason" =~ [Vv]ercel ]]; then
-  # Vercel is an optional preview deployment status in this repository.  An
-  # explicit, auditable override may waive that one external status when it is
-  # pending or red; all other pending statuses remain merge blockers.
-  skip_vercel=1
-fi
+# Vercel and similar preview providers are advisory for non-web changes.
+# They remain strict when a PR changes a deployed web surface. Unknown status
+# contexts never become advisory implicitly.
+is_preview_context() {
+  local lowered_name
+  lowered_name=$(tr '[:upper:]' '[:lower:]' <<<"${1:-}")
+  case "$lowered_name" in
+    vercel|vercel\ preview|vercel\ preview\ comments|vercel\ agent\ review|netlify\ preview)
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+is_web_path() {
+  case "$1" in
+    web|web/*|webviews|webviews/*|cmux-tui/frontends|cmux-tui/frontends/*|frontend|frontend/*|frontends|frontends/*|site|site/*|apps/*/web|apps/*/web/*|apps/*/frontend|apps/*/frontend/*|apps/*/site|apps/*/site/*|services/*/vercel.json|vercel.json|.vercelignore)
+      return 0
+      ;;
+  esac
+  return 1
+}
 if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
   refuse \
     'not green: --override cannot be combined with --main-fix' \
@@ -288,7 +303,7 @@ if ! runs=$(jq -r '
   | sort_by(.name, (.id // 0))
   | group_by(.name)[]
   | last
-  | [.name,.status,(.conclusion // "")]
+  | [.name,.status,(.conclusion // ""),(.app.slug // "")]
   | @tsv
   ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
@@ -495,15 +510,49 @@ if [ "$has_ci" -eq 0 ]; then
   ' <<<"$statuses_json" 2>/dev/null); then
     refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
   fi
+  required_contexts=''
+  set +e
+  required_rules=$(gh api "repos/$repo/rules/branches/$base" 2>/dev/null)
+  rules_status=$?
+  set -e
+  if [ $rules_status -ne 0 ]; then
+    if ! jq -e '.status == 404' <<<"$required_rules" >/dev/null 2>&1; then
+      refuse "not green: cannot read required branch contexts for $base" 'restore GitHub rules API access; refusing to guess which contexts are required'
+    fi
+  elif ! required_contexts=$(jq -r '
+    if type == "array"
+    then [.[].parameters.required_status_checks[]?.context?] | .[]?
+    else [.parameters.required_status_checks[]?.context?] | .[]?
+    end
+  ' <<<"$required_rules" 2>/dev/null); then
+    refuse "not green: cannot parse required branch contexts for $base" 'retry after GitHub returns valid rules metadata'
+  fi
+  if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    refuse "not green: cannot list changed files for $ref" 'restore GitHub API access, then retry the exact-head check'
+  fi
+  web_changed=0
+  while IFS= read -r changed_file; do
+    [ -n "$changed_file" ] || continue
+    if is_web_path "$changed_file"; then
+      web_changed=1
+      break
+    fi
+  done <<<"$changed_files"
   all_verdicts="$runs"$'\n'"$statuses"
   reported=0
-  while IFS=$'\t' read -r name st co; do
+  required_reported=0
+  while IFS=$'\t' read -r name st co app_slug; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
-    if [ "$skip_vercel" -eq 1 ] && [ "$name" = Vercel ]; then
-      echo "note: --override waived Vercel $st/$co status" >&2
+    required_match=0
+    if [ -n "$required_contexts" ] && grep -Fqx "$name" <<<"$required_contexts"; then
+      required_match=1
+    fi
+    if [ "$web_changed" -eq 0 ] && [ "$required_match" -eq 0 ] && is_preview_context "$name"; then
+      echo "note: advisory preview context '$name' ignored for non-web head $sha" >&2
       continue
     fi
+    required_reported=$((required_reported + 1))
     if [ "$st" != completed ]; then
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
@@ -521,6 +570,17 @@ if [ "$has_ci" -eq 0 ]; then
   [ "$reported" -gt 0 ] || refuse \
     "not green: no checks have reported on $sha" \
     'run the repository pull request checks before merging'
+  [ "$required_reported" -gt 0 ] || refuse \
+    "not green: no required checks have reported on $sha (only advisory preview contexts were present)" \
+    'run the repository pull request checks for a required gate before merging'
+  while IFS= read -r required_context; do
+    [ -n "$required_context" ] || continue
+    if ! awk -F '\t' -v required="$required_context" '$1 == required {found = 1} END {exit !found}' <<<"$all_verdicts"; then
+      refuse \
+        "not green: required context '$required_context' has not reported on $sha" \
+        'wait for the required branch context on the exact head, then retry'
+    fi
+  done <<<"$required_contexts"
 fi
 
 bad_required=()
