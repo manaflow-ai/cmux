@@ -63,13 +63,21 @@ extension Motion {
     /// sleeping display (``DisplaySleep``) never advances an AppKit
     /// animation, so its final value and its completion would wait for an
     /// indefinite time; such a change applies at once. Decided per animation,
-    /// from the animated view's window. A view outside a window, or no view,
+    /// from the animated view's window or its visible parent window. Child
+    /// panels used for overlays can briefly have no screen of their own while
+    /// their parent is already on screen. A view outside a window, or no view,
     /// animates as before. A change already running when the display goes
     /// to sleep ends at once only if it opted in (`settleAtSleep`).
     public static func canAnimate(in view: NSView?) -> Bool {
-        guard let window = view?.window else { return true }
-        guard let screen = window.screen else { return false }
-        return !DisplaySleep.shared.isAsleep(screen)
+        guard let firstWindow = view?.window else { return true }
+        var window = firstWindow
+        while true {
+            if let screen = window.screen {
+                return !DisplaySleep.shared.isAsleep(screen)
+            }
+            guard let parent = window.parent else { return false }
+            window = parent
+        }
     }
 
     /// The proxy to set a constraint through inside a Motion animation of
