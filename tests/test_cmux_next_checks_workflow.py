@@ -318,6 +318,12 @@ class GodfilePullRequestScope(unittest.TestCase):
         swift, rust = self.both()
         self.assertEqual((swift.returncode, rust.returncode), (1, 1), swift.stdout + rust.stdout)
 
+    def test_base_as_self_excuses_inherited_debt(self):
+        swift, rust = self.both("--base", "HEAD")
+        for result in (swift, rust):
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("over budget on the base", result.stdout)
+
     def test_an_unrelated_change_passes_over_base_reds(self):
         (self.rust / "small.rs").write_text("fn f() {}\n")
         (self.package / "Sources/Fixture/Small.swift").write_text("let small = 0\n")
