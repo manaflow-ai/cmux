@@ -80,13 +80,19 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
           <p>Compare route decisions before a worker, provider, scheduler, or dispatch path exists.</p>
         </div>
         <div className="orchestration-gallery-trust" role="note" aria-label="Orchestration trust state">
-          <strong>Preview only</strong><span>No task dispatched</span><span>Authorization disabled</span><span>Trust override preview only</span>
+          <strong>Preview only</strong>
+          <span>No task dispatched</span>
+          <span>Authorization disabled</span>
+          <span>Trust override preview only</span>
         </div>
       </header>
 
       <section className="orchestration-gallery-compare" aria-label="Route comparison">
         <div className="orchestration-gallery-section-heading">
-          <div><span className="orchestration-gallery-kicker">Route comparison</span><p>Choose a route to inspect its receipt-shaped fixture and action path.</p></div>
+          <div>
+            <span className="orchestration-gallery-kicker">Route comparison</span>
+            <p>Choose a route to inspect its receipt-shaped fixture and action path.</p>
+          </div>
           <span className="orchestration-gallery-hint">Arrow keys · Enter</span>
         </div>
         <div className="orchestration-gallery-routes" role="radiogroup" aria-label="Select a route">
@@ -101,7 +107,10 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                 aria-checked={selectedRoute}
                 onClick={() => setSelectedId(strategy.id)}
               >
-                <span><strong>{strategy.label}</strong><b data-decision={strategy.decision}>{strategy.decision}</b></span>
+                <span>
+                  <strong>{strategy.label}</strong>
+                  <b data-decision={strategy.decision}>{strategy.decision}</b>
+                </span>
                 <small>Blocker · {strategy.blocker}</small>
                 <small>Next · {strategy.next}</small>
               </button>
@@ -110,54 +119,97 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
         </div>
       </section>
 
-      <section className="orchestration-gallery-inspector" aria-live="polite" aria-label={`${selected.label} receipt preview`}>
+      <section
+        className="orchestration-gallery-inspector"
+        aria-live="polite"
+        aria-label={`${selected.label} receipt preview`}
+      >
         <div className="orchestration-gallery-section-heading">
-          <div><span className="orchestration-gallery-kicker">Receipt preview · display sample</span><h2>{selected.label}</h2></div>
+          <div>
+            <span className="orchestration-gallery-kicker">Receipt preview · display sample</span>
+            <h2>{selected.label}</h2>
+          </div>
           <b data-status={selected.receiptStatus}>{selected.receiptStatus}</b>
         </div>
         <dl className="orchestration-gallery-summary">
-          <div><dt>Task</dt><dd>{selected.task}</dd></div>
-          <div><dt>Route</dt><dd>{selected.route}</dd></div>
-          <div><dt>Health</dt><dd>{selected.health}</dd></div>
-          <div><dt>Lease</dt><dd>{selected.lease}</dd></div>
-          <div><dt>Source head</dt><dd>{selected.head}</dd></div>
-          <div><dt>Acceptance</dt><dd>advisory fixture</dd></div>
+          <div>
+            <dt>Task</dt>
+            <dd>{selected.task}</dd>
+          </div>
+          <div>
+            <dt>Route</dt>
+            <dd>{selected.route}</dd>
+          </div>
+          <div>
+            <dt>Health</dt>
+            <dd>{selected.health}</dd>
+          </div>
+          <div>
+            <dt>Lease</dt>
+            <dd>{selected.lease}</dd>
+          </div>
+          <div>
+            <dt>Source head</dt>
+            <dd>{selected.head}</dd>
+          </div>
+          <div>
+            <dt>Acceptance</dt>
+            <dd>advisory fixture</dd>
+          </div>
         </dl>
         <div className="orchestration-gallery-action-path" aria-label="Action path">
-          <span><b>1</b><strong>Decision</strong>{selected.decision}</span>
-          <span><b>2</b><strong>Blocker</strong>{selected.blocker}</span>
-          <span className="is-next"><b>3</b><strong>Next safe action</strong>{selected.next}</span>
+          <span>
+            <b>1</b>
+            <strong>Decision</strong>
+            {selected.decision}
+          </span>
+          <span>
+            <b>2</b>
+            <strong>Blocker</strong>
+            {selected.blocker}
+          </span>
+          <span className="is-next">
+            <b>3</b>
+            <strong>Next safe action</strong>
+            {selected.next}
+          </span>
         </div>
-        <pre aria-label="Non-contract display sample">{JSON.stringify({
-          receipt: {
-            schema_version: 1,
-            task_id: selected.task,
-            transport: selected.route.split(" · ")[0],
-            stage: "preview",
-            state: selected.receiptStatus,
-            status: selected.receiptStatus,
-            acceptance: "advisory",
-            repository: "cmux",
-            worktree: "agent-chat",
-            branch: "fixture",
-            base_sha: "1".repeat(64),
-            head_sha: "2".repeat(64),
-            artifact_sha: "3".repeat(64),
-            command: `gallery.fixture --strategy ${selected.id}`,
-            assertion_count: 0,
-            artifacts: { preview: "fixture-only" },
-            evidence: [],
-            gap: selected.blocker,
-            next_action: selected.next,
-          },
-          fixture_context: {
-            display_only: true,
-            no_dispatch: true,
-            redaction: "Deterministic synthetic values; no command or task ran.",
-            route: { id: selected.id, label: selected.route, health: selected.health, lease: selected.lease },
-            authorization: "disabled",
-          },
-        }, null, 2)}</pre>
+        <pre aria-label="Non-contract display sample">
+          {JSON.stringify(
+            {
+              receipt: {
+                schema_version: 1,
+                task_id: selected.task,
+                transport: selected.route.split(" · ")[0],
+                stage: "preview",
+                state: selected.receiptStatus,
+                status: selected.receiptStatus,
+                acceptance: "advisory",
+                repository: "cmux",
+                worktree: "agent-chat",
+                branch: "fixture",
+                base_sha: "1".repeat(64),
+                head_sha: "2".repeat(64),
+                artifact_sha: "3".repeat(64),
+                command: `gallery.fixture --strategy ${selected.id}`,
+                assertion_count: 0,
+                artifacts: { preview: "fixture-only" },
+                evidence: [],
+                gap: selected.blocker,
+                next_action: selected.next,
+              },
+              fixture_context: {
+                display_only: true,
+                no_dispatch: true,
+                redaction: "Deterministic synthetic values; no command or task ran.",
+                route: { id: selected.id, label: selected.route, health: selected.health, lease: selected.lease },
+                authorization: "disabled",
+              },
+            },
+            null,
+            2,
+          )}
+        </pre>
       </section>
     </main>
   );
@@ -176,8 +228,18 @@ export default componentEntry<{ initialStrategy?: string }>({
   styles: () => import("./OrchestrationLab.gallery.css"),
   load: async () => OrchestrationLab,
   variants: {
-    "local-queue": { note: "Fixture-only local route with an explicit trust boundary.", props: { initialStrategy: "local-queue" } },
-    "huge-blue": { note: "Held route with cleanup evidence as the blocker.", props: { initialStrategy: "huge-blue" }, play: selectHugeBlue },
-    "cloud-fair-share": { note: "Queued route with capacity unavailable.", props: { initialStrategy: "cloud-fair-share" } },
+    "local-queue": {
+      note: "Fixture-only local route with an explicit trust boundary.",
+      props: { initialStrategy: "local-queue" },
+    },
+    "huge-blue": {
+      note: "Held route with cleanup evidence as the blocker.",
+      props: { initialStrategy: "huge-blue" },
+      play: selectHugeBlue,
+    },
+    "cloud-fair-share": {
+      note: "Queued route with capacity unavailable.",
+      props: { initialStrategy: "cloud-fair-share" },
+    },
   },
 });
