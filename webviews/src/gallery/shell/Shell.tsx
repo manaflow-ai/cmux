@@ -9,7 +9,7 @@ import { readyEntries, type EntryState } from "../entryStore";
 import { LOCALES, PSEUDO_LOCALES, type GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
 import { ageText, liveStatus, type LiveStatus } from "../liveStatus";
-import { entryStore } from "../registry";
+import { getEntryStore } from "../registry";
 import { DEFAULT_DARK_THEME, themeIsDark } from "../theme/ghostty";
 import { css } from "../theme/tokens";
 import { themeTokens } from "../theme/web";
@@ -37,7 +37,7 @@ const VIEW_LABELS: Record<View, string> = {
 
 export const { router } = createGalleryRouter(Layout);
 
-type Address = { entry: string; variant: string; search: ShellSearch };
+type Address = { entry: string; variant: string; search: ShellSearch; sourcePath?: string };
 
 function href({ entry, variant, search }: Address): string {
   const location = router.buildLocation({
@@ -87,7 +87,8 @@ function GalleryLinks({ address }: { address: Address }) {
 
 /** Every entry file's load, re-rendered when one changes (entryStore.ts). */
 function useEntryStates(): readonly EntryState[] {
-  return useSyncExternalStore(entryStore.subscribe, entryStore.getSnapshot);
+  const store = getEntryStore();
+  return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
 /** The entry a state stands for: the loaded one, else the last one that file loaded. */
@@ -110,7 +111,7 @@ function useAddress(states: readonly EntryState[]): Address & { state: EntryStat
     const variants = entry ? Object.keys(entry.variants) : [];
     const variant = variants.includes(variantId) ? variantId : (variants[0] ?? variantId);
     const search = validateShellSearch(location.search as Record<string, unknown>);
-    return { entry: entry?.id ?? entryId, variant, search, state };
+    return { entry: entry?.id ?? entryId, variant, search, state, sourcePath: state?.path };
   }, [location, states]);
 }
 
@@ -554,6 +555,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
                 state={name}
                 env={env}
                 tune={search.tune}
+                sourcePath={address.sourcePath}
                 available={{ width: 420, height: room.height }}
                 thumbnail
               />
@@ -567,6 +569,7 @@ function EntryView({ entry, address }: { entry: GalleryEntry; address: Address }
               state={stage.variant}
               env={stage.env}
               tune={search.tune}
+              sourcePath={address.sourcePath}
               label={stage.label}
               available={{
                 width: Math.max(320, room.width - 4),

@@ -2,7 +2,7 @@
 // glob is LAZY, so each file is its own dynamic import: one broken file (a syntax error, a throw, a
 // missing export) fails its own load and no other (entryStore.ts). test/gallery-coverage.test.ts
 // reads the same files without Vite (scripts/gallery/entries.ts).
-import { createEntryStore, type EntrySource } from "./entryStore";
+import { createEntryStore, type EntrySource, type EntryStore } from "./entryStore";
 
 const loaders = import.meta.glob("../**/*.gallery.{ts,tsx}", { import: "default" });
 
@@ -22,12 +22,23 @@ export const entrySources: EntrySource[] = Object.entries(loaders)
           ),
   }));
 
-/** The shell's store: every entry loads on its own. */
-export const entryStore = createEntryStore(entrySources);
+/** The shell's store: every entry loads on its own. Created only when the shell mounts. */
+let shellStore: EntryStore | undefined;
+export function getEntryStore(): EntryStore {
+  return (shellStore ??= createEntryStore(entrySources));
+}
+
+/** A frame store can load one source when the shell supplies its path; direct links fall back to all. */
+export function createFrameEntryStore(sourcePath?: string): EntryStore {
+  const sources = sourcePath && entrySources.some((source) => source.path === sourcePath)
+    ? entrySources.filter((source) => source.path === sourcePath)
+    : entrySources;
+  return createEntryStore(sources);
+}
 
 // The live dev server (dev-server/galleryLive.ts) names the entry files a save changed; each loads
 // again on its own, so a fixed file recovers in place with no page reload.
 if (import.meta.hot)
   import.meta.hot.on("cmux-gallery:entry", (data: { files: string[]; timestamp: number }) =>
-    entryStore.reload(data.files, data.timestamp),
+    getEntryStore().reload(data.files, data.timestamp),
   );

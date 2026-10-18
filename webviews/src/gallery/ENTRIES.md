@@ -207,7 +207,8 @@ chat). Do not write those entries yourself.
   `bun run gallery:dev` for the gallery alone at `http://127.0.0.1:4210/gallery/`.
 - Live, with hot reload (tailnet): `https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/live/`
   follows `feat-cmux-next` within about 20 s of a push. A save shows in the open page by itself.
-- Direct `frame.html?entry=...` stages resolve the requested entry independently of the rest of the
+- Shell-generated `frame.html` stages include their gallery source path and load only that entry;
+  direct `frame.html?entry=...` links without the optional source hint fall back to the full
   registry and show an explicit loading state while unrelated gallery modules compile.
 - Your branch before it lands: `scripts/gallery-live.sh up <branch>` in hq serves the pushed branch
   at `.../18796/wt/<name>/` (it prints the URL) and follows its pushes; it stops after 2 h with no

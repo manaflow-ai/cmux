@@ -7,7 +7,7 @@ import { readEnv, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
-import { entryStore } from "../registry";
+import { createFrameEntryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
@@ -28,6 +28,7 @@ const stageRoot = document.getElementById("root");
 // A frame can be opened directly while the shell is still loading unrelated gallery modules.
 // Keep that wait explicit so a slow sibling never looks like a broken white page.
 const requestedId = params.get("entry");
+const entryStore = createFrameEntryStore(params.get("source") ?? undefined);
 if (requestedId && stageRoot) {
   stageRoot.textContent = `Loading ${requestedId}…`;
   stageRoot.className = "gallery-frame-loading";
