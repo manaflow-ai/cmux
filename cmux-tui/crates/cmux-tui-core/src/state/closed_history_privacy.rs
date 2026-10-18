@@ -10,7 +10,7 @@ use serde_json::Value;
 /// splits into words at `_`, `-`, `.` and lower-to-upper case changes, so
 /// `X-Amz-Security-Token` and `accessToken` both have the word `token`, while
 /// `authuser`, `author` and `monkey` have no secret word.
-const SECRET_WORDS: [&str; 22] = [
+const SECRET_WORDS: [&str; 24] = [
     "token",
     "secret",
     "password",
@@ -33,6 +33,8 @@ const SECRET_WORDS: [&str; 22] = [
     "sessid",
     "phpsessid",
     "sessionid",
+    "jsessionid",
+    "aspsessionid",
 ];
 
 /// Words that make a following `token` a page cursor, not a credential.
@@ -64,12 +66,54 @@ fn words(key: &str) -> Vec<String> {
     words
 }
 
+/// Secrets matched on the key normalized (lower case, without `_`, `-`,
+/// `.` and spaces), anywhere in it: run-together keys (`accesstoken`,
+/// `IDTOKEN`) have no word boundary to split at. Only words too long to
+/// occur by chance inside an ordinary key are here; short ones (`pw`,
+/// `sig`, `sid`) stay word matches.
+const NORMALIZED_SECRETS: [&str; 18] = [
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "credential",
+    "signature",
+    "apikey",
+    "accesskey",
+    "privatekey",
+    "signingkey",
+    "sessionid",
+    "sessid",
+    "codeverifier",
+    "oauthverifier",
+    "samlresponse",
+    "samlrequest",
+    "authorization",
+    "cookie",
+];
+
+/// Normalized keys that end in a page cursor, not a credential token.
+const CURSOR_TOKENS: [&str; 4] = ["pagetoken", "nexttoken", "continuationtoken", "cursortoken"];
+
+fn normalized(key: &str) -> String {
+    key.chars()
+        .filter(|character| !matches!(character, '_' | '-' | '.' | ' '))
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
+}
+
+/// Whether query, fragment or matrix key `key` names a secret.
+///
+/// `session` is one: a bare `session=` value is a session id far more
+/// often than anything else. OAuth `state` is not: it is a one-time CSRF
+/// nonce that grants nothing by itself, and pages also use it for their
+/// own UI state, which a reopened tab needs.
 fn is_secret_key(key: &str) -> bool {
     let words = words(key);
-    if words.len() == 1 && matches!(words[0].as_str(), "code" | "key") {
+    if words.len() == 1 && matches!(words[0].as_str(), "code" | "key" | "session") {
         return true;
     }
-    words.iter().enumerate().any(|(index, word)| {
+    let by_word = words.iter().enumerate().any(|(index, word)| {
         let before = index.checked_sub(1).map(|previous| words[previous].as_str());
         match word.as_str() {
             "token" => !before.is_some_and(|before| CURSOR_WORDS.contains(&before)),
@@ -77,8 +121,33 @@ fn is_secret_key(key: &str) -> bool {
             "id" => before == Some("session"),
             word => SECRET_WORDS.contains(&word),
         }
-    })
+    });
+    let key = normalized(key);
+    let cursor = CURSOR_TOKENS.iter().any(|cursor| key.ends_with(cursor));
+    by_word
+        || NORMALIZED_SECRETS
+            .iter()
+            .any(|secret| key.contains(secret) && !(*secret == "token" && cursor))
 }
+
+/// Keys whose value is a URL a page sends the user to next; their value is
+/// stripped too, one level deep.
+const REDIRECT_KEYS: [&str; 14] = [
+    "redirect",
+    "redirecturi",
+    "redirecturl",
+    "returnto",
+    "returnurl",
+    "return",
+    "next",
+    "continue",
+    "callback",
+    "callbackurl",
+    "target",
+    "destination",
+    "goto",
+    "successurl",
+];
 
 /// Percent-decode a query key for the check (`+` is a space).
 fn decode_key(key: &str) -> String {
@@ -109,12 +178,38 @@ fn decode_key(key: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// `url` without its user info (`user:pass@`) and its secret query and
-/// fragment keys (`#access_token=`, a hash route's `#/cb?code=`). Only web
-/// URLs (`http`, `https`, `ws`, `wss`) are touched, and the kept parts stay
-/// byte for byte: the query and fragment are filtered by their raw pairs
+/// Percent-decode a value (a `+` stays a `+`).
+fn decode_value(value: &str) -> String {
+    decode_key(&value.replace('+', "%2B"))
+}
+
+/// Percent-encode everything but the unreserved characters (RFC 3986).
+fn encode_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// `url` without its user info (`user:pass@`), its secret path matrix
+/// parameters (`;jsessionid=`), and its secret query and fragment keys
+/// (`#access_token=`, a hash route's `#/cb?code=`). A redirect value
+/// (`?redirect=https%3A…`) is stripped too, one level deep. Only web URLs
+/// (`http`, `https`, `ws`, `wss`) are touched, and the kept parts stay byte
+/// for byte: the query and fragment are filtered by their raw pairs
 /// (separated by `&` or `;`), never re-encoded.
 pub(super) fn strip_url(url: &str) -> String {
+    strip_url_at(url, false)
+}
+
+/// [`strip_url`]; `nested` when `url` is itself a redirect value, which is
+/// not followed further.
+fn strip_url_at(url: &str, nested: bool) -> String {
     let lower = url.get(..6).unwrap_or(url).to_ascii_lowercase();
     if !["http:", "https:", "ws:", "wss:"].iter().any(|scheme| lower.starts_with(scheme)) {
         return url.to_string();
@@ -127,54 +222,90 @@ pub(super) fn strip_url(url: &str) -> String {
         Some((base, query)) => (base, Some(query)),
         None => (before_fragment, None),
     };
-    let mut stripped = without_user_info(base);
-    if let Some(query) = query.and_then(|query| kept_pairs(query, true)) {
+    let mut stripped = stripped_base(base);
+    if let Some(query) = query.and_then(|query| kept_pairs(query, true, nested)) {
         stripped.push('?');
         stripped.push_str(&query);
     }
-    if let Some(fragment) = fragment.and_then(kept_fragment) {
+    if let Some(fragment) = fragment.and_then(|fragment| kept_fragment(fragment, nested)) {
         stripped.push('#');
         stripped.push_str(&fragment);
     }
     stripped
 }
 
-/// `base` (scheme, authority and path) without user info in the authority.
-/// A web URL's authority starts after any run of `/` or `\` behind the
-/// scheme, as browsers read it: `https:user@h` is `https://user@h`.
-fn without_user_info(base: &str) -> String {
+/// `base` (scheme, authority and path) without user info in the authority
+/// and without secret matrix parameters in the path. A web URL's authority
+/// starts after any run of `/` or `\` behind the scheme, as browsers read
+/// it: `https:user@h` is `https://user@h`.
+fn stripped_base(base: &str) -> String {
     let Some(colon) = base.find(':') else { return base.to_string() };
     let slashes = base[colon + 1..].bytes().take_while(|byte| matches!(byte, b'/' | b'\\')).count();
     let start = colon + 1 + slashes;
     let end = base[start..].find(['/', '\\']).map_or(base.len(), |at| start + at);
-    match base[start..end].rfind('@') {
-        Some(at) => format!("{}{}", &base[..start], &base[start + at + 1..]),
-        None => base.to_string(),
+    let authority = &base[start..end];
+    let host = authority.rfind('@').map_or(authority, |at| &authority[at + 1..]);
+    format!("{}{host}{}", &base[..start], kept_matrix(&base[end..]))
+}
+
+/// `path` without its secret matrix parameters (`/p;jsessionid=X` is
+/// `/p`); a parameter without a value stays, and so does everything else,
+/// byte for byte.
+fn kept_matrix(path: &str) -> String {
+    if !path.contains(';') {
+        return path.to_string();
     }
+    path.split('/')
+        .map(|segment| {
+            let mut parts = segment.split(';');
+            let mut kept = parts.next().unwrap_or("").to_string();
+            for parameter in parts {
+                let secret = parameter
+                    .split_once('=')
+                    .is_some_and(|(key, _)| is_secret_key(&decode_key(key)));
+                if !secret {
+                    kept.push(';');
+                    kept.push_str(parameter);
+                }
+            }
+            kept
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// A fragment without its secret keys; None when nothing is left. A hash
 /// route (`#/cb?code=abc`, `#!/cb?code=abc`: a fragment that starts with
-/// `/` or `!/`) keeps its route and filters what follows its `?` as a
-/// query. Any other fragment is read as keys, `?` and all, as before
-/// (`#access_token=abc&redirect=https://x/?a=b`), and a part is a key only
-/// when it has a value (`#section` and `#token` stay).
-fn kept_fragment(fragment: &str) -> Option<String> {
+/// `/` or `!/`) keeps its route, without secret matrix parameters, and
+/// filters what follows its `?` as a query. Any other fragment is read as
+/// keys, `?` and all (`#access_token=abc&redirect=https://x/?a=b`), and a
+/// part is a key only when it has a value (`#section` and `#token` stay).
+fn kept_fragment(fragment: &str, nested: bool) -> Option<String> {
     let route = fragment.starts_with('/') || fragment.starts_with("!/");
-    let Some((route, query)) = fragment.split_once('?').filter(|_| route) else {
-        return kept_pairs(fragment, false);
+    if !route {
+        return kept_pairs(fragment, false, nested);
+    }
+    let (path, query) = match fragment.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (fragment, None),
     };
-    let kept = match kept_pairs(query, true) {
-        Some(query) => format!("{route}?{query}"),
-        None => route.to_string(),
-    };
+    let mut kept = kept_matrix(path);
+    if let Some(query) = query.and_then(|query| kept_pairs(query, true, nested)) {
+        kept.push('?');
+        kept.push_str(&query);
+    }
     (!kept.is_empty()).then_some(kept)
 }
 
 /// The pairs of `part` (separated by `&` or `;`) that are not secrets, byte
 /// for byte, each kept pair after the separator that preceded it; None when
-/// every pair was a secret. `bare_keys`: a pair without `=` is a key too.
-fn kept_pairs(part: &str, bare_keys: bool) -> Option<String> {
+/// nothing is left. `bare_keys`: a pair without `=` is a key too.
+///
+/// A `?` in a pair's key starts the pairs of what reads as a query there
+/// (`#login?code=xyz`): a secret after it is dropped and the text before it
+/// stays (`#login`). A kept redirect value is stripped as a URL unless
+/// `nested`.
+fn kept_pairs(part: &str, bare_keys: bool, nested: bool) -> Option<String> {
     let mut pairs = Vec::new();
     let mut start = 0;
     let mut separator = "";
@@ -186,12 +317,21 @@ fn kept_pairs(part: &str, bare_keys: bool) -> Option<String> {
         }
     }
     pairs.push((separator, &part[start..]));
-    let secret = |pair: &str| {
-        (bare_keys || pair.contains('='))
-            && is_secret_key(&decode_key(pair.split('=').next().unwrap_or("")))
-    };
-    let kept = pairs.iter().filter(|(_, pair)| !secret(pair)).collect::<Vec<_>>();
-    if kept.len() == pairs.len() {
+    let mut changed = false;
+    let mut kept = Vec::with_capacity(pairs.len());
+    for (separator, pair) in pairs {
+        match kept_pair(pair, bare_keys, nested) {
+            Some(new) if new == pair => kept.push((separator, new)),
+            Some(new) => {
+                changed = true;
+                if !new.is_empty() {
+                    kept.push((separator, new));
+                }
+            }
+            None => changed = true,
+        }
+    }
+    if !changed {
         return Some(part.to_string());
     }
     let mut joined = String::new();
@@ -202,6 +342,47 @@ fn kept_pairs(part: &str, bare_keys: bool) -> Option<String> {
         joined.push_str(pair);
     }
     (!kept.is_empty()).then_some(joined)
+}
+
+/// One pair as [`kept_pairs`] keeps it: None when it is a secret, else the
+/// pair with any secret after a `?` in its key dropped and its redirect
+/// value stripped.
+fn kept_pair(pair: &str, bare_keys: bool, nested: bool) -> Option<String> {
+    let (key, value) = match pair.split_once('=') {
+        Some((key, value)) => (key, Some(value)),
+        None => (pair, None),
+    };
+    let keyed = bare_keys || value.is_some();
+    // A `?` in the key starts what reads as a query there: before it is
+    // text of its own (`#login`), after it the key of this pair (`code`).
+    if let Some(at) = key.rfind('?') {
+        let (lead, tail) = (&key[..at], &key[at + 1..]);
+        if bare_keys && is_secret_key(&decode_key(lead)) {
+            return None;
+        }
+        if keyed && !tail.is_empty() && is_secret_key(&decode_key(tail)) {
+            return Some(lead.to_string());
+        }
+        return Some(pair.to_string());
+    }
+    if keyed && is_secret_key(&decode_key(key)) {
+        return None;
+    }
+    let Some(value) = value.filter(|_| !nested) else { return Some(pair.to_string()) };
+    if !REDIRECT_KEYS.contains(&normalized(&decode_key(key)).as_str()) {
+        return Some(pair.to_string());
+    }
+    let target = decode_value(value);
+    let lower = target.get(..8).unwrap_or(&target).to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Some(pair.to_string());
+    }
+    let stripped = strip_url_at(&target, true);
+    if stripped == target {
+        return Some(pair.to_string());
+    }
+    let value = if value.contains('%') { encode_value(&stripped) } else { stripped };
+    Some(format!("{key}={value}"))
 }
 
 /// A frontend browser's opaque session history (a JSON object) with every
@@ -242,7 +423,10 @@ pub(super) fn strip_history(history: &str) -> Value {
 
 /// The version of the rules above that every stored closed group meets.
 /// Raise it with a rule that should reach rows written before it.
-const SCRUB_VERSION: i64 = 1;
+const SCRUB_VERSION: i64 = 2;
+
+/// Starts that try a failing scrub of one rule version before it gives up.
+const SCRUB_ATTEMPTS: i64 = 3;
 
 /// Closed groups written before the current rules keep what those rules
 /// strip until something rewrites them: once per store and rule version
@@ -250,36 +434,71 @@ const SCRUB_VERSION: i64 = 1;
 /// stripped again and every `browser_history` with it. Rows that need
 /// nothing are not written.
 ///
-/// The scrub never keeps the store from opening: on any error its writes
-/// roll back (a savepoint inside the open's transaction), the version stays
-/// unrecorded so the next start tries again, and the error is logged.
+/// The scrub never keeps the store from opening. Each start that tries it
+/// counts an attempt first; on any error its writes roll back (a savepoint
+/// inside the open's transaction) and the error is logged, so a later start
+/// tries again, up to [`SCRUB_ATTEMPTS`] times per rule version.
 pub(super) fn scrub_closed_groups(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute_batch("SAVEPOINT closed_history_scrub")?;
-    match scrub_closed_groups_once(transaction) {
-        Ok(()) => transaction.execute_batch("RELEASE closed_history_scrub")?,
-        Err(error) => {
-            transaction
-                .execute_batch("ROLLBACK TO closed_history_scrub; RELEASE closed_history_scrub")?;
-            eprintln!("cmux-tui: closed history scrub skipped, retried next start: {error:#}");
+    match scrub_attempt(transaction) {
+        Ok(false) => {}
+        Ok(true) => {
+            if let Err(error) = scrub_in_savepoint(transaction) {
+                eprintln!("cmux-tui: closed history scrub failed, retried next start: {error:#}");
+            }
         }
+        Err(error) => eprintln!("cmux-tui: closed history scrub skipped: {error:#}"),
     }
     Ok(())
 }
 
-fn scrub_closed_groups_once(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+/// Whether this start scrubs: the version is not done and has attempts
+/// left, in which case this one is counted.
+fn scrub_attempt(transaction: &Transaction<'_>) -> anyhow::Result<bool> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS closed_history_scrub (
-           version INTEGER PRIMARY KEY NOT NULL
+           version INTEGER PRIMARY KEY NOT NULL,
+           attempts INTEGER NOT NULL DEFAULT 0,
+           done INTEGER NOT NULL DEFAULT 0
          );",
     )?;
     let done: bool = transaction.query_row(
-        "SELECT EXISTS(SELECT 1 FROM closed_history_scrub WHERE version >= ?1)",
+        "SELECT EXISTS(SELECT 1 FROM closed_history_scrub WHERE version >= ?1 AND done != 0)",
         [SCRUB_VERSION],
         |row| row.get(0),
     )?;
-    if done {
-        return Ok(());
+    let attempts: i64 = transaction.query_row(
+        "SELECT COALESCE(MAX(attempts), 0) FROM closed_history_scrub WHERE version = ?1",
+        [SCRUB_VERSION],
+        |row| row.get(0),
+    )?;
+    if done || attempts >= SCRUB_ATTEMPTS {
+        return Ok(false);
     }
+    transaction.execute(
+        "INSERT INTO closed_history_scrub(version, attempts) VALUES(?1, 1)
+         ON CONFLICT(version) DO UPDATE SET attempts = attempts + 1",
+        [SCRUB_VERSION],
+    )?;
+    Ok(true)
+}
+
+/// The scrub in a savepoint, rolled back on any error.
+fn scrub_in_savepoint(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch("SAVEPOINT closed_history_scrub")?;
+    match scrub_rows(transaction) {
+        Ok(()) => Ok(transaction.execute_batch("RELEASE closed_history_scrub")?),
+        Err(error) => {
+            if let Err(rollback) = transaction
+                .execute_batch("ROLLBACK TO closed_history_scrub; RELEASE closed_history_scrub")
+            {
+                eprintln!("cmux-tui: closed history scrub could not roll back: {rollback:#}");
+            }
+            Err(error)
+        }
+    }
+}
+
+fn scrub_rows(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let rows = {
         let mut statement = transaction.prepare("SELECT seq, record_json FROM closed_groups")?;
         statement
@@ -295,10 +514,8 @@ fn scrub_closed_groups_once(transaction: &Transaction<'_>) -> anyhow::Result<()>
             )?;
         }
     }
-    transaction.execute(
-        "INSERT OR IGNORE INTO closed_history_scrub(version) VALUES(?1)",
-        [SCRUB_VERSION],
-    )?;
+    transaction
+        .execute("UPDATE closed_history_scrub SET done = 1 WHERE version = ?1", [SCRUB_VERSION])?;
     Ok(())
 }
 
