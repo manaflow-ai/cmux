@@ -84,6 +84,8 @@ export type VmHostLeaseReservation =
 export interface VmHostLeaseStore {
   reserve(input: VmHostLeaseInput, provider: VmHostLeaseProvider): Promise<VmHostLeaseReservation>;
   complete(input: VmHostLeaseInput, provider: VmHostLeaseProvider, result: VmHostLeaseProviderResult, reservationToken: string): Promise<VmHostLeaseRecord>;
+  /** Release an abandoned pending reservation so provider/validation failures can be retried. */
+  abort?(input: VmHostLeaseInput, provider: VmHostLeaseProvider, reservationToken: string): Promise<void>;
 }
 
 export interface VmHostLeaseProviderClient {
@@ -286,17 +288,39 @@ export class VmHostLeaseTransport {
     try {
       providerResult = await adapter.execute(providerOperation(input));
     } catch (cause) {
+      await this.abortReservation(input, provider, reservation.reservationToken);
       if (cause instanceof VmHostLeaseError) throw cause;
       throw new VmHostLeaseError("provider_error", "host lease provider operation failed", cause);
     }
-    const completed = recordFrom(input, provider, providerResult);
-    const stored = await this.store.complete(input, provider, providerResult, reservation.reservationToken);
+    let completed: VmHostLeaseRecord;
+    try {
+      completed = recordFrom(input, provider, providerResult);
+    } catch (cause) {
+      await this.abortReservation(input, provider, reservation.reservationToken);
+      throw cause;
+    }
+    let stored: VmHostLeaseRecord;
+    try {
+      stored = await this.store.complete(input, provider, providerResult, reservation.reservationToken);
+    } catch (cause) {
+      await this.abortReservation(input, provider, reservation.reservationToken);
+      throw cause;
+    }
     // The store is authoritative for fencing and dedupe. It may normalize
     // provider metadata, but must return the same operation identity.
     if (stored.leaseId !== completed.leaseId || stored.effectKey !== completed.effectKey || stored.generation !== completed.generation) {
       throw new VmHostLeaseError("store_error", "lease store returned a mismatched completion record");
     }
     return { ...stored, replayed: false };
+  }
+
+  private async abortReservation(input: Required<VmHostLeaseInput>, provider: VmHostLeaseProvider, reservationToken: string): Promise<void> {
+    if (!this.store.abort) return;
+    try {
+      await this.store.abort(input, provider, reservationToken);
+    } catch (cause) {
+      throw new VmHostLeaseError("store_error", "failed to release abandoned host lease reservation", cause);
+    }
   }
 }
 
@@ -380,6 +404,14 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
     this.operations.set(key, completed);
     this.current.set(currentKey(input), completed);
     return completed;
+  }
+
+  async abort(input: VmHostLeaseInput, provider: VmHostLeaseProvider, reservationToken: string): Promise<void> {
+    const key = operationKey(input);
+    if (this.pendingTokens.get(key) !== reservationToken) return;
+    this.pending.delete(key);
+    this.pendingTokens.delete(key);
+    if (this.pendingByLease.get(currentKey(input)) === key) this.pendingByLease.delete(currentKey(input));
   }
 }
 

@@ -165,6 +165,24 @@ describe("VM host lease transport", () => {
     expect(calls).toEqual(["acquire"]);
   });
 
+  test("releases an abandoned reservation after provider failure", async () => {
+    let attempts = 0;
+    const client: VmHostLeaseProviderClient = {
+      async acquire(input) {
+        attempts += 1;
+        if (attempts === 1) throw new Error("transient provider failure");
+        return { providerLeaseId: "provider-lease", expiresAtMs: input.nowMs + input.ttlMs, generation: input.generation };
+      },
+      async renew() { return {}; },
+      async release() { return {}; },
+    };
+    const transport = transportFor("huge-blue", { ...client, calls: [] } as FakeClient);
+    const input = { provider: "huge-blue" as const, leaseId: "lease-abort", hostId: "huge-blue:host", ownerId: "worker", generation: 1, effectKey: "abort", ttlMs: 1_000, nowMs: 0 };
+    await expect(transport.acquire(input)).rejects.toMatchObject({ code: "provider_error" });
+    await expect(transport.acquire(input)).resolves.toMatchObject({ replayed: false, state: "active" });
+    expect(attempts).toBe(2);
+  });
+
   test("Huge Blue HTTP factory sends fenced, idempotent lease requests without embedding credentials", async () => {
     const requests: Array<{ url: string; authorization: string; body: Record<string, unknown> }> = [];
     const client = createHugeBlueHostLeaseHttpClient({

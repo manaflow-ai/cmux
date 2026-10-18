@@ -141,6 +141,17 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
       return record;
     });
   }
+
+  async abort(input: VmHostLeaseInput, provider: VmHostLeaseProvider, reservationToken: string): Promise<void> {
+    const normalized = validateVmHostLeaseInput(input);
+    await cloudDb().transaction(async (tx) => {
+      await lockLeaseTuple(tx, normalized.hostId, normalized.leaseId);
+      const operation = (await tx.select().from(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, reservationToken)).limit(1))[0];
+      if (!operation || operation.status !== "pending") return;
+      assertOperationIdentity(operation, normalized, provider);
+      await tx.delete(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, reservationToken));
+    });
+  }
 }
 
 async function lockLeaseTuple(tx: { execute: (query: SQL) => Promise<unknown> }, hostId: string, leaseId: string): Promise<void> {
