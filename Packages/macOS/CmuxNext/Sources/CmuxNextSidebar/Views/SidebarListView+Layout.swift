@@ -6,8 +6,8 @@ import QuartzCore
 extension SidebarListViewComponents {
     // MARK: - Reload
     /// Recomputes layout from the model and animates rows to their frames.
-    func reload(animated: Bool, adopt: Bool = false) {
-        SidebarPerfCounters.add(.listReloads)
+    func reload(animated: Bool, adopt: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
+        SidebarPerfCounters.add(.listReloads, from: file, line: line)
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
@@ -217,6 +217,7 @@ extension SidebarListViewComponents {
             view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
+            view.region.activeItem = activeTopItem
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
