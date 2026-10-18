@@ -154,8 +154,8 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// A copy of a non-square picture cropped to its centred square, as the
     /// header draws it (the list stretches a picture over its disc), cached
     /// by name and modification date; nil when it is square or unreadable. A
-    /// square GIF stays itself, motion and all; a non-square one gets a still
-    /// square copy, as cropping every frame is not worth it for a list icon.
+    /// square GIF is kept as it is (the sidebar draws its first frame); a
+    /// non-square one gets a still square copy rather than being stretched.
     static func squared(_ file: URL) -> URL? {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),

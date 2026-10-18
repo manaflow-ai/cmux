@@ -27,7 +27,7 @@ nonisolated enum HomeSettingsSchema {
                 group: SettingsText.keyed("settings.group.chiefPictures", "Chief Pictures"),
                 title: SettingsText.keyed("settings.home.chiefPictureMotion", "Animated Pictures"),
                 help: SettingsText.keyed("settings.home.chiefPictureMotion.help",
-                                         "Whether a Chief's GIF or animated picture moves. Reduce Motion always shows its first frame."),
+                                         "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame."),
                 kind: .choice([
                     SettingChoice(ChiefPictureMotion.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
                     SettingChoice(ChiefPictureMotion.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),

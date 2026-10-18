@@ -82,9 +82,9 @@ import UniformTypeIdentifiers
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("optchat/avatar.png").path))
     }
 
-    /// The tile (backgrounds plan phase 5 review): a square GIF stays itself, motion and all; a
-    /// non-square one gets a still square copy rather than being stretched.
-    @Test func aSquareGIFKeepsItsMotionAndAWideOneGetsAStillSquareTile() throws {
+    /// The tile (backgrounds plan phase 5 review): a square GIF file is kept as it is (the sidebar
+    /// draws its first frame); a non-square one gets a still square copy rather than being stretched.
+    @Test func aSquareGIFIsKeptAndAWideOneGetsAStillSquareTile() throws {
         let home = try Self.home(), source = try Self.home()
         let files = HomeChiefFiles(muxHome: home)
         let square = source.appendingPathComponent("square.gif")
@@ -95,7 +95,7 @@ import UniformTypeIdentifiers
             return
         }
         #expect(kept.pathExtension == "gif")
-        #expect(CGImageSourceCreateWithURL(kept as CFURL, nil).map(CGImageSourceGetCount) == 3, "a square GIF lost its motion")
+        #expect(CGImageSourceCreateWithURL(kept as CFURL, nil).map(CGImageSourceGetCount) == 3, "a square GIF was redrawn")
         let wide = source.appendingPathComponent("wide.gif")
         try Self.picture(.gif, width: 96, height: 48, frames: 3, to: wide)
         try files.writePicture(from: wide)

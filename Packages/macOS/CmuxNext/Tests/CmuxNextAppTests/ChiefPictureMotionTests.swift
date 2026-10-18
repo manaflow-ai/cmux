@@ -6,9 +6,10 @@ import ImageIO
 import Testing
 import UniformTypeIdentifiers
 
-/// The Home header's Chief picture follows `home.chiefPictureMotion` (backgrounds plan phase 5):
-/// an animated picture shows its still first frame unless the motion is Always, and Reduce Motion
-/// always holds it still; a still picture shows as it is.
+/// Chief picture motion (backgrounds plan phase 5): the native Home header always shows an
+/// animated picture's still first frame (MessagesLab redraws it into a clipped disc), a still
+/// picture as it is; `home.chiefPictureMotion`, which Home pages follow, is Never under Reduce
+/// Motion.
 @MainActor @Suite(.serialized) struct ChiefPictureMotionTests {
     static func gif() throws -> NSImage {
         let data = NSMutableData()
@@ -28,7 +29,7 @@ import UniformTypeIdentifiers
         (image?.representations.first as? NSBitmapImageRep)?.value(forProperty: .frameCount) as? Int ?? 1
     }
 
-    @Test func anAnimatedPictureIsStillUnlessTheMotionIsAlways() throws {
+    @Test func theHeaderShowsAStillFrameAndReduceMotionMeansNever() throws {
         let animated = try Self.gif()
         #expect(Self.frames(animated) == 2)
         let still = HomeNativeTranscriptView.firstFrame(animated)
