@@ -66,6 +66,9 @@ import Testing
         host.hide()
         host.update(try Self.menu(["a", "b", "c"]))
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the closed menu opened again")
+        // A reopen queued behind the close's end would show in the next turn.
+        await Task.yield()
+        #expect(!panel.isVisible, "the closed menu opened again after its close")
         #expect(host.shownFrame == nil)
     }
 

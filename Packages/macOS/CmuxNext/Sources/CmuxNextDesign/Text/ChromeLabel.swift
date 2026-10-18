@@ -92,7 +92,8 @@ open class ChromeLabel: NSTextField {
     /// and later), in the stock color and over nothing that blends: the glyphs replace it, so it
     /// draws transparent (else the text draws twice, 12% heavier, and its color snaps under the
     /// blend). Its alpha, not `isHidden`: AppKit shows and hides that view itself on layout. The
-    /// field editor of a selected or edited label is not one of them.
+    /// field editor of a selected or edited label is not one of them. A ChromeLabel has no other
+    /// subviews: put views beside it, not in it.
     private var stockTextViews: [NSView] { subviews.filter { !($0 is NSClipView || $0 is NSText) } }
 
     private func hideStockText() {
