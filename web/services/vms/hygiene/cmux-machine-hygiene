@@ -171,21 +171,6 @@ elif rm -rfx -- "$state_dir/probe" 2>/dev/null; then
   rm_flags="-rfx"
 fi
 
-# Paths running processes hold open, run from or work in, collected once:
-# /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
-in_use_evidence=1
-if [ -d /proc/self/fd ]; then
-  for pid_dir in /proc/[0-9]*; do
-    readlink "$pid_dir/cwd" 2>/dev/null
-    readlink "$pid_dir/exe" 2>/dev/null
-    for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
-  done | grep '^/' | sort -u > "$in_use_file"
-elif command -v lsof >/dev/null 2>&1; then
-  lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$in_use_file"
-else
-  in_use_evidence=0; : > "$in_use_file"
-fi
-
 # Mount points other than /, from `mount`: Linux "SRC on X type T (opts)" or
 # macOS "SRC on X (opts)". A line with more than one " on /" is ambiguous
 # and counts as unparsable. Only the kernel's \040, \011 and \134 escapes are
@@ -233,6 +218,22 @@ done < "$mounts_file"
 if [ -n "$sandbox" ]; then
   [ "$mount_evidence" = 1 ] || unsafe sandbox "$sandbox (no mount evidence)"
   grep -q -F -x -e "$sandbox" "$mounts_file" && unsafe sandbox "$sandbox (mount point)"
+fi
+
+# Paths running processes hold open, run from or work in, collected once
+# (after the cheap mount and sandbox checks, so a refused run exits fast):
+# /proc on Linux, lsof elsewhere. With neither, nothing counts as idle.
+in_use_evidence=1
+if [ -d /proc/self/fd ]; then
+  for pid_dir in /proc/[0-9]*; do
+    readlink "$pid_dir/cwd" 2>/dev/null
+    readlink "$pid_dir/exe" 2>/dev/null
+    for fd in "$pid_dir"/fd/*; do readlink "$fd" 2>/dev/null; done
+  done | grep '^/' | sort -u > "$in_use_file"
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$in_use_file"
+else
+  in_use_evidence=0; : > "$in_use_file"
 fi
 
 # True when a listed path equals the path or lies under it. The path goes
