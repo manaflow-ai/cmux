@@ -275,7 +275,9 @@ class Bench:
     def start_tickers(self):
         """Starts the status tickers (background workspaces through the tagged CLI); False when it cannot."""
         cli = self.args.status_cli or os.environ.get("NX_APP_CLI")
-        if not cli or self.args.status_tickers <= 0:
+        if self.args.status_tickers <= 0:
+            return False
+        if not cli:
             self.refusals.append({"action": "status", "error": "no CLI for tickers (--status-cli or NX_APP_CLI)"})
             return False
         if getattr(self, "tickers_started", False):
@@ -402,7 +404,10 @@ class Bench:
             "status": [("wait", {"seconds": self.args.status_seconds})],
         }
         out = {}
-        for name in self.args.phases.split(","):
+        # status runs last: its tickers keep printing after it (later phases would measure them).
+        names = self.args.phases.split(",")
+        names = [n for n in names if n != "status"] + (["status"] if "status" in names else [])
+        for name in names:
             if name == "tabs" and self.args.tabs <= 1:
                 continue
             if name not in plan:
@@ -411,8 +416,12 @@ class Bench:
                 continue
             out[name] = self.phase(name, plan[name])
             if name == "status":
-                # One op per expected tick (4 per second per ticker) for the per-op counters.
-                out[name]["ticks"] = int(self.args.status_seconds * 4 * self.args.status_tickers)
+                # The window is one op; per tick = window totals / expected ticks (4/s per ticker).
+                ticks = int(self.args.status_seconds * 4 * self.args.status_tickers)
+                out[name]["ticks"] = ticks
+                layout = out[name].get("layout") or {}
+                out[name]["layout_per_tick"] = {k: round(v / ticks, 3) for k, v in layout.items()
+                                                if not k.endswith("_per_op") and ticks}
         return out
 
     def add_tabs(self):
