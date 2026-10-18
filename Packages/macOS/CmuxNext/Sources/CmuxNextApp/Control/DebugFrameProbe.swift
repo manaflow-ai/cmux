@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -41,11 +42,16 @@ final class DebugFrameProbe {
     private func start() {
         intervals.removeAll(keepingCapacity: true)
         last = 0
+        CGSTransactionProbe.install()
+        CGSTransactionProbe.stacks = [:]
+        CGSTransactionProbe.calls = 0
+        CGSTransactionProbe.recording = true
         client.activate()
         expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
     }
 
     private func stop() {
+        CGSTransactionProbe.recording = false
         client.deactivate()
         expiry.cancel()
     }
@@ -85,7 +91,51 @@ final class DebugFrameProbe {
             "missed": JSONValue(expected > 0 ? sorted.filter { $0 > expected * 1_500 }.count : 0),
             // When the missed vsyncs happened: ms from the first frame to the end of each (at most 16).
             "missed_at_ms": .array(missedOffsets.prefix(16).map { .number($0.rounded()) }),
+            "cgs": CGSTransactionProbe.json,
         ]
     }
 }
 
+
+/// PROBE ONLY (perf-hitch cx-8w027.19, never landed): records the callers of
+/// `+[_NSCGSTransaction currentTransaction]` between `debug.frames` start and stop when
+/// CMUX_NEXT_PROBE_CGS=1, to find what opens a window-server transaction during a drag.
+@MainActor
+enum CGSTransactionProbe {
+    static var recording = false
+    static var stacks: [String: Int] = [:]
+    static var calls = 0
+    private static var installed = false
+    nonisolated(unsafe) private static var original: IMP?
+
+    static func install() {
+        guard !installed, ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_CGS"] == "1",
+              let cls = NSClassFromString("_NSCGSTransaction"),
+              let method = class_getClassMethod(cls, NSSelectorFromString("currentTransaction")) else { return }
+        installed = true
+        original = method_getImplementation(method)
+        typealias Fn = @convention(c) (AnyObject, Selector) -> AnyObject?
+        let block: @convention(block) (AnyObject) -> AnyObject? = { me in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    if recording {
+                        calls += 1
+                        if stacks.count < 200 {
+                            let key = Thread.callStackSymbols.dropFirst(1).prefix(28).map {
+                                $0.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).joined(separator: " ")
+                            }.joined(separator: " | ")
+                            stacks[key, default: 0] += 1
+                        }
+                    }
+                }
+            }
+            return unsafeBitCast(original!, to: Fn.self)(me, NSSelectorFromString("currentTransaction"))
+        }
+        method_setImplementation(method, imp_implementationWithBlock(block))
+    }
+
+    static var json: JSONValue {
+        ["calls": JSONValue(calls),
+         "stacks": .array(stacks.sorted { $0.value > $1.value }.map { .string("\($0.value)x \($0.key)") })]
+    }
+}
