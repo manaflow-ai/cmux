@@ -57,3 +57,24 @@ fn a_failed_turns_error_is_masked_too() {
     assert_eq!(lane["state"], "failed", "{lane}");
     assert_eq!(lane["error"], "401 for token [github token]");
 }
+
+#[test]
+fn the_lanes_title_is_masked_and_falls_back_to_the_masked_first_prompt() {
+    let token = github_token();
+    let titled = json!({"status": "idle", "turnCount": 1, "updatedAt": 9, "title": format!("rotate {token}"),
+                        "lastPrompt": "unused"});
+    assert_eq!(lane(&titled)["title"], "rotate [github token]");
+    let untitled = json!({"status": "idle", "turnCount": 1, "updatedAt": 9,
+                          "lastPrompt": format!("push with\n{token}")});
+    assert_eq!(lane(&untitled)["title"], "push with [github token]");
+    assert!(lane(&json!({"status": "idle", "updatedAt": 9}))["title"].is_null());
+}
+
+#[test]
+fn a_huge_prompt_is_cut_before_it_is_scanned_and_its_step_still_masks_the_head() {
+    // A pasted log: the step reads only its head, so the scan never walks megabytes.
+    let token = github_token();
+    let prompt = format!("deploy {token} {}", "x".repeat(4_000_000));
+    let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
+    assert!(step.starts_with("deploy [github token] x"), "{step}");
+}

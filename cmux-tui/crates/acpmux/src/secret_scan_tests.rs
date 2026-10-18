@@ -147,6 +147,11 @@ fn ordinary_text_is_left_alone() {
         "the author: Leo",
         // A PR, an issue and a short id.
         "Opened manaflow-ai/cmux#21727; CI is green on 774a92d8f8.",
+        // Code and config that only name tokens and secrets.
+        "call crate::secret_scan::mask(text) on it",
+        "max_tokens: 100000, inputTokens: 123456",
+        "tokenizer: sentencepiece",
+        "the token: expired",
     ] {
         assert_eq!(mask(text), text, "{text:?} was masked: {:?}", find(text));
     }

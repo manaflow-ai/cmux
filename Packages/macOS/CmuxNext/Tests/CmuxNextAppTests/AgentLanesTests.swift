@@ -102,6 +102,15 @@ struct AgentLanesTests {
         #expect(AgentActivityLane.of(summary: summary, title: nil)?.step == nil, "an acpmux from before lane.step shows no step")
     }
 
+    /// hq#2509: the title the app passes in can be the session's first prompt, raw. acpmux's
+    /// masked `lane.title` wins over it.
+    @Test func aLanesTitleIsTheDaemonsMaskedTitle() {
+        let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+        var summary = Self.summary("op-busy", "working")
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "title": "push [github token]"]
+        #expect(AgentActivityLane.of(summary: summary, title: "push \(token)")?.title == "push [github token]")
+    }
+
     @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-lanes-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
