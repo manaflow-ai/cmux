@@ -1,6 +1,3 @@
-import { POST as createVm } from "../vm/route";
-import { POST as execVmRoute } from "../vm/[id]/exec/route";
-import { DELETE as deleteVm } from "../vm/[id]/route";
 import {
   jsonResponse,
   vmErrorResponse,
@@ -23,8 +20,11 @@ type AttemptFailure = { readonly ok: false; readonly response: Response };
 
 
 function safeError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  return raw.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 400);
+  const outer = error instanceof Error ? error.message : String(error);
+  const cause = error && typeof error === "object" && "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+  const inner = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+  const code = cause && typeof cause === "object" && "code" in cause && typeof (cause as { code?: unknown }).code === "string" ? ` [${(cause as { code: string }).code}]` : "";
+  return `${outer}${inner && inner !== outer ? `: ${inner}` : ""}${code}`.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 600);
 }
 
 function errorResponse(message: string, status = 400): Response {
@@ -125,7 +125,7 @@ async function provisionVm(request: Request, userId: string, spec: RunSpec, runI
       ...(spec.workspace.kind === "persistent" ? { persistentHome: true } : {}),
     }),
   });
-  const vmResponse = await createVm(vmRequest);
+  const vmResponse = await fetch(vmRequest);
   const vmBody = await responseBody(vmResponse);
   if (!vmResponse.ok) {
     const message = vmBody?.message;
@@ -150,7 +150,7 @@ async function provisionVm(request: Request, userId: string, spec: RunSpec, runI
 }
 
 async function destroyVmForAttempt(request: Request, providerVmId: string): Promise<Response> {
-  return deleteVm(new Request(new URL(`/api/vm/${encodeURIComponent(providerVmId)}`, request.url), { method: "DELETE", headers: request.headers }), { params: Promise.resolve({ id: providerVmId }) });
+  return fetch(new Request(new URL(`/api/vm/${encodeURIComponent(providerVmId)}`, request.url), { method: "DELETE", headers: request.headers }));
 }
 
 async function executeAttempt(request: Request, userId: string, runId: string, attemptId: string, providerVmId: string, result: Record<string, unknown>, spec: RunSpec): Promise<{ ok: true; result: Record<string, unknown> } | AttemptFailure> {
@@ -161,7 +161,7 @@ async function executeAttempt(request: Request, userId: string, runId: string, a
     headers: forwardedHeaders(request),
     body: JSON.stringify({ command, timeoutMs: 60_000 }),
   });
-  const execResponse = await execVmRoute(execRequest, { params: Promise.resolve({ id: providerVmId }) });
+  const execResponse = await fetch(execRequest);
   const execOutput = await responseBody(execResponse);
   if (!execResponse.ok || typeof execOutput?.stdout !== "string" || !execOutput.stdout.includes(marker)) {
     const message = typeof execOutput?.message === "string" ? execOutput.message : `Cloud Run command failed (${execResponse.status}).`;
