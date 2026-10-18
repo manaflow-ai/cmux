@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextFocus
 
 /// Reads the live combined input state into an `InputObservation`: each
 /// window's focus model next to AppKit's first responder and key window,

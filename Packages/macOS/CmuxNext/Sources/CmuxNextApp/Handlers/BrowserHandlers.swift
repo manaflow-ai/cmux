@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFocus
 
 /// Browser-category actions that act on the focused page or create browser
 /// panes. Back, forward, reload, zoom, and the address bar are bound in

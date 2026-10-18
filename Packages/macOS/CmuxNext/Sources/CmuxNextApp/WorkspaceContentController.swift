@@ -34,7 +34,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var settlingObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
-    private var isApplying = false
+    private(set) var isApplying = false
     private var appliedTree = LayoutAppliedTree()
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
@@ -43,22 +43,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// Kept mounted off screen by its window (a recently shown workspace):
-    /// its panes are paused in the keep-alive band and it sends no focus
-    /// events, because the window's focus follows the shown workspace.
+    /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
+    /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
+    /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
 
     /// Parks this content before its window shows another workspace.
-    func park() {
-        isParked = true
-        layoutView.keepsPanesWhenDetached = true
-    }
+    func park() { isParked = true }
 
     /// Shows this parked content again: its observation kept the tree current, so no re-map or apply.
-    func unpark() {
-        isParked = false
-        layoutView.keepsPanesWhenDetached = false
-    }
+    func unpark() { isParked = false }
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
@@ -176,7 +170,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        // The one topology of this apply (mounts and pane snapshots inside it sent none).
+        isApplying = wasApplying
         sendTopology()
+        isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
     }
 
@@ -246,7 +243,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.paneMounts.changed()
-        if !isApplying { sendTopology() }
+        sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
         if panes.count == 1, services.settingsWindow.isWaiting {

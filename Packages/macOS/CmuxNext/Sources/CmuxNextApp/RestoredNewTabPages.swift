@@ -11,7 +11,7 @@ enum RestoredNewTabPages {
     static func shows(_ tab: TabModel, in tabs: AgentTabStore) -> Bool {
         let key = tabs.resolve(tab.id)
         // Observed: the strip and Home follow the pages this run opens and closes.
-        if tabs.pageTabs.ids.contains(key) || tabs.newTabPages[key] != nil { return true }
+        if tabs.pageTabs.contains(key) || tabs.newTabPages[key] != nil { return true }
         // Cheap lookups first: a restored chat leaves here, before the host checks walk the tree.
         guard let record = tab.agentSession, tabs.views[key] == nil, tabs.tabStores[key] == nil,
               (tabs.sessions[key] ?? record.session) == nil, tabs.seeds[key] == nil, !tabs.linkedSessions.contains(key),

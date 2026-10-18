@@ -18,6 +18,11 @@ as fast as the socket answers:
   series     three times: the shown workspace's theme changes dark -> light -> dark within 300 ms (Mocha, Latte, Mocha): the backdrop
              samples and the recorded window pixels (OUT/series-N/, read through sips) never jump.
   record     (--record) one debug.window_record of a blend, frames under OUT/record/.
+  glass      (--material glass) a see-through Liquid Glass window instead: three switches between
+             a dark and a light workspace, each recorded (OUT/glass-N/). The old tint's overlay
+             starts at the old tint, nearly opaque, and fades; the recorded pixels never jump (the
+             first frames included); the glass ends on the new tint with no overlay. Only this
+             phase runs.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   color-transition-e2e.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS" [--record]
@@ -30,6 +35,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--record", action="store_true")
+parser.add_argument("--material", choices=["opaque", "glass"], default="opaque")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -46,8 +52,9 @@ def check(ok, what):
 
 
 def config(**transition):
+    look = {"backgroundOpacity": 0.8, "backgroundBlur": "glass"} if opts.material == "glass" else {"backgroundOpacity": 1}
     with open(CONFIG, "w") as f:
-        json.dump({"appearance": {"backgroundOpacity": 1, "colorTransition": transition}}, f)
+        json.dump({"appearance": {**look, "colorTransition": transition}}, f)
 
 
 def rpc(method, params=None, timeout=30):
@@ -126,6 +133,31 @@ def window():
 
 def sheet():
     return (window().get("backdrop") or {}).get("sheet") or ""
+
+
+def backdrop():
+    return window().get("backdrop") or {}
+
+
+def jumps(directory, label):
+    """Checks the recorded pixels of a blank sidebar spot in `directory`: per 60 Hz frame no step is
+    over a quarter of the whole change, the first moving one included. Returns the pixels."""
+    pixels = frame_colors(directory, 0.12, 0.75)
+    try:
+        times = json.load(open(os.path.join(directory, "frames.json"))).get("times") or []
+    except (OSError, ValueError):
+        times = []
+    if len(pixels) <= 10:
+        check(False, f"{label} pixels: frames recorded ({len(pixels)})")
+        return pixels
+    gaps = [max((b - a) * 1000, 1000 / 60) for a, b in zip(times, times[1:])] if len(times) == len(pixels) else []
+    steps = [distance(a, b) * ((1000 / 60) / gaps[i] if gaps else 1) for i, (a, b) in enumerate(zip(pixels, pixels[1:]))]
+    total = max(distance(pixels[0], p) for p in pixels)
+    first = next((x for x in steps if x > 0.002), 0)
+    check(total > 0.1, f"{label} pixels: the window recolored on screen (moved {total:.3f})")
+    check(first < 0.25 * total, f"{label} pixels: the first frames do not jump (first step {first:.3f} of {total:.3f})")
+    check(max(steps) < 0.25 * total, f"{label} pixels: no frame jumps (largest step per 60 Hz frame {max(steps):.3f} of {total:.3f})")
+    return pixels
 
 
 def rgb(hexa):
@@ -231,16 +263,52 @@ try:
     print("launched pid", app.pid, flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and workspace_ids(), 180, 0.5):
         sys.exit("the tagged app did not come up")
-    check(wait(lambda: sheet(), 30) is not None, "debug.themes reports the window backdrop sheet")
+    if opts.material == "glass":
+        check(wait(lambda: backdrop().get("glassTint"), 30) is not None, "debug.themes reports the Liquid Glass tint")
+    else:
+        check(wait(lambda: sheet(), 30) is not None, "debug.themes reports the window backdrop sheet")
 
     check(bool(wait(lambda: shown_workspace().get("workspace"), 30)), "a workspace shows")
     themed("Rose Pine")
     first_ws = shown_workspace().get("workspace")
     action("workspace.newAtBottom")
     check(bool(wait(lambda: shown_workspace().get("workspace") not in (None, first_ws), 30)), "a second workspace opens and shows")
-    themed("Catppuccin Mocha")
+    themed("Catppuccin Latte" if opts.material == "glass" else "Catppuccin Mocha")
     second_ws = shown_workspace().get("workspace")
     report["workspaces"] = [first_ws, second_ws]
+    if opts.material == "glass":
+        def glass_at_rest():
+            b = backdrop()
+            return b.get("glassTint") if b.get("blending") == "false" and b.get("glassTint") else None
+        for run in range(3):
+            action("goToWorkspace", {"workspace": first_ws})
+            time.sleep(0.2)
+            old = wait(glass_at_rest, 5, 0.05)
+            run_dir = os.path.join(opts.out, f"glass-{run}")
+            os.makedirs(run_dir, exist_ok=True)
+            rpc("debug.window_record", {"dir": run_dir, "seconds": 1.0})
+            time.sleep(0.15)
+            samples, start = [], time.monotonic()
+            fire("goToWorkspace", {"workspace": second_ws})
+            while time.monotonic() - start < 0.8:  # bounded sampling window
+                b = backdrop()
+                samples.append((round(time.monotonic() - start, 4), b.get("glassTint"), b.get("glassOverlay"), b.get("glassOverlayOpacity")))
+            time.sleep(0.4)  # the recording stops by itself
+            new = wait(glass_at_rest, 5, 0.05)
+            report[f"glass-{run}"] = {"old": old, "new": new, "samples": samples}
+            check(bool(old and new) and old[:7] != new[:7], f"glass {run}: the switch changes the glass tint ({old} -> {new})")
+            blending = [x for x in samples if x[2]]
+            if blending and old:
+                _, _, color, opacity = blending[0]
+                check(distance(color, old) < 0.02, f"glass {run}: the overlay starts at the old tint ({color} vs {old})")
+                check(float(opacity or 0) > 0.8, f"glass {run}: the overlay starts nearly opaque ({opacity})")
+                values = [float(x[3] or 0) for x in blending]
+                check(all(b <= a + 0.01 for a, b in zip(values, values[1:])), f"glass {run}: the overlay only fades ({values[:6]}...)")
+            else:
+                check(False, f"glass {run}: the old tint's overlay shows during the blend ({len(samples)} samples)")
+            check(not (backdrop().get("glassOverlay")), f"glass {run}: no overlay once the blend ends")
+            report[f"glass-{run}-pixels"] = jumps(run_dir, f"glass {run}")
+        sys.exit(1 if failures else 0)
     time.sleep(1)
     dark = settled()
     action("goToWorkspace", {"workspace": first_ws})

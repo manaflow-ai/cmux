@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextSettings
+import CmuxNextFocus
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {

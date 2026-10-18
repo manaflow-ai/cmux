@@ -177,6 +177,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextFeed",
+        "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
         "CmuxNextHome",
@@ -242,6 +243,7 @@
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
         "CmuxNextHome",
@@ -526,6 +528,14 @@
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextFocus": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocus",
+      "targets": [
+        "CCmuxAppFFI"
       ],
       "packages": []
     },

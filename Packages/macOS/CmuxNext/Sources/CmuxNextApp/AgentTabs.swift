@@ -132,10 +132,7 @@ final class AgentTabStore {
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
-        didSet {
-            let ids = Set(newTabPages.keys)
-            if pageTabs.ids != ids { pageTabs.ids = ids }
-        }
+        didSet { pageTabs.set(Set(newTabPages.keys)) }
     }
     /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
     let pageTabs = NewTabPageIDs()
@@ -375,7 +372,10 @@ final class AgentTabStore {
         }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
-        model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
+        model.onRememberNewTab = { [weak self, weak model] pick in
+            if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
+            self?.pageHandler(provisional)?.remember(pick)
+        }
         model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
@@ -401,7 +401,12 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
-        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
+        model.onChatsPage = { [weak self] query in
+            let answer = await self?.pageChats.page?(query)
+            // A New Tab page on screen gives the frame of the list it draws now.
+            if let self, let view = views[resolve(provisional)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
+            return answer
+        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)
@@ -425,6 +430,7 @@ final class AgentTabStore {
 
     /// A pane view on this store's page and host, with the shared pushes.
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
+        AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
