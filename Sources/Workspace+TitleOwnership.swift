@@ -124,12 +124,9 @@ extension Workspace {
     /// single-panel branch did exactly that).
     func applyAutomaticTitle(_ title: String) {
         guard self.title != title else { return }
-        // Automatic process-title frames use the settled observation model;
-        // publishing them through the immediate sidebar stream defeats the
-        // coalescing contract and refreshes every row during TUI animation.
-        suppressSidebarTitleDidChange = true
-        self.title = title
-        suppressSidebarTitleDidChange = false
+        withAutomaticTitleMutation {
+            self.title = title
+        }
         sidebarProcessTitleObservation.processTitleDidChange()
     }
 

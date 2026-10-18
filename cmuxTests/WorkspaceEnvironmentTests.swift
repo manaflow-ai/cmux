@@ -147,10 +147,11 @@ struct WorkspaceEnvironmentTests {
             focus: false,
             startupEnvironment: ["ONLY": "surface"]
         ))
-        let userEnvironment = second.surface.respawnAdditionalEnvironment.filter {
-            $0.key != "CMUX_STABLE_SURFACE_ID"
-        }
-        #expect(userEnvironment == ["ONLY": "surface"])
+        // Every terminal carries its own stable surface identity.
+        #expect(second.surface.respawnAdditionalEnvironment == [
+            "ONLY": "surface",
+            "CMUX_STABLE_SURFACE_ID": second.stableSurfaceId.uuidString,
+        ])
     }
 
     // MARK: - Acceptance: persistence across session restore
