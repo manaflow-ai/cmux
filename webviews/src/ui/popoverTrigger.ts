@@ -9,6 +9,7 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => void, show?: () => void) {
   const openAtPress = useRef<boolean | undefined>(undefined);
   // A mouse press already opened or closed it: the click it ends with does nothing.
+  // The marker lifecycle stays local to the trigger so unrelated controls never inherit it.
   const pressed = useRef(false);
   const press = useRef<(() => void) | null>(null);
   useEffect(() => () => press.current?.(), []);
