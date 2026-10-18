@@ -28,6 +28,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
     let notificationMessageLineLimit: Int
+    let statusEntryLimit: Int
+    let showsProgramStatus: Bool
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
@@ -91,6 +93,14 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             ),
             SidebarCatalogSection.notificationMessageLineLimitRange.upperBound
         )
+        statusEntryLimit = min(
+            max(
+                settings.value(for: sidebar.statusEntryLimit),
+                SidebarCatalogSection.statusEntryLimitRange.lowerBound
+            ),
+            SidebarCatalogSection.statusEntryLimitRange.upperBound
+        )
+        showsProgramStatus = settings.value(for: sidebar.showProgramStatus)
         visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
             showMetadata: details.showCustomMetadata,
             showLog: details.showLog,

@@ -48,6 +48,8 @@ enum SidebarWorkspaceDetailDefaults {
     static let showAgentUsageKey = sidebar.showAgentUsage.userDefaultsKey
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
+    static let showProgramStatusKey = sidebar.showProgramStatus.userDefaultsKey
+    static let statusEntryLimitKey = sidebar.statusEntryLimit.userDefaultsKey
     static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
@@ -61,6 +63,8 @@ enum SidebarWorkspaceDetailDefaults {
     static let showAgentUsage = sidebar.showAgentUsage.defaultValue
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
+    static let showProgramStatus = sidebar.showProgramStatus.defaultValue
+    static let statusEntryLimit = sidebar.statusEntryLimit.defaultValue
     static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
 }
 
@@ -443,6 +447,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "compactAgentStatus",
             defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
+        ),
+        .init(
+            jsonKey: "showProgramStatus",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showProgramStatusKey
         ),
     ]
 

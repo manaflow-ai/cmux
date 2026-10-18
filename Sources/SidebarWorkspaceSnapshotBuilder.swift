@@ -12,6 +12,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsAgentActivity: Bool
         var compactsAgentStatus = false
         var compactStatusIcons: [String: String] = [:]
+        var showsProgramStatus = true
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
         // Effective row color (manual color, else resolved origin color). Part of
         // the key so the cached snapshot is rebuilt when the color changes — e.g.

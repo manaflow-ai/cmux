@@ -3,7 +3,7 @@ import CmuxSidebar
 import Foundation
 
 extension Workspace {
-    static let programStatusKey = "program_status"
+    nonisolated static let programStatusKey = "program_status"
 
     /// Applies one OSC 7501 report and publishes the resulting safe snapshot.
     func applyProgramStatus(_ report: ProgramStatusReport, panelId: UUID) {
