@@ -320,7 +320,9 @@ export function recentChatCards(
   fold = true,
 ): ChatCard[] {
   const live = liveChatCards(sessions, now, t, count, fold);
-  const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
+  // Titles are presentation text, not identity. Two distinct chats are allowed to have
+  // the same title; suppressing by title made the newer device chat disappear from Recent.
+  const shown = new Set(live.flatMap((card) => [card.sessionId, card.chatKey].filter((key): key is string => Boolean(key))));
   // Every session's, an archived one's too: its transcript must not come back as a device chat.
   const agents = new Set(
     sessions.flatMap((session) => {
@@ -331,7 +333,7 @@ export function recentChatCards(
   const fill = [...device]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .filter((chat) => !(fold && chat.parent) && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
-    .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
+    .filter((chat) => !shown.has(chat.key))
     .slice(0, Math.max(0, count - live.length))
     .map((chat): ChatCard => ({
       sessionId: chat.key,

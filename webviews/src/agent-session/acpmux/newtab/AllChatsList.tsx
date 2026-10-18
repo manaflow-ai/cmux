@@ -108,7 +108,10 @@ export type ChatProject = { key: string; cwd?: string; label?: string; rows: All
 /// first), its chats in their own order.
 export function projectGroups(rows: AllChatsRow[]): ChatProject[] {
   const groups = new Map<string, ChatProject>();
-  for (const row of rows) {
+  // Pagination and index pushes can interleave pages. Re-establish recency here so a
+  // late page cannot reshuffle a project or put an older chat above a newer one.
+  const ordered = [...rows].sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key));
+  for (const row of ordered) {
     const key = row.cwd ?? "";
     let group = groups.get(key);
     if (!group) {
@@ -121,7 +124,10 @@ export function projectGroups(rows: AllChatsRow[]): ChatProject[] {
     }
     group.rows.push(row);
   }
-  return [...groups.values()];
+  return [...groups.values()].sort((a, b) => {
+    const newest = (project: ChatProject) => project.rows[0]?.updatedAt ?? 0;
+    return newest(b) - newest(a) || a.key.localeCompare(b.key);
+  });
 }
 
 /// One row of the list: a project's header (Projects only) or a chat.
