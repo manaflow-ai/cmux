@@ -189,6 +189,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var computerUse = ComputerUseSettings()
     /// `freeModel.*`: the free AI model while signed out (cx-ds09i).
     public var freeModel = FreeModelSettings()
+    /// `sessions.*`: what this Mac does while agents work (keep awake).
+    public var sessions = SessionSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -249,12 +251,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
-        let (scrollbar, scrollbarDiagnostic) = StripScrollbarSetting.parse(root)
-        snapshot.stripScrollbar = scrollbar
-        if let scrollbarDiagnostic { snapshot.diagnostics.append(scrollbarDiagnostic) }
-        let (closeFocus, closeFocusDiagnostic) = CloseFocusSetting.parse(root)
-        snapshot.closeFocus = closeFocus
-        if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
+        snapshot.take(StripScrollbarSetting.parse(root), \.stripScrollbar)
+        snapshot.take(CloseFocusSetting.parse(root), \.closeFocus)
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.hoverCards = HoverCardSettings.parse(root, diagnostics: &snapshot.diagnostics)
@@ -335,6 +333,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
