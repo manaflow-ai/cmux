@@ -758,6 +758,9 @@ def main():
             # FAKE_PLAN_MODE=1: opencode's modes, "build" and a "plan" that runs bash.
             if os.environ.get("FAKE_PLAN_MODE") == "1":
                 result["modes"] = {"currentModeId": "build", "availableModes": [{"id": "build", "name": "Build"}, {"id": "plan", "name": "Plan"}]}
+            # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
+            if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
+                result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}

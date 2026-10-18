@@ -142,31 +142,13 @@ public final class CloudFeedSource: FeedSource {
     /// This app's version (`CFBundleShortVersionString`), sent on every wire connect.
     static let clientVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
 
-    /// A Worker that reads the upgrade's Authorization header names this header on every wire 401.
-    static let wireAuthHeader = "x-cmux-wire-auth"
-
-    /// The upgrade's 401 lacked `x-cmux-wire-auth`: a Worker from before cx-dgsp, which reads only the legacy subprotocol.
-    private struct LegacyWorker: Error {}
-
-    /// The token goes in the Authorization header, which Workers invocation logs never record
-    /// (cx-dgsp). Only a Worker that does not read it yet gets the legacy `bearer.` subprotocol, once.
+    /// The token goes only in the Authorization header, which Workers invocation logs never record
+    /// (cx-dgsp). The legacy `bearer.` subprotocol is retired: a 401 is final.
     private func session(onSnapshot: () -> Void) async throws {
         let bearer = try await token()
-        do {
-            try await session(bearer: bearer, legacy: false, onSnapshot: onSnapshot)
-        } catch is LegacyWorker {
-            try await session(bearer: bearer, legacy: true, onSnapshot: onSnapshot)
-        }
-    }
-
-    private func session(bearer: String, legacy: Bool, onSnapshot: () -> Void) async throws {
         var request = URLRequest(url: wireURL)
-        if legacy {
-            request.setValue("cmux.wire.v1, bearer.\(bearer)", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        } else {
-            request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
-            request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-        }
+        request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         // updates.minimumVersion (enterprise P17-4): the server refuses older clients with client.too_old.
         if let version = Self.clientVersion { request.setValue(version, forHTTPHeaderField: "x-cmux-client-version") }
         let task = URLSession.shared.webSocketTask(with: request)
@@ -175,20 +157,9 @@ public final class CloudFeedSource: FeedSource {
         socket = task
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
-        var first = true
         // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
         while !Task.isCancelled {
-            let message: URLSessionWebSocketTask.Message
-            do {
-                message = try await task.receive()
-            } catch {
-                if first, !legacy, let response = task.response as? HTTPURLResponse, response.statusCode == 401,
-                   response.value(forHTTPHeaderField: Self.wireAuthHeader) == nil {
-                    throw LegacyWorker()
-                }
-                throw error
-            }
-            first = false
+            let message = try await task.receive()
             let data: Data
             switch message {
             case let .string(text): data = Data(text.utf8)

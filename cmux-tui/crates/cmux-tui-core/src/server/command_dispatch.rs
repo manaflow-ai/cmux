@@ -818,8 +818,8 @@ pub(super) fn handle_command_with_cancellation(
         Command::RenameScreen { screen, name } => {
             cmd_screens::rename_screen(mux, actor, screen, name)
         }
-        Command::RenameWorkspace { workspace, key, name, mutation } => {
-            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
+        Command::RenameWorkspace { request, mutation } => {
+            cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
