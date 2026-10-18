@@ -507,9 +507,9 @@ export default agentPaneEntry({
       ),
       checks: {
         anchorMovePx: {
-          value: 100,
+          value: 78,
           reason:
-            "The attached image's 96 px thumbnail row (an 80 px thumbnail under the 16 px inset; Leo, 2026-10-14) opens above the prompt, the same growth a pasted image makes.",
+            "The attached image's compact thumbnail row (a 64 px thumbnail 8 px under the top, the text 6 px under it; Leo, 2026-10-18) opens above the prompt, the same growth a pasted image makes.",
         },
         layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
       },

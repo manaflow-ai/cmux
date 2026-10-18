@@ -1,8 +1,8 @@
 /* The composer's attachment row (Composer.tsx AttachmentChip), laid out like a native chat composer:
    the row sits inside the composer at the text's own side inset and close under its top, the
    attachments keep a small gap between them and above the text (Leo 2026-10-18: compact, like the
-   Claude desktop composer's 64 px tiles), and each thumbnail's corners nest in the composer's (inner radius = the
-   composer's radius minus the inset). The row is its own band above the prompt, so the caret never
+   Claude desktop composer's 64 px tiles), and each thumbnail's radius is the composer's minus the
+   side inset. The row is its own band above the prompt, so the caret never
    draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
    the chip is hovered or focused. Theme tokens only. */
 .acpmux-composer-box {
@@ -30,12 +30,12 @@
   overflow-x: auto;
   overflow-y: hidden;
 }
-/* Under the strip, the prompt and its placeholder start one gap down instead of the field's own top
-   inset. */
-.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-field {
+/* Under the strip, the prompt, its placeholder and the shell field (with its glyph) start one gap
+   down instead of the field's own top inset, so entering shell mode still moves nothing. */
+.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-field, .acpmux-shell-field) {
   padding-top: var(--acpmux-attach-gap);
 }
-.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-placeholder {
+.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
   top: var(--acpmux-attach-gap);
 }
 .acpmux-attachment {
