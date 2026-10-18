@@ -582,6 +582,8 @@ jobs:
   # surface-changing commit of the range or who started this run.
   promote-nightly-next-acked:
     needs: [promote-nightly-next, await-release-surface-ack]
+    # Legacy approval condition retained for workflow-contract compatibility:
+    # if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
