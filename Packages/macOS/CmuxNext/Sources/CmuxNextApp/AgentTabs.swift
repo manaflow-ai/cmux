@@ -242,12 +242,7 @@ final class AgentTabStore {
         return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session }?.key
     }
 
-    /// The tab showing an agent session on any registered machine. Session ids are globally
-    /// unique, so a deep link or activity row must search every host before falling back to a
-    /// local create; otherwise a remote chat is silently opened against this Mac's acpmux.
-    func tab(anywhereShowing session: String) -> String? {
-        listTabs().first { (sessions[$0.key] ?? $0.record.session) == session }?.key
-    }
+    func tab(anywhereShowing session: String) -> String? { listTabs().first { (sessions[$0.key] ?? $0.record.session) == session }?.key }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
     func session(of key: String) -> String? {
