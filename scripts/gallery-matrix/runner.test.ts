@@ -32,6 +32,8 @@ test("matrix index exposes receipt metadata and triage state filtering", () => {
   expect(html).toContain('data-capture-id="capture-a"');
   expect(html).toContain('href="receipt.json"');
   expect(html).toContain("src/a.gallery.tsx");
+  expect(html).toContain("1/1 results");
+  expect(html).toContain("2026-10-18T00:00:00.000Z");
   expect(html).toContain('data-filter="state"');
   expect(html).toContain("play-failed");
 });
