@@ -1,24 +1,25 @@
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextWakeups
+import AppKit
 import QuartzCore
 
 /// `debug.tab_switch`: the app's own time per tab switch, apart from the socket reply (which waits
 /// for the daemon's confirm): `apply_ms` from the intent (`PaneController.select`) to the shown
-/// selection, `commit_ms` to the end of the Core Animation commit that carries it (a post-commit
-/// handler: on macOS 26 the update cycle commits once per frame from its own run loop source, not at
-/// the run loop's idle), `vsync_ms` to the first vsync after it, and `late_vsyncs`, the frames the
+/// selection, `commit_ms` to the end of the Core Animation commit that carries it (`CommitProbe`: on
+/// macOS 26 the update cycle commits once per frame from its own run loop source, not at the run
+/// loop's idle, and macOS has no commit handler API), `vsync_ms` to the first vsync after it, and `late_vsyncs`, the frames the
 /// commit missed (a switch commits after the next vsync at the earliest; 0: the first frame it could).
 /// The vsync grid is a display-link tick after the commit (cx-8w027.25). Records between `start` and `stop`.
 @MainActor
 enum DebugTabSwitch {
-    private struct Pending { var start: CFTimeInterval, applied: CFTimeInterval, commit: CFTimeInterval? }
+    private struct Pending { var start: CFTimeInterval, applied: CFTimeInterval, commit: CFTimeInterval? = nil }
 
     private(set) static var isRecording = false
     private static var started: [ObjectIdentifier: CFTimeInterval] = [:]
     private static var pending: [Pending] = []
-    /// A post-commit handler is on the current transaction.
-    private static var awaitsCommit = false
+    /// One probe per window that showed a switch while recording.
+    private static var probes: [ObjectIdentifier: CommitProbe] = [:]
     private static var samples: [[String: JSONValue]] = []
     private static let capacity = 1_024
     private static let client = FrameClient(owner: "debug.tab_switch", isAnimation: false, on: .app) { tick in
@@ -46,30 +47,32 @@ enum DebugTabSwitch {
         started[ObjectIdentifier(owner)] = CACurrentMediaTime()
     }
 
-    /// The pane `owner` shows its new selection: the transaction open now carries it to the screen.
-    static func shown(_ owner: AnyObject) {
+    /// The pane `owner` shows its new selection in `window`: the transaction open now carries it to the screen.
+    static func shown(_ owner: AnyObject, in window: NSWindow?) {
         guard isRecording, let start = started.removeValue(forKey: ObjectIdentifier(owner)) else { return }
         pending.append(Pending(start: start, applied: CACurrentMediaTime()))
-        if !awaitsCommit {
-            awaitsCommit = true
-            CATransaction.addCommitHandler({
-                MainActor.assumeIsolated { // main-proof: the transaction was opened on the main thread (this function is main-actor)
-                    awaitsCommit = false
-                    let now = CACurrentMediaTime()
-                    for index in pending.indices where pending[index].commit == nil { pending[index].commit = now }
-                }
-            }, forPhase: .postCommit)
+        if let host = window?.contentView?.layer {
+            let probe = probes[ObjectIdentifier(host)] ?? CommitProbe(host: host)
+            probes[ObjectIdentifier(host)] = probe
+            probe.layer.setNeedsDisplay()
         }
         client.activate()
+    }
+
+    /// The commit that displayed a probe ended: it carried every switch shown before it.
+    fileprivate static func committed(at time: CFTimeInterval) {
+        for index in pending.indices where pending[index].commit == nil && pending[index].applied <= time { pending[index].commit = time }
     }
 
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         switch params["action"]?.stringValue ?? "read" {
         case "start":
-            (started, pending, samples, isRecording, awaitsCommit) = ([:], [], [], true, false)
+            (started, pending, samples, isRecording) = ([:], [], [], true)
         case "stop":
             let report = self.report
             (started, pending, isRecording) = ([:], [], false)
+            for probe in probes.values { probe.layer.removeFromSuperlayer() }
+            probes = [:]
             client.deactivate()
             return report
         default:
@@ -80,5 +83,27 @@ enum DebugTabSwitch {
 
     private static var report: JSONValue {
         ["recording": .bool(isRecording), "switches": .array(samples.map { .object($0) })]
+    }
+}
+
+/// An empty 1-point layer in a window's content layer (drawn nowhere). Marked for display when a
+/// switch shows, Core Animation displays it inside the commit that carries the switch; the run loop
+/// block queued from there runs once that commit's run loop source returns: the commit's end.
+private final class CommitProbe {
+    final class Layer: CALayer {
+        override func display() {
+            // wakeup-allow: one block per probe display, only while debug.tab_switch records
+            CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+                MainActor.assumeIsolated { DebugTabSwitch.committed(at: CACurrentMediaTime()) } // main-proof: queued on the main run loop
+            }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
+        }
+    }
+
+    let layer = Layer()
+
+    @MainActor init(host: CALayer) {
+        layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        host.addSublayer(layer)
     }
 }
