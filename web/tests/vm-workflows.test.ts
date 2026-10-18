@@ -82,10 +82,81 @@ import {
   renameVm,
   restoreVm,
   reconcileVmProviderStatuses,
+  restartVm,
   resizeVm,
   snapshotVm,
   type VmModelPlaneProvisioner,
 } from "../services/vms/workflows";
+
+describe("VM hard restart", () => {
+  test("restarts a frozen machine without probing its status or guest", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-frozen", status: "running" });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    let restartCalls = 0;
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const result = await Effect.runPromise(restartVm({
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        restart: (_provider, providerVmId) => Effect.sync(() => {
+          expect(providerVmId).toBe("vm-frozen");
+          restartCalls += 1;
+        }),
+        // A frozen provider would never answer this probe. The workflow must
+        // invoke restart directly instead of requiring a healthy read first.
+        getStatus: () => Effect.die(new Error("status probe must not run")),
+      }),
+    ))));
+
+    expect(result).toEqual({ id: "vm-frozen", status: "running" });
+    expect(restartCalls).toBe(1);
+    expect(observedStatuses).toEqual([{ id: vm.id, providerVmId: "vm-frozen", status: "running" }]);
+    expect(usageEvents).toContainEqual(expect.objectContaining({ eventType: "vm.restarted", vmId: vm.id }));
+  });
+
+  test("declared unsupported restart never mutates lifecycle or records success", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-frozen", status: "running" });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    let restartCalls = 0;
+    const result = await Effect.runPromise(Effect.either(restartVm({
+      userId: vm.userId, providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, testWorkflowRepo({ vm, usageEvents, observedStatuses })),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        capabilities: () => ({ ...vmCapabilitiesFor("freestyle"), restart: false }),
+        restart: () => Effect.sync(() => { restartCalls += 1; }),
+      }),
+    )))));
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmOperationUnsupportedError);
+    expect(restartCalls).toBe(0);
+    expect(observedStatuses).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("returns a typed unsupported error when the provider has no hard restart", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-no-restart", status: "running" });
+    const result = await Effect.runPromise(Effect.either(restartVm({
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, testWorkflowRepo({ vm })),
+      Layer.succeed(VmProviderGateway, unusedProviderGateway()),
+    )))));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(VmOperationUnsupportedError);
+      expect(result.left).toMatchObject({ operation: "restart" });
+    }
+  });
+});
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 // These cases share one Postgres database and several exercise paths read or
@@ -6696,6 +6767,7 @@ describe("VM Effect workflows", () => {
       updated: 1,
       destroyed: 0,
       skipped: 0,
+      repaused: 0,
       skippedNoGetStatus: false,
     });
 
@@ -6704,6 +6776,32 @@ describe("VM Effect workflows", () => {
       where provider_vm_id = 'provider-vm-reconcile-drift'
     `;
     expect(vm?.status).toBe("paused");
+  });
+
+  dbTest("claims a woken paused row for one re-pause per claim window", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-wake-claim', 'team-workflow-wake-claim', 'pro', 'freestyle', 'provider-vm-wake-claim', 'snapshot-test', 'paused')
+      returning id
+    `;
+    const claim = (nowMs: number) => Effect.runPromise(vmRepositoryLiveShape.claimUnexpectedWakeRepause!({
+      id: vm.id,
+      providerVmId: "provider-vm-wake-claim",
+      nowMs,
+      ttlMs: 300_000,
+    }));
+    const nowMs = 1_800_000_000_000;
+    expect(await claim(nowMs)).toBe(true);
+    expect(await claim(nowMs + 1_000)).toBe(false);
+    expect(await claim(nowMs + 300_001)).toBe(true);
+    await sql`update cloud_vms set status = 'running' where id = ${vm.id}`;
+    expect(await claim(nowMs + 900_000)).toBe(false);
+    const [row] = await sql<{ status: string; claimedAt: string }[]>`
+      select status, provider_metadata->>'unexpectedWakeClaimAtMs' as "claimedAt" from cloud_vms where id = ${vm.id}
+    `;
+    expect(row).toEqual({ status: "running", claimedAt: String(nowMs + 300_001) });
   });
 
   dbTest("cron reconcile skips destroyed rows", async () => {
@@ -9321,7 +9419,7 @@ describe("team tunnel cron reconciliation", () => {
     ))));
     expect(events).toEqual(["status", "revoke-model-plane", "heal", "directory-first", "tun-first"]);
     expect(pages).toBe(1);
-    expect(result).toEqual({ checked: 1, updated: 0, destroyed: 1, skipped: 0, skippedNoGetStatus: false });
+    expect(result).toEqual({ checked: 1, updated: 0, destroyed: 1, skipped: 0, repaused: 0, skippedNoGetStatus: false });
   });
 
   test("directory timeout skips a team and pages continue after the last team and provider", async () => {

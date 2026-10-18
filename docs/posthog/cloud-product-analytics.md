@@ -30,8 +30,10 @@ insert id because each row is an action.
 There are two machine-id forms and they must not be joined blindly:
 
 * `cloud_vm_*` lifecycle events use the internal `cloud_vms.id` UUID.
-* `cloud_vm_request` uses the provider VM id from the URL (`/api/vm/<id>/...`).
-  It is a client-facing name and is not the internal UUID.
+* `cloud_vm_request` and `cloud_vm_provision` use the provider VM id from the
+  URL (`/api/vm/<id>/...`), `vm_id_kind: provider`. A collection route
+  (create, base open) has no URL id; once the request wrote a ledger row,
+  `vm_id` is that internal UUID and `vm_id_kind: ledger`.
 * CodeRouter uses `coderouter_vm_id`, the internal UUID, when a route token is
   bound to a Cloud VM.
 
@@ -59,9 +61,40 @@ Common properties: `product: cloud_vm`, `ledger_event`, internal `vm_id`,
 | `cloud_vm_port_opened` | `vm.open_port` | `port` |
 | `cloud_vm_base_opened` | `vm.base.opened` | `generation` |
 | `cloud_vm_base_reset` | `vm.base.reset` | `generation` |
+| `cloud_vm_ready` | `vm.created` | `time_to_ready_ms` (machine row insert to `running`), `origin`; insert id `cloud_vm_ready:<vm id>` |
 
-Request telemetry (`cloud_vm_request`, schema 2, and
-`cloud_vm_provision`, schema 3) carries the request machine name, billing
+`cloud_vm_usage_hourly` is the cost signal. The `vm-usage-analytics` cron
+(minute 5 of every hour) sends one event per machine that ran during the
+previous whole UTC hour, from `cloud_vm_runtime_intervals`: `running_seconds`,
+`vcpu`, `memory_gib`, `disk_gib` (the reserved shape;
+`resources_estimated: true` for legacy rows without a reservation marker),
+`plan_id`, `hour_start`. Insert id `cloud_vm_usage_hourly:<vm id>:<hour>`
+makes a rerun of the same hour idempotent. At most 5,000 machines per run.
+
+## Synthetic traffic
+
+The Cloud VM canary (`.github/workflows/cloud-vm-canary.yml`, every five
+minutes) and the smoke, dogfood, stress and startup-bench scripts in
+`web/scripts/cloud-vm/` create a throwaway account
+`cmux-<prod|staging>-<smoke|stress|bench>+...@manaflow.dev` per run, create a
+machine and destroy it within a minute. In October 2026 that was about 95% of
+`cloud_vm_created` users. Every Cloud VM event, `cloud_vm_ready`,
+`cloud_vm_usage_hourly`, `cloud_vm_request`, `cloud_vm_provision` and
+`cmux_account_signed_up` of such an account carries `is_synthetic: true`.
+Exclude it with `properties.is_synthetic != true` (the property is absent on
+real traffic).
+
+## Accounts
+
+`cmux_account_signed_up` is sent when the Stack `user.created` webhook is
+accepted (insert id `cmux_account_signed_up:<user id>`): `signup_source`
+(`oauth_<provider>`, `password`, `email_code`, `passkey`, `anonymous`,
+`unknown`), `signup_client` (`server` for probe accounts, `anonymous`, else
+`unknown`: Stack does not record which app started the sign-up), and
+`is_anonymous`. Person `$set_once`: `cmux_signed_up_at`.
+
+Request telemetry (`cloud_vm_request`, schema 3, and
+`cloud_vm_provision`, schema 4) carries the request machine name, billing
 scope, client fields and the `stack_team` group. Paywall and limit failures
 (`vm_requires_pro`, `vm_active_limit_exceeded`, `vm_access_requires_pro`,
 `vm_create_credits_insufficient`) can therefore be broken down by plan and

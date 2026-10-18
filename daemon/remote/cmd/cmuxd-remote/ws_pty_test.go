@@ -1963,7 +1963,8 @@ func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
 	waitForHubSessionSize(t, hub, "sess-replace", 1, 90, 30, 5*time.Second)
 	waitForHubPTYSize(t, hub, "sess-replace", 90, 30, 5*time.Second)
 
-	if err := newConn.Write(ctx, websocket.MessageBinary, []byte("printf 'SIZE:'; stty size; printf '%b\\n' '\\106\\122\\105\\123\\110\\137\\111\\116\\120\\125\\124'; exit\r")); err != nil {
+	// One builtin write: shell job-control warnings on stderr cannot split the marker.
+	if err := newConn.Write(ctx, websocket.MessageBinary, []byte("s=$(stty size); printf 'SIZE:%s\\n' \"$s\"; printf '%b\\n' '\\106\\122\\105\\123\\110\\137\\111\\116\\120\\125\\124'; exit\r")); err != nil {
 		t.Fatalf("write fresh command: %v", err)
 	}
 	output := waitForBinaryContains(t, ctx, newConn, "FRESH_INPUT", 5*time.Second)

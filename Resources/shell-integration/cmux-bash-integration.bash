@@ -558,6 +558,7 @@ _cmux_install_cli_wrapper() {
     fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+_cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
@@ -583,9 +584,11 @@ _CMUX_BASH_STATE_DIR="${_CMUX_BASH_STATE_DIR%/}/cmux-bash-$EUID"
 _cmux_private_dirs 1 "$_CMUX_BASH_STATE_DIR" || _CMUX_BASH_STATE_DIR=""
 _CMUX_PR_ACTION_HINT_FILE=""
 _CMUX_BASH_HISTORY_LAST_FILE=""
+_CMUX_PWD_REREPORT_FILE=""
 if [[ -n "$_CMUX_BASH_STATE_DIR" ]]; then
     _CMUX_PR_ACTION_HINT_FILE="$_CMUX_BASH_STATE_DIR/pr-action-$$"
     _CMUX_BASH_HISTORY_LAST_FILE="$_CMUX_BASH_STATE_DIR/history-last-$$"
+    _CMUX_PWD_REREPORT_FILE="$_CMUX_BASH_STATE_DIR/pwd-rereport-$$"
 fi
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
@@ -1179,8 +1182,36 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+# True when a command line runs Claude Code. Claude reports its own cwd through
+# hooks while it runs (`claude --worktree` moves it to another checkout), so the
+# next prompt must re-report $PWD even though the shell never left it. Extra
+# matches only cost one redundant report_pwd.
+_cmux_command_runs_claude() {
+    [[ "$1" == *claude* ]] || return 1
+    local -a words=()
+    read -r -a words <<< "$1"
+    local word
+    for word in "${words[@]}"; do
+        word="${word#\(}"
+        word="${word%\)}"
+        word="${word%;}"
+        case "${word##*/}" in
+            claude|cmux-claude-wrapper) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 _cmux_preexec_command() {
     local cmd="${1:-${BASH_COMMAND:-}}"
+    if _cmux_command_runs_claude "$cmd"; then
+        _CMUX_PWD_LAST_PWD=""
+        # Before bash 5.3, PS0 runs this hook in a subshell; the prompt reads
+        # the marker instead.
+        if [[ -n "${_CMUX_IN_PREEXEC:-}" && -n "${_CMUX_PWD_REREPORT_FILE:-}" ]]; then
+            printf '1\n' >| "$_CMUX_PWD_REREPORT_FILE" 2>/dev/null || true
+        fi
+    fi
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
@@ -1307,6 +1338,11 @@ _cmux_prompt_command() {
     fi
     _cmux_report_tty_once
 
+    # A subshell preexec (bash < 5.3) marks a claude command here.
+    if [[ -n "${_CMUX_PWD_REREPORT_FILE:-}" && -s "$_CMUX_PWD_REREPORT_FILE" ]]; then
+        : >| "$_CMUX_PWD_REREPORT_FILE"
+        _CMUX_PWD_LAST_PWD=""
+    fi
     local now="${EPOCHSECONDS:-$SECONDS}"
     local pwd="$PWD"
     if (( ! cmux_has_unix_socket )); then

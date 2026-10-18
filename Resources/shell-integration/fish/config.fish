@@ -576,6 +576,10 @@ if test "$_cmux_integration_enabled" != 0
                 function grok --wraps "$wrapper_path" --inherit-variable wrapper_path
                     "$wrapper_path" $argv
                 end
+            case agy
+                function agy --wraps "$wrapper_path" --inherit-variable wrapper_path
+                    "$wrapper_path" $argv
+                end
             case muse
                 function muse --wraps "$wrapper_path" --inherit-variable wrapper_path
                     "$wrapper_path" $argv
@@ -584,6 +588,7 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     _cmux_install_cli_wrapper claude cmux-claude-wrapper
+    _cmux_install_cli_wrapper agy agy
     _cmux_install_cli_wrapper grok grok
     _cmux_install_cli_wrapper muse muse
 
@@ -656,6 +661,12 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_preexec --on-event fish_preexec
+        # Claude reports its own cwd through hooks while it runs (`claude
+        # --worktree` moves it to another checkout), so the next prompt must
+        # re-report $PWD even though the shell never left it.
+        if string match -qr -- '(^|[\s;&|(/])(claude|cmux-claude-wrapper)($|[\s;&|)])' $argv[1]
+            set -g _CMUX_PWD_LAST_PWD ""
+        end
         _cmux_tmux_sync_cmux_environment
         _cmux_report_tty_once
         _cmux_report_shell_activity_state running
