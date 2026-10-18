@@ -14,7 +14,7 @@ extension AppServices {
     func startChromiumWarmup() {
         let machines = machines
         let preference = cache.browserTabs.preference
-        chromiumWarmup.start { preference.defaultEngine == .chromium }
+        chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium }, pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false })
         TabStripSignals.shared.onNewTabButtonHover = { [weak self] in self?.chromiumWarmup.tabSignal(.newTabButton) }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere, or

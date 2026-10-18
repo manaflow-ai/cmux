@@ -77,6 +77,9 @@ final class ChromiumWarmup {
     private var idleAction: (@MainActor () -> Void)?
     /// Whether new browser tabs open in Chromium (`browser.defaultEngine`).
     private var defaultIsChromium: @MainActor () -> Bool = { false }
+    /// Whether a Chromium page is being created: it builds its own window,
+    /// and a spare built meanwhile would race it (os-smoke 2026-10-18).
+    private var pagesPending: @MainActor () -> Bool = { false }
     private var stopped = false
 
     init(
@@ -102,9 +105,10 @@ final class ChromiumWarmup {
     /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
     /// the spare window, at idle moments). Anyone else pays nothing until a
     /// signal (`chromiumLikely`, `tabSignal`).
-    func start(defaultIsChromium: @escaping @MainActor () -> Bool) {
+    func start(defaultIsChromium: @escaping @MainActor () -> Bool, pagesPending: @escaping @MainActor () -> Bool = { false }) {
         guard !launchTimer.isScheduled, isAvailable else { return }
         self.defaultIsChromium = defaultIsChromium
+        self.pagesPending = pagesPending
         launchTimer.schedule(after: policy.launchPreloadDelay) { @MainActor [weak self] in
             guard let self else { return }
             // task-owner: one launch check per process; reads one small file off the main thread
@@ -150,7 +154,10 @@ final class ChromiumWarmup {
     /// the first tab's open.
     private func warmStarted() {
         guard !stopped, engine.isRunning else { return }
-        waitForIdle { [weak self] in self?.engine.prepareSpareWindow() }
+        waitForIdle { [weak self] in
+            guard let self, !pagesPending() else { return }
+            engine.prepareSpareWindow()
+        }
     }
 
     /// Runs `action` at the next idle moment (no input for `idleInput`, no

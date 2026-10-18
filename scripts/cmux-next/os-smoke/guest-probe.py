@@ -357,6 +357,9 @@ try:
         step("browser", bool(state) and "error" not in (opened or {}),
              {"run": opened, "state": state or rpc("browser.page.state"),
               "cef": rpc("debug.cef") if debug_router() else None})
+        if not result["steps"]["browser"]["ok"] and debug_router():
+            # The run's artifacts are deleted with the VM: the step log keeps Chromium's state.
+            print("cefdiag   %s" % json.dumps({k: v for k, v in (rpc("debug.cef") or {}).items() if k != "devtools"})[:1500], flush=True)
         step("snapshot", snap("browser", "window.png"), result["snapshots"].get("browser"))
         # The engine's own frame of the page (no screen capture), then the screen again 5 s
         # later: a page the engine rendered but the window never showed is a compositing bug.
