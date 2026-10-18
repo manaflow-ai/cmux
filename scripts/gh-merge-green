@@ -262,6 +262,54 @@ fi
 # Require aggregate checks only when their workflow exists on the base. Otherwise
 # every reported exact-head check and status context must be completed successfully.
 workflow_response=''
+graphql_workflow_response() {
+  local file="$1" owner="${repo%/*}" name="${repo#*/}" response text
+  response=$(gh api graphql \
+    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Blob{text}}}}' \
+    -f owner="$owner" -f name="$name" -f expr="$base:.github/workflows/$file" 2>/dev/null) || return 2
+  if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then
+    return 2
+  fi
+  text=$(jq -r '.data.repository.object.text // empty' <<<"$response" 2>/dev/null) || return 2
+  if [ -z "$text" ]; then
+    return 1
+  fi
+  workflow_response=$(jq -n --arg text "$text" '{content:($text|@base64),encoding:"base64"}') || return 2
+  echo "note: used GraphQL fallback to inspect $base:.github/workflows/$file" >&2
+  return 0
+}
+graphql_check_runs_response() {
+  local owner="${repo%/*}" name="${repo#*/}" response
+  response=$(gh api graphql \
+    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{checkSuites(first:100){nodes{id app{slug} checkRuns(first:100){nodes{databaseId name status conclusion} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}}}}}' \
+    -f owner="$owner" -f name="$name" -f expr="$sha" 2>/dev/null) || return 1
+  if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then
+    return 1
+  fi
+  jq -e 'any(.data.repository.object.checkSuites.pageInfo.hasNextPage; . == true) or any(.data.repository.object.checkSuites.nodes[].checkRuns.pageInfo.hasNextPage; . == true)' <<<"$response" >/dev/null 2>&1 && return 1
+  jq '[{check_runs: [.data.repository.object.checkSuites.nodes[] as $suite | $suite.checkRuns.nodes[] | . + {id:(.databaseId // 0),status:(.status // "")|ascii_downcase,conclusion:(.conclusion // "")|ascii_downcase,app:{slug:$suite.app.slug},check_suite:{id:$suite.id}}]}]' <<<"$response" 2>/dev/null
+}
+graphql_pr_files_response() {
+  local owner="${repo%/*}" name="${repo#*/}" response
+  response=$(gh api graphql \
+    -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){files(first:100){nodes{path} pageInfo{hasNextPage}}}}}' \
+    -f owner="$owner" -f name="$name" -F number="$num" 2>/dev/null) || return 1
+  if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then return 1; fi
+  if jq -e '.data.repository.pullRequest.files.pageInfo.hasNextPage == true' >/dev/null 2>&1 <<<"$response"; then return 1; fi
+  jq -c '.data.repository.pullRequest.files.nodes' <<<"$response" 2>/dev/null
+}
+graphql_changed_files() { graphql_pr_files_response | jq -r '.[].path'; }
+git_patches() {
+  local repo_dir="${GH_MERGE_GREEN_REPO_DIR:-$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)}" remote
+  [ -n "$repo_dir" ] || return 1
+  if ! git -C "$repo_dir" cat-file -e "$sha^{commit}" 2>/dev/null; then
+    remote=$(git -C "$repo_dir" remote -v | awk '$2 ~ /github.com[/:]manaflow-ai\/cmux([.]git)?/ {print $1; exit}')
+    [ -n "$remote" ] || return 1
+    timeout "${GH_MERGE_GREEN_GIT_TIMEOUT:-20}" git -C "$repo_dir" fetch -q "$remote" "refs/pull/$num/head" || return 1
+    git -C "$repo_dir" cat-file -e "$sha^{commit}" 2>/dev/null || return 1
+  fi
+  git -C "$repo_dir" show --format= --find-renames "$sha"
+}
 workflow_on_base() {
   local file="$1" response
   # A missing optional workflow is a normal negative result.  Disable the
@@ -279,6 +327,11 @@ workflow_on_base() {
   if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
     return 1
   fi
+  graphql_workflow_response "$file"
+  case "$?" in
+    0) return 0 ;;
+    1) return 1 ;;
+  esac
   refuse \
     "not green: cannot probe $file on $repo base $base" \
     'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
@@ -291,9 +344,15 @@ reports_ci_status() {
   python3 -c '
 import base64, json, re, sys
 raw = sys.stdin.read()
-body = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
 try:
-    data = json.loads(body[1])
+    data = json.loads(raw)
+except Exception:
+    body = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+    try:
+        data = json.loads(body[1])
+    except Exception:
+        sys.exit(0)
+try:
     text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
 except Exception:
     sys.exit(0)
@@ -320,18 +379,22 @@ needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
-    refuse \
-      "not green: cannot list changed files for $ref" \
-      'restore GitHub API access, then retry the exact-head check'
+    if ! files=$(graphql_changed_files); then
+      refuse "not green: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry the exact-head check'
+    fi
+    echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
     needs_app_compile=1
   fi
 fi
 if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
-  refuse \
-    "not green: cannot read checks for $sha" \
-    'restore GitHub API access, then retry the exact-head check'
+  if ! check_runs_json=$(graphql_check_runs_response); then
+    refuse \
+      "not green: cannot read checks for $sha" \
+      'restore GitHub API access or GraphQL access, then retry the exact-head check'
+  fi
+  echo "note: used GraphQL fallback to inspect check runs for $sha" >&2
 fi
 if ! runs=$(jq -r '
   (map(.check_runs) | add)
@@ -544,7 +607,14 @@ if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
   if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
-    refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
+    owner="${repo%/*}"; name="${repo#*/}"
+    if ! statuses_json=$(gh api graphql \
+      -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{status{contexts{context state description targetUrl}}}}}}' \
+      -f owner="$owner" -f name="$name" -f expr="$sha" \
+      --jq '[[.data.repository.object.status.contexts[] | {context,state:(.state|ascii_downcase),description,targetUrl}]]' 2>/dev/null); then
+      refuse "not green: cannot read status contexts for $sha" 'restore GitHub API access or GraphQL access, then retry'
+    fi
+    echo "note: used GraphQL fallback to inspect legacy status contexts for $sha" >&2
   fi
   if ! statuses=$(jq -r '
     (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
@@ -661,9 +731,10 @@ fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
 if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
 if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
-  refuse \
-    "not green: cannot read the diff for $ref" \
-    'restore GitHub API access, then retry the exact-head check'
+  if ! patches=$(git_patches); then
+    refuse "not green: cannot read the diff for $ref" 'restore GitHub API access or provide a verified cmux checkout for Git fallback'
+  fi
+  echo "note: used verified Git fallback to inspect the diff for $ref" >&2
 fi
 if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
   refuse \
@@ -692,9 +763,10 @@ if [ "$base" = feat-cmux-next ]; then
       'check with the coordinator; they merge this PR while the WINDOW is unreadable'
   fi
   if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
-    refuse \
-      "not merged: cannot list changed files for $ref to check freezes" \
-      'restore GitHub API access, then retry'
+    if ! changed=$(graphql_changed_files); then
+      refuse "not merged: cannot list changed files for $ref to check freezes" 'restore GitHub API access or GraphQL access, then retry'
+    fi
+    echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
   fi
   if ! frozen=$(WINDOW="$window" FREEZE_TOKEN="$freeze_token" python3 -c '
 import os, sys
