@@ -22,8 +22,8 @@ import { runChild } from "./helpers/run-child";
 // directory, confines the script to it with CMUX_HYGIENE_SANDBOX, points it
 // there with --home/--root/--tmp-dir, and
 // asserts that nothing the script reports or removes lies outside it. Docker
-// is a stub that only logs its arguments, so no test prunes real images, and
-// `mount` is a stub that prints the fixture's mounts file.
+// is a stub that logs any call (none is allowed: the sandbox never runs
+// Docker), and `mount` is a stub that prints the fixture's mounts file.
 
 const SCRIPT = path.join(import.meta.dirname, "../services/vms/hygiene/cmux-machine-hygiene");
 const DAY_S = 24 * 60 * 60;
@@ -273,17 +273,37 @@ describe("cmux-machine-hygiene", () => {
     expect(existsSync(path.join(m.code, "live", "README.md"))).toBe(true);
   });
 
-  test("prunes only dangling Docker data, and only with --apply", async () => {
+  test("never runs Docker by default, nor under the sandbox even when included", async () => {
     const m = machine();
-    await run(m, ["--only", "docker"]);
-    expect(readFileSync(m.dockerLog, "utf8").trim().split("\n")).toEqual(["info"]);
-    await run(m, ["--apply", "--only", "docker"]);
-    expect(readFileSync(m.dockerLog, "utf8").trim().split("\n")).toEqual([
-      "info",
-      "info",
-      "image prune --force",
-      "builder prune --force --filter until=168h",
-    ]);
+    const byDefault = await run(m, ["--apply"]);
+    expect(byDefault.items.filter((item) => item.category === "docker")).toEqual([]);
+    const included = await run(m, ["--apply", "--include", "docker", "--only", "docker"]);
+    expect(included.items).toEqual([expect.objectContaining({ category: "docker", action: "skipped", reason: "sandbox" })]);
+    expect(existsSync(m.dockerLog)).toBe(false);
+  });
+
+  test("refuses to run as root", async () => {
+    const m = machine();
+    writeFileSync(path.join(m.bin, "id"), "#!/bin/sh\n[ \"$1\" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id \"$@\"\n");
+    chmodSync(path.join(m.bin, "id"), 0o755);
+    const result = await runRaw(m, ["--home", m.home, "--root", m.code, "--tmp-dir", m.tmp]);
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain("refusing to run as root");
+    expect(result.stdout).toBe("");
+  });
+
+  test("allows one --apply run at a time and takes over a dead run's lock", async () => {
+    const m = machine();
+    const uid = (await runChild("id", ["-u"])).stdout.trim();
+    const lock = path.join(m.tmp, `.cmux-hygiene-${uid}.lock`);
+    write(path.join(lock, "pid"), String(process.pid));
+    const busy = await runRaw(m, ["--apply", "--home", m.home, "--root", m.code, "--tmp-dir", m.tmp]);
+    expect(busy.status).toBe(4);
+    expect(busy.stdout).toBe("");
+    writeFileSync(path.join(lock, "pid"), "2147483000");
+    const report = await run(m, ["--apply", "--only", "temp-files"]);
+    expect(report.mode).toBe("apply");
+    expect(existsSync(lock)).toBe(false);
   });
 
   test("keeps an artifact directory the repository tracks", async () => {
