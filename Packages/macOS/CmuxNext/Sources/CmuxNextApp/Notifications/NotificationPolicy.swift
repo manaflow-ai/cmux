@@ -60,6 +60,8 @@ enum NotificationPolicy {
         var sound: String?
         /// Acknowledge after this many seconds unless cleared earlier.
         var timeout: Double?
+        /// Bounce the Dock icon: it alerts while cmux is inactive (`notifications.dockBounce`).
+        var bounce: DockBounceMode?
     }
 
     static func decide(_ arrival: Arrival, prefs: NotificationPreferences) -> Decision {
@@ -91,6 +93,7 @@ enum NotificationPolicy {
             decision.sound = sound
         }
         if mode == .timeout { decision.timeout = prefs.timeoutSeconds }
+        if decision.alerts, !arrival.appActive, prefs.dockBounce != .off { decision.bounce = prefs.dockBounce }
         return decision
     }
 }
