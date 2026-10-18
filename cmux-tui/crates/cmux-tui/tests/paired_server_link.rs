@@ -281,6 +281,15 @@ impl Links {
 
 impl Drop for Links {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            for log in std::iter::once(self.home.path().join("daemon.log"))
+                .chain(self.states.iter().map(|state| state.join("link.log")))
+            {
+                if let Ok(text) = std::fs::read_to_string(log) {
+                    eprintln!("owned process log:\n{text}");
+                }
+            }
+        }
         for state in &self.states {
             if state.exists() {
                 let _ = command(
@@ -308,7 +317,7 @@ fn initialize_server(links: &Links, state: &Path, identity: &Path) -> Value {
 fn add_peer(links: &Links, state: &Path, install: &str, public: &str, udp: &str) {
     let address: std::net::SocketAddr = udp.parse().unwrap();
     let endpoint = format!("[::1]:{}", address.port());
-    links.json(&[
+    let result = links.json(&[
         "link",
         "peer",
         "add",
@@ -325,12 +334,13 @@ fn add_peer(links: &Links, state: &Path, install: &str, public: &str, udp: &str)
         "--endpoint",
         &endpoint,
     ]);
+    assert_eq!(result["reloaded"], true, "peer update did not reach the live mesh");
 }
 
-async fn within<T>(future: impl Future<Output = T>) -> T {
+async fn within<T>(stage: &str, future: impl Future<Output = T>) -> T {
     tokio::time::timeout(std::time::Duration::from_secs(10), future)
         .await
-        .expect("owned loopback links must answer within ten seconds")
+        .unwrap_or_else(|_| panic!("owned loopback deadline: {stage}"))
 }
 
 /// The real daemon is signed as the same code as each link. Readiness uses its
@@ -374,10 +384,13 @@ impl Daemon {
         }
         let daemon = Self(command.spawn().unwrap());
         drop(write);
-        let ready = within(tokio::task::spawn_blocking(move || {
-            let mut byte = [0];
-            read.read_exact(&mut byte).map(|()| byte[0])
-        }))
+        let ready = within(
+            "daemon readiness",
+            tokio::task::spawn_blocking(move || {
+                let mut byte = [0];
+                read.read_exact(&mut byte).map(|()| byte[0])
+            }),
+        )
         .await
         .unwrap()
         .unwrap_or_else(|error| {
@@ -449,7 +462,7 @@ async fn paired_server_link_real_wireguard_traffic_uses_the_key_approved_during_
     let mut output = BufReader::new(caller.stdout.take().unwrap());
     let mut status = BufReader::new(caller.stderr.take().unwrap());
     let mut line = String::new();
-    within(status.read_line(&mut line)).await.unwrap();
+    within("dial handshake", status.read_line(&mut line)).await.unwrap();
     let dial: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(dial["ok"], true, "{dial}");
     // The actual daemon's remote entry must answer through the encrypted link,
@@ -458,13 +471,13 @@ async fn paired_server_link_real_wireguard_traffic_uses_the_key_approved_during_
     let request = json!({"id":1,"cmd":"run","argv":["/usr/bin/touch",marker.to_str().unwrap()],"new_workspace":true});
     input.write_all(format!("{request}\n").as_bytes()).await.unwrap();
     line.clear();
-    within(output.read_line(&mut line)).await.unwrap();
+    within("daemon reply", output.read_line(&mut line)).await.unwrap();
     let reply: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(reply["id"], 1);
     assert_eq!(reply["error_code"], "remote_denied");
     assert!(!marker.exists());
     drop(input);
-    assert!(within(caller.wait()).await.unwrap().success());
+    assert!(within("dial exit", caller.wait()).await.unwrap().success());
     let status = links.json(&["link", "status", "--state-dir", server.to_str().unwrap()]);
     assert_eq!(status["public_key"], public);
     assert_eq!(status["identity_source"], "server_pairing");
