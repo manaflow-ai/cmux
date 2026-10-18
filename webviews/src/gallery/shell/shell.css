@@ -632,6 +632,27 @@ body {
 .gallery-browse-card-footer a {
   color: var(--g-muted);
 }
+.gallery-browse-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--g-muted);
+  font-size: var(--text-detail);
+}
+.gallery-browse-pagination button {
+  padding: 5px 10px;
+  border: 1px solid var(--g-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--g-text);
+  font: inherit;
+}
+.gallery-browse-pagination button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .gallery-empty {
   padding: 24px;
 }
