@@ -127,6 +127,7 @@ struct AgentCLIIntentLedgerTests {
           elif cmd=='agent-cli-update-job-resolve':
             calls.append(frame);result={'state':mode}
             if mode=='created':result['receipt']=dict(receipt,machine=machine,session=session)
+          elif cmd in ('set-client-info','subscribe'):pass
           elif cmd=='test-recovery-calls':result=calls
           else:raise RuntimeError('recovery must not execute '+str(cmd))
           print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}),flush=True)
