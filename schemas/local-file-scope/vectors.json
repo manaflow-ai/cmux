@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the local file scope of a CEF tab: a file: page may load file: subresources and subframes only from its own folder or below, the folder WebKit grants with loadFileURL(_:allowingReadAccessTo:). C++ LocalFileSubresourceAllowed (CEFShim/src/local_file_scope.h, scripts/cmux-next/test-local-file-scope-cpp.sh) passes these. `allowed` is false when the shim cancels the request; a request that is not file:, or one from a document that is not file:, is left to Chromium (true).",
+  "description": "Shared test vectors for the local file scope of a CEF tab: a file: page may load file: subresources and subframes only from its own folder or below, the folder WebKit grants with loadFileURL(_:allowingReadAccessTo:). C++ LocalFileSubresourceAllowed (CEFShim/src/local_file_scope.h, scripts/cmux-next/test-local-file-scope-cpp.sh) passes these. `allowed` is false when the shim cancels the request. A request that is not file: is left to Chromium (true), and so is a file: request from a web document (http, https, extension pages), which Chromium refuses itself. A file: request from a document the shim cannot place (empty, about:, data:, filesystem: or blob:, whose URL names no folder) is refused. `document` is the requesting frame's URL after the shim walks about: frames up to their parent; a frameless request reaches the policy with an empty document.",
   "cases": [
     {
       "document": "file:///Users/a/site/index.html",
@@ -114,12 +114,67 @@
     {
       "document": "",
       "request": "file:///Users/a/site/logo.png",
-      "allowed": true
+      "allowed": false
     },
     {
       "document": "file:",
       "request": "file:///Users/a/site/logo.png",
       "allowed": false
+    },
+    {
+      "document": "about:blank",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "about:srcdoc",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "blob:null/0d2c7c1e-1111-2222-3333-444455556666",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "blob:file:///0d2c7c1e-1111-2222-3333-444455556666",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "blob:file:///Users/a/site/0d2c7c1e",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "blob:file:///Users/a/site/0d2c7c1e",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "BLOB:https://example.com/0d2c7c1e",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "data:text/html,<img src=x>",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "filesystem:file:///temporary/x.html",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "chrome-extension://abcdefghijklmnop/index.html",
+      "request": "file:///etc/hosts",
+      "allowed": true
+    },
+    {
+      "document": "",
+      "request": "https://example.com/logo.png",
+      "allowed": true
     }
   ]
 }
