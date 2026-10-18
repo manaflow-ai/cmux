@@ -57,14 +57,8 @@ export function NowPlayingCard({
       <div className="nt-player-body">
         <div className="nt-player-head">
           <div className="nt-player-text">
-            <div className="nt-player-title" title={track.title}>
-              {track.title}
-            </div>
-            {track.artist && (
-              <div className="nt-player-artist" title={track.artist}>
-                {track.artist}
-              </div>
-            )}
+            <div className="nt-player-title">{track.title}</div>
+            {track.artist && <div className="nt-player-artist">{track.artist}</div>}
           </div>
           <span className="nt-player-levels" aria-hidden="true">
             <i />
