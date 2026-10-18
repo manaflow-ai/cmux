@@ -33,6 +33,11 @@ The Freestyle path installs the declared Bun dependencies and Playwright browser
 
 The local runner reuses one browser per engine but recycles it when a renderer target crashes or exceeds the 30-second per-attempt case bound (`--case-timeout-ms` changes it). If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots. The local matrix can run base, head and repeat stages as isolated jobs, then compare their complete result files in one read-only job; a timeout in one case cannot erase the other stages.
 
+Use `--record-video` only for a focused motion review run. It records one WebM per case and engine,
+adds the player to the matrix index, and leaves the ordinary screenshot/diff path unchanged. Video is
+review evidence, not a baseline or a deterministic gate; the gallery play report's frame samples and
+motion metrics are the gate.
+
 ## Per-PR diff
 
 The per-PR GitHub Actions gallery workflow is currently disabled. The local matrix remains
@@ -64,3 +69,7 @@ bun test
 For an isolated worktree run, set `CMUX_GALLERY_FREESTYLE_LEDGER` to an absolute path inside that worktree. Keep the same value for cleanup. The default shared ledger remains unchanged.
 
 Publish an already captured matrix with `scripts/gallery-deploy.sh --matrix g5-pages-1 /path/to/output`. This uses the same publisher as `--publish-run` and launches no browser.
+
+For the native cmux-next lane, use `scripts/cmux-next/motion-evidence.py` with the socket of the exact
+tagged DEBUG app. It wraps `scripts/ci/frame-pacing/golden.py`, writes a `motion-evidence.json`
+manifest, and preserves the per-display-link traces and optional `debug.window_record` frames.
