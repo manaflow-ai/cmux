@@ -166,6 +166,7 @@ try:
     # Pass A: frame intervals of the drag alone (no debug reads or recording between events).
     rpc("debug.frames", {"action": "start"})
     time.sleep(0.3)
+    report["drag_started_ms"] = 300
     drag(sample=False)
     report["frames"] = rpc("debug.frames", {"action": "stop"})
     # Pass B, recorded frame by frame: the grid each terminal renders against what its frame fits.
