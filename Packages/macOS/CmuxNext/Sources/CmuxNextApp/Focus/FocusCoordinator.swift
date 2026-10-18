@@ -71,8 +71,9 @@ final class FocusCoordinator {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
-        // The settled observer can send or reduce a pending topology: what it queued runs too.
-        repeat {
+        // The settled observer can send or reduce a pending topology: what it queued runs too. The
+        // queue holds this event, so the drain runs at least once, and it ends when the queue is empty.
+        while !queue.isEmpty {
             while !queue.isEmpty {
                 let event = queue.removeFirst()
                 // A topology equal to the one the machine holds is not an event:
@@ -102,7 +103,7 @@ final class FocusCoordinator {
                 isApplying = false
             }
             settledObserver?(reduced)
-        } while !queue.isEmpty
+        }
     }
 
     /// The state after every pending topology: for a reader that decides on it now, outside
