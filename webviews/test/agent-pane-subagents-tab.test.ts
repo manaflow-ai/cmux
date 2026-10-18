@@ -168,6 +168,8 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await daemon?.stop(true);
   });
 
+  // 1600px leaves the default chat width room for the inline summary column (summary/cardState.ts);
+  // narrower, the card is a popover behind the header's summary button.
   const open = async (page: Page) => {
     await page.goto(url());
     await page.getByText("The notes are tidy.").waitFor();
@@ -175,7 +177,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
   const panel = (page: Page) => page.getByRole("complementary", { name: "Chat summary" });
 
   test("the Subagents title opens a tab of active and done subagents, and its rows open them", async () => {
-    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
     const page = await context.newPage();
     await open(page);
     await panel(page).waitFor({ timeout: 5_000 });
@@ -214,7 +216,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
   });
 
   test("the Summary tab goes back without closing the Subagents tab", async () => {
-    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
     const page = await context.newPage();
     await open(page);
     await panel(page).waitFor({ timeout: 5_000 });
