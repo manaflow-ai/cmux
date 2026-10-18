@@ -61,6 +61,10 @@ const RESPAWN_REASONS: &[&str] = &[
     // A signal that ended the shell while the owner shut down (logout, a
     // daemon stop): the next owner's start sweep respawns it.
     "session_shutdown",
+    // A host that ended its shell because no owner served it for the orphan
+    // grace, or a SIGTERM reached it while orphaned (cx-3ryj): a host that
+    // died without a daemon, so the next owner respawns it.
+    "owner_gone",
 ];
 
 /// The owner's respawn state.
