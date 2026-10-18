@@ -84,22 +84,22 @@ struct AgentLanesTests {
         #expect(lane?.workspaceID == "workspace-7")
     }
 
-    /// hq#2509: a lane row says which harness owns it and what it is doing now. The summary already
-    /// carries both; a running turn's step is its prompt, else the agent's
-    /// last message.
-    @Test func aLaneCarriesItsHarnessAndCurrentStep() {
+    /// hq#2509: a lane row says which harness owns it and what it is doing now. acpmux masks
+    /// secrets in `lane.step` before the summary leaves it; the raw prompt beside it still holds
+    /// the token, so the app reads only `lane.step` and never falls back to the prompt.
+    @Test func aLaneShowsTheDaemonsMaskedStepNeverTheRawPrompt() {
+        let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
         var summary = Self.summary("op-busy", "working")
         summary["harness"] = "codex"
-        summary["turn"] = ["prompt": "Run the guard\n  tests", "startedAt": 1_760_000_500_000.0]
-        summary["lastMessage"] = ["role": "agent", "text": "old"]
+        summary["turn"] = ["prompt": "push with \(token)", "startedAt": 1_760_000_500_000.0]
+        summary["lastMessage"] = ["role": "agent", "text": token]
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "step": "push with [github token]"]
         let lane = AgentActivityLane.of(summary: summary, title: nil)
         #expect(lane?.harness == "codex")
-        #expect(lane?.step == "Run the guard tests")
+        #expect(lane?.step == "push with [github token]")
 
-        summary["turn"] = NSNull()
-        #expect(AgentActivityLane.of(summary: summary, title: nil)?.step == "old")
-        summary["lastMessage"] = ["role": "user", "text": "go"]
-        #expect(AgentActivityLane.of(summary: summary, title: nil)?.step == nil, "a person's own message is no step")
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull()]
+        #expect(AgentActivityLane.of(summary: summary, title: nil)?.step == nil, "an acpmux from before lane.step shows no step")
     }
 
     @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {

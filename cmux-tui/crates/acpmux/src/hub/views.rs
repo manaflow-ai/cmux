@@ -347,3 +347,7 @@ impl Hub {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "views_lane_tests.rs"]
+mod lane_tests;
