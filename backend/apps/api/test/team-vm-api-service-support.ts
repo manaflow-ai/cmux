@@ -13,7 +13,7 @@ interface Machine {
 export const teamVmApiService = (tenant: string) => {
   const vms = new Map<string, Machine>(), intents = new Map<string, { body: string; id: string }>()
   const calls: Array<{ method: string; path: string; body: Record<string, any> | null; key: string | null }> = []
-  const control = { loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
+  const control = { creationState: "missing" as "missing" | "pending" | "committed", loseNextCreate: false, forbidden: false, actor: "team-vm-service", key: "team-transport-test-key", creates: 0, fileReads: 0, breakNextFileRead: false, fileOffsets: [] as number[] }
   const bodyOf = (m: Machine) => ({ id: m.id, displayName: m.displayName, labels: m.labels, state: m.state,
     resources: { vcpus: 4, memoryMib: 8192, diskMib: 32768 }, idleTimeoutSeconds: 300,
     maxRunSeconds: null, autoDeleteSeconds: null, createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z" })
@@ -27,6 +27,13 @@ export const teamVmApiService = (tenant: string) => {
     const body = r.body ? await r.clone().json() as Record<string, any> : null
     const key = r.headers.get("idempotency-key")
     calls.push({ method: r.method, path: u.pathname, body, key })
+    if (u.pathname.startsWith("/v1/vm-creations/by-key")) {
+      const intent = key ? intents.get(key) : undefined, m = intent ? vms.get(intent.id) : undefined
+      if (control.creationState === "missing" || control.forbidden || !m || m.actor !== control.actor) return notFound()
+      if (r.method === "POST") control.creationState = "committed"
+      return Response.json({ state: control.creationState, id: m.id, receipt: { id: m.id, displayName: m.displayName, labels: m.labels,
+        idleTimeoutSeconds: 300, bootImage: { ...m.image, displayName: "Team VM" }, initialNetwork: { publicEgress: true, httpsProxyHosts: [] } } })
+    }
     if (u.pathname === "/v1/vms" && r.method === "GET") {
       expect(u.searchParams.get("createdBy")).toBe("caller")
       const labels = u.searchParams.getAll("label")
