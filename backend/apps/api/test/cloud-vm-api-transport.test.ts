@@ -3,7 +3,7 @@ import { MemoryRows, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { cloudConfig } from "../src/cloud-driver.ts"
 import type { Env } from "../src/env.ts"
-import { cloudDomain, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, type CloudState, type LedgerRow, type MachineRow } from "../src/domains/cloud.ts"
+import { cloudDomain, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, type CloudState, type MachineRow } from "../src/domains/cloud.ts"
 import { publicSnapshot, type SnapshotRow } from "../src/domains/cloud-snapshot.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 
@@ -76,7 +76,7 @@ describe("Cloud transport ownership", () => {
   it("keeps private transport fields out of public machine and snapshot projections", () => {
     const { rows } = created()
     expect(publicMachine(rows.get<MachineRow>(TABLE_MACHINE, machine)!.row)).not.toHaveProperty("transport")
-    const row = { id: snapshot, machine, name: null, size_mb: 16384, status: "ready" as const, created_at: 1000, revision: "2", provider_name: "private", creator: user, size, transport: "vm-api" }
+    const row: SnapshotRow = { id: snapshot, machine, name: null, size_mb: 16384, status: "ready", created_at: 1000, revision: "2", provider_name: "private", creator: user, size, transport: "vm-api" }
     expect(publicSnapshot(row)).not.toHaveProperty("transport")
   })
 })
