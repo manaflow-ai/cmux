@@ -114,12 +114,20 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
   };
 }
 
-/// The composer's chips as drawn: each `data-menu` button's visible label.
+/// The composer's chips as drawn: each shown `data-menu` button's visible label (a copy laid out
+/// off screen to measure the row has no box and is skipped), and the access chip as `Mode`.
 export function composerChips(): Record<string, string> {
   const chips: Record<string, string> = {};
   for (const chip of document.querySelectorAll<HTMLElement>("button[data-menu]")) {
-    const label = (chip.innerText || chip.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
-    if (chip.dataset.menu) chips[chip.dataset.menu] = label;
+    const name = chip.dataset.menu;
+    if (!name || name in chips || !boxOf(chip)) continue;
+    chips[name] = label(chip);
   }
+  // The access chip (a menu, or its stand-in before the chat reports its modes) has no data-menu.
+  const access = [...document.querySelectorAll<HTMLElement>(".acpmux-access-trigger")].find((node) => boxOf(node));
+  if (access && !("Mode" in chips)) chips.Mode = label(access);
   return chips;
 }
+
+const label = (node: HTMLElement) =>
+  (node.innerText || node.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
