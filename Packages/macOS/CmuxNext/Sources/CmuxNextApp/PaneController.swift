@@ -46,6 +46,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     #if DEBUG
     private var debugLastSnapshot: Snapshot? // names the fields each re-run changed (DebugLayoutCounters sources)
+    private var debugSnapshotRuns = 0
     #endif
 
     struct Snapshot: Equatable {
@@ -191,7 +192,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
                               // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
                               hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
         #if DEBUG
-        DebugLayoutCounters.note("snapshot \(DebugLayoutCounters.changedFields(debugLastSnapshot, result))", file, line)
+        debugSnapshotRuns += 1
+        let run = debugSnapshotRuns > 3 ? "later" : "#\(debugSnapshotRuns)" // a new pane's runs, else another pane's
+        DebugLayoutCounters.note("snapshot \(run) \(DebugLayoutCounters.changedFields(debugLastSnapshot, result))", file, line)
         debugLastSnapshot = result
         #endif
         return result
