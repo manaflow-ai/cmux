@@ -6,7 +6,8 @@ pull request's own risk, use [risk tiers](risk-tiers.md) on feat-cmux-next inste
 
 ## Freeze an area
 
-Open an issue in manaflow-ai/cmux with the `merge-freeze` label. The title is the reason. The body
+Open an issue in manaflow-ai/cmux, then have an admin or maintainer add the `merge-freeze`
+label. A label from anyone else doesn't turn the freeze on. The title is the reason. The body
 says what is frozen and until when:
 
 ```
@@ -20,6 +21,8 @@ branch: feat-cmux-next     (optional; every branch by default)
   `docs/app.md` freezes that one file. `docs/app` doesn't match `docs/app.md.orig`.
 - A freeze lasts at most 72 hours from when the issue was opened, whatever `expires:` says. Open a
   new issue to keep freezing.
+- Editing the body after the label went on (to widen `paths:`, say) turns the freeze off until a
+  maintainer adds the label again.
 - If `paths:` or `expires:` is missing or doesn't parse, the freeze blocks nothing, and the
   checker prints a warning naming the issue. A typo never freezes the repository.
 

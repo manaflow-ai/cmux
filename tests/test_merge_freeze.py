@@ -23,12 +23,18 @@ def stamp(when: datetime) -> str:
     return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def issue(number=7, body="", author="lawrence", created=None, labels=("merge-freeze",), title="Cut 0.70"):
+def issue(number=7, body="", author="lawrence", created=None, labels=("merge-freeze",), title="Cut 0.70",
+          labeled_by="lawrence", labeler_role="admin", labeled_at=None, last_edited_at=None):
+    created = created or NOW - timedelta(hours=1)
     return {
+        "labeled_by": labeled_by,
+        "labeler_role": labeler_role,
+        "labeled_at": labeled_at or stamp(created),
+        "last_edited_at": last_edited_at,
         "number": number,
         "title": title,
         "user": {"login": author},
-        "created_at": stamp(created or NOW - timedelta(hours=1)),
+        "created_at": stamp(created),
         "body": body,
         "state": "open",
         "labels": [{"name": name} for name in labels],
@@ -81,6 +87,27 @@ class FreezeTests(unittest.TestCase):
         status, _, err = self.check([issue(body=body(paths="cmux-tui/*"))], ["cmux-tui/spec/x.json"])
         self.assertEqual(status, 0)
         self.assertIn("not globs", err)
+
+    def test_only_an_admin_or_maintainer_label_turns_a_freeze_on(self):
+        files = ["cmux-tui/spec/x.json"]
+        for role in ("admin", "maintain"):
+            with self.subTest(role=role):
+                self.assertEqual(self.check([issue(body=body(), labeler_role=role)], files)[0], 1)
+        for labeler, role in (("triager", "triage"), ("writer", "write"), ("outsider", None), (None, None)):
+            with self.subTest(labeler=labeler, role=role):
+                status, _, err = self.check([issue(body=body(), labeled_by=labeler, labeler_role=role)], files)
+                self.assertEqual(status, 0)
+                self.assertIn("not an admin or maintainer", err)
+
+    def test_an_edit_after_the_label_turns_the_freeze_off_until_labeled_again(self):
+        files = ["cmux-tui/spec/x.json"]
+        labeled, edited = NOW - timedelta(minutes=30), NOW - timedelta(minutes=10)
+        widened = issue(body=body(), labeled_at=stamp(labeled), last_edited_at=stamp(edited))
+        status, _, err = self.check([widened], files)
+        self.assertEqual(status, 0)
+        self.assertIn("edited after", err)
+        relabeled = issue(body=body(), labeled_at=stamp(NOW - timedelta(minutes=5)), last_edited_at=stamp(edited))
+        self.assertEqual(self.check([relabeled], files)[0], 1)
 
     def test_an_expired_freeze_blocks_nothing(self):
         status, _, _ = self.check([issue(body=body(expires=stamp(NOW - timedelta(minutes=1))))],

@@ -9,7 +9,10 @@ reason. The body names what it covers and until when, one field per line:
     owner: @someone          (optional; defaults to the issue's author)
     branch: feat-cmux-next   (optional; default: every branch)
 
-A freeze lasts at most MAX_HOURS from when its issue was opened, whatever `expires` says.
+Only an admin or maintainer turns a freeze on, by adding the label; a label from anyone else,
+or a body edited after the label went on, leaves the issue inactive until a maintainer adds the
+label again. A freeze lasts at most MAX_HOURS from when its issue was opened, whatever
+`expires` says.
 One whose `paths` or `expires` don't parse blocks nothing and is reported as malformed, so
 a typo never freezes the repository. `expire` closes lapsed freezes with a comment, so the
 open ones are the live ones.
@@ -134,27 +137,79 @@ def read_json_list(path: str) -> list[dict]:
     return json.loads(text) if text.strip() else []
 
 
+def last_labeler(events: list[dict], name: str) -> tuple[str | None, str | None]:
+    """Who added the label and when, if it is still on: the last add, cleared by a later removal."""
+    adder, at = None, None
+    for event in events:
+        if (event.get("label") or {}).get("name") != name:
+            continue
+        if event.get("event") == "labeled":
+            adder, at = (event.get("actor") or {}).get("login"), event.get("created_at")
+        elif event.get("event") == "unlabeled":
+            adder, at = None, None
+    return adder, at
+
+
+def ok_labeler(events: list[dict]) -> str | None:
+    """Who added freeze-ok, if it is still on."""
+    return last_labeler(events, OK_LABEL)[0]
+
+
+def repo_role(repo: str, login: str) -> str | None:
+    """The person's role on the repository (admin, maintain, write, triage, read), or None for a
+    non-collaborator."""
+    try:
+        return json.loads(gh("api", f"repos/{repo}/collaborators/{login}/permission")).get("role_name")
+    except subprocess.CalledProcessError as error:
+        if "404" in (error.stderr or ""):
+            return None
+        raise
+
+
+def last_edited(repo: str, number: int) -> str | None:
+    owner, name = repo.split("/", 1)
+    query = "query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt}}}"
+    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}")
+    return json.loads(out)["data"]["repository"]["issue"]["lastEditedAt"]
+
+
+def check_authority(freeze: Freeze, labeler: str | None, role: str | None, labeled_at: str | None,
+                    edited_at: str | None) -> None:
+    """A freeze stops merges for everyone, so only a maintainer turns one on: the merge-freeze
+    label must come from an admin or maintainer, after the body's last edit. An edit after the
+    label (widening `paths:`, say) leaves the freeze inactive until a maintainer adds it again."""
+    if not labeler or role not in ("admin", "maintain"):
+        who = f"@{labeler} ({role or 'not a collaborator'})" if labeler else "nobody"
+        freeze.problems.append(f"the `{LABEL}` label was added by {who}, not an admin or maintainer")
+    elif edited_at and labeled_at and parse_time(edited_at) > parse_time(labeled_at):
+        freeze.problems.append(f"edited after @{labeler} added `{LABEL}`; a maintainer must add it again")
+
+
 def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
     if issues_file is not None:
+        # Recorded issues carry what the API calls below would return: labeled_by,
+        # labeler_role, labeled_at and last_edited_at.
         issues = [i for i in read_json_list(issues_file)
                   if i.get("state", "open") == "open"
                   and LABEL in {label.get("name") for label in i.get("labels", [])}]
     else:
         issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}&per_page=100")
-    return [parse_issue(issue) for issue in issues if "pull_request" not in issue]
-
-
-def ok_labeler(events: list[dict]) -> str | None:
-    """Who added freeze-ok, if it is still on: the last add, cleared by a later removal."""
-    adder = None
-    for event in events:
-        if (event.get("label") or {}).get("name") != OK_LABEL:
+    freezes = []
+    for issue in issues:
+        if "pull_request" in issue:
             continue
-        if event.get("event") == "labeled":
-            adder = (event.get("actor") or {}).get("login")
-        elif event.get("event") == "unlabeled":
-            adder = None
-    return adder
+        freeze = parse_issue(issue)
+        if issues_file is not None:
+            labeler, role = issue.get("labeled_by"), issue.get("labeler_role")
+            labeled_at, edited_at = issue.get("labeled_at"), issue.get("last_edited_at")
+        else:
+            labeler, labeled_at = last_labeler(
+                gh_items(f"repos/{repo}/issues/{freeze.number}/events?per_page=100"), LABEL)
+            role = repo_role(repo, labeler) if labeler else None
+            edited_at = last_edited(repo, freeze.number)
+        check_authority(freeze, labeler, role, labeled_at, edited_at)
+        freezes.append(freeze)
+    return freezes
 
 
 def blocking(freezes: list[Freeze], files: list[str], base: str | None, labeler: str | None,
