@@ -76,10 +76,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         self.onFatalError = onFatalError
     }
 
-    deinit {
-        stop()
-    }
-
     /// Starts the RPC client and the loopback listener; throws when either
     /// fails (the tunnel is then stopped and unusable).
     public func start() throws {

@@ -934,12 +934,10 @@ func TestPersistentDaemonRejectsBadToken(t *testing.T) {
 	if got := errObj["code"]; got != "unauthorized" {
 		t.Fatalf("bad token error code = %v, want unauthorized; frame=%v", got, frame)
 	}
-	deadline := time.Now().Add(time.Second)
-	for !strings.Contains(stderr.String(), "authentication token is invalid") && time.Now().Before(deadline) {
-		select {
-		case <-stderr.notify:
-		case <-time.After(10 * time.Millisecond):
-		}
+	select {
+	case <-stderr.notify:
+	case <-time.After(time.Second):
+		t.Fatalf("persistent daemon did not log authentication rejection")
 	}
 	if log := stderr.String(); !strings.Contains(log, "authentication token is invalid") {
 		t.Fatalf("daemon log = %q, want invalid-token reason", log)
@@ -987,12 +985,10 @@ func TestPersistentDaemonLogsAuthMethodRejectionReason(t *testing.T) {
 				t.Fatalf("auth method error code = %v, want unauthorized; frame=%v", got, frame)
 			}
 
-			deadline := time.Now().Add(time.Second)
-			for !strings.Contains(stderr.String(), test.wantReason) && time.Now().Before(deadline) {
-				select {
-				case <-stderr.notify:
-				case <-time.After(10 * time.Millisecond):
-				}
+			select {
+			case <-stderr.notify:
+			case <-time.After(time.Second):
+				t.Fatalf("persistent daemon did not log authentication rejection")
 			}
 			if log := stderr.String(); !strings.Contains(log, test.wantReason) {
 				t.Fatalf("daemon log = %q, want reason %q", log, test.wantReason)

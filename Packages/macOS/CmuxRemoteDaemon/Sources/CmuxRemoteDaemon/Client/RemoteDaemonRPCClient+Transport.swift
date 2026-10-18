@@ -2,6 +2,7 @@ import Darwin
 internal import Foundation
 internal import CmuxCore
 internal import CmuxFoundation
+import Network
 
 // Transport bring-up for the three daemon paths (stdio exec, baked-VM socket
 // forward, websocket). Faithful lift; argument composition lives on
@@ -210,23 +211,16 @@ extension RemoteDaemonRPCClient {
             request.setValue(value, forHTTPHeaderField: key)
         }
 
-        let delegate = RemoteDaemonWebSocketDelegate()
-        let session = Self.sharedWebSocketSession
-        let task = session.webSocketTask(with: request)
-        Self.sharedWebSocketMultiplexer.register(delegate: delegate, for: task)
-        task.resume()
-        guard delegate.waitForOpen(timeout: 15.0) else {
-            Self.sharedWebSocketMultiplexer.unregister(task: task)
-            task.cancel(with: .goingAway, reason: nil)
+        let connection = try RemoteDaemonWebSocketConnection(request: request, callbackQueue: stateQueue)
+        guard connection.waitForOpen(timeout: 15.0) else {
+            connection.cancel()
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 25, userInfo: [
                 NSLocalizedDescriptionKey: "timed out opening daemon websocket",
             ])
         }
 
         stateQueue.sync {
-            self.webSocketSession = session
-            self.webSocketTask = task
-            self.webSocketDelegate = delegate
+            self.webSocketConnection = connection
             self.markTransportOpenLocked()
             self.startWebSocketKeepaliveLocked()
         }

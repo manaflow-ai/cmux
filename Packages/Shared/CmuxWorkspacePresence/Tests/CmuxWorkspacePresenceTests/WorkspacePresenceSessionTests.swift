@@ -78,29 +78,36 @@ struct WorkspacePresenceSessionTests {
         await second.connection.disconnect()
 
         let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-        while await clock.shortSleeps.count < 2, ContinuousClock.now < deadline {
+        while clock.shortSleeps.count < 2, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        let delays = Array(await clock.shortSleeps.prefix(2))
+        let delays = Array(clock.shortSleeps.prefix(2))
         #expect(delays.count == 2)
         #expect(delays.allSatisfy { $0 >= .seconds(1) && $0 < .milliseconds(1500) })
     }
 }
 
-private actor ImmediatePresenceClock: Clock {
+private final class ImmediatePresenceClock: Clock, @unchecked Sendable {
     typealias Duration = Swift.Duration
     typealias Instant = ContinuousClock.Instant
 
+    private let lock = NSLock()
     private var recordedSleeps: [Duration] = []
 
     nonisolated var now: Instant { .now }
     nonisolated var minimumResolution: Duration { .zero }
 
-    var shortSleeps: [Duration] { recordedSleeps.filter { $0 < .seconds(5) } }
+    var shortSleeps: [Duration] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedSleeps.filter { $0 < .seconds(5) }
+    }
 
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
         let duration = now.duration(to: deadline)
+        lock.lock()
         recordedSleeps.append(duration)
+        lock.unlock()
         guard duration >= .seconds(5) else { return }
         try await ContinuousClock().sleep(for: .hours(1))
     }

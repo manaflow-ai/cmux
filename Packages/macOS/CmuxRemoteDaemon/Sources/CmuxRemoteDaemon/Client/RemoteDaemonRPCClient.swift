@@ -15,7 +15,7 @@ public import CmuxCore
 /// Isolation design (two serial queues + blocking semaphores, deliberately
 /// not an actor):
 /// - **Who mutates:** all transport state (`process`, pipes/handles, the
-///   socket-forward directory, websocket task/session/delegate, `isClosed`,
+///   socket-forward directory, websocket connection, `isClosed`,
 ///   `shouldReportTermination`,
 ///   `stdoutBuffer`, `stderrBuffer`, and both subscription maps) is confined
 ///   to `stateQueue`; readability/termination/receive callbacks hop onto it
@@ -74,15 +74,6 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Package-owned NSError metadata key for the daemon's structured RPC error code.
     static let rpcErrorCodeUserInfoKey = "cmux.remote.daemon.rpc.error_code"
     static let maxCloudCLIRequestsInFlight = 4
-    static let sharedWebSocketMultiplexer = RemoteDaemonWebSocketMultiplexer()
-    static let sharedWebSocketSession: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieStorage = nil
-        configuration.urlCache = nil
-        return URLSession(configuration: configuration, delegate: sharedWebSocketMultiplexer, delegateQueue: nil)
-    }()
-
     /// Returns the daemon's structured RPC error code preserved on `error`.
     ///
     /// RPC callers should classify this stable code before consulting the
@@ -139,9 +130,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stdoutHandle: FileHandle?
     var stderrHandle: FileHandle?
     var forwardSocketDirectory: RemoteDaemonForwardSocketDirectory?
-    var webSocketSession: URLSession?
-    var webSocketTask: URLSessionWebSocketTask?
-    var webSocketDelegate: RemoteDaemonWebSocketDelegate?
+    var webSocketConnection: RemoteDaemonWebSocketConnection?
     var webSocketKeepaliveTimer: (any DispatchSourceTimer)?
     var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
     var webSocketKeepaliveInFlight = false
@@ -187,10 +176,6 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         self.keepaliveInterval = keepaliveInterval
         self.keepaliveTimeout = keepaliveTimeout
         self.onUnexpectedTermination = onUnexpectedTermination
-    }
-
-    deinit {
-        stop()
     }
 
     /// Starts the transport for `configuration` and performs the `hello`
@@ -293,13 +278,13 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     }
 
     func stop(suppressTerminationCallback: Bool) {
-        let captured: (Process?, FileHandle?, FileHandle?, FileHandle?, URLSessionWebSocketTask?, URLSession?, Bool, String) = stateQueue.sync {
+        let captured: (Process?, FileHandle?, FileHandle?, FileHandle?, RemoteDaemonWebSocketConnection?, Bool, String) = stateQueue.sync {
             let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport stopped"
             let shouldNotify = !suppressTerminationCallback && !isClosed
             shouldReportTermination = !suppressTerminationCallback
             removeForwardSocketDirectoryLocked()
             if isClosed {
-                return (nil, nil, nil, nil, nil, nil, false, detail)
+                return (nil, nil, nil, nil, nil, false, detail)
             }
 
             isClosed = true
@@ -308,8 +293,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let capturedStdin = stdinHandle
             let capturedStdout = stdoutHandle
             let capturedStderr = stderrHandle
-            let capturedWebSocketTask = webSocketTask
-            let capturedWebSocketSession = webSocketSession
+            let capturedWebSocketConnection = webSocketConnection
 
             stopWebSocketKeepaliveLocked()
             stopTransportKeepaliveLocked()
@@ -320,9 +304,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             stdinHandle = nil
             stdoutHandle = nil
             stderrHandle = nil
-            webSocketTask = nil
-            webSocketSession = nil
-            webSocketDelegate = nil
+            webSocketConnection = nil
             streamSubscriptions.removeAll(keepingCapacity: false)
             failPTYSubscriptionsLocked(detail)
             return (
@@ -330,8 +312,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
                 capturedStdin,
                 capturedStdout,
                 capturedStderr,
-                capturedWebSocketTask,
-                capturedWebSocketSession,
+                capturedWebSocketConnection,
                 shouldNotify,
                 detail
             )
@@ -345,15 +326,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         if let process = captured.0, process.isRunning {
             process.terminate()
         }
-        if let task = captured.4 {
-            Self.sharedWebSocketMultiplexer.unregister(task: task)
-            task.cancel(with: .normalClosure, reason: nil)
-        }
-        if let session = captured.5, session !== Self.sharedWebSocketSession {
-            session.invalidateAndCancel()
-        }
-        if captured.6 {
-            onUnexpectedTermination(captured.7)
+        captured.4?.cancel()
+        if captured.5 {
+            onUnexpectedTermination(captured.6)
         }
     }
 
