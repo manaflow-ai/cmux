@@ -19,7 +19,7 @@ public final class RemoteBrowserContentView: NSView {
     package let video = RemoteVideoView()
     public weak var eventTarget: (any RemoteBrowserEventTarget)?
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     /// The page's cursor (`rb.cursor`), shown over the whole page area.
