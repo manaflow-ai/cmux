@@ -12,6 +12,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
@@ -20,7 +21,8 @@ import { runChild } from "./helpers/run-child";
 // source. Every test builds a throwaway machine under the system temp
 // directory, points the script at it with --home/--root/--tmp-dir, and
 // asserts that nothing the script reports or removes lies outside it. Docker
-// is a stub that only logs its arguments, so no test prunes real images.
+// is a stub that only logs its arguments, so no test prunes real images, and
+// `mount` is a stub that prints the fixture's mounts file.
 
 const SCRIPT = path.join(import.meta.dirname, "../services/vms/hygiene/cmux-machine-hygiene");
 const DAY_S = 24 * 60 * 60;
@@ -35,7 +37,16 @@ afterEach(() => {
 type Item = { category: string; path: string; kb: number; action: string; reason?: string };
 type Report = { version: number; mode: string; home: string; reclaimableKb: number; items: Item[] };
 
-type Machine = { root: string; home: string; tmp: string; code: string; bin: string; dockerLog: string };
+type Machine = {
+  root: string;
+  home: string;
+  tmp: string;
+  code: string;
+  bin: string;
+  dockerLog: string;
+  /** Lines the stub `mount` prints, in Linux format. */
+  mounts: string;
+};
 
 function write(file: string, body = "x") {
   mkdirSync(path.dirname(file), { recursive: true });
@@ -62,13 +73,17 @@ function machine(): Machine {
   const code = path.join(home, "code");
   const bin = path.join(root, "bin");
   const dockerLog = path.join(root, "docker.calls");
+  const mounts = path.join(root, "mounts");
   for (const dir of [home, tmp, code, bin]) mkdirSync(dir, { recursive: true });
+  writeFileSync(mounts, "/dev/root on / type ext4 (rw,relatime)\n");
+  writeFileSync(path.join(bin, "mount"), ["#!/bin/sh", `cat ${JSON.stringify(mounts)}`, ""].join("\n"));
+  chmodSync(path.join(bin, "mount"), 0o755);
   writeFileSync(
     path.join(bin, "docker"),
     ["#!/bin/sh", `printf '%s\\n' "$*" >> ${JSON.stringify(dockerLog)}`, "exit 0", ""].join("\n"),
   );
   chmodSync(path.join(bin, "docker"), 0o755);
-  return { root, home, tmp, code, bin, dockerLog };
+  return { root, home, tmp, code, bin, dockerLog, mounts };
 }
 
 /** A project with source, git metadata and a build artifact directory. */
@@ -81,12 +96,14 @@ function project(m: Machine, name: string, artifact: string, marker: string) {
   return dir;
 }
 
+function runRaw(m: Machine, args: string[]) {
+  return runChild("bash", [SCRIPT, ...args], {
+    env: { PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: m.home, TMPDIR: m.tmp },
+  });
+}
+
 async function run(m: Machine, args: string[] = []): Promise<Report> {
-  const result = await runChild(
-    "bash",
-    [SCRIPT, "--home", m.home, "--root", m.code, "--tmp-dir", m.tmp, ...args],
-    { env: { PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: m.home, TMPDIR: m.tmp } },
-  );
+  const result = await runRaw(m, ["--home", m.home, "--root", m.code, "--tmp-dir", m.tmp, ...args]);
   expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
   const report = JSON.parse(result.stdout) as Report;
@@ -281,7 +298,8 @@ describe("cmux-machine-hygiene", () => {
     const m = machine();
     const app = project(m, "app", "node_modules", "package.json");
     age(app, 30);
-    const busy = Bun.spawn(["sleep", "30"], { cwd: path.join(app, "src") });
+    const busy = spawn("sleep", ["30"], { cwd: path.join(app, "src"), stdio: "ignore" });
+    await new Promise((resolve) => busy.once("spawn", resolve));
     try {
       const report = await run(m, ["--apply", "--only", "project-artifacts"]);
       expect(report.items).toContainEqual(
@@ -289,8 +307,9 @@ describe("cmux-machine-hygiene", () => {
       );
       expect(existsSync(path.join(app, "node_modules", "pkg", "index.js"))).toBe(true);
     } finally {
+      const exited = new Promise((resolve) => busy.once("exit", resolve));
       busy.kill();
-      await busy.exited;
+      await exited;
     }
   });
 
@@ -307,13 +326,89 @@ describe("cmux-machine-hygiene", () => {
     expect(existsSync(path.join(live, "debug", "app"))).toBe(true);
   });
 
-  test("refuses an unsafe home", async () => {
+  test("refuses an unsafe home, root or temp directory", async () => {
     const m = machine();
-    const result = await runChild("bash", [SCRIPT, "--apply", "--home", "/", "--tmp-dir", m.tmp], {
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
-    });
-    expect(result.status).toBe(3);
-    expect(result.stdout).toBe("");
+    const cases: string[][] = [
+      ["--home", "/", "--root", m.code, "--tmp-dir", m.tmp],
+      ["--home", m.home, "--root", "/", "--tmp-dir", m.tmp],
+      ["--home", m.home, "--root", m.code, "--tmp-dir", m.home],
+      ["--home", m.home, "--root", m.code, "--tmp-dir", m.root],
+      ["--home", m.home, "--root", m.code, "--tmp-dir", "/etc"],
+    ];
+    for (const args of cases) {
+      const result = await runRaw(m, args);
+      expect({ args, status: result.status, stdout: result.stdout }).toEqual({ args, status: 3, stdout: "" });
+    }
+  });
+
+  test("refuses --apply without an explicit home and root", async () => {
+    const m = machine();
+    for (const args of [
+      ["--apply", "--root", m.code, "--tmp-dir", m.tmp],
+      ["--apply", "--home", m.home, "--tmp-dir", m.tmp],
+    ]) {
+      const result = await runRaw(m, args);
+      expect({ args, status: result.status, stdout: result.stdout }).toEqual({ args, status: 2, stdout: "" });
+    }
+  });
+
+  test("refuses a path reached through a symlinked parent", async () => {
+    const m = machine();
+    const realClaude = path.join(m.root, "outside", "claude");
+    write(path.join(realClaude, "debug", "old.txt"), "keep me");
+    age(path.join(realClaude, "debug", "old.txt"), 30);
+    symlinkSync(realClaude, path.join(m.home, ".claude"));
+    const report = await run(m, ["--apply", "--only", "agent-logs"]);
+    expect(report.items).toContainEqual(
+      expect.objectContaining({ path: path.join(m.home, ".claude", "debug", "old.txt"), reason: "symlinked-parent" }),
+    );
+    expect(existsSync(path.join(realClaude, "debug", "old.txt"))).toBe(true);
+  });
+
+  test("never removes a mount point or a tree holding one", async () => {
+    const m = machine();
+    const mounted = project(m, "mounted", "node_modules", "package.json");
+    const holding = project(m, "holding", "node_modules", "package.json");
+    age(mounted, 30);
+    age(holding, 30);
+    writeFileSync(
+      m.mounts,
+      [
+        "/dev/root on / type ext4 (rw)",
+        `/dev/sdb on ${path.join(mounted, "node_modules")} type ext4 (rw)`,
+        `tmpfs on ${path.join(holding, "node_modules", "pkg")} type tmpfs (rw)`,
+        "",
+      ].join("\n"),
+    );
+    const report = await run(m, ["--apply", "--only", "project-artifacts"]);
+    expect(report.items).toContainEqual(
+      expect.objectContaining({ path: path.join(mounted, "node_modules"), reason: "mount-point" }),
+    );
+    expect(report.items).toContainEqual(
+      expect.objectContaining({ path: path.join(holding, "node_modules"), reason: "contains-mount" }),
+    );
+    expect(existsSync(path.join(mounted, "node_modules", "pkg", "index.js"))).toBe(true);
+    expect(existsSync(path.join(holding, "node_modules", "pkg", "index.js"))).toBe(true);
+  });
+
+  test("treats newline and glob names as single names", async () => {
+    const m = machine();
+    // A newline name must not split into the fresh sibling "keep".
+    write(path.join(m.tmp, "keep\nme"), "odd");
+    write(path.join(m.tmp, "keep"), "fresh");
+    age(path.join(m.tmp, "keep\nme"), 30);
+    // A project named "*" must not glob onto its siblings.
+    const star = project(m, "*", "node_modules", "package.json");
+    const sibling = project(m, "b", "node_modules", "package.json");
+    age(star, 30);
+    const report = await run(m, ["--apply", "--only", "temp-files", "--only", "project-artifacts"]);
+    expect(report.items).toContainEqual(
+      expect.objectContaining({ path: path.join(m.tmp, "keep\nme"), action: "skipped", reason: "unsafe-name" }),
+    );
+    expect(existsSync(path.join(m.tmp, "keep\nme"))).toBe(true);
+    expect(existsSync(path.join(m.tmp, "keep"))).toBe(true);
+    expect(paths(report, "deleted", "project-artifacts")).toEqual([path.join(star, "node_modules")]);
+    expect(existsSync(path.join(sibling, "node_modules", "pkg", "index.js"))).toBe(true);
   });
 
   test("stays small enough to ship through the provider's exec limit", () => {
