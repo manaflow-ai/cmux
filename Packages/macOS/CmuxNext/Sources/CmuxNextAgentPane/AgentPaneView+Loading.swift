@@ -1,6 +1,9 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
+import os
+
+private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
 
 /// The pane's first frame (cx-sj96): from the moment it is made until its page draws what it is
 /// (`pane.painted`: the handshake's answer or the host's error), the pane shows its page
@@ -17,9 +20,13 @@ public final class AgentPaneLoadingView: NSView {
     /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
     /// showed (`PanePaintHold.limit`), so the mark never shows the moment a hold gives up.
     static let markDelay: Duration = .milliseconds(800)
-    /// Placeholder until the fix: the loading state has no deadline yet (cx-txnr).
+    /// How long the loading state waits for the page's first paint before it shows the page
+    /// anyway (cx-txnr): WebKit holds the animation frames of a page it thinks is not visible
+    /// (an occluded window after a relaunch), and its `pane.painted` may never come. Like the
+    /// pane's other covers (`PanePaintHold.limit`, the launch image), it never stays for good.
     static var paintLimit: Duration = .seconds(8)
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
+    private let paintTimer = DemandTimer(owner: "agentPane.paintLimit")
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
     private var leaving = false
@@ -62,6 +69,11 @@ public final class AgentPaneLoadingView: NSView {
         }
     }
 
+    /// Runs `giveUp` after ``paintLimit`` unless the loading state leaves first.
+    func giveUpLater(_ giveUp: @escaping @MainActor @Sendable () -> Void) {
+        paintTimer.schedule(after: Self.paintLimit) { @MainActor in giveUp() }
+    }
+
     func hideMark() {
         markTimer.cancel()
         indicator.removeFromSuperview()
@@ -78,6 +90,9 @@ public final class AgentPaneLoadingView: NSView {
     /// launch image, cleared once this ends), the page fades in over that. A chat already shown
     /// never gets here: it draws no loading state again, so switching back to it is instant.
     func leave(over page: NSView, fades: Bool) {
+        // Once: the page's paint can follow the deadline's leave.
+        guard superview != nil, !leaving else { return }
+        paintTimer.cancel()
         hideMark()
         leaving = true
         let overImage = isHidden
@@ -123,6 +138,11 @@ extension AgentPaneView {
         themeLoadingState(themeTokens)
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
+        loadingView.giveUpLater { [weak self] in
+            guard let self, !model.hasPainted, loadingView.superview != nil else { return }
+            loadingLogger.error("agent pane page did not paint within the loading limit; showing it")
+            endLoadingState()
+        }
     }
 
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``): a
