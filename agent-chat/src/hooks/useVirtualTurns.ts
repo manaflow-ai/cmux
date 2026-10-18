@@ -76,6 +76,7 @@ export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, st
   // here for every row would recreate the original O(count) hotspot.
   const anchorIsUsable = state.anchorIndex
     && state.anchorCount?.current === state.count
+    && !state.anchorInvalidated?.current
     && (!state.measurementGeneration || state.measurementGeneration.current === state.anchorGeneration?.current);
   const firstVisible = anchorIsUsable
     ? state.anchorIndex.current
@@ -94,16 +95,18 @@ export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, st
   const scroll = state.scrollRef.current;
   if (scroll && delta) scroll.scrollTop += delta;
   if (state.measurementGeneration) state.measurementGeneration.current += 1;
-  if (state.anchorGeneration && state.measurementGeneration) {
+  const anchorMoved = index === firstVisible || state.estimate.current !== previousEstimate;
+  if (state.anchorInvalidated) state.anchorInvalidated.current = anchorMoved;
+  if (!anchorMoved && state.anchorGeneration && state.measurementGeneration) {
+    // Measurements below the anchor cannot change which row is first visible.
+    // Advance the generation in place so the next observer callback stays O(1).
     state.anchorGeneration.current = state.measurementGeneration.current;
-  }
-  if (state.anchorInvalidated && (index === firstVisible || state.estimate.current !== previousEstimate)) {
-    state.anchorInvalidated.current = true;
   }
   state.bumpVersion();
   return true;
 }
 
+/** Ignore observer churn during disclosure animation; explicit remeasure handles the final size. */
 export function measureVirtualRowFromResize(index: number, node: VirtualRowMeasureNode, state: VirtualRowMeasurementState): boolean {
   if (node.querySelector('[data-disclosure-animating="true"]')) return false;
   return measureVirtualRow(index, node, state);
