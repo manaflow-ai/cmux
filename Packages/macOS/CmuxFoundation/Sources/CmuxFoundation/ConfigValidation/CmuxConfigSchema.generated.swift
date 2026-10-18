@@ -1882,6 +1882,13 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. false shows colors exactly as chosen. Applies to the solidFill indicator; leftRail always lightens its rail."
         },
+        "unselectedFillOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "Opacity of the workspace color on rows that are not selected, with the solidFill indicator. 1 shows the full color. Multi-selected rows use half of this value."
+        },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
