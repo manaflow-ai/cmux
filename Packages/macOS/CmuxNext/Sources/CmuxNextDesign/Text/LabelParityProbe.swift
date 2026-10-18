@@ -22,8 +22,6 @@ public struct LabelParityProbe {
         /// Every value of each pair (the first 2000 pairs).
         public var rows: [[String: String]] = []
         public var imagesWritten = 0
-        /// The shared layout's line numbers per probe font.
-        public var lines: [String] = []
     }
 
     private enum Factory: String, CaseIterable { case label, wrapping, font }
@@ -84,7 +82,6 @@ public struct LabelParityProbe {
                 }
             }
         }
-        report.lines = Self.fonts.map { LabelText.lineReport($0.1) } + Self.wrapEdges(in: root)
         return report
     }
 
@@ -243,51 +240,6 @@ public struct LabelParityProbe {
         differ("ax.frame.dy", frames.0.minY - screens[0].minY, frames.1.minY - screens[1].minY)
         differ("ax.frame.w", frames.0.width, frames.1.width)
         differ("ax.frame.h", frames.0.height, frames.1.height)
-    }
-
-    /// The narrowest frame each of a few texts draws on one line in, for a stock wrapping field
-    /// (drawn and measured) and a ChromeLabel, against the text's one-line width.
-    private static func wrapEdges(in root: NSView) -> [String] {
-        var lines: [String] = []
-        for text in ["line two is", "Run any cmux action by typing its", "Workspace", "line two is longer"] {
-            let font = NSFont.systemFont(ofSize: 13)
-            let stock = NSTextField(wrappingLabelWithString: text)
-            stock.font = font
-            let label = ChromeLabel(wrappingLabelWithString: text)
-            label.font = font
-            root.addSubview(stock)
-            root.addSubview(label)
-            func oneLine(_ view: NSView, _ width: CGFloat) -> Bool {
-                view.frame = NSRect(x: 10, y: 10, width: width, height: 40)
-                // As in a window's layout pass: AppKit lays out a field's own text view then.
-                root.layoutSubtreeIfNeeded()
-                view.displayIfNeeded()
-                let ink = Self.ink(cached: view)
-                return ink.amount > 0 && ink.box.height < 26
-            }
-            // The narrowest width of the run of one-line widths down from the one-line width + 8.
-            func edge(_ fits: (CGFloat) -> Bool) -> CGFloat {
-                var last: CGFloat = 0
-                var width = (label.naturalSize.width + 8).rounded()
-                while width > 4, fits(width) {
-                    last = width
-                    width -= 0.25
-                }
-                return last
-            }
-            let drawn = edge { oneLine(stock, $0) }
-            let measured = edge { (stock.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: $0, height: 1000)).height ?? 99) < 20 }
-            let drawnLabel = edge { oneLine(label, $0) }
-            let drawnCell = edge { width in
-                stock.frame = NSRect(x: 10, y: 10, width: width, height: 40)
-                let ink = Self.ink(cellOf: stock)
-                return ink.amount > 0 && ink.box.height < 26
-            }
-            stock.removeFromSuperview()
-            label.removeFromSuperview()
-            lines.append("wrap edge \"\(text)\": one-line width \(label.naturalSize.width) stock draw \(drawn) stock measure \(measured) old label (cell) draw \(drawnCell) label draw \(drawnLabel)")
-        }
-        return lines
     }
 
     private func note(_ line: String, into report: inout Report) {

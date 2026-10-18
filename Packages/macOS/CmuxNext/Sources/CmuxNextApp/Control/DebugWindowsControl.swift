@@ -20,8 +20,7 @@ enum DebugWindowsControl {
                 let report = LabelParityProbe(imageDirectory: call.params["dir"]?.stringValue.map { URL(fileURLWithPath: $0) }).measure()
                 return .value(.object(["checked": .number(Double(report.checked)), "mismatch_count": .number(Double(report.mismatchCount)),
                                        "mismatches": .array(report.mismatches.map { .string($0) }),
-                                       "rows": .array(report.rows.map { .object($0.mapValues { .string($0) }) }),
-                                       "lines": .array(report.lines.map { .string($0) })]))
+                                       "rows": .array(report.rows.map { .object($0.mapValues { .string($0) }) })]))
             },
             // Window membership and the window invariants (no window
             // without a workspace), with what each window's record saves.

@@ -190,13 +190,10 @@ enum LabelText {
     /// the descender below it rounded up to a whole point (TextKit rounds the raw sum instead: an
     /// 11 pt line is 13 pt, a field's 14 pt).
     nonisolated final class WholePointLines: NSObject, NSLayoutManagerDelegate {
-        /// How many lines it was asked about (debug.label_parity).
-        var calls = 0
 
         func layoutManager(_ layoutManager: NSLayoutManager, shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
                            lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
                            in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
-            calls += 1
             guard let storage = layoutManager.textStorage else { return false }
             let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
@@ -215,17 +212,6 @@ enum LabelText {
         }
     }
 
-    #if DEBUG
-    /// The shared stack's line delegate calls and one line's numbers (debug.label_parity).
-    static func lineReport(_ font: NSFont) -> String {
-        let range = lay(NSAttributedString(string: "Hi", attributes: [.font: font]), shape: Shape(lines: 0, wraps: false, lineBreak: .byClipping,
-                        alignment: .left, tightens: false, truncatesLastVisibleLine: false, strategy: []), width: nil, height: nil)
-        let rect = range.length > 0 ? manager.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil) : .zero
-        return "font \(font.pointSize) raw \(font.ascender - font.descender + font.leading) asc \(font.ascender) desc \(font.descender) "
-            + "leading \(font.leading) default \(manager.defaultLineHeight(for: font)) line \(rect.height) used \(manager.usedRect(for: container).height) "
-            + "delegate \(manager.delegate === lineHeights) calls \(lineHeights.calls)"
-    }
-    #endif
 
     /// Lays `text` out in the shared stack and returns the glyphs that fit.
     private static func lay(_ text: NSAttributedString, shape: Shape, width: CGFloat?, height: CGFloat?) -> NSRange {
