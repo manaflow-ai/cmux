@@ -538,6 +538,17 @@
       ],
       "packages": []
     },
+    "CmuxNextErrorHandlingTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextErrorHandlingTests",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextCloud",
+        "CmuxNextRemote"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextFeed": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",

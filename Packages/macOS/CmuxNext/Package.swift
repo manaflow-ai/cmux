@@ -281,6 +281,11 @@ let package = Package(
             dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextErrorHandlingTests",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextCloud", "CmuxNextRemote"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Dictation (the composer's mic): the on-device speech engines and
         // the session state machine. Engines are actors fed by a real-time
         // audio tap, so the module is not main-actor by default.
