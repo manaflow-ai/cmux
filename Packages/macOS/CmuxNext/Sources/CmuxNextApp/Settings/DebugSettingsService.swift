@@ -9,6 +9,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextHome
+import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextPalette
@@ -25,7 +26,7 @@ import Foundation
 /// store's validation and the exports agree.
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
-        DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.sessionRail.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
@@ -70,6 +71,15 @@ final class DebugSettingsService: InternalPageProvider {
                                bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
+        // The store loads the file off the main actor, after the first icons draw: the family is read here.
+        IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).
+    nonisolated static func launchIconFamily(_ url: URL?) -> IconFamily {
+        // concurrency-allow: one small Debug Settings file, read once at launch before the first icon draws
+        guard let url, let data = try? Data(contentsOf: url) else { return .pack }
+        return (TunableFile.decode(data)[IconFamily.tunable.key] as? String).flatMap(IconFamily.init(rawValue:)) ?? .pack
     }
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`
