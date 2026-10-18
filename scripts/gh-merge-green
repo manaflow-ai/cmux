@@ -188,10 +188,12 @@ if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1
     'exploration PR, needs a decision from Leo or the team before merging.' \
     'remove the exploration label only after Leo or the team decides to merge'
 fi
-if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
-  refuse \
-    "not green: cannot list changed files for $ref" \
-    'restore GitHub API access, then retry the exact-head check'
+if [ "$repo" = "manaflow-ai/cmuxterm-hq" ]; then
+  if ! changed_files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    refuse \
+      "not green: cannot list changed files for $ref" \
+      'restore GitHub API access, then retry the exact-head check'
+  fi
 fi
 if [ "$repo" = "manaflow-ai/cmuxterm-hq" ] && ! python3 "$script_dir/ci/vercel_merge_gate.py" "$repo" <<<"$changed_files" >/dev/null 2>&1; then
   # HQ's Vercel integration is a preview convenience. Its status remains
