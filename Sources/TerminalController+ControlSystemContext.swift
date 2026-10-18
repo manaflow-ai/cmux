@@ -135,10 +135,6 @@ extension TerminalController: ControlSystemContext {
         )
     }
 
-    /// Projects the requested control-plane workspace containers. Tree callers
-    /// include Dock stores; legacy top/task-manager callers explicitly pass
-    /// none because Dock process attribution is outside the list/tree parity
-    /// scope.
     /// The file a Markdown or file preview surface shows, so automation can
     /// tell same-named files in different folders apart. Other panels have none.
     static func controlSurfaceFilePath(_ panel: any Panel) -> String? {
@@ -152,6 +148,10 @@ extension TerminalController: ControlSystemContext {
         }
     }
 
+    /// Projects the requested control-plane workspace containers. Tree callers
+    /// include Dock stores; legacy top/task-manager callers explicitly pass
+    /// none because Dock process attribution is outside the list/tree parity
+    /// scope.
     func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
