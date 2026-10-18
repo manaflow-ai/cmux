@@ -143,12 +143,12 @@ public final class ResourceSummaryView: NSView {
         for (index, row) in rows.enumerated() { row.row.isHidden = index >= count }
     }
 
-    private static func label(_ font: NSFont) -> NSTextField {
+    private static func label(_ font: NSFont) -> ChromeLabel {
         let field = ChromeLabel(labelWithString: "")
         field.font = font
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
-        field.cell?.truncatesLastVisibleLine = true
+        field.truncatesLastVisibleLine = true
         return field
     }
 }

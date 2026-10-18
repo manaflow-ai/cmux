@@ -105,7 +105,7 @@ final class TabHoverCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    private static func caption() -> NSTextField {
+    private static func caption() -> ChromeLabel {
         let field = ChromeLabel(labelWithString: "")
         field.font = Typography.caption
         field.lineBreakMode = .byTruncatingTail

@@ -25,7 +25,7 @@ final class DropOverlayLabel {
         field.font = Typography.bodyEmphasized
         if field.stringValue != frame.label { field.stringValue = frame.label }
         // The natural text size (a truncating label reports no intrinsic width).
-        let size = field.cell?.cellSize ?? field.intrinsicContentSize
+        let size = field.naturalSize
         let width = min(size.width, max(rect.width - Metrics.space3 * 2, 0))
         field.frame = CGRect(x: rect.midX - width / 2, y: rect.midY - size.height / 2, width: width, height: size.height).integral
     }

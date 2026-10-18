@@ -56,7 +56,7 @@ final class SidebarCardTextButton: NSView {
     /// The width the text needs, with the hover fill's inset on both sides.
     var fittingWidth: CGFloat {
         label.font = Self.font
-        return ceil(label.cell?.cellSize.width ?? label.intrinsicContentSize.width) + 2 * Metrics.space1
+        return ceil(label.naturalSize.width) + 2 * Metrics.space1
     }
 
     override func layout() {

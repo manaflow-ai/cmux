@@ -332,7 +332,7 @@ final class WorkspaceHoverCardView: NSView {
             row.label.stringValue = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
             row.label.font = fact.since == nil ? Typography.body : Self.liveFont
             row.label.maximumNumberOfLines = fact.lines
-            row.label.cell?.truncatesLastVisibleLine = true
+            row.label.truncatesLastVisibleLine = true
             row.label.lineBreakMode = fact.lines > 1 ? .byWordWrapping : .byTruncatingMiddle
             row.label.preferredMaxLayoutWidth = fact.lines > 1 ? Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 : 0
         }

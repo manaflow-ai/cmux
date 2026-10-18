@@ -187,6 +187,13 @@ open class ChromeLabel: NSView {
         setFrameSize(intrinsicSize(width: measureWidth))
     }
 
+    /// The text's own size, as a label cell's `cellSize`: one line unbounded, a wrapping label at
+    /// its preferred (or current) width. Unlike ``intrinsicContentSize`` it always has a width.
+    public var naturalSize: NSSize { intrinsicSize(width: measureWidth) }
+
+    /// The size of the text laid out at `width` (a wrapping label's height at that width).
+    public func size(forWidth width: CGFloat) -> NSSize { intrinsicSize(width: width) }
+
     override open func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width, changed = newSize != frame.size
         super.setFrameSize(newSize)

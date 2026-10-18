@@ -51,7 +51,7 @@ final class SidebarNoticeCardView: NSView {
         }
         detailLabel.maximumNumberOfLines = 2
         detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
