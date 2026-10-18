@@ -65,11 +65,9 @@ open class ChromeLabel: NSTextField {
         fill.backgroundColor = textColor?.cgColor
         // Selected (a selectable label): the field editor draws the text; editable: AppKit does.
         fill.isHidden = !wantsUpdateLayer || currentEditor() != nil
+        hideStockText()
         let scale = window?.backingScaleFactor ?? layer.contentsScale
-        if fill.frame != layer.bounds || glyphs.contentsScale != scale {
-            fill.frame = layer.bounds
-            glyphs.contentsScale = scale
-        }
+        if fill.frame != layer.bounds { fill.frame = layer.bounds }
         let color = textColor?.cgColor
         let ink = Ink(text: inkText(), size: bounds.size, scale: scale, weight: GlyphMask.weight(of: color),
                       lines: maximumNumberOfLines, lineBreak: lineBreakMode, alignment: alignment,
@@ -86,8 +84,25 @@ open class ChromeLabel: NSTextField {
         drawn = nil
         fill.isHidden = !wantsUpdateLayer
         // The stock drawing's backing store, from before; the glyphs replace it.
-        if wantsUpdateLayer { layer?.contents = nil }
+        if wantsUpdateLayer { layer?.contents = nil } else { for view in stockTextViews { view.alphaValue = 1 } }
         needsDisplay = true
+    }
+
+    /// AppKit draws a label's text in a subview of its own (`NSTextFieldSimpleLabel` on macOS 26
+    /// and later), in the stock color and over nothing that blends: the glyphs replace it, so it
+    /// draws transparent (else the text draws twice, 12% heavier, and its color snaps under the
+    /// blend). Its alpha, not `isHidden`: AppKit shows and hides that view itself on layout. The
+    /// field editor of a selected or edited label is not one of them.
+    private var stockTextViews: [NSView] { subviews.filter { !($0 is NSClipView || $0 is NSText) } }
+
+    private func hideStockText() {
+        guard wantsUpdateLayer else { return }
+        for view in stockTextViews where view.alphaValue != 0 { view.alphaValue = 0 }
+    }
+
+    override open func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        hideStockText()
     }
 
     override open func becomeFirstResponder() -> Bool {
