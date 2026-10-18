@@ -29,4 +29,10 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         }
         return receipt
     }
+
+    /// Observes the original terminal on this same transport with a bounded wait.
+    /// Cancelling observation never ends the owner's process or creates a new intent.
+    public func observe(_ job: AgentCLIJobReceipt) async throws -> AgentCLIJobStatus {
+        throw DaemonError.missingCapabilities(["agent-cli-update-job-v1"])
+    }
 }
