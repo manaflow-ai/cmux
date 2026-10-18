@@ -37,6 +37,8 @@ import Testing
         #expect(backdrop.artFillView.isHidden == !covered.fills, "the blurred fill does not follow the placement")
 
         // `appearance.backgroundAvoidPanes` off: the art frames itself in the whole window.
+        let playback = DesignSettings.shared.backdropPlayback
+        defer { DesignSettings.shared.backdropPlayback = playback }
         DesignSettings.shared.backdropPlayback.avoidsPanes = false
         backdrop.layoutSubtreeIfNeeded()
         backdrop.needsLayout = true

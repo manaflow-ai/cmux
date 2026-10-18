@@ -66,7 +66,8 @@ public final class BackdropPower {
 
     private nonisolated static func readOnBattery() -> Bool {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let type = IOPSGetProvidingPowerSourceType(info)?.takeRetainedValue() as String? else { return false }
+              // A Get-rule function: the string belongs to `info`, not to us.
+              let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() as String? else { return false }
         return type == kIOPSBatteryPowerValue
     }
 }
