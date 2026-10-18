@@ -19,7 +19,8 @@ import { runChild } from "./helpers/run-child";
 
 // cmux-machine-hygiene reclaims disk on an agent machine without touching
 // source. Every test builds a throwaway machine under the system temp
-// directory, points the script at it with --home/--root/--tmp-dir, and
+// directory, confines the script to it with CMUX_HYGIENE_SANDBOX, points it
+// there with --home/--root/--tmp-dir, and
 // asserts that nothing the script reports or removes lies outside it. Docker
 // is a stub that only logs its arguments, so no test prunes real images, and
 // `mount` is a stub that prints the fixture's mounts file.
@@ -96,10 +97,21 @@ function project(m: Machine, name: string, artifact: string, marker: string) {
   return dir;
 }
 
-function runRaw(m: Machine, args: string[]) {
+function runRaw(m: Machine, args: string[], env: Record<string, string | undefined> = {}) {
   return runChild("bash", [SCRIPT, ...args], {
-    env: { PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: m.home, TMPDIR: m.tmp },
+    env: {
+      PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      HOME: m.home,
+      TMPDIR: m.tmp,
+      CMUX_HYGIENE_SANDBOX: m.root,
+      ...env,
+    },
   });
+}
+
+/** Writes the lines the stub `mount` prints. */
+function mounts(m: Machine, lines: string[]) {
+  writeFileSync(m.mounts, `${lines.join("\n")}\n`);
 }
 
 async function run(m: Machine, args: string[] = []): Promise<Report> {
@@ -338,6 +350,103 @@ describe("cmux-machine-hygiene", () => {
     for (const args of cases) {
       const result = await runRaw(m, args);
       expect({ args, status: result.status, stdout: result.stdout }).toEqual({ args, status: 3, stdout: "" });
+    }
+  });
+
+  test("outside the test sandbox, home must be a real user's home and temp a real temp dir", async () => {
+    const m = machine();
+    const real = { CMUX_HYGIENE_SANDBOX: undefined, TMPDIR: undefined };
+    const cases: [string[], string][] = [
+      [["--home", m.home, "--root", m.code, "--tmp-dir", "/tmp"], "home"],
+      [["--home", "/var/tmp", "--root", "/var/tmp", "--tmp-dir", "/tmp"], "home"],
+      [["--home", "/tmp", "--root", "/tmp", "--tmp-dir", "/tmp"], "home"],
+      [["--home", "/home", "--root", "/home", "--tmp-dir", "/tmp"], "home"],
+      [["--home", m.home, "--root", m.code, "--tmp-dir", m.tmp], "tmp-dir"],
+    ];
+    for (const [args, label] of cases) {
+      const result = await runRaw(m, args, real);
+      expect({ args, status: result.status, refused: result.stderr.includes(`refusing unsafe ${label}`) }).toEqual({
+        args,
+        status: 3,
+        refused: true,
+      });
+    }
+    // A $TMPDIR that is not the macOS per-user .../T directory is not a temp dir either.
+    const viaTmpdir = await runRaw(m, ["--home", m.home, "--root", m.code], { CMUX_HYGIENE_SANDBOX: undefined });
+    expect(viaTmpdir.status).toBe(3);
+    expect(viaTmpdir.stderr).toContain("refusing unsafe tmp-dir");
+  });
+
+  test("refuses roots outside home and a sandbox that is not directly in a temp dir", async () => {
+    const m = machine();
+    const outsideHome = await runRaw(m, ["--home", m.home, "--root", m.tmp, "--tmp-dir", m.tmp]);
+    expect(outsideHome.status).toBe(3);
+    expect(outsideHome.stderr).toContain("refusing unsafe root");
+    const nestedSandbox = await runRaw(m, ["--home", path.join(m.code), "--root", m.code, "--tmp-dir", m.tmp], {
+      CMUX_HYGIENE_SANDBOX: m.home,
+    });
+    expect(nestedSandbox.status).toBe(3);
+    expect(nestedSandbox.stderr).toContain("refusing unsafe sandbox");
+  });
+
+  test("deletes nothing when rm cannot refuse to cross filesystems", async () => {
+    const m = machine();
+    writeFileSync(
+      path.join(m.bin, "rm"),
+      [
+        "#!/bin/sh",
+        'for arg in "$@"; do case "$arg" in --one-file-system|-rfx) exit 64 ;; esac; done',
+        'exec /bin/rm "$@"',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(path.join(m.bin, "rm"), 0o755);
+    const app = project(m, "app", "node_modules", "package.json");
+    age(app, 30);
+    const report = await run(m, ["--apply", "--only", "project-artifacts"]);
+    expect(report.items).toContainEqual(
+      expect.objectContaining({ path: path.join(app, "node_modules"), action: "skipped", reason: "no-mount-guard" }),
+    );
+    expect(existsSync(path.join(app, "node_modules", "pkg", "index.js"))).toBe(true);
+  });
+
+  test("parses Linux and macOS mount output, keeping odd target names whole", async () => {
+    const m = machine();
+    const spaced = project(m, "a on b", "node_modules", "package.json");
+    const escaped = project(m, "sp ace", "node_modules", "package.json");
+    const slashed = project(m, "back\\slash", "node_modules", "package.json");
+    const raw = project(m, "raw\\cy", "node_modules", "package.json");
+    for (const dir of [spaced, escaped, slashed, raw]) age(dir, 30);
+    const linuxTarget = (dir: string) =>
+      path.join(dir, "node_modules").replaceAll("\\", "\\134").replaceAll(" ", "\\040");
+    mounts(m, [
+      "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)",
+      "map auto_home on /System/Volumes/Data/home (autofs, automounted, nobrowse)",
+      `/dev/disk5 on ${path.join(spaced, "node_modules")} (apfs, local)`,
+      `/dev/disk6 on ${path.join(raw, "node_modules")} (apfs, local)`,
+      `/dev/sdc on ${linuxTarget(escaped)} type ext4 (rw,relatime)`,
+      `/dev/sdd on ${linuxTarget(slashed)} type ext4 (rw,relatime)`,
+    ]);
+    const report = await run(m, ["--apply", "--only", "project-artifacts"]);
+    for (const dir of [spaced, escaped, slashed, raw]) {
+      expect(report.items).toContainEqual(
+        expect.objectContaining({ path: path.join(dir, "node_modules"), reason: "mount-point" }),
+      );
+      expect(existsSync(path.join(dir, "node_modules", "pkg", "index.js"))).toBe(true);
+    }
+  });
+
+  test("deletes nothing when the mount list is empty or does not parse", async () => {
+    const m = machine();
+    const app = project(m, "app", "node_modules", "package.json");
+    age(app, 30);
+    for (const lines of [[], ["this is not a mount line"], ["/dev/root on / type ext4 (rw)", "garbage on /x"]]) {
+      mounts(m, lines);
+      const report = await run(m, ["--apply", "--only", "project-artifacts"]);
+      expect(report.items).toContainEqual(
+        expect.objectContaining({ path: path.join(app, "node_modules"), reason: "mounts-unknown" }),
+      );
+      expect(existsSync(path.join(app, "node_modules", "pkg", "index.js"))).toBe(true);
     }
   });
 
