@@ -14,7 +14,8 @@ public nonisolated struct AgentCLIUpdateIntent: Codable, Sendable, Equatable {
     public init(key: String, rootKey: String, machine: ResourceID, session: ResourceID,
                 cli: AgentCLIFamily, profiles: [String]) throws {
         func valid(_ value: String) -> Bool {
-            !value.isEmpty && value.utf8.count <= 128 && !value.unicodeScalars.contains { $0.properties.generalCategory == .control }
+            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && value.utf8.count <= 128
+                && !value.unicodeScalars.contains { $0.properties.generalCategory == .control }
         }
         guard valid(key), valid(rootKey), cli != .unknown,
               AgentCLIJobReceipt.validID(machine, scope: "machine"), AgentCLIJobReceipt.validID(session, scope: "session"),
