@@ -434,11 +434,13 @@ export const nextFrame = (run: () => void) => {
 };
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
-/// not one row per chunk.
-export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActivity[] {
+/// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
+/// an ended thought can read "Thought for 12s" (conversation/ThoughtRow.tsx).
+export function appendThought(items: AcpmuxActivity[], text: string, at?: number): AcpmuxActivity[] {
   const last = items.at(-1);
-  if (last?.kind === "thought" && !last.tool) return [...items.slice(0, -1), { ...last, text: last.text + text }];
-  return [...items, { kind: "thought", text }];
+  if (last?.kind === "thought" && !last.tool)
+    return [...items.slice(0, -1), { ...last, text: last.text + text, ...(at !== undefined && { endedAt: at }) }];
+  return [...items, { kind: "thought", text, ...(at !== undefined && { startedAt: at, endedAt: at }) }];
 }
 
 /// Notices made in one millisecond each keep their row: the id carries a counter, not the time.
@@ -1858,7 +1860,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
-        items: appendThought(existing?.items ?? [], text),
+        items: appendThought(existing?.items ?? [], text, event.at),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
