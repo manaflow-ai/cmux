@@ -1,126 +1,88 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { runAttempts, runEvents, runs } from "../../db/schema";
+import { runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
 import type { RunSpec } from "./spec";
 
+export type RunScope = { readonly userId: string; readonly ownerTeamId: string };
 export type RunSnapshot = {
   readonly run: typeof runs.$inferSelect;
   readonly attempts: ReadonlyArray<typeof runAttempts.$inferSelect>;
   readonly events: ReadonlyArray<typeof runEvents.$inferSelect>;
+  readonly artifacts: ReadonlyArray<typeof runArtifacts.$inferSelect>;
 };
+export class RunIdempotencyConflictError extends Error {}
+export class RunAdmissionError extends Error {}
+export class RunArtifactConflictError extends Error {}
 
-export async function createRunRecord(input: {
-  readonly userId: string;
+function scopeWhere(scope: RunScope) {
+  return or(eq(runs.ownerTeamId, scope.ownerTeamId), and(isNull(runs.ownerTeamId), eq(runs.userId, scope.userId)));
+}
+
+export async function createRunRecord(input: RunScope & {
   readonly billingTeamId: string | null;
   readonly idempotencyKey: string;
   readonly requestDigest: string;
   readonly spec: RunSpec;
 }): Promise<{ readonly snapshot: RunSnapshot; readonly reused: boolean }> {
-  const db = cloudDb();
-  const existing = await db.select().from(runs).where(and(
-    eq(runs.userId, input.userId),
-    eq(runs.idempotencyKey, input.idempotencyKey),
-  )).limit(1);
-  if (existing[0]) {
-    if (existing[0].requestDigest !== input.requestDigest) {
-      throw new RunIdempotencyConflictError();
+  const result = await cloudDb().transaction(async (tx) => {
+    // One admission lock per immutable owner serializes duplicate keys AND the
+    // bounded queue count. Provider capacity remains owned by createVm.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`run-admission:${input.ownerTeamId}`}, 0))`);
+    const [existing] = await tx.select().from(runs).where(and(eq(runs.ownerTeamId, input.ownerTeamId), eq(runs.idempotencyKey, input.idempotencyKey))).limit(1);
+    if (existing) {
+      if (existing.requestDigest !== input.requestDigest) throw new RunIdempotencyConflictError("Idempotency-Key conflicts with the original RunSpec");
+      return { id: existing.id, reused: true };
     }
-    return { snapshot: await readRunSnapshot(existing[0].id, input.userId) as RunSnapshot, reused: true };
-  }
-
-  const snapshot = await db.transaction(async (tx) => {
+    const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(runs).where(and(eq(runs.ownerTeamId, input.ownerTeamId), sql`${runs.status} in ('queued', 'running')`));
+    if (count >= 16) throw new RunAdmissionError("This team already has 16 queued or running Runs");
     const [run] = await tx.insert(runs).values({
-      userId: input.userId,
-      billingTeamId: input.billingTeamId,
-      idempotencyKey: input.idempotencyKey,
-      requestDigest: input.requestDigest,
-      source: input.spec.source,
-      recipe: input.spec.recipe.id,
-      provider: "cloud-vm",
-      desiredAttempts: input.spec.variants.length,
-      status: "queued",
+      userId: input.userId, ownerTeamId: input.ownerTeamId, billingTeamId: input.billingTeamId,
+      idempotencyKey: input.idempotencyKey, requestDigest: input.requestDigest,
+      source: input.spec.source, spec: input.spec as unknown as Record<string, unknown>,
+      recipe: input.spec.recipe.id, provider: "cloud-vm", desiredAttempts: input.spec.variants.length, status: "queued",
     }).returning();
-    if (!run) throw new Error("run insert returned no row");
-    const attempts = await tx.insert(runAttempts).values(input.spec.variants.map((variant, ordinal) => ({
-      runId: run.id,
-      ordinal,
-      variant,
-      status: "queued" as const,
-    }))).returning();
-    const eventValues = [
+    const attempts = await tx.insert(runAttempts).values(input.spec.variants.map((variant, ordinal) => ({ runId: run.id, ordinal, variant, status: "queued" as const }))).returning();
+    await tx.insert(runEvents).values([
       { runId: run.id, sequence: 0, kind: "run.created" as const, payload: { requestDigest: input.requestDigest, desiredAttempts: attempts.length } },
-      ...attempts.map((attempt, index) => ({
-        runId: run.id,
-        attemptId: attempt.id,
-        sequence: index + 1,
-        kind: "attempt.queued" as const,
-        payload: { ordinal: attempt.ordinal, variantId: input.spec.variants[attempt.ordinal]?.id ?? "" },
-      })),
-    ];
-    await tx.insert(runEvents).values(eventValues);
-    return { run, attempts };
-  });
-  return {
-    snapshot: { run: snapshot.run, attempts: snapshot.attempts, events: [] },
-    reused: false,
-  };
-}
-
-export class RunIdempotencyConflictError extends Error {
-  override readonly name = "RunIdempotencyConflictError";
-}
-
-export async function readRunSnapshot(runId: string, userId: string): Promise<RunSnapshot | null> {
-  const [run] = await cloudDb().select().from(runs).where(and(eq(runs.id, runId), eq(runs.userId, userId))).limit(1);
-  if (!run) return null;
-  const [attempts, events] = await Promise.all([
-    cloudDb().select().from(runAttempts).where(eq(runAttempts.runId, run.id)).orderBy(asc(runAttempts.ordinal)),
-    cloudDb().select().from(runEvents).where(eq(runEvents.runId, run.id)).orderBy(asc(runEvents.sequence)),
-  ]);
-  return { run, attempts, events };
-}
-
-export async function listRunSnapshots(userId: string): Promise<ReadonlyArray<RunSnapshot>> {
-  const rows = await cloudDb().select().from(runs).where(eq(runs.userId, userId)).orderBy(desc(runs.createdAt)).limit(50);
-  return Promise.all(rows.map(async (run) => {
-    const [attempts, events] = await Promise.all([
-      cloudDb().select().from(runAttempts).where(eq(runAttempts.runId, run.id)).orderBy(asc(runAttempts.ordinal)),
-      cloudDb().select().from(runEvents).where(eq(runEvents.runId, run.id)).orderBy(asc(runEvents.sequence)),
+      ...attempts.map((attempt, index) => ({ runId: run.id, attemptId: attempt.id, sequence: index + 1, kind: "attempt.queued" as const, payload: { ordinal: attempt.ordinal, variantId: input.spec.variants[attempt.ordinal].id } })),
     ]);
-    return { run, attempts, events };
-  }));
+    return { id: run.id, reused: false };
+  });
+  const snapshot = await readRunSnapshot(result.id, input);
+  if (!snapshot) throw new Error("Run record disappeared after admission");
+  return { snapshot, reused: result.reused };
 }
 
-export async function markAttemptRunning(runId: string, attemptId: string): Promise<void> {
-  const db = cloudDb();
-  await db.update(runs).set({ status: "running", updatedAt: new Date() }).where(eq(runs.id, runId));
-  await db.update(runAttempts).set({ status: "running", startedAt: new Date(), updatedAt: new Date() }).where(and(eq(runAttempts.id, attemptId), eq(runAttempts.runId, runId)));
-  await appendRunEvent(runId, attemptId, "attempt.started", {});
+export async function readRunSnapshot(runId: string, scope: RunScope): Promise<RunSnapshot | null> {
+  const [run] = await cloudDb().select().from(runs).where(and(eq(runs.id, runId), scopeWhere(scope))).limit(1);
+  if (!run) return null;
+  const [attempts, events, artifacts] = await Promise.all([
+    cloudDb().select().from(runAttempts).where(eq(runAttempts.runId, run.id)).orderBy(asc(runAttempts.ordinal)),
+    cloudDb().select().from(runEvents).where(eq(runEvents.runId, run.id)).orderBy(asc(runEvents.sequence)).limit(1000),
+    cloudDb().select().from(runArtifacts).where(eq(runArtifacts.runId, run.id)).orderBy(asc(runArtifacts.createdAt)).limit(128),
+  ]);
+  return { run, attempts, events, artifacts };
 }
 
-export async function markAttemptSucceeded(input: {
-  readonly runId: string;
-  readonly attemptId: string;
-  readonly providerVmId: string;
-  readonly result: Record<string, unknown>;
-}): Promise<void> {
-  const now = new Date();
-  const db = cloudDb();
-  await db.update(runAttempts).set({ status: "succeeded", providerVmId: input.providerVmId, result: input.result, finishedAt: now, updatedAt: now }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId)));
-  await appendRunEvent(input.runId, input.attemptId, "attempt.succeeded", { providerVmId: input.providerVmId });
-  await db.update(runs).set({ status: "succeeded", completedAt: now, updatedAt: now }).where(eq(runs.id, input.runId));
+export async function listRunSnapshots(scope: RunScope): Promise<ReadonlyArray<RunSnapshot>> {
+  const rows = await cloudDb().select({ id: runs.id }).from(runs).where(scopeWhere(scope)).orderBy(desc(runs.createdAt)).limit(50);
+  const snapshots = await Promise.all(rows.map(({ id }) => readRunSnapshot(id, scope)));
+  return snapshots.filter((snapshot): snapshot is RunSnapshot => snapshot !== null);
 }
 
-export async function markAttemptFailed(input: { readonly runId: string; readonly attemptId: string; readonly error: string }): Promise<void> {
-  const now = new Date();
-  const db = cloudDb();
-  await db.update(runAttempts).set({ status: "failed", error: input.error.slice(0, 1_000), finishedAt: now, updatedAt: now }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId)));
-  await appendRunEvent(input.runId, input.attemptId, "attempt.failed", { error: input.error.slice(0, 1_000) });
-  await db.update(runs).set({ status: "failed", error: input.error.slice(0, 1_000), completedAt: now, updatedAt: now }).where(eq(runs.id, input.runId));
-}
-
-async function appendRunEvent(runId: string, attemptId: string, kind: "attempt.started" | "attempt.succeeded" | "attempt.failed", payload: Record<string, unknown>): Promise<void> {
-  const db = cloudDb();
-  const latest = await db.select({ sequence: runEvents.sequence }).from(runEvents).where(eq(runEvents.runId, runId)).orderBy(desc(runEvents.sequence)).limit(1);
-  await db.insert(runEvents).values({ runId, attemptId, sequence: (latest[0]?.sequence ?? -1) + 1, kind, payload });
+/** Receipt payloads are content addressed and immutable across worker replay. */
+export async function storeRunArtifact(input: { runId: string; attemptId: string; name: string; payload: Record<string, unknown> }): Promise<void> {
+  const bytes = JSON.stringify(input.payload);
+  const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  await cloudDb().transaction(async (tx) => {
+    const [attempt] = await tx.select({ runId: runAttempts.runId }).from(runAttempts).where(eq(runAttempts.id, input.attemptId)).limit(1);
+    if (!attempt || attempt.runId !== input.runId) throw new RunArtifactConflictError("Run artifact does not belong to this attempt");
+    const [existing] = await tx.select({ digest: runArtifacts.digest }).from(runArtifacts).where(and(eq(runArtifacts.attemptId, input.attemptId), eq(runArtifacts.name, input.name))).limit(1);
+    if (existing) {
+      if (existing.digest !== digest) throw new RunArtifactConflictError("Run artifact content is immutable");
+      return;
+    }
+    await tx.insert(runArtifacts).values({ ...input, digest, sizeBytes: Buffer.byteLength(bytes) });
+  });
 }
