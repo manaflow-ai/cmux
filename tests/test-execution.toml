@@ -1649,6 +1649,16 @@ lane = "macos-cli-product"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_copilot_hooks_file.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_copilot_feed_payload.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_ci_machine_failure.py"
 lane = "linux-guard"
 
