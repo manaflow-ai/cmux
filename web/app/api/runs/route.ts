@@ -21,6 +21,12 @@ type AttemptSuccess = {
 
 type AttemptFailure = { readonly ok: false; readonly response: Response };
 
+
+function safeError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.replace(/(?:postgres(?:ql)?:\/\/)[^\s]+/gi, "postgres://<redacted>").slice(0, 400);
+}
+
 function errorResponse(message: string, status = 400): Response {
   return vmErrorResponse({
     error: status === 409 ? "run_idempotency_conflict" : "run_invalid_request",
@@ -200,10 +206,19 @@ export async function POST(request: Request): Promise<Response> {
     if (!key) return errorResponse("Idempotency-Key is required for a Run.");
     const spec = await parseSpec(request);
     if (spec instanceof Response) return spec;
-    const created = await createOrReuseRun(request, user, key, spec);
-    if (created instanceof Response) return created;
-    if (created.reused) return jsonResponse(receipt(created.snapshot), 200);
-    return executeNewRun(request, user, created, spec);
+    try {
+      const created = await createOrReuseRun(request, user, key, spec);
+      if (created instanceof Response) return created;
+      if (created.reused) return jsonResponse(receipt(created.snapshot), 200);
+      return await executeNewRun(request, user, created, spec);
+    } catch (error) {
+      return vmErrorResponse({
+        error: "run_execution_failed",
+        status: 502,
+        message: safeError(error),
+        action: "Retry the same Idempotency-Key to replay the durable Run receipt.",
+      });
+    }
   });
 }
 
