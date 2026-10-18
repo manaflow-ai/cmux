@@ -66,8 +66,9 @@ const QUARANTINE_INFIX: &str = "_quarantined_";
 
 /// Whether `table` is a ledger a scan moved aside. The open check skips it.
 pub(crate) fn is_quarantined_ledger(table: &str) -> bool {
-    let _ = QUARANTINE_INFIX;
-    table.is_empty()
+    MUTATION_LEDGERS.iter().any(|ledger| {
+        table.strip_prefix(ledger.table).is_some_and(|rest| rest.starts_with(QUARANTINE_INFIX))
+    })
 }
 
 /// What one [`WorkspaceRegistry::prune_mutation_ledgers`] call did.
@@ -85,15 +86,44 @@ impl WorkspaceRegistry {
     /// oldest first. A corrupt page in one ledger is reported and does not
     /// stop the others.
     pub(crate) fn prune_mutation_ledgers(&mut self) -> anyhow::Result<LedgerPrune> {
-        let _ = prune_ledger;
-        Ok(LedgerPrune::default())
+        let connection = self.connection.get();
+        let mut prune = LedgerPrune::default();
+        for ledger in &MUTATION_LEDGERS {
+            match prune_ledger(&connection, ledger) {
+                Ok(deleted) => prune.deleted += deleted,
+                Err(error) if error.sqlite_error_code() == Some(ErrorCode::DatabaseCorrupt) => {
+                    prune.corrupt.push(ledger.table);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(prune)
     }
 
     /// Renames a corrupt ledger aside and recreates it empty from its own
     /// schema, in one transaction. Neither step reads the table's pages.
     /// Returns the name the damaged table now has.
     pub(crate) fn quarantine_mutation_ledger(&mut self, table: &str) -> anyhow::Result<String> {
-        anyhow::bail!("not implemented: {table}")
+        anyhow::ensure!(
+            MUTATION_LEDGERS.iter().any(|ledger| ledger.table == table),
+            "not a mutation ledger: {table}"
+        );
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis())
+            .unwrap_or_default();
+        let aside = format!("{table}{QUARANTINE_INFIX}{millis}");
+        let connection = self.connection.get();
+        let transaction = connection.unchecked_transaction()?;
+        let schema: String = transaction.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get(0),
+        )?;
+        transaction.execute_batch(&format!("ALTER TABLE {table} RENAME TO {aside}"))?;
+        transaction.execute_batch(&schema)?;
+        transaction.commit()?;
+        Ok(aside)
     }
 }
 
@@ -119,6 +149,19 @@ fn prune_ledger(connection: &Connection, ledger: &MutationLedger) -> rusqlite::R
 pub(crate) fn scan_mutation_ledgers(
     database: &Path,
 ) -> anyhow::Result<Vec<(&'static str, String)>> {
-    let _ = (database, open_registry_database_read_only, ErrorCode::DatabaseCorrupt);
-    Ok(Vec::new())
+    let connection = open_registry_database_read_only(database)?;
+    connection.busy_timeout(std::time::Duration::from_secs(5))?;
+    let mut corrupt = Vec::new();
+    for ledger in &MUTATION_LEDGERS {
+        let pragma = format!("PRAGMA quick_check('{}')", ledger.table);
+        match connection.query_row(&pragma, [], |row| row.get::<_, String>(0)) {
+            Ok(report) if report == "ok" => {}
+            Ok(report) => corrupt.push((ledger.table, report)),
+            Err(error) if error.sqlite_error_code() == Some(ErrorCode::DatabaseCorrupt) => {
+                corrupt.push((ledger.table, error.to_string()));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(corrupt)
 }
