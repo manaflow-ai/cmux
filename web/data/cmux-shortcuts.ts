@@ -934,3 +934,11 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
 ];
+
+export function shortcutComboText(id: string, comboIndex = 0): string {
+  for (const category of shortcutCategories) {
+    const combo = category.shortcuts.find((shortcut) => shortcut.id === id)?.combos[comboIndex];
+    if (combo) return combo.join("");
+  }
+  throw new Error(`Unknown default shortcut: ${id}`);
+}
