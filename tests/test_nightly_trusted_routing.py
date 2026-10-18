@@ -109,14 +109,20 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
 
     def test_owned_next_and_main_have_independent_pending_slots(self):
-        def group(branch):
-            context = {'github.ref_name': branch, 'github.event_name': 'push'}
+        def group(branch, run_id=''):
+            context = {
+                'github.ref_name': branch,
+                'github.ref': f'refs/heads/{branch}',
+                'github.event_name': 'push',
+                'github.run_id': run_id,
+            }
             return re.sub(r'\$\{\{(.*?)\}\}',
                           lambda match: str(evaluate(parse_expression(match[1]), context)),
                           DOC['concurrency']['group'])
         self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
-        self.assertEqual(group('nightly-next'), 'nightly-build-nightly-next-full')
-        self.assertNotEqual(group('main'), group('nightly-next'))
+        self.assertEqual(group('nightly-next', '39124573091'), 'nightly-build-nightly-next-run-39124573091')
+        self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
+        self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
 
     def test_runner_guard_accepts_only_the_complete_nightly_capability_tuple(self):
         source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()

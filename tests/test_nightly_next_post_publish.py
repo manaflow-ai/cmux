@@ -50,6 +50,14 @@ legacy = job("legacy-identity-target")
 if "publish-release-notes" not in needs(legacy):
     failures.append("legacy identity targeting must wait for signed NEXT release notes")
 notes_publish = job("publish-release-notes")
+for writer in ("publish-release-notes", "republish-nightly-deltas"):
+    writer_text = job(writer)
+    if "    concurrency:\n" not in writer_text:
+        failures.append(f"{writer} must serialize its mutable publication writes")
+    if "needs.decide.outputs.release_tag" not in writer_text:
+        failures.append(f"{writer} concurrency must be scoped to the channel release tag")
+    if "cancel-in-progress: false" not in writer_text:
+        failures.append(f"{writer} must let an in-flight publication finish")
 if "publish-nightly.result == 'success'" not in notes_publish:
     failures.append("publish-release-notes must require a successful NEXT publication")
 for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
