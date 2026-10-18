@@ -361,6 +361,7 @@
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
+              "sidebar.nowPlaying.enabled",
               "home.channelsEnabled"
             ],
             "title" : {
@@ -15503,6 +15504,57 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.nowPlaying.enabled.help",
+        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.nowPlaying.enabled",
+      "keywords" : [
+        "music",
+        "now playing",
+        "player",
+        "media",
+        "spotify",
+        "song",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "nowPlaying",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.nowPlaying.enabled",
+        "text" : "Show Now Playing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.colorTransition",
         "text" : "Color Changes"
       },
@@ -25277,7 +25329,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "502fa1bb751069c138334d83a806a719d993de32235251b4d3b9035f24c81d78",
+  "schema_hash" : "c4f17c28a872cc7ba98046a2f919510444d399c06e2e418a73cebbda94e56225",
   "sections" : [
     {
       "id" : "general",
