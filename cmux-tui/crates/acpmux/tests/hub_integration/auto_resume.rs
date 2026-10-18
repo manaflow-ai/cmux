@@ -225,3 +225,41 @@ async fn a_chat_being_moved_is_not_continued() {
     assert_eq!(skips(&hub, &id), [json!("closed")], "{k:?}");
     assert_eq!(user_messages(&hub, &id).len(), 1);
 }
+
+/// Stop lands after the turn has ended but before its continuation is scheduled. The test holds
+/// the config lock, so the failed turn waits in `route_failure` (a refused connection is a
+/// route-class failure) after it has given up its turn.
+#[tokio::test]
+async fn stop_between_the_failure_and_its_scheduling_still_prevents_the_continuation() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
+    let id = new_session(&mut c, "gap").await;
+    let mut other = connect(&hub).await;
+    let params =
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-refused-later"}]});
+    let turn = tokio::spawn(async move { other.request(method::SESSION_PROMPT, params).await });
+    let session = hub.resolve(&id).unwrap();
+    for _ in 0..400 {
+        if session.turn().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(session.turn().is_some(), "the turn never started");
+    let config = hub.config.write().await;
+    for _ in 0..400 {
+        if session.turn().is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(session.turn().is_none(), "the turn never ended");
+    hub.cancel(&session).await.unwrap();
+    drop(config);
+    let r = turn.await.unwrap();
+    assert!(r.unwrap_err().contains("connection refused"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let k = kinds(&hub, &id);
+    assert!(!k.iter().any(|k| k == "auto_resume_scheduled"), "{k:?}");
+    assert_eq!(user_messages(&hub, &id).len(), 1);
+}
