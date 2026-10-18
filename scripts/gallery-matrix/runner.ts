@@ -50,7 +50,9 @@ export function captureReceipt(
     const revision = result.revision as { sha?: unknown; source?: unknown } | undefined;
     return typeof revision?.sha === "string" && revision.sha.length > 0 && typeof revision.source === "string" && revision.source.length > 0;
   });
-  const quality = !complete || !provenanceComplete || results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
+  const observedShas = new Set(results.map((result) => (result.revision as { sha?: unknown } | undefined)?.sha).filter((sha): sha is string => typeof sha === "string" && sha.length > 0));
+  const exactHead = observedShas.size === 1;
+  const quality = !complete || !provenanceComplete || !exactHead || results.some((result) => result.ready !== "1" || (result.play as { status?: string } | null)?.status === "fail")
     ? "fail"
     : "pass";
   return {

@@ -159,6 +159,15 @@ test("capture receipts fail quality when a result lacks revision provenance", ()
   expect(receipt.quality).toBe("fail");
 });
 
+test("capture receipts fail quality when results mix checkout heads", () => {
+  const cases = parseManifest([{ id: "a", path_or_url: "frame.html" }, { id: "b", path_or_url: "frame.html" }]);
+  const results = [
+    { id: "a", engine: "chromium", ready: "1", revision: { sha: "head-a", source: "src/a.gallery.tsx" } },
+    { id: "b", engine: "chromium", ready: "1", revision: { sha: "head-b", source: "src/b.gallery.tsx" } },
+  ];
+  expect(captureReceipt(cases, results, "mixed-head").quality).toBe("fail");
+});
+
 test("shards cases deterministically", () => {
   const cases = [0, 1, 2, 3, 4, 5].map((id) => ({ id: String(id), path_or_url: "x" }));
   expect(shardCases(cases, 2, 0).map((item) => item.id)).toEqual(["0", "2", "4"]);
