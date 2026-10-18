@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 const acpmux = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/composerStates.css"), "utf8");
 const location = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/composerLocation.css"), "utf8");
-const transcript = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"), "utf8");
+const transcript = readFileSync(
+  join(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
+  "utf8",
+);
 
 test("composer focus rims are modality-aware", () => {
   expect(acpmux).toContain(".acpmux-composer-box:has(:focus-visible)");
