@@ -1024,7 +1024,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=c30e6489d483265dae15360901fafa75bad24a65#c30e6489d483265dae15360901fafa75bad24a65"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=882b976332ea3dd89df18b401ab13e14a5dc78cc#882b976332ea3dd89df18b401ab13e14a5dc78cc"
 dependencies = [
  "serde_json",
 ]
@@ -1036,6 +1036,7 @@ dependencies = [
  "base64",
  "core-foundation 0.10.1",
  "core-foundation-sys",
+ "jsonschema",
  "notify",
  "plist",
  "serde",
@@ -1475,6 +1476,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-build-identity",
+ "cmux-config",
  "cmux-host",
  "cmux-link",
  "cmux-pty",

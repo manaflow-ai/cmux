@@ -50,7 +50,7 @@ public final class AgentPaneView: NSView {
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: NSTextField?
+    var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
