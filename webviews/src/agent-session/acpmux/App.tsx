@@ -105,8 +105,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { useSessionRail } from "./summary/SessionRail";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
-import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
-import { chatGallery } from "./summary/chatGallery";
+import { useSummaryCard } from "./summary/cardState";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -203,7 +202,14 @@ import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./sig
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
+import {
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  type SubagentRows,
+  childView,
+  isSubagentGroup,
+  subagentRowsFrom,
+} from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
@@ -826,7 +832,7 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-function RowFrame({
+const RowFrame = React.memo(function RowFrame({
   row,
   kind,
   joinsPrevious,
@@ -845,7 +851,7 @@ function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  onCopy,
+  onCopyRow,
   copyable,
   children,
 }: {
@@ -868,10 +874,15 @@ function RowFrame({
   active: boolean;
   selected: boolean;
   tabStop: boolean;
-  onFocus: () => void;
-  onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopy?: () => Promise<void>;
+  onFocus: (id: string) => void;
+  onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+  onCopyRow?: (id: string) => Promise<void>;
   copyable: boolean;
+  contentType: unknown;
+  controls?: string;
+  onToggleActivity: (id: string) => void;
+  onOpenDiff?: OpenDiff;
+  githubRepository?: string;
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
@@ -879,8 +890,9 @@ function RowFrame({
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [copied, setCopied] = useState(false);
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event), [index, onRowKeyDown]);
+  const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
+  const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -916,7 +928,7 @@ function RowFrame({
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
-      onFocus={onFocus}
+      onFocus={() => onFocus(row.id)}
     >
       {copyable && (
         <button
@@ -927,7 +939,7 @@ function RowFrame({
           title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
-              await onCopy?.();
+              await onCopyRow?.(row.id);
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1200);
             } catch {
@@ -941,7 +953,32 @@ function RowFrame({
       {children}
     </article>
   );
-}
+}, (previous, next) =>
+  previous.row === next.row &&
+  previous.kind === next.kind &&
+  previous.joinsPrevious === next.joinsPrevious &&
+  previous.joinsNext === next.joinsNext &&
+  previous.index === next.index &&
+  previous.setSize === next.setSize &&
+  previous.top === next.top &&
+  previous.rowWidth === next.rowWidth &&
+  previous.expanded === next.expanded &&
+  previous.observer === next.observer &&
+  previous.report === next.report &&
+  previous.enter === next.enter &&
+  previous.onEntered === next.onEntered &&
+  previous.active === next.active &&
+  previous.selected === next.selected &&
+  previous.tabStop === next.tabStop &&
+  previous.onRowKeyDown === next.onRowKeyDown &&
+  previous.onCopyRow === next.onCopyRow &&
+  previous.copyable === next.copyable &&
+  previous.contentType === next.contentType &&
+  previous.controls === next.controls &&
+  previous.onToggleActivity === next.onToggleActivity &&
+  previous.onOpenDiff === next.onOpenDiff &&
+  previous.githubRepository === next.githubRepository,
+);
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
@@ -968,27 +1005,11 @@ const currentRegistry = (): NativeRegistry => ({
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
 });
 
-/// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
-/// so the transcript ends this far past their total height.
-const THREAD_TOP = 16;
-/// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
-/// resting zone so every token does not write a new fractional scroll offset (and make the thumb
-/// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
-/// Four CSS pixels is below the visual rhythm of a transcript line, so the reader gets a little
-/// give while a burst is measured and one correction when that burst is meaningful.
-export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
-
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   top: node.scrollTop,
-  atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
+  atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1,
 });
-
-function settleFollowBottom(node: HTMLElement, latest: number): boolean {
-  if (Math.abs(latest - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX) return false;
-  node.scrollTop = latest;
-  return true;
-}
 
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
@@ -1191,9 +1212,6 @@ export function VirtualTranscript({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
-  // This effect validates at most two focused ids, so build the lookup once per rows identity
-  // instead of scanning the whole transcript for every id on each streaming snapshot.
-  const rowIds = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
   useEffect(() => {
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
@@ -1202,13 +1220,14 @@ export function VirtualTranscript({
       pendingFocus.current = undefined;
       return;
     }
-    const has = (id: string) => rowIds.has(id);
+    // Two ids to look up: a scan, not a set of a long chat's every row on each snapshot.
+    const has = (id: string) => rows.some((row) => row.id === id);
     setActiveRowId((current) => (current && has(current) ? current : rows[0]?.id));
     setTranscriptRange((current) => {
       if (!current) return current;
       return has(current.anchorId) && has(current.focusId) ? current : undefined;
     });
-  }, [rowIds, rows, sessionChanged, sessionKey]);
+  }, [rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -1377,6 +1396,9 @@ export function VirtualTranscript({
   }, []);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
+  /// Pointerover bubbles for every markdown descendant. Avoid rescanning a row's preceding turns
+  /// while the pointer moves between spans inside the same row.
+  const pointedRow = useRef<string | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -1467,12 +1489,7 @@ export function VirtualTranscript({
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, registry, rows, sessionId, width]);
-  // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
-  // alone placed the latest row's bottom that far under the view.
-  const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP }),
-    [measured],
-  );
+  const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const sessionSwitched = previousSession.current !== sessionId;
@@ -1497,6 +1514,10 @@ export function VirtualTranscript({
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // Markers live on the mounted DOM rows, so a scroll that swaps a virtualized range must repaint
+  // them without bringing back the old every-render effect. The compact key changes only when the
+  // mounted ranges change; registry updates can replace a row renderer while preserving the range.
+  const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   if (lastPlaced.current) {
     lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
     lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
@@ -1565,6 +1586,14 @@ export function VirtualTranscript({
     },
     [rows],
   );
+  const copyRowsRef = useRef(copyRows);
+  copyRowsRef.current = copyRows;
+  const selectedRowIdsRef = useRef(selectedRowIds);
+  selectedRowIdsRef.current = selectedRowIds;
+  const copyRow = useCallback(async (rowId: string) => {
+    const selected = selectedRowIdsRef.current;
+    await copyRowsRef.current(selected.includes(rowId) && selected.length > 0 ? selected : [rowId]);
+  }, []);
   const rowKeyDown = useCallback(
     (index: number, event: React.KeyboardEvent<HTMLElement>) => {
       // Buttons and links own their keyboard behavior. A focused row itself owns only the
@@ -1600,6 +1629,12 @@ export function VirtualTranscript({
       }
     },
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
+  );
+  const rowKeyDownRef = useRef(rowKeyDown);
+  rowKeyDownRef.current = rowKeyDown;
+  const handleRowKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
+    [],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
@@ -1665,7 +1700,7 @@ export function VirtualTranscript({
         ? true
         : clamped || unmoved
           ? scrolledTo.current.atLatest
-          : top >= old.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX ||
+          : top >= old.totalHeight - node.clientHeight - 1 ||
             (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
@@ -1674,8 +1709,10 @@ export function VirtualTranscript({
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
-        const settled = settleFollowBottom(node, latest);
-        if (settled) followTrace.set(latest);
+        if (Math.abs(step) > 0.5) {
+          node.scrollTop = latest;
+          followTrace.set(latest);
+        }
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset. A row that grew is placed by its estimate, then
         // again by its drawn height, both before the frame paints: each step glides, and the
@@ -1685,7 +1722,7 @@ export function VirtualTranscript({
         // then drawn height, at every frame of the drag: none of that glides, and a glide in
         // flight ends, so the text sits at the end of the view on every frame.
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        if (settled && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
+        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
           glide(thread.current, step);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
@@ -1894,16 +1931,14 @@ export function VirtualTranscript({
     // A layout-driven scroll keeps the previous offset; a reader scroll changes it. The latter is
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
-    const layoutDriven =
-      followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
+    const layoutDriven = followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= 0.5;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      const settled = settleFollowBottom(node, latest);
-      const resting = settled ? latest : next;
-      scrolledTo.current = { top: resting, atLatest: true };
-      followTrace.set(resting);
+      if (Math.abs(next - latest) > 0.5) node.scrollTop = latest;
+      scrolledTo.current = { top: latest, atLatest: true };
+      followTrace.set(latest);
       follow(true);
-      setScroll((current) => ({ top: resting, delta: resting - current.top }));
+      setScroll((current) => ({ top: latest, delta: latest - current.top }));
       return;
     }
     const was = scrolledTo.current;
@@ -1977,16 +2012,13 @@ export function VirtualTranscript({
   let lastTurnId: string | undefined;
   for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
     if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
-  const markTurns = useCallback(() => {
+  const markTurns = () => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  }, [lastTurnId]);
-  // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
-  // layout effect scanned every commit, including scroll/follow state commits that cannot change
-  // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
-  useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last]);
+  };
+  useLayoutEffect(markTurns, [lastTurnId, rows, mountedRangeKey, registry]);
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
@@ -1997,6 +2029,9 @@ export function VirtualTranscript({
   });
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
+    const rowId = row?.dataset.rowId;
+    if (rowId === pointedRow.current) return;
+    pointedRow.current = rowId;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
     let footer: string | undefined;
     for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
@@ -2069,14 +2104,15 @@ export function VirtualTranscript({
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
-                      onFocus={() => rowFocus(row.id)}
-                      onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                      onFocus={rowFocus}
+                      onRowKeyDown={handleRowKeyDown}
                       copyable={transcriptHasFloatingCopy(row)}
-                      onCopy={() =>
-                        copyRows(
-                          selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
-                        )
-                      }
+                      onCopyRow={copyRow}
+                      contentType={Component}
+                      controls={controls}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      githubRepository={githubRepository}
                     >
                       <Component
                         row={row}
@@ -2693,30 +2729,14 @@ function AcpmuxPane() {
     chatShellRuns,
     panelAsks,
   ]);
-  // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
-  // popover under the header button so it never covers the composer controls.
+  // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const summaryHasContent = useMemo(() => {
-    if (chatGallery(snapshot.rows).length > 0) return true;
-    return snapshot.rows.some(
-      (row) =>
-        row.subagents?.length ||
-        row.backgroundTask ||
-        (row.kind === "activity" &&
-          row.items?.some((item) => {
-            const tool = item.tool;
-            if (!tool) return false;
-            if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
-            if (tool.kind !== "execute") return false;
-            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
-            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
-              command,
-            );
-          })),
-    );
-  }, [snapshot.rows]);
-  const [shell, setShell] = useState<HTMLElement | null>(null);
-  const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
+  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
+  // A subagent's pane keeps its own card choice, hidden at first: the chat's pane shows the card.
+  const summaryCard = useSummaryCard(
+    subagentPane.current && shownSessionId ? `${shownSessionId}#subagent` : shownSessionId,
+    hasSubagents && !subagentPane.current,
+  );
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
@@ -4732,13 +4752,16 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
-  const toggleActivity = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleActivity = useCallback(
+    (id: string) =>
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
@@ -5283,30 +5306,10 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
-  const summaryPanel = (
-    <SummaryCard
-      key={snapshot.sessionId}
-      card={summaryCard}
-      rows={snapshot.rows}
-      changes={quick ? undefined : lastChanges}
-      onOpenChanges={toggleLastChanges}
-      onOpenOutput={quick ? undefined : openOutput}
-      onOpenImage={quick ? undefined : openImage}
-      subagents={cardSubagents}
-    />
-  );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section
-        ref={setShell}
-        className="acpmux-shell"
-        aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
-      >
-        <div
-          className="acpmux-main"
-          data-new-chat={freshView && !showNewTab ? "" : undefined}
-          data-summary={summaryCard.column ? "inline" : "popover"}
-        >
+      <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
+        <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
@@ -5529,7 +5532,17 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {!summaryCard.column && summaryPanel}
+                <SummaryCard
+                  // Another chat closes this one's gallery, as it does the image viewer.
+                  key={snapshot.sessionId}
+                  card={summaryCard}
+                  rows={snapshot.rows}
+                  changes={quick ? undefined : lastChanges}
+                  onOpenChanges={toggleLastChanges}
+                  onOpenOutput={quick ? undefined : openOutput}
+                  onOpenImage={quick ? undefined : openImage}
+                  subagents={cardSubagents}
+                />
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
@@ -5616,13 +5629,6 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {!harnessesOpen &&
-          !showNewTab &&
-          !(replaying && replaying === snapshot.sessionId) &&
-          !inspectorOpen &&
-          !diffView &&
-          summaryCard.column &&
-          summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
         {artifact && (
