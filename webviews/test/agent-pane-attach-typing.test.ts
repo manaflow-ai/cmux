@@ -6,7 +6,11 @@
 // pasted images attach all land, in order, in the prompt.
 // - A dark screenshot's thumbnail was the composer's own dark, so the 2nd and 3rd looked missing, and
 //   a 56 px square cropped it to a sliver (Leo, 2026-10-14). A thumbnail keeps the image's shape at a
-//   readable size and draws an edge that stands out from both the image and the composer. The page is the pane's dev entry with the in-page mock transport.
+//   readable size and draws an edge that stands out from both the image and the composer.
+// - Leo, 2026-10-18: the strip took ~100 px off the composer (80 px tiles under a 16 px inset, the
+//   text 15 px further down). Like the Claude desktop composer it is compact: 64 px tiles 6 px apart
+//   in one row, 8 px under the composer's top, the text 6 px under the strip.
+// The page is the pane's dev entry with the in-page mock transport.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -103,6 +107,40 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     await page.close();
   });
 
+  test("the attachment strip is compact: one row of 64 px tiles close to the text", async () => {
+    const page = await newChat();
+    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    await prompt.click();
+    const field = page.locator(".acpmux-composer-prompt").first();
+    const before = (await page.locator(".acpmux-composer-box").boundingBox())!;
+    await pasteImages(page, 3);
+    const chips = page.locator(".acpmux-attachment-image");
+    await chips.nth(2).waitFor();
+    await page
+      .locator(".acpmux-attachment-image img")
+      .nth(2)
+      .evaluate((img: HTMLImageElement) => img.decode());
+    const box = (await page.locator(".acpmux-composer-box").boundingBox())!;
+    const strip = (await page.locator(".acpmux-attachments").boundingBox())!;
+    const tiles = await Promise.all([0, 1, 2].map(async (i) => (await chips.nth(i).boundingBox())!));
+    for (const tile of tiles) {
+      expect(Math.round(tile.height)).toBe(64);
+      // One row: every tile on the strip's first line.
+      expect(Math.abs(tile.y - tiles[0]!.y)).toBeLessThan(1);
+    }
+    expect(Math.round(tiles[1]!.x - (tiles[0]!.x + tiles[0]!.width))).toBe(6);
+    expect(Math.round(tiles[0]!.y - box.y)).toBe(8);
+    // The text's first line starts 6 px under the strip.
+    const textTop = await field.evaluate((node) => {
+      const line = node.querySelector("[contenteditable]")!.getBoundingClientRect();
+      return line.top;
+    });
+    expect(Math.round(textTop - (strip.y + strip.height))).toBe(6);
+    // The strip adds at most 78 px to the composer.
+    expect(box.height - before.height).toBeLessThanOrEqual(78);
+    await page.close();
+  });
+
   /// The mean luminance (0-255) of `pixels` [x, y] in a decoded screenshot.
   const luminance = (png: PNG, pixels: [number, number][]) =>
     pixels.reduce((sum, [x, y]) => {
@@ -124,7 +162,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
       // Leo, 2026-10-14: 56 px squares cropped a wide screenshot to a sliver of its text. A thumbnail
       // shows the screenshot's own shape (3:2), tall enough to tell one from another.
       const box = (await chips.nth(index).boundingBox())!;
-      expect(box.height).toBeGreaterThanOrEqual(72);
+      expect(box.height).toBeGreaterThanOrEqual(60);
       expect(box.width / box.height).toBeGreaterThan(1.3);
       // The thumbnail with a 4 px margin of the composer around it.
       const png = PNG.sync.read(
