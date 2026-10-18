@@ -128,6 +128,7 @@ test("a comparison records candidate evidence without claiming current or supers
   );
   expect(receipt).toMatchObject({
     freshness: { status: "unverified" },
+    supersession: { status: "not-claimed", baselineCaptureId: "base-capture" },
     candidate: { captureId: "head-capture", role: "candidate", sha: "head-a" },
     baseline: { captureId: "base-capture", role: "baseline", sha: "base-a" },
   });

@@ -22,7 +22,7 @@ export type ReportMeta = {
   head: string;
   base: string;
   links: ReportLinks;
-  evidence?: { base?: unknown; head?: unknown; repeat?: unknown; freshness?: unknown; comparisonId?: string; history?: unknown[] };
+  evidence?: { base?: unknown; head?: unknown; repeat?: unknown; freshness?: unknown; comparisonId?: string; supersession?: unknown; history?: unknown[] };
 };
 
 type EvidenceView = { captureId?: string; capturedAt?: string; role?: string; sha?: string; scenarioFingerprint?: string; status?: string; quality?: string };
@@ -61,7 +61,9 @@ function evidenceMarkup(evidence: ReportMeta["evidence"]): string {
   const recordedFreshness = evidence.freshness && typeof evidence.freshness === "object" ? (evidence.freshness as { status?: string }).status : undefined;
   const freshness = recordedFreshness ? `Candidate freshness: ${recordedFreshness}` : evidence.head && typeof evidence.head === "object" ? "Candidate freshness: unverified" : "Candidate freshness: missing";
   const comparison = evidence.comparisonId ? `<span>comparison <code>${escapeHtml(evidence.comparisonId)}</code></span>` : "";
-  return `<div class="evidence" data-evidence="comparison"><strong>Evidence</strong>${comparison}<span class="evidence-freshness">${freshness}</span>${item("Baseline", evidence.base)}${item("Candidate", evidence.head)}${item("Repeat", evidence.repeat)}${historyMarkup}<a href="comparison.json">comparison receipt</a></div>`;
+  const supersession = evidence.supersession && typeof evidence.supersession === "object" ? (evidence.supersession as { status?: string }).status : undefined;
+  const baselineRelation = supersession ? `<span>Baseline relation: ${escapeHtml(supersession)}</span>` : "";
+  return `<div class="evidence" data-evidence="comparison"><strong>Evidence</strong>${comparison}${baselineRelation}<span class="evidence-freshness">${freshness}</span>${item("Baseline", evidence.base)}${item("Candidate", evidence.head)}${item("Repeat", evidence.repeat)}${historyMarkup}<a href="comparison.json">comparison receipt</a></div>`;
 }
 
 export const COMMENT_MARKER = "<!-- cmux-gallery-pr -->";

@@ -125,6 +125,11 @@ export function comparisonReceipt(
         : liveHeadSha === heads.head
           ? { status: "verified", observedSha: liveHeadSha, reason: "live head matches candidate head" }
           : { status: "mismatch", observedSha: liveHeadSha, reason: "live head differs from candidate head" },
+    supersession: {
+      status: "not-claimed",
+      baselineCaptureId: base?.captureId,
+      reason: "comparison order does not prove that the baseline was superseded",
+    },
     candidate,
     baseline,
     repeat: determinism,
@@ -257,6 +262,7 @@ if (import.meta.main) {
     repeat: repeatEvidence,
     freshness: comparison?.freshness,
     comparisonId: comparison?.comparisonId,
+    supersession: comparison?.supersession,
     history: comparison?.history,
   };
   writeFileSync(join(out, "outcomes.json"), `${JSON.stringify(outcomes, null, 2)}\n`);

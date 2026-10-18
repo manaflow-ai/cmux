@@ -287,6 +287,7 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
     ...meta,
     evidence: {
       comparisonId: "cmp-18189-ab12",
+      supersession: { status: "not-claimed" },
       base: { captureId: "base-capture", sha: "base-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
       head: { captureId: "head-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete", quality: "pass" },
       repeat: { captureId: "repeat-capture", sha: "candidate-head", scenarioFingerprint: "a".repeat(64), status: "complete" },
@@ -309,6 +310,7 @@ test("the diff page exposes comparison evidence roles and freshness", () => {
   expect(html).toContain('data-evidence="comparison"');
   expect(html).toContain("Candidate freshness: verified");
   expect(html).toContain("cmp-18189-ab12");
+  expect(html).toContain("Baseline relation: not-claimed");
   expect(html).toContain("base-capture");
   expect(html).toContain("head-capture");
   expect(html).toContain("repeat-capture");
