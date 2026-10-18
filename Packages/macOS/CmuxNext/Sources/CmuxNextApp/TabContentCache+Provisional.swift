@@ -13,9 +13,8 @@ extension TabContentCache {
         return "\(daemon.machineID)#\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
     }
 
-    /// The provisional view of `entry` attaches when its own tab gets its daemon surface, whether
-    /// or not a pane applies anything then (no strip snapshot carries the surface): the one
-    /// confirm, in its own turn (nothing re-enters a presentation), reported to ``onTerminalConfirmed``.
+    /// The one confirm: `entry` attaches when its tab gets its daemon surface (no pane applies), in its
+    /// own turn (nothing re-enters a presentation), reported to ``onTerminalConfirmed``.
     func awaitConfirm(_ entry: TerminalEntry, of tab: TabModel, daemon: DaemonService) {
         entry.confirmation?.cancel()
         entry.confirming = tab

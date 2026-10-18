@@ -40,8 +40,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
-    /// One observation per daemon tab's strip item (I1, I2): `structure()` reads no tab field.
-    /// The kind rides along: `focusPane` reads it, so a kind change that draws the same still applies.
+    /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
         item: { [weak self] tab in self.map { ($0.tabItem(tab), FocusTopology.Kind.of(tab)) } },
         same: { $0.0 == $1.0 && $0.1 == $1.1 }, changed: { [weak self] in self?.tabItemChanged() })
@@ -50,13 +49,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     #if DEBUG
-    private var debugLastSnapshot: Snapshot? // names the fields each re-run changed (DebugLayoutCounters sources)
     private var debugSnapshotRuns = 0
     #endif
 
-    /// The strip. `structure()` fills all but the daemon tabs' items (it reads no tab field: each
-    /// daemon tab's item is its own observation, `tabItems`, so a confirm of a tab that draws the
-    /// same re-runs only that item and applies nothing); `compose` puts those items first.
+    /// The strip. `structure()` reads no tab field (a confirm that draws the same applies nothing); `compose` adds `tabItems`.
     struct Snapshot {
         var tabs: [TabModel] // the daemon tabs shown, in order
         var items: [StripTabItem]
@@ -129,17 +125,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         compose(structure(file, line), refresh: true)
     }
 
-    /// One tab's strip item changed (`tabItems`): the strip applies it, with the list as it is
-    /// now (an untracked read; the list's own change may not have applied yet).
+    /// One tab's strip item changed (`tabItems`): apply it with the list as it is now (untracked).
     private func tabItemChanged() { apply(compose(structure())) }
 
     private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
         var result = structure
         result.items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh).map { $0.0 } + structure.items
-        #if DEBUG
-        DebugLayoutCounters.note("strip \(DebugLayoutCounters.changedFields(debugLastSnapshot, result))", #fileID, #line)
-        debugLastSnapshot = result
-        #endif
         return result
     }
 
