@@ -138,7 +138,7 @@ extension AgentTabStore {
         }
         // A split's tab takes focus in its provisional pane now, then in the store's (as a terminal split does).
         let content = split == nil ? nil : pane.workspace, intent = content?.beginFocusIntent()
-        content?.expectFocus(on: pending.surface, generation: intent)
+        content?.expectFocus(onTab: pending.key, generation: intent)
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {

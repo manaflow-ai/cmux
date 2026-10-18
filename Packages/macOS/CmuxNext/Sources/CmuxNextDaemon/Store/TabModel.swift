@@ -87,6 +87,11 @@ public final class TabModel: Identifiable {
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
+    /// Whether this window minted the tab: it showed under a provisional surface before the daemon
+    /// had it (an optimistic split's terminal, a new chat). Its id is the window's own from the
+    /// start; its surface changes when the daemon confirms it, so the focus topology names it by
+    /// its id only (``FocusTopology/Tab/surface`` is nil) and the confirm changes no topology.
+    public let isClientMinted: Bool
 
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
@@ -124,6 +129,7 @@ public final class TabModel: Identifiable {
 
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
+        isClientMinted = ProvisionalTab.isProvisional(surface: s.surface)
         snapshot = s
         resourceID = s.tabResourceID
         surface = s.surface

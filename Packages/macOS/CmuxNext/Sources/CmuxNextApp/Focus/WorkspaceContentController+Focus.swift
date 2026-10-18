@@ -29,7 +29,7 @@ extension WorkspaceContentController {
                 continue
             }
             guard let handle = handles.panes[id], let model = daemon.store.pane(handle) else { continue }
-            let tabs = model.tabs.map { FocusTopology.Tab(id: $0.id, surface: String($0.surface.rawValue), kind: .of($0)) }
+            let tabs = model.tabs.map(FocusTopology.Tab.of)
             let selected = state.selection.selection(in: model.id).flatMap { id in tabs.contains { $0.id == id } ? id : nil }
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
@@ -80,6 +80,21 @@ extension WorkspaceContentController {
         // `Expect`), and again on each later topology: no re-apply or topology send here.
         focus.expect(.surface(String(surface.rawValue)), target: target, awayFrom: paneKey, generation: generation)
     }
+
+    /// Same, for tab `tab` (`TabModel.id`) that this window minted (``TabModel/isClientMinted``:
+    /// an optimistic split's terminal, a new chat's provisional tab), which the topology names by
+    /// its id only.
+    func expectFocus(onTab tab: String, generation: UInt64? = nil) {
+        focus.expect(.tab(tab), generation: generation)
+    }
+}
+
+extension FocusTopology.Tab {
+    /// Daemon tab `tab` in the focus topology. A tab this window minted carries no surface: every
+    /// expectation for it names its id (``WorkspaceContentController/expectFocus(onTab:generation:)``).
+    static func of(_ tab: TabModel) -> FocusTopology.Tab {
+        FocusTopology.Tab(id: tab.id, surface: tab.isClientMinted ? nil : String(tab.surface.rawValue), kind: .of(tab))
+    }
 }
 
 extension FocusTopology.Kind {
@@ -111,7 +126,7 @@ extension PaneController {
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
             if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
             guard let tab = byID[id] else { return FocusTopology.Tab(id: id, kind: .other) }
-            return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))
+            return .of(tab)
         }
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
     }
