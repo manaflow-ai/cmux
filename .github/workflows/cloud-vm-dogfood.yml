@@ -74,32 +74,16 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: prj_804LTAUdOwulMvEfcmfnU8bvGo3T
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
           test -n "$VERCEL_TOKEN" || { echo "::error::staging deploy requires the existing VERCEL_TOKEN secret"; exit 1; }
           mkdir -p .vercel
           printf '{"orgId":"team_KndpHsJ15gO2OoAP2SO0thYn","projectId":"%s"}\n' "$VERCEL_PROJECT_ID" > .vercel/project.json
-          env_file="$RUNNER_TEMP/cmux-staging.env"
-          bunx vercel@56.3.1 env pull "$env_file" --environment=production --scope manaflow --token "$VERCEL_TOKEN" --cwd "$GITHUB_WORKSPACE/web" >/dev/null
-          node - "$env_file" <<'NODE'
-          const fs = require("node:fs");
-          const path = process.argv[2];
-          const output = [];
-          for (const line of fs.readFileSync(path, "utf8").split(/\r?\n/)) {
-            const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
-            if (!match || !["DATABASE_URL", "DIRECT_DATABASE_URL"].includes(match[1])) continue;
-            let value = match[2];
-            try { value = JSON.parse(value); } catch { value = value.replace(/^['"]|['"]$/g, ""); }
-            if (typeof value === "string" && value.length > 0) output.push(`${match[1]}=${value}`);
-          }
-          if (!output.some((line) => line.startsWith("DATABASE_URL="))) throw new Error("staging Vercel environment did not provide DATABASE_URL");
-          if (!output.some((line) => line.startsWith("DIRECT_DATABASE_URL="))) output.push(output.find((line) => line.startsWith("DATABASE_URL=" )).replace(/^DATABASE_URL=/, "DIRECT_DATABASE_URL="));
-          fs.appendFileSync(process.env.GITHUB_ENV, `${output.join("\n")}\n`);
-          NODE
           bun scripts/db-migrate.mjs
           bun scripts/db-migrate.mjs
           bunx vercel@56.3.1 deploy . --prod --yes --scope manaflow --token "$VERCEL_TOKEN" --cwd "$GITHUB_WORKSPACE/web"
-
       - name: Guard
         env:
           TARGET: ${{ inputs.target || 'staging' }}
