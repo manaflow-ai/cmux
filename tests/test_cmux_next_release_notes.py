@@ -107,6 +107,31 @@ class ReleaseNotesTests(unittest.TestCase):
         with open(os.path.join(out, "index.json")) as f:
             self.assertEqual([b["build"] for b in json.load(f)["builds"]], ["3"])
 
+    def test_prs_lists_each_pr_in_the_span_once_newest_first(self):
+        since = self.head
+        for subject in ("fix(sidebar): keep the row (#101)", "safe-push train: merge abc", "feat: a tab moves (#102)",
+                        "fix(sidebar): keep the row, again (#101)"):
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", subject)
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(run(self.repo, "prs", "--head", self.head, "--since", since, "--repo", "o/r"), (
+            "### PRs in this build\n\n"
+            "- [#101](https://github.com/o/r/pull/101) fix(sidebar): keep the row, again\n"
+            "- [#102](https://github.com/o/r/pull/102) feat: a tab moves\n"
+            "\n1 commit without a PR number not listed.\n"))
+
+    def test_prs_caps_the_list_and_counts_the_rest(self):
+        since = self.head
+        for number in range(1, 6):
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: change {number} (#{number})")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        lines = run(self.repo, "prs", "--head", self.head, "--since", since, "--limit", "2").splitlines()
+        self.assertEqual(lines[2:], ["- [#5](https://github.com/manaflow-ai/cmux/pull/5) fix: change 5",
+                                     "- [#4](https://github.com/manaflow-ai/cmux/pull/4) fix: change 4",
+                                     "- and 3 more"])
+
+    def test_prs_is_empty_for_an_empty_span(self):
+        self.assertEqual(run(self.repo, "prs", "--head", self.head, "--since", self.head), "")
+
     def test_signatures_verify_and_tampering_fails(self):
         out = os.path.join(self.repo, "out")
         self.build(self.base)
