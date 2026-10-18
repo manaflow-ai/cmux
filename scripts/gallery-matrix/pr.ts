@@ -102,6 +102,9 @@ export function comparisonReceipt(
   const fingerprints = [base?.scenarioFingerprint, head?.scenarioFingerprint, repeat?.scenarioFingerprint].filter(Boolean);
   if (new Set(fingerprints).size > 1) throw new Error("comparison receipt scenario fingerprint mismatch");
   const input = [base?.captureId, head?.captureId, repeat?.captureId, heads.base, heads.head].join("|");
+  const baseline = base ? { ...base, role: "baseline", sha: heads.base } : undefined;
+  const candidate = head ? { ...head, role: "candidate", sha: heads.head } : undefined;
+  const determinism = repeat ? { ...repeat, role: "determinism-check", sha: heads.head } : undefined;
   return {
     schemaVersion: 1,
     comparisonId: createHash("sha256").update(input).digest("hex").slice(0, 16),
@@ -113,9 +116,10 @@ export function comparisonReceipt(
         : liveHeadSha === heads.head
           ? { status: "verified", observedSha: liveHeadSha, reason: "live head matches candidate head" }
           : { status: "mismatch", observedSha: liveHeadSha, reason: "live head differs from candidate head" },
-    candidate: head ? { ...head, role: "candidate", sha: heads.head } : undefined,
-    baseline: base ? { ...base, role: "baseline", sha: heads.base } : undefined,
-    repeat: repeat ? { ...repeat, role: "determinism-check", sha: heads.head } : undefined,
+    candidate,
+    baseline,
+    repeat: determinism,
+    history: [baseline, candidate, determinism].filter(Boolean),
   };
 }
 

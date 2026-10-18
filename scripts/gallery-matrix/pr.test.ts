@@ -92,6 +92,7 @@ test("a comparison records candidate evidence without claiming current or supers
   });
   expect(receipt).not.toHaveProperty("current");
   expect(receipt).not.toHaveProperty("supersedes");
+  expect(receipt.history.map((item) => item.role)).toEqual(["baseline", "candidate"]);
 });
 
 test("comparison receipts verify freshness only when the observed live head matches", () => {
