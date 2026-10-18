@@ -1847,6 +1847,14 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         run: scripts/cmux-next/build-web-bundles.sh --force
 
+      # The OptChat Chief build consumes the committed inspector page before
+      # the app's later source-time replay. Restore identical tracked inputs
+      # here too, so Cargo's rerun-if-changed does not treat a fresh checkout
+      # as a changed inspector on an owned NEXT runner.
+      - name: Replay persistent NEXT source times before Rust helpers
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
+        run: python3 scripts/ci/nightly_build_state.py replay
+
       # The cmux-next Rust helpers below (acpmux, the OptChat Chief) compiled
       # every dependency from scratch on each nightly: about 150 s of the
       # serial build path (2026-10-09). Their target dirs keep the dependency
