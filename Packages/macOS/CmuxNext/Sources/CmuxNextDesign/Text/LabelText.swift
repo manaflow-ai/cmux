@@ -108,6 +108,8 @@ enum LabelText {
         // unbounded width keeps the lines at the left edge.
         var measuring = shape
         measuring.alignment = .left
+        // A field measures its lines whole; only its drawing truncates the last visible one.
+        measuring.truncatesLastVisibleLine = false
         // An empty label is one empty line of its font.
         let shown = text.length > 0 ? text
             : NSAttributedString(string: " ", attributes: [.font: font ?? .systemFont(ofSize: NSFont.systemFontSize)])

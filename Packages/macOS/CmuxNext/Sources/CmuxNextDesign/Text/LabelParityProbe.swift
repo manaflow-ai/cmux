@@ -237,16 +237,25 @@ public struct LabelParityProbe {
             root.addSubview(label)
             func oneLine(_ view: NSView, _ width: CGFloat) -> Bool {
                 view.frame = NSRect(x: 10, y: 10, width: width, height: 40)
+                // As in a window's layout pass: AppKit lays out a field's own text view then.
+                root.layoutSubtreeIfNeeded()
+                view.displayIfNeeded()
                 let ink = Self.ink(cached: view)
                 return ink.amount > 0 && ink.box.height < 26
             }
-            var drawn: CGFloat = 0, measured: CGFloat = 0, drawnLabel: CGFloat = 0
-            for step in stride(from: 400, through: 20, by: -1) {
-                let width = CGFloat(step) / 4
-                if oneLine(stock, width) { drawn = width }
-                if (stock.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 1000)).height ?? 0) < 20 { measured = width }
-                if oneLine(label, width) { drawnLabel = width }
+            // The narrowest width of the run of one-line widths down from the one-line width + 8.
+            func edge(_ fits: (CGFloat) -> Bool) -> CGFloat {
+                var last: CGFloat = 0
+                var width = (label.naturalSize.width + 8).rounded()
+                while width > 4, fits(width) {
+                    last = width
+                    width -= 0.25
+                }
+                return last
             }
+            let drawn = edge { oneLine(stock, $0) }
+            let measured = edge { (stock.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: $0, height: 1000)).height ?? 99) < 20 }
+            let drawnLabel = edge { oneLine(label, $0) }
             stock.removeFromSuperview()
             label.removeFromSuperview()
             lines.append("wrap edge \"\(text)\": one-line width \(label.naturalSize.width) stock draw \(drawn) stock measure \(measured) label draw \(drawnLabel)")
