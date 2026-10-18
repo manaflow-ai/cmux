@@ -565,6 +565,15 @@ import Testing
         let terminal = try hostedTerminal(panel.surface)
         defer { terminal.window.orderOut(nil) }
         await waitForLiveSurface(terminal.surface)
+        // The live surface requests its own initial seed. Drain it so the
+        // pending captures below are only the ones this scenario starts.
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["initial"],
+            paneHeight: 24,
+            startingAt: 200
+        )
+        sessionMirror.clearPendingPaneSeedDeliveries()
         publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
