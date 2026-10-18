@@ -4,8 +4,8 @@ import * as Layer from "effect/Layer";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmDatabaseError, VmProviderOperationError } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
-import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { reconcileVmProviderStatuses } from "../services/vms/workflows";
+import { VmRepository, UNEXPECTED_WAKE_CLAIM_METADATA_KEY, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
+import { reconcileVmProviderStatuses, resumeVm, UNEXPECTED_WAKE_REPAUSE_LIMIT } from "../services/vms/workflows";
 
 // A paused machine that runs at the provider without a recorded resume was
 // woken by traffic (cmux#21379). The status cron pauses it again instead of
@@ -48,11 +48,14 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
 
 function fixture(input: {
   readonly candidate: CloudVmRow;
+  /** Every row the cron reads; defaults to the candidate alone. */
+  readonly candidates?: CloudVmRow[];
   /** Rows successive confirmation re-reads return (the last repeats); defaults to the candidate. */
   readonly rereads?: (CloudVmRow | null | "fail")[];
   readonly providerStatuses: ("running" | "paused" | "fail")[];
   readonly pauseFails?: boolean;
   readonly pauseState?: "paused" | "in_progress" | "not_paused";
+  readonly resumeFails?: boolean;
   /** Shared claim marker, so two fixtures can model overlapping cron runs. */
   readonly claims?: Map<string, number>;
 }) {
@@ -65,16 +68,24 @@ function fixture(input: {
   const claims = input.claims ?? new Map<string, number>();
   const next = <T>(queue: T[]) => (queue.length > 1 ? queue.shift()! : queue[0]!);
   const repo: Partial<VmRepositoryShape> = {
-    reconciliationCandidates: () => Effect.succeed([input.candidate]),
-    findUserVm: () => {
+    // Oldest `updatedAt` first, as the live repository reads candidates.
+    reconciliationCandidates: () => Effect.succeed(
+      input.candidates ? [...input.candidates].sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime()) : [input.candidate],
+    ),
+    findUserVm: ({ providerVmId }) => {
+      if (input.candidates) return Effect.succeed(input.candidates.find((vm) => vm.providerVmId === providerVmId) ?? null);
       const reread = next(rereads);
       return reread === "fail"
         ? Effect.fail(new VmDatabaseError({ operation: "findUserVm", cause: new Error("db down") }))
         : Effect.succeed(reread);
     },
-    claimUnexpectedWakeRepause: ({ id, nowMs, ttlMs }) => Effect.sync(() => {
+    claimUnexpectedWakeRepause: ({ id, ttlMs }) => Effect.sync(() => {
+      const nowMs = Date.now();
       if ((claims.get(id) ?? 0) >= nowMs - ttlMs) return false;
       claims.set(id, nowMs);
+      // The live claim also moves the row's `updatedAt` to the back.
+      const claimed = input.candidates?.find((vm) => vm.id === id);
+      if (claimed) claimed.updatedAt = new Date(nowMs + claims.size);
       return true;
     }),
     markProviderObservedStatus: (write) => Effect.sync(() => {
@@ -100,8 +111,9 @@ function fixture(input: {
     getPauseState: () => Effect.succeed(input.pauseState ?? "not_paused"),
     resume: (_provider, vmId) => Effect.sync(() => {
       resumes.push(vmId);
-      return { provider: "freestyle" as const, providerVmId: vmId, status: "running" as const, image: "snapshot-test", createdAt: Date.now() };
-    }),
+    }).pipe(Effect.andThen(input.resumeFails
+      ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: `resume(${vmId})`, cause: new Error("refused") }))
+      : Effect.sync(() => ({ provider: "freestyle" as const, providerVmId: vmId, status: "running" as const, image: "snapshot-test", createdAt: Date.now() })))),
   };
   const layer = Layer.mergeAll(
     Layer.succeed(VmRepository, repo as VmRepositoryShape),
@@ -111,7 +123,10 @@ function fixture(input: {
   const run = () => Effect.runPromise(
     reconcileVmProviderStatuses({ unexpectedWakeConfirmMs: 0 }).pipe(Effect.provide(layer)),
   );
-  return { run, usageEvents, statusWrites, pauses, resumes };
+  const open = () => Effect.runPromise(
+    resumeVm({ userId: input.candidate.userId, billingTeamId: null, providerVmId: PROVIDER_VM_ID }).pipe(Effect.provide(layer)),
+  );
+  return { run, open, usageEvents, statusWrites, pauses, resumes };
 }
 
 describe("status cron and machines woken while paused", () => {
@@ -208,11 +223,82 @@ describe("status cron and machines woken while paused", () => {
     expect(result).toMatchObject({ updated: 1, repaused: 0 });
   });
 
+  test("re-pauses at most a capped number of woken machines per run", async () => {
+    const candidates = Array.from({ length: UNEXPECTED_WAKE_REPAUSE_LIMIT + 5 }, (_, index) => row({
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      providerVmId: `${PROVIDER_VM_ID}-${index}`,
+    }));
+    const f = fixture({ candidate: candidates[0]!, candidates, providerStatuses: ["running"] });
+    const result = await f.run();
+    expect(f.pauses).toHaveLength(UNEXPECTED_WAKE_REPAUSE_LIMIT);
+    expect(f.statusWrites).toEqual([]);
+    expect(result).toMatchObject({ checked: UNEXPECTED_WAKE_REPAUSE_LIMIT + 5, repaused: UNEXPECTED_WAKE_REPAUSE_LIMIT, skipped: 5 });
+  });
+
+  test("a later run reaches the woken machines a capped run left behind", async () => {
+    const total = UNEXPECTED_WAKE_REPAUSE_LIMIT + 5;
+    const candidates = Array.from({ length: total }, (_, index) => row({
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      providerVmId: `${PROVIDER_VM_ID}-${index}`,
+      updatedAt: new Date(Date.UTC(2026, 0, 1, 0, index)),
+    }));
+    // Traffic keeps waking every machine, so all of them run at each probe.
+    const f = fixture({ candidate: candidates[0]!, candidates, providerStatuses: ["running"] });
+    await f.run();
+    await f.run();
+    expect(new Set(f.pauses).size).toBe(total);
+  });
+
   test("records the machine as running when the confirmation probe fails", async () => {
     const f = fixture({ candidate: row(), providerStatuses: ["running", "fail"] });
     const result = await f.run();
     expect(f.pauses).toEqual([]);
     expect(f.statusWrites).toEqual([expect.objectContaining({ status: "running" })]);
     expect(result).toMatchObject({ updated: 1, repaused: 0 });
+  });
+});
+
+// A personal machine's open writes `running` without a reservation, so it can
+// land after the cron's post-pause re-read and leave the machine paused under
+// a running row. While a re-pause claim is fresh the open resumes it itself.
+describe("opening a personal machine during a re-pause", () => {
+  const personal = (overrides: Partial<CloudVmRow> = {}) => row({ billingTeamId: null, ownerTeamId: "user-wake", billingPlanId: "free", ...overrides });
+  const claimed = (overrides: Partial<CloudVmRow> = {}) => personal({
+    providerMetadata: { [UNEXPECTED_WAKE_CLAIM_METADATA_KEY]: Date.now() },
+    ...overrides,
+  });
+
+  test("resumes the machine when the row carries a fresh re-pause claim", async () => {
+    const f = fixture({ candidate: claimed(), rereads: [claimed(), claimed({ status: "running" })], providerStatuses: ["running"] });
+    await f.open();
+    expect(f.statusWrites).toEqual([expect.objectContaining({ status: "running" })]);
+    expect(f.resumes).toEqual([PROVIDER_VM_ID]);
+  });
+
+  test("resumes the machine when the cron claims the row while the open runs", async () => {
+    const f = fixture({ candidate: personal(), rereads: [personal(), claimed({ status: "running" })], providerStatuses: ["running"] });
+    await f.open();
+    expect(f.resumes).toEqual([PROVIDER_VM_ID]);
+  });
+
+  test("still opens the machine when that resume fails", async () => {
+    const f = fixture({
+      candidate: claimed(),
+      rereads: [claimed(), claimed({ status: "running" })],
+      providerStatuses: ["running"],
+      resumeFails: true,
+    });
+    await expect(f.open()).resolves.toMatchObject({ status: "running" });
+    expect(f.resumes).toEqual([PROVIDER_VM_ID]);
+    // The open reports running, so a failed resume must not pause the machine.
+    expect(f.pauses).toEqual([]);
+  });
+
+  test("only records the wake when no re-pause claim is fresh", async () => {
+    const stale = personal({ providerMetadata: { [UNEXPECTED_WAKE_CLAIM_METADATA_KEY]: Date.now() - 60 * 60 * 1000 } });
+    const f = fixture({ candidate: stale, providerStatuses: ["running"] });
+    await f.open();
+    expect(f.statusWrites).toEqual([expect.objectContaining({ status: "running" })]);
+    expect(f.resumes).toEqual([]);
   });
 });
