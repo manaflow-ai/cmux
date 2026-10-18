@@ -97,6 +97,7 @@ export function comparisonReceipt(
   head: EvidenceReceipt | undefined,
   repeat: EvidenceReceipt | undefined,
   heads: { base: string; head: string },
+  liveHeadSha?: string,
 ) {
   const fingerprints = [base?.scenarioFingerprint, head?.scenarioFingerprint, repeat?.scenarioFingerprint].filter(Boolean);
   if (new Set(fingerprints).size > 1) throw new Error("comparison receipt scenario fingerprint mismatch");
@@ -105,7 +106,13 @@ export function comparisonReceipt(
     schemaVersion: 1,
     comparisonId: createHash("sha256").update(input).digest("hex").slice(0, 16),
     createdAt: new Date().toISOString(),
-    freshness: { status: head ? "unverified" : "missing", reason: "current means live PR-head verification, which this receipt does not perform" },
+    freshness: !head
+      ? { status: "missing", reason: "no candidate capture" }
+      : !liveHeadSha
+        ? { status: "unverified", reason: "no live PR-head observation was supplied" }
+        : liveHeadSha === heads.head
+          ? { status: "verified", observedSha: liveHeadSha, reason: "live head matches candidate head" }
+          : { status: "mismatch", observedSha: liveHeadSha, reason: "live head differs from candidate head" },
     candidate: head ? { ...head, role: "candidate", sha: heads.head } : undefined,
     baseline: base ? { ...base, role: "baseline", sha: heads.base } : undefined,
     repeat: repeat ? { ...repeat, role: "determinism-check", sha: heads.head } : undefined,
@@ -173,6 +180,7 @@ if (import.meta.main) {
       "base-manifest": { type: "string" },
       "head-manifest": { type: "string" },
       "capture-manifest": { type: "string" },
+      "live-head-sha": { type: "string" },
       out: { type: "string" },
       outcomes: { type: "string" },
       pr: { type: "string" },
@@ -235,7 +243,7 @@ if (import.meta.main) {
   if (!values.outcomes)
     writeFileSync(
       join(out, "comparison.json"),
-      `${JSON.stringify(comparisonReceipt(baseEvidence, headEvidence, repeatEvidence, { base: values["base-sha"]!, head: values["head-sha"]! }), null, 2)}\n`,
+      `${JSON.stringify(comparisonReceipt(baseEvidence, headEvidence, repeatEvidence, { base: values["base-sha"]!, head: values["head-sha"]! }, values["live-head-sha"]), null, 2)}\n`,
     );
   writeFileSync(join(out, "comment.md"), commentMarkdown(outcomes, meta));
   // thumbs.txt: the keys whose thumbnails the comment shows, for the publisher to upload.

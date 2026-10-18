@@ -93,3 +93,10 @@ test("a comparison records candidate evidence without claiming current or supers
   expect(receipt).not.toHaveProperty("current");
   expect(receipt).not.toHaveProperty("supersedes");
 });
+
+test("comparison receipts verify freshness only when the observed live head matches", () => {
+  const base = { captureId: "base", scenarioFingerprint: "s" };
+  const head = { captureId: "head", scenarioFingerprint: "s" };
+  expect(comparisonReceipt(base, head, undefined, { base: "base-sha", head: "head-sha" }, "head-sha").freshness).toMatchObject({ status: "verified", observedSha: "head-sha" });
+  expect(comparisonReceipt(base, head, undefined, { base: "base-sha", head: "head-sha" }, "other-sha").freshness).toMatchObject({ status: "mismatch", observedSha: "other-sha" });
+});
