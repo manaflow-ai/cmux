@@ -249,6 +249,26 @@ describe("status cron and machines woken while paused", () => {
     expect(new Set(f.pauses).size).toBe(total);
   });
 
+  test("rows another run has claimed don't use up the cap", async () => {
+    const claimedCount = 5;
+    const claims = new Map<string, number>();
+    const candidates = Array.from({ length: UNEXPECTED_WAKE_REPAUSE_LIMIT + claimedCount }, (_, index) => {
+      const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+      const claimedAtMs = index < claimedCount ? Date.now() : null;
+      if (claimedAtMs) claims.set(id, claimedAtMs);
+      return row({
+        id,
+        providerVmId: `${PROVIDER_VM_ID}-${index}`,
+        updatedAt: new Date(Date.UTC(2026, 0, 1, 0, index)),
+        ...(claimedAtMs ? { providerMetadata: { [UNEXPECTED_WAKE_CLAIM_METADATA_KEY]: claimedAtMs } } : {}),
+      });
+    });
+    const f = fixture({ candidate: candidates[0]!, candidates, providerStatuses: ["running"], claims });
+    const result = await f.run();
+    expect(f.pauses).toHaveLength(UNEXPECTED_WAKE_REPAUSE_LIMIT);
+    expect(result).toMatchObject({ repaused: UNEXPECTED_WAKE_REPAUSE_LIMIT, skipped: claimedCount });
+  });
+
   test("records the machine as running when the confirmation probe fails", async () => {
     const f = fixture({ candidate: row(), providerStatuses: ["running", "fail"] });
     const result = await f.run();

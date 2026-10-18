@@ -6799,12 +6799,18 @@ describe("VM Effect workflows", () => {
       where id = ${vm.id}
     `;
     await sql`update cloud_vms set updated_at = now() - interval '1 hour' where id = ${vm.id}`;
-    expect(await claim()).toBe(true);
-    // A claim moves the row to the back of the oldest-first reconcile order.
-    const [claimedRow] = await sql<{ fresh: boolean }[]>`
-      select updated_at > now() - interval '1 minute' as fresh from cloud_vms where id = ${vm.id}
+    const [other] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, updated_at)
+      values ('user-workflow-wake-claim', 'team-workflow-wake-claim', 'pro', 'freestyle', 'provider-vm-wake-claim-other', 'snapshot-test', 'paused', now() - interval '30 minutes')
+      returning id
     `;
-    expect(claimedRow?.fresh).toBe(true);
+    const candidateOrder = async () => (await Effect.runPromise(vmRepositoryLiveShape.reconciliationCandidates({ limit: 10 })))
+      .map((row) => row.id)
+      .filter((id) => id === vm.id || id === other.id);
+    expect(await candidateOrder()).toEqual([vm.id, other.id]);
+    expect(await claim()).toBe(true);
+    // A claim moves the row behind a row updated earlier in the oldest-first reconcile order.
+    expect(await candidateOrder()).toEqual([other.id, vm.id]);
     expect(await claim()).toBe(false);
     await ageClaim(299_000);
     expect(await claim()).toBe(false);
