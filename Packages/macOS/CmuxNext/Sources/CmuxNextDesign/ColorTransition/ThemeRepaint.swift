@@ -62,6 +62,9 @@ enum ThemeRepaint {
         var scope: ThemeScope?
         var animated: Bool
         var layout: Bool
+        /// Hidden subtrees wait until shown (a theme change); false paints them now (a subtree's
+        /// first paint in a scope).
+        var lazy: Bool
     }
 
     private static var depth = 0
@@ -84,15 +87,17 @@ enum ThemeRepaint {
     /// end of the batch. `owner` names the region: a second request for it merges (animated or
     /// layout if any asked). `animated` blends what changes in windows on screen; `layout` also
     /// lays the views out again (a border width or font changed, not only colors).
-    static func request(_ owner: AnyObject, roots: @escaping () -> [NSView], scope: ThemeScope?, animated: Bool, layout: Bool = false) {
+    static func request(_ owner: AnyObject, roots: @escaping () -> [NSView], scope: ThemeScope?, animated: Bool,
+                        layout: Bool = false, lazy: Bool = true) {
         let key = ObjectIdentifier(owner)
         if var existing = requests[key] {
             existing.animated = existing.animated || animated
             existing.layout = existing.layout || layout
+            existing.lazy = existing.lazy && lazy
             requests[key] = existing
         } else {
             order.append(key)
-            requests[key] = Request(owner: owner, roots: roots, scope: scope, animated: animated, layout: layout)
+            requests[key] = Request(owner: owner, roots: roots, scope: scope, animated: animated, layout: layout, lazy: lazy)
         }
         if depth == 0 { commit() }
     }
@@ -147,7 +152,7 @@ enum ThemeRepaint {
         var shown: [(layer: CALayer, colors: [(LayerColor, CGColor?)])] = []
         for request in pending {
             let roots = request.roots()
-            let views = views(under: roots, scope: request.scope, layout: request.layout, seen: &seen)
+            let views = views(under: roots, scope: request.scope, layout: request.layout, lazy: request.lazy, seen: &seen)
             passes.append((views, request.layout))
             guard request.animated, !transition.isInstant else { continue }
             let onScreen = views.filter { $0.window.map(isOnScreen) == true }
@@ -185,12 +190,13 @@ enum ThemeRepaint {
     /// Views in `seen` (another region of the batch) are left out. A hidden subtree (a parked
     /// workspace or tab, a hidden control) is left out too and repaints when it is shown
     /// (``markStale(_:scope:layout:)``).
-    private static func views(under roots: [NSView], scope: ThemeScope?, layout: Bool, seen: inout Set<ObjectIdentifier>) -> [NSView] {
+    private static func views(under roots: [NSView], scope: ThemeScope?, layout: Bool, lazy: Bool,
+                              seen: inout Set<ObjectIdentifier>) -> [NSView] {
         var result: [NSView] = []
         let anyStale = stale.count > 0
         func visit(_ view: NSView) {
             guard seen.insert(ObjectIdentifier(view)).inserted else { return }
-            if view.isHidden { return markStale(view, scope: scope, layout: layout) }
+            if lazy, view.isHidden { return markStale(view, scope: scope, layout: layout) }
             // Painted now: a mark from an earlier pass is done.
             if anyStale, let region = stale.object(forKey: view) { forget(view, region) }
             result.append(view)
