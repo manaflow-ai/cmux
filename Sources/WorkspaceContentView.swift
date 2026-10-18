@@ -240,9 +240,12 @@ struct WorkspaceContentView: View {
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.hasMultipleSplitSurfaces
+        let isCanvas = workspace.layoutMode == .canvas
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-        let bonsplitPaneRenderSnapshots = Self.bonsplitPaneRenderSnapshots(for: workspace.bonsplitController)
+        let bonsplitPaneRenderSnapshots: [UUID: BonsplitPaneRenderSnapshot] = isCanvas
+            ? [:]
+            : Self.bonsplitPaneRenderSnapshots(for: workspace.bonsplitController)
 
         let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
@@ -460,7 +463,7 @@ struct WorkspaceContentView: View {
         }
 
         Group {
-            if workspace.layoutMode == .canvas {
+            if isCanvas {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
                     isWorkspaceVisible: isWorkspaceVisible,
