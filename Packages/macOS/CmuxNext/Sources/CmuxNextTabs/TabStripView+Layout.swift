@@ -342,13 +342,15 @@ extension TabStripView {
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ. Hit testing reads
         // the targets, the frames written above.
         geometryDidChange()
-        // A drag, a group drag or a torn-out tab over the strip autoscrolls at an edge.
-        if drag != nil || groups.drag != nil || phantomPoint != nil { startAnimating() }
+        // A drag, a group drag or a torn-out tab over the strip autoscrolls at an edge; `debug.motion`
+        // samples a move's travel while it records.
+        if drag != nil || groups.drag != nil || phantomPoint != nil || (move != nil && MotionTrace.isEnabled) { startAnimating() }
     }
 
     // MARK: - Drag autoscroll
 
-    /// Runs drag autoscroll on the window's one `MotionClock`. Nothing else in the strip steps per frame.
+    /// Runs drag autoscroll on the window's one `MotionClock`, and `debug.motion`'s travel samples while
+    /// it records. Nothing else in the strip steps per frame.
     func startAnimating() {
         guard window != nil else { return }
         let clock = MotionClock.forView(self)
@@ -359,6 +361,17 @@ extension TabStripView {
 }
 
 extension TabStripView: MotionAnimating {
-    /// One autoscroll frame; false when no drag sits in an edge fade.
-    public func motionStep(_ dt: Double) -> Bool { autoscrollDuringDrag(CGFloat(dt)) }
+    /// One autoscroll frame; false when no drag sits in an edge fade and no recorded move travels.
+    public func motionStep(_ dt: Double) -> Bool {
+        let scrolling = autoscrollDuringDrag(CGFloat(dt))
+        guard MotionTrace.isEnabled else { return scrolling }
+        // `debug.motion` (motion proofs): the points the strip's moves have left to travel (x and width),
+        // read off the presentation layers; reading them changes nothing that draws.
+        let travel = cells.values.reduce(0.0) { sum, cell in
+            guard let shown = cell.layer.presentation() else { return sum }
+            return sum + Double(abs(shown.frame.minX - cell.frame.minX) + abs(shown.frame.width - cell.frame.width))
+        }
+        MotionTrace.sample("tabs.travel", travel)
+        return scrolling || travel > 0.25
+    }
 }
