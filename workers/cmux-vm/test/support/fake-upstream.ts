@@ -44,6 +44,7 @@ export type UpstreamOperation =
   | "read"
   | "write"
   | "dir"
+  | "stat"
   | "resize"
   | "update"
   | "listTlsRules"
@@ -84,6 +85,7 @@ export function makeFakeUpstream(apiKey: string) {
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
   const files = new Map<string, Uint8Array>();
+  const fileStats = new Map<string, Record<string, unknown>>();
   const calls: UpstreamCall[] = [];
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
   /** Exec responses by command; the default echoes the command. */
@@ -278,6 +280,13 @@ export function makeFakeUpstream(apiKey: string) {
           vmId: vm.id,
         });
       }
+      case "stat": {
+        if (vm === undefined) return notFound();
+        const path = url.searchParams.get("path") ?? "";
+        const record = fileStats.get(fileKey(vm.id, path));
+        if (record === undefined) return notFound();
+        return Response.json(record);
+      }
     }
   };
 
@@ -306,6 +315,7 @@ export function makeFakeUpstream(apiKey: string) {
       "GET fs/read": "read",
       "PUT fs/write": "write",
       "GET fs/dir": "dir",
+      "GET fs/stat": "stat",
     };
     const operation = table[`${method} ${rest}`];
     return operation === undefined ? null : { operation, vmId };
@@ -331,6 +341,7 @@ export function makeFakeUpstream(apiKey: string) {
     vms,
     snapshots,
     files,
+    fileStats,
     calls,
     tlsRules,
     resizeReplies,
