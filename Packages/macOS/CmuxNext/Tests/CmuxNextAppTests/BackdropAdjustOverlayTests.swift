@@ -32,36 +32,38 @@ import Testing
         let art = try #require(BackdropArt.allCases.first { $0.isBundled })
         let (window, backdrop, content, store) = try await makeWindow(showing: .art(art))
         defer { window.close() }
+        let id = BackdropSelection.art(art).id
         let automatic = try #require(backdrop.artPlacement)
         #expect(BackdropAdjustOverlay.begin(in: window))
         let overlay = try #require(BackdropAdjustOverlay.current(in: window))
         #expect(content.alphaValue < 0.5, "the window's content did not fade to show the art")
         overlay.zoom(by: 2)
-        let zoomed = try #require(store.placement(for: art.id), "the placement was not saved for the background")
+        let zoomed = try #require(store.placement(for: id), "the placement was not saved for the background")
         overlay.move(dx: 200, dy: -60)
-        let saved = try #require(store.placement(for: art.id))
+        let saved = try #require(store.placement(for: id))
         #expect(saved.zoom == 2)
         // The picture follows the pointer by exactly the drag: the center point moves the other
         // way by the drag over the picture's size on screen (2x cover, so room to move both ways).
         let image = try #require(backdrop.adjustable).imageSize
-        let cover = max(backdrop.bounds.width / image.width, backdrop.bounds.height / image.height)
-        let shown = CGSize(width: image.width * cover * 2, height: image.height * cover * 2)
-        #expect(abs(saved.centerX - (zoomed.centerX - 200 / shown.width)) < 1e-6, "a drag right moved the center to \(saved.centerX)")
-        #expect(abs(saved.centerY - (zoomed.centerY + 60 / shown.height)) < 1e-6, "a drag down moved the center to \(saved.centerY)")
+        let cover = Double(max(backdrop.bounds.width / image.width, backdrop.bounds.height / image.height))
+        let shownWidth = Double(image.width) * cover * 2, shownHeight = Double(image.height) * cover * 2
+        let wantX = zoomed.centerX - 200 / shownWidth, wantY = zoomed.centerY + 60 / shownHeight
+        #expect(abs(saved.centerX - wantX) < 1e-6, "a drag right moved the center to \(saved.centerX), not \(wantX)")
+        #expect(abs(saved.centerY - wantY) < 1e-6, "a drag down moved the center to \(saved.centerY), not \(wantY)")
         // Past the edge it stops where the picture still covers the window, not at the far side.
         overlay.move(dx: 100_000, dy: 0)
-        let edge = try #require(store.placement(for: art.id))
-        #expect(abs(edge.centerX - backdrop.visibleMiddle / shown.width) < 1e-6)
+        let edge = try #require(store.placement(for: id))
+        #expect(abs(edge.centerX - Double(backdrop.visibleMiddle) / shownWidth) < 1e-6)
         let moved = try #require(backdrop.artPlacement)
         #expect(moved != automatic && moved.contentsRect.width < automatic.contentsRect.width)
         overlay.reset()
-        #expect(store.placement(for: art.id) == nil)
+        #expect(store.placement(for: id) == nil)
         #expect(backdrop.artPlacement == automatic, "Reset did not go back to the automatic framing")
         // The keyboard: an arrow nudges, + zooms, 0 resets.
         overlay.keyDown(with: try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                                                             windowNumber: window.windowNumber, context: nil, characters: "+",
                                                             charactersIgnoringModifiers: "+", isARepeat: false, keyCode: 24)))
-        #expect(store.placement(for: art.id)?.zoom ?? 1 > 1, "+ did not zoom")
+        #expect(store.placement(for: id)?.zoom ?? 1 > 1, "+ did not zoom")
         // A view the window adds while placing fades too.
         let toast = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         window.contentView?.addSubview(toast, positioned: .below, relativeTo: overlay)
@@ -86,7 +88,7 @@ import Testing
         _ = await images.image(.art(bundled[1]))
         backdrop.apply(WindowBackdrop(ThemeTokens.derive(from: .ghosttyDefault), selection: .art(bundled[1])), tint: .black)
         #expect(BackdropAdjustOverlay.current(in: first) == nil, "placing went on over another background")
-        #expect(store.placement(for: bundled[1].id) == nil)
+        #expect(store.placement(for: BackdropSelection.art(bundled[1]).id) == nil)
     }
 
     @Test func aWindowWithNoPictureHasNothingToPlace() async throws {
