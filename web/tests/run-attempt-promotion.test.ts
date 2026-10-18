@@ -126,6 +126,13 @@ describe("run attempt promotion service", () => {
     await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "not-ready-2", dependencies: noEvidence })).rejects.toBeInstanceOf(PromotionNotReadyError);
   });
 
+  test("rejects a succeeded attempt when the run is not succeeded or the attempt is not the winner", async () => {
+    const runFailed = makeDependencies(source({ runStatus: "failed" }));
+    await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "failed-run", dependencies: runFailed.dependencies })).rejects.toBeInstanceOf(PromotionNotReadyError);
+    const nonWinner = makeDependencies(source({ attemptId: "attempt-2", winningAttemptId: "attempt-1" }));
+    await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-2", requestKey: "non-winner", dependencies: nonWinner.dependencies })).rejects.toBeInstanceOf(PromotionNotReadyError);
+  });
+
   test("hides cross-tenant attempts as not found", async () => {
     const { dependencies } = makeDependencies(source({ userId: "other-tenant" }));
     await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "cross-tenant", dependencies })).rejects.toBeInstanceOf(PromotionNotFoundError);

@@ -148,6 +148,9 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
       await lockLeaseTuple(tx, normalized.hostId, normalized.leaseId);
       const operation = (await tx.select().from(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, reservationToken)).limit(1))[0];
       if (!operation || operation.status !== "pending") return;
+      if (operation.hostId !== normalized.hostId || operation.leaseId !== normalized.leaseId || operation.effectKey !== normalized.effectKey) {
+        throw new VmHostLeaseError("stale_generation", "lease abort token belongs to another operation");
+      }
       assertOperationIdentity(operation, normalized, provider);
       await tx.delete(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, reservationToken));
     });
