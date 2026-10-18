@@ -67,7 +67,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
       const chevronTransform = chevron ? getComputedStyle(chevron).transform : "none";
       const chevronY =
         chevronTransform !== "none"
-          ? Number.parseFloat(chevronTransform.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,[^,]+,([^\)]+)\)/)?.[1] ?? "NaN")
+          ? Number.parseFloat(chevronTransform.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,[^,]+,([^)]+)\)/)?.[1] ?? "NaN")
           : undefined;
       const disc = getComputedStyle(element).backgroundColor;
       if (name === "send" && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
