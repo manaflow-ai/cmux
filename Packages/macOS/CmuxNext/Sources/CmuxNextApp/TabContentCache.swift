@@ -169,8 +169,6 @@ final class TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
-        // A hidden mount keeps the frame for its reveal (`reveal`).
-        if render, let frame = lastFrames.remove(tab.id) { lastFrames.note(session.showLastFrame(frame) ?? "shown") }
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
@@ -406,7 +404,6 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
-        lastFrames.remove(key)
         pageThumbnails.remove(key)
         pageThumbnailVersions[key] = nil
         shownPages.remove(key)
