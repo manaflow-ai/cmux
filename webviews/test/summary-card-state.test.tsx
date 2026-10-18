@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createElement, useState } from "react";
+import { act, createElement } from "react";
 import { useSummaryCard, useSummaryColumn, resetSummaryCards } from "../src/agent-session/acpmux/summary/cardState";
 
 const scope = globalThis as Record<string, unknown>;
