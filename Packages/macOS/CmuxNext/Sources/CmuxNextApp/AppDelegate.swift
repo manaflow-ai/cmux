@@ -208,8 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux-next.json settings (density, shortcut overrides) and the tagged
-    /// control socket (`action.list/describe/run`) over the same registry.
+    /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
@@ -238,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start()
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
+        KeepAwakeService.shared.start(settings: settings, daemon: services.daemon)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
