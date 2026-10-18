@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextTerminal
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
 /// (plans/cmux-next/tab-lifecycle.md).
@@ -66,6 +67,8 @@ extension TabContentCache {
         defer { evictsAtOnce = false }
         warmBudget = budget
         apply(ledger.setCapacity(budget.terminalCapacity))
+        // Memory pressure: the frames go with no hover picture (no renders under pressure).
+        for _ in lastFrames.trim(to: budget.terminalCapacity) { lastFrames.note("dropped") }
     }
 
     func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
@@ -85,18 +88,33 @@ extension TabContentCache {
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
-    /// A hidden terminal leaves the warm set: its last picture (off the main thread) stays, then it closes.
+    /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
+        // The frame is read while the surface is still in its window, before it closes.
+        lastFrames.remove(key)
+        if evictsAtOnce { lastFrames.note("evicted_at_once") }
+        else if !entry.session.showsOutput { lastFrames.note("evicted_no_output") }
+        else if let frame = TerminalLastFrame(of: entry.session) {
+            lastFrames.note("kept")
+            retire(lastFrames.insert(frame, for: key, capacity: warmBudget.terminalCapacity))
+        } else { lastFrames.note("evicted_no_frame") }
         entry.session.view.removeFromSuperview()
-        guard !evictsAtOnce, entry.session.showsOutput else { return entry.close() }
-        Task { [weak self] in
-            let generation = self?.lifecycle.record(key)?.generation
-            let image = await entry.session.snapshotInBackground(maxPixelSize: 480)
-            entry.close()
-            // Not for a closed tab (no record), a live surface again, or a newer eviction (generation after `.released`).
-            guard let image, let self, self.terminals[key] == nil, let record = self.lifecycle.record(key),
-                  record.generation == generation else { return }
-            self.previews.insert(image, for: key)
+        entry.close()
+    }
+
+    /// Last frames the bound dropped: each leaves a small hover card picture (off the main thread),
+    /// unless the terminal came back or the tab closed meanwhile.
+    private func retire(_ dropped: [(key: String, frame: TerminalLastFrame)]) {
+        for (key, frame) in dropped {
+            lastFrames.note("retired")
+            let generation = lifecycle.record(key)?.generation
+            Task { [weak self] in
+                let image = await frame.snapshot(maxPixelSize: 480)
+                // Not for a closed tab (no record), a live surface again, or a newer eviction.
+                guard let image, let self, self.terminals[key] == nil, self.lastFrames[key] == nil,
+                      let record = self.lifecycle.record(key), record.generation == generation else { return }
+                self.previews.insert(image, for: key)
+            }
         }
     }
 

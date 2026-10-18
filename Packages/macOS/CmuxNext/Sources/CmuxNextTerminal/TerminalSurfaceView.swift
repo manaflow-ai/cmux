@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 import GhosttyNextKit
+import IOSurface
 import os
 import QuartzCore
 
@@ -55,6 +56,8 @@ public final class TerminalSurfaceView: NSView {
 
     private(set) var lastOcclusionVisible: Bool?
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
+    /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
+    private var volatileFrame: IOSurface?
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     private var appliedContentScale: NSSize?
@@ -384,7 +387,21 @@ public final class TerminalSurfaceView: NSView {
         pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
+        holdPresentedFrame(volatile: pause != nil)
         ghostty_surface_set_occlusion(surface, pause == nil)
+    }
+
+    /// A paused surface keeps the frame its layer shows, volatile until it shows again
+    /// (``TerminalFramePurgeability``): shown again, it is non-volatile before the next commit, and a
+    /// purged one leaves the layer empty until Ghostty's next frame, as before.
+    private func holdPresentedFrame(volatile: Bool) {
+        if volatile {
+            volatileFrame = presentedFrame
+            volatileFrame?.makeVolatile()
+        } else if let frame = volatileFrame {
+            volatileFrame = nil
+            if !frame.reclaim(), presentedFrame === frame { layer?.contents = nil }
+        }
     }
 
     // MARK: Focus
