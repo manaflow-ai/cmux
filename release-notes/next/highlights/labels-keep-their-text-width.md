@@ -1,4 +1,5 @@
 title: Pills, banners and panels show their whole text
 category: fixed
+docs: https://cmux.com/whats-new
 
-Some small floating views showed only their icons and buttons because their text was squeezed to nothing: the remote desktop toolbar and banners, the Computer Use helper panel in onboarding, a workspace hover card's details and the machine chip in the address bar. Each one now keeps its text and truncates only when there is no room.
+Small floating views such as the remote desktop toolbar, workspace hover cards and the address bar's machine chip showed only icons. They now keep their text and truncate only when there's no room.
