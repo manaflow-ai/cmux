@@ -3,6 +3,9 @@
 
 use super::*;
 
+#[path = "agent_cli_intent_tests.rs"]
+mod intents;
+
 const COMMAND: &str = "agent-cli-update-job";
 
 struct Caller {
