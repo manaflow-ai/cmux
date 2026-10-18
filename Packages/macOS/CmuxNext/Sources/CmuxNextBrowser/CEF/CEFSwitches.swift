@@ -44,12 +44,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
-        // Establish the GPU channel while CefInitialize starts the browser,
-        // not when the first browser window's compositor asks for it: the
-        // first window then does not wait on the GPU process launch (in a
-        // macOS 26 VM the first window's work waited about 0.4-0.6 s on a
-        // Mach reply; os-smoke 2026-10-18). The shim merges it into CEF's list.
-        result.append("enable-features=EarlyEstablishGpuChannel")
         let loaded = builtInExtensions + loadExtensions
         if !loaded.isEmpty {
             result.append("load-extension=" + loaded.joined(separator: ","))
