@@ -44796,8 +44796,19 @@ export default {
         if let surfaceId = validatedCodexFeedTarget?.surfaceId ?? claimedSurfaceId {
             eventDict["surface_id"] = surfaceId
         }
-        // Copilot CLI sends the tool arguments as `toolArgs`.
-        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? stdinObj["toolArgs"] ?? toolCall?["args"]
+        // Copilot CLI sends the tool arguments as `toolArgs`, documented as a
+        // JSON-encoded string. Decode it so the cwd fallback and the Feed's
+        // command extraction see an object; a string that is not a JSON object
+        // is kept as it came.
+        let copilotToolArgs: Any? = stdinObj["toolArgs"].map { (value: Any) -> Any in
+            guard let text = value as? String,
+                  let data = text.data(using: .utf8),
+                  let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return value
+            }
+            return decoded
+        }
+        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? copilotToolArgs ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
             ?? stdinObj["toolResponse"]
             ?? stdinObj["tool_result"]

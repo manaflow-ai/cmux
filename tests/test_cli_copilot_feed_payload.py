@@ -7,6 +7,7 @@ name and arguments, or the Feed shows a bare tool call with no command or
 file. Runs the real CLI against a fake app socket and inspects the pushed
 frame; the hooks file itself is covered by test_cli_copilot_hooks_file.py.
 """
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +46,31 @@ class CopilotFeedPayloadTests(unittest.TestCase):
         self.assertEqual(event.get("cwd"), "/tmp/copilot-project", event)
         self.assertEqual(event.get("tool_name"), "shell", event)
         self.assertEqual(event.get("tool_input"), payload["toolArgs"], event)
+
+    def run_pre_tool_use(self, tool_args):
+        payload = {
+            "hook_event_name": "preToolUse",
+            "sessionId": "copilot-session-1",
+            "timestamp": 1760000000000,
+            "cwd": "/tmp/copilot-project",
+            "toolName": "shell",
+            "toolArgs": tool_args,
+        }
+        stdout, frame = run_feed_hook_optional_frame(
+            self.cli, Path(self.temp.name) / 'cmux.sock', payload, None, source="copilot")
+        self.assertEqual(stdout, {}, 'a telemetry-only event never blocks the tool')
+        self.assertIsNotNone(frame, 'the preToolUse event must reach the Feed')
+        return frame["params"]["event"]
+
+    def test_pre_tool_use_decodes_json_string_tool_args(self):
+        # Copilot's docs show toolArgs as a JSON-encoded string.
+        event = self.run_pre_tool_use(json.dumps({"command": "ls", "description": "List files"}))
+        self.assertEqual(event.get("tool_name"), "shell", event)
+        self.assertEqual(event.get("tool_input"), {"command": "ls", "description": "List files"}, event)
+
+    def test_pre_tool_use_keeps_non_json_string_tool_args(self):
+        event = self.run_pre_tool_use("not json")
+        self.assertEqual(event.get("tool_input"), "not json", event)
 
 
 if __name__ == '__main__':
