@@ -412,7 +412,7 @@ impl Drop for Daemon {
 }
 
 #[tokio::test]
-async fn paired_server_link_real_wireguard_traffic_uses_the_key_approved_during_enrollment() {
+async fn paired_server_link_unchecked_peer_dial_exits_with_stdin_still_open() {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     let mut links = Links::new();
@@ -465,19 +465,16 @@ async fn paired_server_link_real_wireguard_traffic_uses_the_key_approved_during_
     within("dial handshake", status.read_line(&mut line)).await.unwrap();
     let dial: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(dial["ok"], true, "{dial}");
-    // The actual daemon's remote entry must answer through the encrypted link,
-    // while retaining its denial of command execution for this paired peer.
+    // This peer has no fresh control-plane check. The daemon must close before
+    // dispatching any command, and the CLI must exit even with stdin held open.
     let marker = links.home.path().join("remote-command-ran");
     let request = json!({"id":1,"cmd":"run","argv":["/usr/bin/touch",marker.to_str().unwrap()],"new_workspace":true});
     input.write_all(format!("{request}\n").as_bytes()).await.unwrap();
     line.clear();
-    within("daemon reply", output.read_line(&mut line)).await.unwrap();
-    let reply: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(reply["id"], 1);
-    assert_eq!(reply["error_code"], "remote_denied");
+    assert_eq!(within("unchecked peer EOF", output.read_line(&mut line)).await.unwrap(), 0);
     assert!(!marker.exists());
+    assert!(within("refused dial exit", caller.wait()).await.unwrap().success());
     drop(input);
-    assert!(within("dial exit", caller.wait()).await.unwrap().success());
     let status = links.json(&["link", "status", "--state-dir", server.to_str().unwrap()]);
     assert_eq!(status["public_key"], public);
     assert_eq!(status["identity_source"], "server_pairing");
