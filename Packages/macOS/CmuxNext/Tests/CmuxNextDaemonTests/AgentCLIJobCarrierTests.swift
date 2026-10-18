@@ -1,0 +1,166 @@
+import Foundation
+import Testing
+@testable import CmuxNextDaemon
+
+/// Real bridge framing and captured-transport behavior, without a user's daemon.
+struct AgentCLIJobCarrierTests {
+    private let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    private let session: ResourceID = "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    private struct Calls: DaemonRequest {
+        typealias Response = JSONValue
+        static let command = "test-job-calls"
+    }
+
+    private var good: String {
+        #"{"machine":"machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","session":"session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","cli":"claude","revision":"18446744073709551615","replayed":false,"path":{"kind":"terminal","workspace_id":"ws_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","screen_id":"screen_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pane_id":"pane_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tab_id":"tab_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","terminal_id":"term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#
+    }
+
+    @Test func requestPreservesTheOriginalKeyAndBothConditions() throws {
+        let key = "original-key with 'quotes' and \u{03c0}"
+        let request = MachineAgentCLIUpdateJobRequest(expectedMachineID: machine, expectedSessionID: session,
+                                                      cli: .claude, idempotencyKey: key)
+        let data = try WireCoding.encodeRequest(request, id: 19)
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        #expect(value == .object(["id": .number(19), "cmd": .string("agent-cli-update-job"),
+            "expected_machine_id": .string(machine.rawValue), "expected_session_id": .string(session.rawValue),
+            "cli": .string("claude"), "idempotency_key": .string(key)]))
+    }
+
+    @Test func receiptRequiresCanonicalPublicIdentityAndExactRevision() throws {
+        let receipt = try JSONDecoder().decode(AgentCLIJobReceipt.self, from: Data(good.utf8))
+        #expect(receipt.machine == machine && receipt.session == session)
+        #expect(receipt.cli == .claude && receipt.revision == UInt64.max)
+        #expect(receipt.path.terminalID.rawValue == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        for bad in [
+            good.replacingOccurrences(of: machine.rawValue, with: "current"),
+            good.replacingOccurrences(of: session.rawValue, with: "legacy-registry-id"),
+            good.replacingOccurrences(of: "ws_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", with: "workspace:runtime-id"),
+            good.replacingOccurrences(of: "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", with: "host:private-incarnation"),
+            good.replacingOccurrences(of: "18446744073709551615", with: "18446744073709551616"),
+            good.replacingOccurrences(of: #""18446744073709551615""#, with: "18446744073709551615"),
+            good.replacingOccurrences(of: #""cli":"claude""#, with: #""cli":"unknown-future-cli""#),
+        ] {
+            #expect(throws: (any Error).self) {
+                try JSONDecoder().decode(AgentCLIJobReceipt.self, from: Data(bad.utf8))
+            }
+        }
+    }
+
+    @Test(arguments: ["good", "foreign-machine", "foreign-session", "foreign-cli", "bad-path", "bad-revision"])
+    func startChecksTheReceiptAndSendsOnlyOneOriginalIntent(mode: String) async throws {
+        try await withConnection(mode) { connection in
+            let carrier = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            do {
+                let receipt = try await carrier.startUpdate(cli: .claude, idempotencyKey: "original-job-key")
+                #expect(mode == "good")
+                #expect(receipt.machine == machine && receipt.session == session && receipt.cli == .claude)
+                #expect(receipt.revision == UInt64.max)
+            } catch DaemonError.malformedResponse {
+                #expect(mode != "good")
+            }
+            let calls = try #require(try await connection.request(Calls()).arrayValue)
+            #expect(calls.count == 1)
+            let call = try #require(calls.first)
+            #expect(call["cmd"] == .string("agent-cli-update-job"))
+            #expect(call["expected_machine_id"] == .string(machine.rawValue))
+            #expect(call["expected_session_id"] == .string(session.rawValue))
+            #expect(call["cli"] == .string("claude"))
+            #expect(call["idempotency_key"] == .string("original-job-key"))
+            guard case .object(let fields) = call else { Issue.record("job request object"); return }
+            #expect(Set(fields.keys) == ["id", "cmd", "expected_machine_id", "expected_session_id", "cli", "idempotency_key"])
+        }
+    }
+
+    @Test(arguments: ["old", "unverified", "wrong-machine", "wrong-session"])
+    func captureRequiresCapabilityProofAndBothIdentities(mode: String) async throws {
+        try await withConnection(mode) { connection in
+            do {
+                _ = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+                Issue.record("unadmitted job carrier")
+            } catch DaemonError.missingCapabilities(let missing) {
+                #expect(mode == "old" && missing == ["agent-cli-update-job-v1"])
+            } catch DaemonError.command(_, _, let code, _, _) {
+                #expect(mode == "unverified" && code == "agent_cli_job.not_trusted")
+            } catch DaemonError.malformedResponse {
+                #expect(mode == "wrong-machine" || mode == "wrong-session")
+            }
+            let calls = try await connection.request(Calls())
+            #expect(calls.arrayValue?.isEmpty == true)
+        }
+    }
+
+    @Test func retiredTransportCannotRedirectAnIntent() async throws {
+        try await withConnection("good") { connection in
+            let carrier = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            await connection.close()
+            do {
+                _ = try await carrier.startUpdate(cli: .claude, idempotencyKey: "retained-intent")
+                Issue.record("retired transport executed a job")
+            } catch let error as DaemonError {
+                #expect(error.isLostConnection)
+            }
+        }
+    }
+
+    @Test(arguments: ["empty-key", "control-key", "unknown-cli"])
+    func invalidIntentIsRefusedBeforeAnyMutation(mode: String) async throws {
+        try await withConnection("good") { connection in
+            let carrier = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
+            do {
+                _ = try await carrier.startUpdate(cli: mode == "unknown-cli" ? .unknown : .claude,
+                    idempotencyKey: mode == "empty-key" ? "" : mode == "control-key" ? "key\n" : "original")
+                Issue.record("malformed job intent was sent")
+            } catch DaemonError.command(_, _, let code, _, _) {
+                #expect(code == "agent_cli_job.bad_request")
+            }
+            let calls = try await connection.request(Calls())
+            #expect(calls.arrayValue?.isEmpty == true)
+        }
+    }
+
+    private func withConnection(_ mode: String, _ body: (DaemonConnection) async throws -> Void) async throws {
+        let script = #"""
+        import json, sys
+        mode, calls = sys.argv[1], []
+        machine, session = 'machine_' + 'a'*32, 'session_' + 'a'*32
+        print('{"ok":true}', file=sys.stderr, flush=True)
+        for line in sys.stdin:
+            frame, result = json.loads(line), {}
+            cmd = frame.get('cmd')
+            if cmd == 'identify':
+                result = {'app':'cmux-tui','protocol':12,'generation':'job-boot','registry_id':'original-registry',
+                    'capabilities':['machine-identity-v1'] + ([] if mode == 'old' else ['agent-cli-update-job-v1']),
+                    'machine_id': 'machine_' + 'b'*32 if mode == 'wrong-machine' else machine,
+                    'session_resource_id': 'session_' + 'b'*32 if mode == 'wrong-session' else session}
+            elif cmd == 'client-hello':
+                result = {'connection_id':'1','user_origin_allowed':mode != 'unverified'}
+            elif cmd == 'agent-cli-update-job':
+                calls.append(frame)
+                result = {'machine':machine,'session':session,'cli':'claude','revision':'18446744073709551615',
+                    'replayed':False,'path':{'kind':'terminal','workspace_id':'ws_'+'a'*32,'screen_id':'screen_'+'a'*32,
+                    'pane_id':'pane_'+'a'*32,'tab_id':'tab_'+'a'*32,'terminal_id':'term_'+'a'*32}}
+                if mode == 'foreign-machine': result['machine'] = 'machine_' + 'b'*32
+                if mode == 'foreign-session': result['session'] = 'session_' + 'b'*32
+                if mode == 'foreign-cli': result['cli'] = 'codex'
+                if mode == 'bad-path': result['path']['terminal_id'] = 'private-host-id'
+                if mode == 'bad-revision': result['revision'] = '18446744073709551616'
+            elif cmd == 'test-job-calls': result = calls
+            print(json.dumps({'id':frame.get('id'),'ok':True,'data':result}), flush=True)
+        """#
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, mode])
+        let endpoint = DaemonEndpoint(socketPath: "/tmp/cmux-job-\(UUID().uuidString).sock", bridge: bridge)
+        var configuration = DaemonConnection.Configuration(requiredCapabilities: [], terminalEnvironment: nil,
+                                                           clientHello: .init(installKey: nil))
+        configuration.heartbeat = .seconds(300)
+        let connection = DaemonConnection(endpoint: endpoint, configuration: configuration)
+        do {
+            try await connection.start()
+            try await body(connection)
+            await connection.close()
+        } catch {
+            await connection.close()
+            throw error
+        }
+    }
+}
