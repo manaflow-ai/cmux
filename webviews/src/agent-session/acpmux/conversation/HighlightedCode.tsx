@@ -14,6 +14,8 @@ import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode } from "./StreamingCode";
 import { OpenPreview } from "./OpenPreview";
 import { languageLabel, type CodeBlockProps } from "./CodeBlock";
+import { useLab } from "../labs";
+import { useCodeWrap } from "./codeWrap";
 
 /// Pierre's line height: a line of the card's body.
 const LINE_HEIGHT = 20;
@@ -46,7 +48,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
-  const [wrap, setWrap] = useState(false);
+  const [wrap, toggleWrap] = useCodeWrap(useLab("codeWrap"));
   // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
   const name = `snippet-${useId()}`;
   const [tooSlow, setTooSlow] = useState(false);
@@ -104,7 +106,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
             aria-pressed={wrap}
             aria-label={t("changes.wrapLines")}
             title={t("changes.wrapLines")}
-            onClick={() => setWrap((value) => !value)}
+            onClick={toggleWrap}
           >
             <WrapLines />
           </button>

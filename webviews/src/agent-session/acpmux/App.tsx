@@ -197,7 +197,9 @@ import {
   configureThreadTitle,
   useThreadTitle,
 } from "./header/headerStyle";
-import { configureLabs } from "./labs";
+import { configureLabs, useLab } from "./labs";
+import { RenderBridgeContext } from "./conversation/RenderBridgeContext";
+import { reactRenderPage } from "./conversation/renderFrameDoc";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
@@ -380,7 +382,13 @@ export async function saveLogNatively(text: string, suggestedName: string): Prom
 /** Saves a side panel document through the host's save panel (`pane.saveFile`); a host without one, or a failed write, is unavailable (the panel copies the document instead). */
 const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => {
   try {
-    return (await callNative<boolean>("pane.saveFile", { text, suggestedName, kind })) === true ? "saved" : "cancelled";
+    return (await callNative<boolean>("pane.saveFile", {
+      text: kind === "react" ? reactRenderPage(text) : text,
+      suggestedName,
+      kind: kind === "react" ? "html" : kind,
+    })) === true
+      ? "saved"
+      : "cancelled";
   } catch {
     return "unavailable";
   }
@@ -669,7 +677,8 @@ const PreviewRow = memo(
 const RenderRow = memo(
   function RenderRow({ row }: RowProps) {
     const tool = row.items?.[0]?.tool;
-    const call = tool && canRender() ? renderCall(tool) : undefined;
+    const live = useLab("liveRender");
+    const call = tool && (canRender() || live) ? renderCall(tool) : undefined;
     return call ? <RenderCard call={call} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
@@ -2675,6 +2684,7 @@ function AcpmuxPane() {
   );
   // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
   const codexRuns = useCodexToolRuns();
+  const copyTurn = useLab("copyTurn");
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
@@ -2686,7 +2696,7 @@ function AcpmuxPane() {
         rows,
         expanded,
         { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns },
-        last?.turns,
+        last?.turns.copyTurn === copyTurn ? last.turns : undefined,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
@@ -2700,6 +2710,7 @@ function AcpmuxPane() {
     snapshot.isWorking,
     snapshot.clockOffsetMs,
     codexRuns,
+    copyTurn,
     chatShellRuns,
     panelAsks,
   ]);
@@ -4754,69 +4765,116 @@ function AcpmuxPane() {
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
     [replaying],
   );
+  const sendComposerPrompt = (text: string, chips?: ComposerAttachment[], steer?: boolean) => {
+    // Until acpmux connects nothing takes a prompt; the composer keeps it.
+    if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+    // Shell mode's chips carry their commands' output as it is now.
+    const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
+    if (!snapshot.sessionId) claimShellRuns.current = true;
+    // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
+    // remote guard, the sandbox) leaves it there to send again.
+    let accept: (taken: true) => void = () => undefined;
+    const taken = new Promise<true>((resolve) => (accept = resolve));
+    const send = async () => {
+      if (projectDraft && !snapshot.sessionId)
+        // The chat's start is part of this send: a trust refusal there asks the folder's
+        // question, keeps this prompt (with its send's gesture) and sends it after Trust
+        // (cx-nn3e P0b; the prompt was lost when only the start ran again).
+        await callNative("chat.new", { cwd: projectDraft }).catch((error: unknown) => {
+          if (isTrustRefusal(error)) {
+            holdPrompt.current?.();
+            trustRefused.current?.(error, () => composerHandle.current?.send());
+          }
+          throw error;
+        });
+      return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
+    };
+    // The composer that holds the prompt: a refusal that comes once it is gone (the pane
+    // swaps it when the chat's session starts) puts the prompt in the one shown now.
+    const holder = composerHandle.current;
+    // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
+    if (surfaceRef.current === "quick") startInBackground(text, taken);
+    const turn = send();
+    turn.then(() => promptLanded.current(), cancelOpenInWindow);
+    // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
+    const held = Promise.race([taken, turn.then(() => true as const)]);
+    held.catch(() => {
+      if (composerHandle.current === holder) return;
+      if (composerHandle.current) composerHandle.current.restore(text, attachments);
+      else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+    });
+    return held;
+  };
+  const renderBridge = {
+    prefill: (text: string) => composerHandle.current?.restore(text, []),
+    send: (text: string) => sendComposerPrompt(text),
+    openLink: openPreview,
+  };
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
-    <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
-      <ImageViewerContext.Provider value={openImage}>
-        <ShellActionsContext.Provider value={shellActions}>
-          <TurnActionsContext.Provider value={turnActions}>
-            <TurnCountsContext.Provider value={turnCountsFor}>
-              <SessionEditsContext.Provider value={editRows}>
-                <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
-                  <SubagentNavContext.Provider value={setSubagentView}>
-                    <SubagentPaneContext.Provider value={showSubagent}>
-                      <SubagentStopContext.Provider value={stopSubagent}>
-                        <SubagentHarnessContext.Provider
-                          value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                        >
-                          <ChatFindScope
-                            rows={childRows ?? sourceRows}
-                            shown={childRows ? undefined : transcriptRows}
-                            openFold={openFold}
-                            findRef={findRef}
+    <RenderBridgeContext.Provider value={renderBridge}>
+      <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
+        <ImageViewerContext.Provider value={openImage}>
+          <ShellActionsContext.Provider value={shellActions}>
+            <TurnActionsContext.Provider value={turnActions}>
+              <TurnCountsContext.Provider value={turnCountsFor}>
+                <SessionEditsContext.Provider value={editRows}>
+                  <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                    <SubagentNavContext.Provider value={setSubagentView}>
+                      <SubagentPaneContext.Provider value={showSubagent}>
+                        <SubagentStopContext.Provider value={stopSubagent}>
+                          <SubagentHarnessContext.Provider
+                            value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                           >
-                            {(find) => (
-                              <VirtualTranscript
-                                rows={transcriptRows}
-                                working={snapshot.isWorking}
-                                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                jumpButton={!quick}
-                                focusComposer={() => composerHandle.current?.focus()}
-                                find={quick ? undefined : find}
-                                sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                                canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                openAt={
-                                  !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                    ? scrollAnchor
-                                    : undefined
-                                }
-                                anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                onAnchor={
-                                  quick || childRows || !shownSessionId
-                                    ? undefined
-                                    : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                }
-                                expanded={expanded}
-                                registry={registry}
-                                githubRepository={githubRepository}
-                                // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                onOpenDiff={quick ? undefined : openDiff}
-                                onToggleActivity={toggleActivity}
-                              />
-                            )}
-                          </ChatFindScope>
-                        </SubagentHarnessContext.Provider>
-                      </SubagentStopContext.Provider>
-                    </SubagentPaneContext.Provider>
-                  </SubagentNavContext.Provider>
-                </SessionCwdContext.Provider>
-              </SessionEditsContext.Provider>
-            </TurnCountsContext.Provider>
-          </TurnActionsContext.Provider>
-        </ShellActionsContext.Provider>
-      </ImageViewerContext.Provider>
-    </ArtifactContext.Provider>
+                            <ChatFindScope
+                              rows={childRows ?? sourceRows}
+                              shown={childRows ? undefined : transcriptRows}
+                              openFold={openFold}
+                              findRef={findRef}
+                            >
+                              {(find) => (
+                                <VirtualTranscript
+                                  rows={transcriptRows}
+                                  working={snapshot.isWorking}
+                                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                  jumpButton={!quick}
+                                  focusComposer={() => composerHandle.current?.focus()}
+                                  find={quick ? undefined : find}
+                                  sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                                  canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                  onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                  openAt={
+                                    !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                      ? scrollAnchor
+                                      : undefined
+                                  }
+                                  anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                  onAnchor={
+                                    quick || childRows || !shownSessionId
+                                      ? undefined
+                                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                  }
+                                  expanded={expanded}
+                                  registry={registry}
+                                  githubRepository={githubRepository}
+                                  // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                  onOpenDiff={quick ? undefined : openDiff}
+                                  onToggleActivity={toggleActivity}
+                                />
+                              )}
+                            </ChatFindScope>
+                          </SubagentHarnessContext.Provider>
+                        </SubagentStopContext.Provider>
+                      </SubagentPaneContext.Provider>
+                    </SubagentNavContext.Provider>
+                  </SessionCwdContext.Provider>
+                </SessionEditsContext.Provider>
+              </TurnCountsContext.Provider>
+            </TurnActionsContext.Provider>
+          </ShellActionsContext.Provider>
+        </ImageViewerContext.Provider>
+      </ArtifactContext.Provider>
+    </RenderBridgeContext.Provider>
   );
   const toolCards = useToolCards();
   // Folder trust is the first gate in the bottom stack. While it is being read or answered,
@@ -5103,46 +5161,7 @@ function AcpmuxPane() {
             ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
             return true;
           }}
-          onSend={(text, chips, steer) => {
-            // Until acpmux connects nothing takes a prompt; the composer keeps it.
-            if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-            // Shell mode's chips carry their commands' output as it is now.
-            const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
-            if (!snapshot.sessionId) claimShellRuns.current = true;
-            // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
-            // remote guard, the sandbox) leaves it there to send again.
-            let accept: (taken: true) => void = () => undefined;
-            const taken = new Promise<true>((resolve) => (accept = resolve));
-            const send = async () => {
-              if (projectDraft && !snapshot.sessionId)
-                // The chat's start is part of this send: a trust refusal there asks the folder's
-                // question, keeps this prompt (with its send's gesture) and sends it after Trust
-                // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                await callNative("chat.new", { cwd: projectDraft }).catch((error: unknown) => {
-                  if (isTrustRefusal(error)) {
-                    holdPrompt.current?.();
-                    trustRefused.current?.(error, () => composerHandle.current?.send());
-                  }
-                  throw error;
-                });
-              return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
-            };
-            // The composer that holds the prompt: a refusal that comes once it is gone (the pane
-            // swaps it when the chat's session starts) puts the prompt in the one shown now.
-            const holder = composerHandle.current;
-            // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
-            if (surfaceRef.current === "quick") startInBackground(text, taken);
-            const turn = send();
-            turn.then(() => promptLanded.current(), cancelOpenInWindow);
-            // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-            const held = Promise.race([taken, turn.then(() => true as const)]);
-            held.catch(() => {
-              if (composerHandle.current === holder) return;
-              if (composerHandle.current) composerHandle.current.restore(text, attachments);
-              else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
-            });
-            return held;
-          }}
+          onSend={sendComposerPrompt}
           onStop={() => void callNative("chat.cancel")}
           onQueueRemove={removeQueued}
           onQueueChange={editQueued}
@@ -5641,13 +5660,15 @@ function AcpmuxPane() {
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
         {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
         {artifact && (
-          <ArtifactPanel
-            key={artifact.opened}
-            artifact={artifact}
-            versions={artifactVersionList}
-            onClose={() => setArtifact(undefined)}
-            onSave={saveDocumentNatively}
-          />
+          <RenderBridgeContext.Provider value={renderBridge}>
+            <ArtifactPanel
+              key={artifact.opened}
+              artifact={artifact}
+              versions={artifactVersionList}
+              onClose={() => setArtifact(undefined)}
+              onSave={saveDocumentNatively}
+            />
+          </RenderBridgeContext.Provider>
         )}
         {imageView && (
           <ImageViewer

@@ -4,11 +4,16 @@ import { useSyncExternalStore } from "react";
 /// switch and off by default, so today's chat is untouched until one is turned on:
 /// - `liveRender`: render pages run on their own, can talk back to the chat (window.cmux), take
 ///   React components, and draw on the dev server too (conversation/RenderCard.tsx).
+/// - `contextMeter`: show the context ring beside the model, with its token details.
+/// - `promptCollapse`: fold long prompts to eight lines, and open them for Find.
+/// - `copyTurn`: copy a prompt and its final answer together as Markdown.
+/// - `messageTimes`: show a prompt's send time on hover or focus.
+/// - `codeWrap`: remember one wrap choice for every code card in the pane.
 ///
 /// Turn one on with `"labs": {"liveRender": true}` in `agent-pane/layout.json` (the App pushes the
 /// file to every chat), or in the dev server with `?data-lab-live-render=on`. Each switch is also
 /// `data-lab-<name>="on"` on `<html>`, for CSS.
-export const LABS = ["liveRender"] as const;
+export const LABS = ["liveRender", "contextMeter", "promptCollapse", "copyTurn", "messageTimes", "codeWrap"] as const;
 export type Lab = (typeof LABS)[number];
 
 const attribute = (lab: Lab) => `data-lab-${lab.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
@@ -45,4 +50,9 @@ const subscribe = (listener: () => void) => {
 };
 
 /// Whether `lab` is on, live.
-export const useLab = (lab: Lab): boolean => useSyncExternalStore(subscribe, () => labOn(lab), () => labOn(lab));
+export const useLab = (lab: Lab): boolean =>
+  useSyncExternalStore(
+    subscribe,
+    () => labOn(lab),
+    () => labOn(lab),
+  );

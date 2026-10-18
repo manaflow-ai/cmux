@@ -11,6 +11,8 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import { isThoughtNote } from "./conversation/thoughtStyle";
 import type { ComposerAttachment } from "./attachments";
+import { labOn } from "./labs";
+import { PROMPT_LINES, promptExpanded } from "./conversation/promptCollapse";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -76,6 +78,8 @@ export type AcpmuxRow = {
   queued?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
+  /// Copy turn's prompt, independent of the last turn's Retry (Lucas 2026-10-18).
+  turnPrompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
@@ -600,6 +604,17 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   // A note between steps drawn as a closed thought line, as a one-call tool row.
   if (isThoughtNote(row)) return 36;
   if (!row.text) return fallbackRowHeight(row, width);
+  if (row.kind === "user" && labOn("promptCollapse")) {
+    const contentWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);
+    const height = textHeight(row.text, contentWidth, new Map());
+    const long = height > PROMPT_LINES * MESSAGE_LINE_HEIGHT;
+    return (
+      16 +
+      chromeHeight(row) +
+      (long && !promptExpanded(row.id) ? PROMPT_LINES * MESSAGE_LINE_HEIGHT : height) +
+      (long ? 24 : 0)
+    );
+  }
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };

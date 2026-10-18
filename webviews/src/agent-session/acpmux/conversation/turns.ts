@@ -13,6 +13,7 @@ import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import type { Translate } from "../i18n";
+import { labOn } from "../labs";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -79,6 +80,7 @@ export type TurnView = {
   expanded: ReadonlySet<string>;
   clockOffset: number;
   liveRuns: boolean;
+  copyTurn: boolean;
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -104,6 +106,7 @@ export function turnViewFrom(
   }: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean } = {},
   previous?: TurnView,
 ): TurnView {
+  const copyTurn = labOn("copyTurn");
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   let reuse = 0;
@@ -112,6 +115,7 @@ export function turnViewFrom(
     previous.expanded === expanded &&
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
+    previous.copyTurn === copyTurn &&
     previous.starts.length
   ) {
     const shared = previous.source;
@@ -176,7 +180,7 @@ export function turnViewFrom(
       out.push(row);
     ends.push(out.length);
   }
-  return { source: rows, expanded, clockOffset, liveRuns, lead, starts, times, dated, ends, rows: out };
+  return { source: rows, expanded, clockOffset, liveRuns, copyTurn, lead, starts, times, dated, ends, rows: out };
 }
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
@@ -189,6 +193,7 @@ type ShapedTurn = {
   last: boolean;
   clockOffset: number;
   dated: boolean;
+  copyTurn: boolean;
   rows: AcpmuxRow[];
 };
 const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
@@ -206,6 +211,7 @@ function shapedTurn(
   liveRuns = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
+  const copyTurn = labOn("copyTurn");
   const open = expanded.size > 0 && expanded.has(`${WORKED}-${user.id}`);
   // A running turn changes with every event.
   const cached = live ? undefined : shapedTurns.get(user);
@@ -215,6 +221,7 @@ function shapedTurn(
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
+    cached.copyTurn === copyTurn &&
     cached.source.length === end - start - 1
   ) {
     let same = true;
@@ -243,7 +250,7 @@ function shapedTurn(
       ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns),
       ...held,
     ];
-  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
+  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, copyTurn, rows: shaped });
   return shaped;
 }
 
@@ -333,8 +340,9 @@ function shapeTurn(
     ...summary,
     folded: work.length > 0,
     text: answer?.text ?? summary.text,
+    ...(labOn("copyTurn") && answer?.text && { turnPrompt: user.text ?? "" }),
     ...(retryable && user.text && { prompt: user.text, retryRowId: user.id, retryAttachments: user.retryAttachments }),
-    version: version * 2 + (retryable ? 1 : 0),
+    version: version * 4 + (retryable ? 1 : 0) + (labOn("copyTurn") ? 2 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.

@@ -1,4 +1,6 @@
 import { stricterTrust, type HarnessTrust, type TrustLevel } from "./folderTrust";
+import { labOn } from "./labs";
+import { liveRenderTurn } from "./mockFixture";
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import { FORK_OP } from "./operations";
 import { HANDOFF_OPS } from "./handoff/protocol";
@@ -250,6 +252,8 @@ export class MockAcpmuxSocket {
       if (entry.sessionId === sessionId) this.listCommands(sessionId, now - 7 * 60_000);
       const steps: SeedStep[] = entry.sessionId === sessionId ? workedTurn : sessionHistory(entry);
       for (const { ago, ...step } of steps) this.record(entry.sessionId, step as Step, now - ago);
+      if (entry.sessionId === sessionId && labOn("liveRender"))
+        for (const { ago, ...step } of liveRenderTurn()) this.record(entry.sessionId, step as Step, now - ago);
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
   }

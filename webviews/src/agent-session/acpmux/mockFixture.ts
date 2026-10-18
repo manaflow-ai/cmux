@@ -621,6 +621,47 @@ export const workedTurn: SeedStep[] = [
   { ago: START - 86_000, mux: "turn_result", msg: { status: "completed" } },
 ];
 
+/// An extra worked turn for the live-render lab, added only by the mock's lab branch.
+export function liveRenderTurn(): SeedStep[] {
+  const html = `<title>Choose a color</title><style>button{margin-right:8px}output{color:var(--cmux-muted)}</style>
+<button aria-label="Amber" data-color="amber">●</button><button aria-label="Sage" data-color="sage">●</button><output></output>
+<script>
+const output = document.querySelector('output');
+cmux.state.get().then(value => { output.textContent = value || ''; });
+document.querySelectorAll('button').forEach(button => {
+  button.style.color = button.dataset.color === 'amber' ? '#c78b35' : '#6b926c';
+  button.onclick = async () => {
+    const color = button.dataset.color;
+    await cmux.state.set(color);
+    output.textContent = color;
+    cmux.sendPrompt('Use the ' + color + ' color theme.').catch(() => {});
+  };
+});
+</script>`;
+  return [
+    { ago: 60_000, mux: "user_message", msg: { text: "Show a color picker and an interactive counter." } },
+    { ago: 59_000, mux: "turn_started" },
+    {
+      ago: 58_000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "live-render-colors",
+        kind: "other",
+        title: "mcp__cmux__render",
+        status: "completed",
+        rawInput: { html },
+      },
+    },
+    {
+      ago: 57_000,
+      update: text(
+        "```cmux-react\nfunction App() {\n  const [count, setCount] = React.useState(0);\n  return <div style={{display: 'flex', gap: 12, alignItems: 'center'}}><button onClick={() => setCount(count - 1)}>-</button><output>{count}</output><button onClick={() => setCount(count + 1)}>+</button></div>;\n}\n```",
+      ),
+    },
+    { ago: 56_000, mux: "turn_result", msg: { status: "completed" } },
+  ];
+}
+
 /// The permission request a session needing input waits on.
 export const PERMISSION_OPTIONS = [
   { optionId: "allow_once", name: "Allow", kind: "allow_once" },

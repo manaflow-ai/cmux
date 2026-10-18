@@ -7,6 +7,7 @@
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
+import { useLab } from "../labs";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
@@ -573,6 +574,7 @@ function Block({
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
 }): ReactNode {
+  const liveRender = useLab("liveRender");
   const motion = enter ? " cv-enter" : "";
   const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
   switch (block.type) {
@@ -658,8 +660,8 @@ function Block({
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
-      // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
-      const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
+      // The lab also gives a closed render fence a frame on the dev server.
+      const render = (canRender() || liveRender) && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;

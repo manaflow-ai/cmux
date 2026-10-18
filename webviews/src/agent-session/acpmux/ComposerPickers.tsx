@@ -33,6 +33,7 @@ import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import { useLab } from "./labs";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -182,6 +183,7 @@ export function ComposerPickers({
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
   // the reasoning menu draws a slider when the person opted in (the Debug Settings toggle agent.reasoningSlider).
   const { showContextUsage, reasoningSlider } = useComposerSettings();
+  const contextMeter = useLab("contextMeter");
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
@@ -585,6 +587,13 @@ export function ComposerPickers({
           </span>
         )
       )}
+      {contextMeter &&
+        showContextUsage &&
+        usage &&
+        Number.isFinite(usage.used) &&
+        usage.used >= 0 &&
+        Number.isFinite(usage.size) &&
+        usage.size > 0 && <ContextRing used={usage.used} size={usage.size} />}
       {/* Reasoning is its own stable control, separate from the model and harness picker. A model
           whose only level is the agent's default has nothing to pick, so it shows no control. */}
       {effort && efforts.length > 1 && (

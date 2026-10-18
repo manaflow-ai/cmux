@@ -3,6 +3,11 @@ import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import {
+  DEV_RENDER_FRAME_PATH,
+  RENDER_FRAME_DOC,
+  RENDER_POLICY,
+} from "./src/agent-session/acpmux/conversation/renderFrameShell.ts";
 
 // Dev server for the real agent pane (src/agent-session/acpmux) with hot
 // reload. A Debug or tagged cmux-next launched with
@@ -34,6 +39,20 @@ export default defineConfig({
       transform(code, id) {
         if (id.split("?")[0] !== sharedStyles) return null;
         return { code: code.replace(/^@import .*$/gm, ""), map: null };
+      },
+    },
+    {
+      // The render frame (liveRender lab): served with its own policy, as cmux-agent://render/frame
+      // is in the app, because a srcdoc frame would also inherit this page's stricter one.
+      name: "cmux-agent-pane-render-frame",
+      configureServer(server) {
+        server.middlewares.use(DEV_RENDER_FRAME_PATH, (_request, response) => {
+          response.setHeader("Content-Type", "text/html; charset=utf-8");
+          response.setHeader("Content-Security-Policy", RENDER_POLICY);
+          response.setHeader("Cache-Control", "no-store");
+          response.setHeader("Referrer-Policy", "no-referrer");
+          response.end(RENDER_FRAME_DOC);
+        });
       },
     },
     ...reactWithCompiler(),

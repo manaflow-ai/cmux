@@ -1,0 +1,111 @@
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { copyTextResult } from "./clipboard";
+import { RenderBridgeContext } from "./RenderBridgeContext";
+
+/// Client view state only, retained when virtualization unmounts a card (Lucas 2026-10-18).
+const states = new Map<string, unknown>();
+type Reply = (ok: boolean, value?: unknown) => void;
+type Pending = { method: "sendPrompt" | "openLink"; text: string; reply: Reply };
+
+export function useRenderRequests(html: string) {
+  const bridge = useContext(RenderBridgeContext);
+  const [pending, setPending] = useState<Pending>();
+  const held = useRef<Pending | undefined>(undefined);
+  const [copied, setCopied] = useState(false);
+  const rate = useRef<number[]>([]);
+  const cancel = useCallback(() => {
+    held.current?.reply(false, "cancelled");
+    held.current = undefined;
+    setPending(undefined);
+  }, []);
+  useEffect(() => cancel, [html, cancel]);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const request = useCallback(
+    (data: Record<string, unknown>, target: Window) => {
+      if (typeof data.id !== "string" || data.id.length > 100) return;
+      const id = data.id;
+      const reply: Reply = (ok, value) =>
+        target.postMessage(
+          {
+            type: "cmux-render-reply",
+            id,
+            ok,
+            ...(ok ? { value } : { error: value }),
+          },
+          "*",
+        );
+      const now = Date.now();
+      rate.current = rate.current.filter((at) => now - at < 1000);
+      if (rate.current.length >= 5) return reply(false, "rate limit");
+      rate.current.push(now);
+      const params = data.params;
+      if (!params || typeof params !== "object" || Array.isArray(params)) return reply(false, "invalid params");
+      const args = params as Record<string, unknown>;
+      if (data.method === "state.get") return reply(true, states.get(html) ?? null);
+      if (data.method === "state.set") {
+        try {
+          const json = JSON.stringify(args.value);
+          if (!json || new TextEncoder().encode(json).length > 65536) return reply(false, "invalid state");
+          states.set(html, JSON.parse(json));
+          return reply(true, null);
+        } catch {
+          return reply(false, "invalid state");
+        }
+      }
+      const method = data.method;
+      if (method !== "prefill" && method !== "sendPrompt" && method !== "copy" && method !== "openLink")
+        return reply(false, "unknown method");
+      const text = method === "openLink" ? args.url : args.text;
+      if (typeof text !== "string" || text.length > 4000 || !text.trim()) return reply(false, "invalid text");
+      if (method === "openLink") {
+        try {
+          if (new URL(text).protocol !== "https:") return reply(false, "https required");
+        } catch {
+          return reply(false, "invalid url");
+        }
+      }
+      if (method === "copy") {
+        void copyTextResult(text).then((ok) => {
+          setCopied(ok);
+          reply(ok, ok ? null : "copy failed");
+        });
+        return;
+      }
+      if (!bridge) return reply(false, "unavailable");
+      if (method === "prefill") {
+        bridge.prefill(text);
+        return reply(true, null);
+      }
+      held.current?.reply(false, "replaced");
+      held.current = { method, text, reply };
+      setPending(held.current);
+    },
+    [html, bridge],
+  );
+  const confirm = (edit: boolean) => {
+    const ask = pending;
+    // A replacement that has not drawn yet cannot borrow the previous strip's click.
+    if (!ask || held.current !== ask || !bridge) return;
+    held.current = undefined;
+    setPending(undefined);
+    if (edit) {
+      bridge.prefill(ask.text);
+      ask.reply(true, null);
+      return;
+    }
+    try {
+      const result = ask.method === "sendPrompt" ? bridge.send(ask.text) : bridge.openLink(ask.text);
+      void Promise.resolve(result).then(
+        (value) => ask.reply(value !== false, value === false ? "unavailable" : null),
+        () => ask.reply(false, "unavailable"),
+      );
+    } catch {
+      ask.reply(false, "unavailable");
+    }
+  };
+  return { request, pending, copied, confirm, cancel };
+}

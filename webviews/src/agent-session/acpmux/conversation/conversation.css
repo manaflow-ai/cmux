@@ -101,6 +101,48 @@
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
 }
 
+/* Prompt labs keep their controls with the bubble (Lucas 2026-10-18). */
+:root[data-lab-prompt-collapse="on"] .cv-user__prompt.is-clamped {
+  max-height: 8lh;
+  overflow: hidden;
+}
+:root[data-lab-prompt-collapse="on"] .cv-user__prompt.is-clamped.is-long {
+  mask-image: linear-gradient(to bottom, black calc(100% - 1lh), transparent);
+}
+:root[data-lab-prompt-collapse="on"] .cv-user__expand {
+  display: block;
+  border: 0;
+  padding: 4px 0 0;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+:root[data-lab-message-times="on"] .cv-user {
+  position: relative;
+}
+:root[data-lab-message-times="on"] .cv-user__time {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-end: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+:root[data-lab-message-times="on"] .cv-user:hover .cv-user__time,
+:root[data-lab-message-times="on"] .cv-user:focus-within .cv-user__time {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* The images a prompt sent, above its bubble: thumbnails on a checker, so a dark screenshot reads. */
 .cv-user__images {
   display: flex;
@@ -1580,6 +1622,10 @@ pre.cv-math-source {
 .cv-code-plain__line {
   min-height: 20px;
 }
+:root[data-lab-code-wrap="on"] .cv-code-plain.is-wrapped {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* The highlighted card waits underneath the plain one until Pierre has painted, then fades in
  * over it; the plain card leaves when that fade ends. */
 .cv-code-handoff {
@@ -1980,6 +2026,37 @@ pre.cv-math-source {
   width: 100%;
   border: 0;
   background: transparent;
+}
+
+:root[data-lab-live-render="on"] .acpmux-render-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--agent-border);
+  font-size: var(--text-detail);
+}
+:root[data-lab-live-render="on"] .acpmux-render-card--panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+:root[data-lab-live-render="on"] .acpmux-render-confirm > span {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+:root[data-lab-live-render="on"] .acpmux-render-note {
+  display: block;
+  padding: 4px 12px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
 }
 
 /* A message that could not be drawn (MessageBoundary.tsx): a note over its plain source text. */
