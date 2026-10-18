@@ -15,13 +15,14 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
 )
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
+NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 
 
 def is_ui_path(path: str) -> bool:
@@ -38,6 +39,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("new-tab")
     if AGENT_PANE.search(normalized):
         selected.append("agent-pane")
+    if NOW_PLAYING.search(normalized):
+        selected.append("now-playing")
     if not selected:
         selected.append("core")
     return selected

@@ -137,6 +137,13 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/now-playing.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
+        "type": "NowPlayingSettingsSchema",
+        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/color-transition.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+ColorTransition.generated.swift",
         "type": "ColorTransitionSettingsSchema",
