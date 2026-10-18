@@ -5,6 +5,11 @@ import CmuxNextCompat
 import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogTests {
+    @Test func backgroundDiagnosticLaunchesKeepHangReportingWithoutAbortAssertions() {
+        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: true, noActivate: true) == nil)
+        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: true, noActivate: false) == .seconds(10))
+        #expect(MainThreadWatchdog.Configuration.hangAssertThreshold(debugBuild: false, noActivate: false) == nil)
+    }
     #if DEBUG
     /// The watchdog reads an injected clock that moves only inside the
     /// stall, and the stall ends only once the watchdog thread sampled it:
