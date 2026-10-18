@@ -691,13 +691,35 @@ class Gate:
         if not getattr(self, "grid", None):
             self.build_grid()
         grid, workspace = self.grid, self.grid_workspace
+        pages = self.page_tabs()
         app.relaunch()
         app.action("goToWorkspace", {"workspace": workspace})
         shown = wait(lambda: app.shown_workspace() == workspace and (lambda p: p[0] >= grid[0] and p[1] >= grid[1])(app.panes()), 60)
         if not check(bool(shown), f"the relaunched app restores the grid ({app.panes()} panes and tabs, before {grid})", "relaunch"):
             return
+        # The state under test: the grid's New Tab pages came back (most of them hidden, not shown yet).
+        restored = pages & self.page_tabs()
+        if not check(len(restored) >= grid[0] * 2 and restored == pages,
+                     f"the relaunch restores the grid's {len(pages)} New Tab pages ({len(restored)} came back)", "relaunch"):
+            return
+        # The restore's own work (shells start again, terminals attach) ends before the measured phases.
+        deadline, last = time.monotonic() + 30, None
+        while time.monotonic() < deadline:  # bounded: the restored grid's counters stop moving
+            now = {k: app.counters(reset=False).get(k) for k in App.QUIET_KEYS}
+            if now == last:
+                break
+            last = now
+            time.sleep(1.0)  # test script: the gap between two counter reads while the restore settles
         self.tabs("relaunch tabs")
         self.split("relaunch split")
+
+    def page_tabs(self):
+        """Tab ids of the shown workspace that are not terminals (the grid's New Tab pages)."""
+        topo = self.app.topology()
+        focus = (topo.get("focus") or {}).get("workspace")
+        return {tab.get("id") for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
+                for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []
+                for tab in pane.get("tabs") or [] if tab.get("kind") != "terminal" and tab.get("id")}
 
     def status(self):
         app = self.app
