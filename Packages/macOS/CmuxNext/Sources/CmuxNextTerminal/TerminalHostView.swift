@@ -55,8 +55,8 @@ public final class TerminalHostView: NSView {
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
-        // A surface that keeps its last frame while the pane's size moves
-        // (TerminalSurfaceSizeSettle) never draws past the host.
+        // A surface frame of another size (the host-sized drawable before its
+        // next draw) never draws past the host.
         layer?.masksToBounds = true
         paintBackground()
         // Frame layout (`layout()`), not Auto Layout: a pane resized every

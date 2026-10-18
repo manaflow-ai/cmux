@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Divider drag reflow proof on the GUI host (perf cx-8w027.6/.8, Lawrence 2026-10-17:
+everything in a drag is real time).
+
+  divider-drag-reflow-live.py --tag <tag> [--app APP] --out DIR [--steps 40]
+
+Launches the tagged app (no activation, automation socket, own config), splits a
+terminal right, prints one long line (`seq -s. 900`) in the left terminal, then
+while `debug.window_record` records every display frame and `debug.frames`
+records display-link intervals, drags the split divider left and right, one
+`debug.mouse` event per 60 Hz frame. After each step it reads the left terminal
+from `debug.surfaces` (text: true): the columns its frame fits and the width of
+its first wrapped row (the columns the text is laid out in). Pass: the text
+columns follow the fitted columns within --lag steps on every step, and no
+frame interval is over --hitch-ms. Writes frames/, samples.json and app.log to
+DIR. Stops only the app it started (by its PID) and the tag's daemons
+(tag_teardown).
+"""
+import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tag_teardown import TagTeardown  # noqa: E402
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--tag", required=True)
+parser.add_argument("--app", default=os.environ.get("NX_APP"))
+parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/divider-drag-reflow")
+parser.add_argument("--steps", type=int, default=40)
+parser.add_argument("--step-pt", type=float, default=6.0)
+parser.add_argument("--lag", type=int, default=2, help="steps the text may trail the edge")
+parser.add_argument("--hitch-ms", type=float, default=50.0)
+opts = parser.parse_args()
+os.makedirs(opts.out, exist_ok=True)
+APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
+    f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
+if not APP:
+    sys.exit(f"no tagged app for {opts.tag}")
+with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
+    BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
+CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+
+
+def rpc(method, params=None, timeout=30):
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+        conn.connect(SOCKET)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 22)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+
+
+def wait(predicate, seconds, step=0.25):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:  # bounded wait for the app's own state
+        value = predicate()
+        if value:
+            return value
+        time.sleep(step)
+    return None
+
+
+def layer():
+    result = rpc("debug.layers")
+    return ((result or {}).get("windows") or [{}])[0] if isinstance(result, dict) else {}
+
+
+def vertical_dividers(window):
+    """Vertical divider areas as (x_mid, y_mid from the top), left to right."""
+    height = (window.get("frame") or [0, 0, 0, 720])[3]
+    return sorted((x + w / 2, height - (y + h / 2)) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w)
+
+
+def terminals():
+    """Terminal panes left to right: (grid frame_x, fit columns, text columns, rows of text)."""
+    result = rpc("debug.surfaces", {"text": True}) or {}
+    rows = []
+    for window in result.get("windows") or []:
+        for pane in window.get("panes") or []:
+            grid = pane.get("grid")
+            if not grid or not grid.get("cell_width"):
+                continue
+            fit = int((grid["frame_width"] - (grid["origin_x"] - grid["frame_x"]) * 2) // grid["cell_width"])
+            lines = (pane.get("text") or "").split("\n")
+            wrapped = [len(line.rstrip()) for line in lines if line.startswith("1.2.3.") or line[:1].isdigit()]
+            rows.append((grid["frame_x"], fit, max(wrapped) if wrapped else 0, len(lines)))
+    return sorted(rows)
+
+
+if os.path.exists(SOCKET):
+    os.unlink(SOCKET)
+config = os.path.join(opts.out, "cmux.json")
+with open(config, "w") as f:
+    f.write("{}\n")
+env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,760"}
+teardown = TagTeardown(APP)
+teardown.install()
+log = open(os.path.join(opts.out, "app.log"), "a")
+app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+report = {"pid": app.pid, "steps": [], "notes": []}
+ok = False
+try:
+    if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 120):
+        sys.exit("app did not come up")
+    report["new_workspace"] = rpc("action.run", {"action": "newTab", "focus": True})
+    wait(lambda: terminals(), 30)
+    report["split"] = rpc("action.run", {"action": "splitRight", "focus": False})
+    wait(lambda: len(terminals()) >= 2 and vertical_dividers(layer()), 30)
+    # One long line in the left terminal (the focused one before the split).
+    cli_env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    written = subprocess.run([CLI, "--app-socket", SOCKET, "--json", "terminal", "current", "write", "--text", "clear; seq -s. 900\r"],
+                             capture_output=True, text=True, timeout=60, env=cli_env, stdin=subprocess.DEVNULL)
+    report["write"] = {"exit": written.returncode, "out": written.stdout[-400:], "err": written.stderr[-400:]}
+    if not wait(lambda: any(t[2] > 0 for t in terminals()), 20):
+        report["notes"].append("no long line seen in any terminal text")
+    dividers = vertical_dividers(layer())
+    if not dividers:
+        sys.exit("no vertical divider")
+    x0, y0 = dividers[0]
+    report["before"] = terminals()
+    frames_dir = os.path.join(opts.out, "frames")
+    report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 12})
+    rpc("debug.frames", {"action": "start"})
+    time.sleep(0.3)
+    rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+    x = x0
+    path = [-opts.step_pt] * opts.steps + [opts.step_pt] * (2 * opts.steps) + [-opts.step_pt] * opts.steps
+    for delta in path:
+        rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": x + delta, "to_y": y0, "steps": 1,
+                            "press": False, "release": False})
+        x += delta
+        time.sleep(1 / 60)
+        left = (terminals() or [(0, 0, 0, 0)])[0]
+        report["steps"].append({"pointer_x": round(x, 1), "fit_cols": left[1], "text_cols": left[2]})
+    rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
+    time.sleep(0.8)
+    report["frames"] = rpc("debug.frames", {"action": "stop"})
+    report["after"] = terminals()
+    # Pass rule: every step's text columns equal the fitted columns of that step or of one of the
+    # --lag steps before it (the one grid in flight plus its echo).
+    fits = [s["fit_cols"] for s in report["steps"]]
+    misses = []
+    for i, s in enumerate(report["steps"]):
+        recent = fits[max(0, i - opts.lag):i + 1]
+        if s["text_cols"] and s["text_cols"] not in recent and not any(abs(s["text_cols"] - f) <= 1 for f in recent):
+            misses.append(i)
+    report["misses"] = misses
+    stats = report["frames"] or {}
+    worst = max([stats.get("max_ms") or 0, stats.get("max") or 0] + [0])
+    report["worst_frame_ms"] = worst
+    distinct = len(set(s["text_cols"] for s in report["steps"] if s["text_cols"]))
+    report["distinct_text_cols"] = distinct
+    ok = not misses and distinct > opts.steps // 2 and (not worst or worst <= opts.hitch_ms)
+finally:
+    if app.poll() is None:
+        app.send_signal(signal.SIGTERM)
+        try:
+            app.wait(20)
+        except subprocess.TimeoutExpired:
+            app.kill()
+            app.wait()
+    teardown.end()
+    with open(os.path.join(opts.out, "samples.json"), "w") as f:
+        json.dump(report, f, indent=1)
+print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses", "distinct_text_cols", "worst_frame_ms", "record", "notes")})[:3000])
+print("frames:", json.dumps(report.get("frames"))[:800])
+print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
+print("PASS" if ok else "FAIL")
+sys.exit(0 if ok else 1)
