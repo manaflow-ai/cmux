@@ -84,7 +84,7 @@ jobs:
           printf '{"orgId":"team_KndpHsJ15gO2OoAP2SO0thYn","projectId":"%s"}\n' "$VERCEL_PROJECT_ID" > .vercel/project.json
           bun scripts/db-migrate.mjs
           bun scripts/db-migrate.mjs
-          bunx vercel@56.3.1 deploy . --prod --yes --scope manaflow --token "$VERCEL_TOKEN" --cwd "$GITHUB_WORKSPACE/web"
+          bunx vercel@56.3.1 deploy . --prod --yes --scope manaflow --token "$VERCEL_TOKEN"
       - name: Guard
         env:
           TARGET: ${{ inputs.target || 'staging' }}
