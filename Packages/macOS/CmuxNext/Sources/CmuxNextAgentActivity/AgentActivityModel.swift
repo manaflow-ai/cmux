@@ -78,8 +78,18 @@ public final class AgentActivityModel {
     private static func changedLaneID(old: [AgentActivityLane]?, new: [AgentActivityLane]?) -> String? {
         let oldByID = Dictionary(uniqueKeysWithValues: (old ?? []).map { ($0.id, $0) })
         let newByID = Dictionary(uniqueKeysWithValues: (new ?? []).map { ($0.id, $0) })
-        for id in Set(oldByID.keys).union(newByID.keys).sorted() where oldByID[id] != newByID[id] { return id }
-        return nil
+        // The previous sorted union made every ACPmux update pay an O(n log n)
+        // sort on the main actor. Track the lexicographically first changed ID
+        // while walking the two maps instead; this preserves the old result
+        // without allocating or sorting a union set.
+        var firstChanged: String?
+        for id in oldByID.keys {
+            if oldByID[id] != newByID[id], firstChanged == nil || id < firstChanged! { firstChanged = id }
+        }
+        for id in newByID.keys {
+            if newByID[id] != oldByID[id], firstChanged == nil || id < firstChanged! { firstChanged = id }
+        }
+        return firstChanged
     }
 
     public init(source: any AgentActivitySource) {
