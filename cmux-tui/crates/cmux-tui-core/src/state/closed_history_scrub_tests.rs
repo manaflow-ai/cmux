@@ -97,3 +97,18 @@ fn strip_url_scrub_runs_once_per_store() {
     open(&mut connection);
     assert_eq!(stored_tab(&connection, "closed-late")["url"], "https://u:p@a.example/");
 }
+
+/// A scrub that cannot run never keeps the store from opening: the daemon
+/// starts, the rows stay as they were, and the next open tries again.
+#[test]
+fn strip_url_scrub_failure_does_not_fail_the_store_open() {
+    let mut connection = old_store();
+    // A scrub table this release cannot read (no `version` column).
+    connection.execute_batch("CREATE TABLE closed_history_scrub (other TEXT);").unwrap();
+    insert(&connection, "closed-1", "https://u:p@a.example/", r#"{"entries":[]}"#);
+
+    let transaction = connection.transaction().unwrap();
+    create_closed_history_schema(&transaction).expect("the store opens without its scrub");
+    transaction.commit().unwrap();
+    assert_eq!(stored_tab(&connection, "closed-1")["url"], "https://u:p@a.example/");
+}

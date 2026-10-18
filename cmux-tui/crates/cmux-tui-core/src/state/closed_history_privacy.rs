@@ -384,6 +384,18 @@ mod tests {
         assert_eq!(strip_url("https://h/#/cb?code=abc&x=1"), "https://h/#/cb?x=1");
         assert_eq!(strip_url("https://h/#/cb?x=1&state=s"), "https://h/#/cb?x=1&state=s");
         assert_eq!(strip_url("https://h/#!/cb?access_token=t"), "https://h/#!/cb");
+        assert_eq!(strip_url("https://h/#!/cb?code=x"), "https://h/#!/cb");
+    }
+
+    #[test]
+    fn strip_url_reads_a_fragment_that_is_not_a_route_as_keys_even_with_a_question_mark() {
+        // An OAuth fragment whose value holds a `?` is not a hash route.
+        assert_eq!(
+            strip_url("https://h/cb#access_token=abc&redirect=https://x/?a=b"),
+            "https://h/cb#redirect=https://x/?a=b"
+        );
+        assert_eq!(strip_url("https://h/cb#token=abc?x"), "https://h/cb");
+        assert_eq!(strip_url("https://h/doc#section?x=1"), "https://h/doc#section?x=1");
     }
 
     #[test]
