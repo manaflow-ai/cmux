@@ -51,6 +51,43 @@ import Testing
         #expect(typing.flatMap { Self.loops(under: $0) } == [], "the transcript's typing row breathes or its dots pulse")
     }
 
+    /// Reduce Motion turning on while the list's typing bubble pulses stops the pulse (the list
+    /// hears the change; nothing waits for the next row update).
+    @Test func reduceMotionTurningOnStopsAPulsingBubble() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
+        home.list.wantsLayer = true
+        let bubble = SidebarTypingLayer()
+        home.list.layer?.addSublayer(bubble)
+        bubble.animate()
+        #expect(Self.loops(under: bubble) != [], "the bubble should pulse before Reduce Motion")
+        Motion.reduceMotionOverride = true
+        #expect(Self.loops(under: bubble) == [], "the bubble keeps pulsing after Reduce Motion turned on")
+        Motion.reduceMotionOverride = false
+        #expect(Self.loops(under: bubble) != [], "the bubble does not pulse again after Reduce Motion turned off")
+    }
+
+    /// Reduce Motion turning on while a transcript typing row runs stills its dots and stops its breath.
+    @Test func reduceMotionTurningOnStillsARunningTypingRow() {
+        MessagesLabHomeView.reduceMotionOverride = false
+        defer { MessagesLabHomeView.reduceMotionOverride = nil }
+        let cell = RowCell(frame: CGRect(x: 0, y: 0, width: 400, height: 40))
+        cell.startTypingDots(begin: CACurrentMediaTime())
+        cell.startTypingBreath(insert: CACurrentMediaTime())
+        let typing = cell.dots + cell.typingDiscs + [cell.typingContainer, cell.typingClip]
+        #expect(typing.flatMap { Self.loops(under: $0) } != [], "the typing row should loop before Reduce Motion")
+        MessagesLabHomeView.reduceMotionOverride = true
+        cell.applyReduceMotion()
+        #expect(typing.flatMap { Self.loops(under: $0) } == [], "the typing row keeps looping after Reduce Motion turned on")
+        // A later breath start (the row's next update) stops a breath too, not only skips it.
+        MessagesLabHomeView.reduceMotionOverride = false
+        cell.startTypingBreath(insert: CACurrentMediaTime())
+        MessagesLabHomeView.reduceMotionOverride = true
+        cell.startTypingBreath(insert: CACurrentMediaTime())
+        #expect([cell.typingContainer, cell.typingClip].flatMap { Self.loops(under: $0) } == [])
+    }
+
     /// The pins follow `Motion.reduceMotionOverride` after the mirror is installed.
     @Test func homesPinsFollowMotionsOverride() {
         _ = HomeSidebarView(frame: .zero)
