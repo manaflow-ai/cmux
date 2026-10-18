@@ -4,6 +4,7 @@
 
 mod accepts;
 mod chat_roots;
+mod json_schema;
 mod retired;
 mod url;
 
