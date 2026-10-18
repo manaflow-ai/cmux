@@ -849,6 +849,7 @@ function RowFrame({
   onFocus,
   onRowKeyDown,
   onCopy,
+  copySelectionKey,
   copyable,
   children,
 }: {
@@ -874,10 +875,13 @@ function RowFrame({
   onFocus: () => void;
   onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
   onCopy?: () => Promise<void>;
+  copySelectionKey: string;
   copyable: boolean;
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
+  // This prop participates in the memo comparator; the frame itself does not need its value.
+  void copySelectionKey;
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
@@ -946,6 +950,30 @@ function RowFrame({
   );
 }
 
+// Scroll state changes the virtual window without changing the mounted rows. Keep those rows
+// out of the render path; content/geometry/selection changes still invalidate the frame.
+const MemoRowFrame = memo(
+  RowFrame,
+  (previous, next) =>
+    previous.row === next.row &&
+    previous.kind === next.kind &&
+    previous.joinsPrevious === next.joinsPrevious &&
+    previous.joinsNext === next.joinsNext &&
+    previous.index === next.index &&
+    previous.setSize === next.setSize &&
+    previous.top === next.top &&
+    previous.rowWidth === next.rowWidth &&
+    previous.expanded === next.expanded &&
+    previous.observer === next.observer &&
+    previous.report === next.report &&
+    previous.enter === next.enter &&
+    previous.active === next.active &&
+    previous.selected === next.selected &&
+    previous.tabStop === next.tabStop &&
+    previous.copySelectionKey === next.copySelectionKey &&
+    previous.copyable === next.copyable,
+);
+
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
@@ -970,10 +998,6 @@ const currentRegistry = (): NativeRegistry => ({
   ...defaultRegistry,
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
 });
-
-/// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
-/// so the transcript ends this far past their total height.
-const THREAD_TOP = 16;
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
@@ -1456,12 +1480,7 @@ export function VirtualTranscript({
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, registry, rows, sessionId, width]);
-  // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
-  // alone placed the latest row's bottom that far under the view.
-  const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP }),
-    [measured],
-  );
+  const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const sessionSwitched = previousSession.current !== sessionId;
@@ -2037,7 +2056,7 @@ export function VirtualTranscript({
                   const controls =
                     row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                   return (
-                    <RowFrame
+                    <MemoRowFrame
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
@@ -2063,6 +2082,7 @@ export function VirtualTranscript({
                           selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
                         )
                       }
+                      copySelectionKey={selectedRowIds.join("\u0000")}
                     >
                       <Component
                         row={row}
@@ -2072,7 +2092,7 @@ export function VirtualTranscript({
                         controls={controls}
                         githubRepository={githubRepository}
                       />
-                    </RowFrame>
+                    </MemoRowFrame>
                   );
                 }),
               )}
