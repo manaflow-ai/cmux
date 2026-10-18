@@ -20,7 +20,7 @@ enum ProcessDetectedTerminalBinding {
         // own PTY. Letting it through would bind an `ssh` or `tmux` from deep
         // inside herdr to that surface, where it could outrank the surface's
         // real foreground herdr client.
-        if HerdrResumeParser.isInsideHerdrPane(environment: environment) {
+        if HerdrResumeInvocation.isInsideHerdrPane(environment: environment) {
             return nil
         }
         if let tmuxBinding = TmuxResumeParser.binding(
@@ -32,7 +32,7 @@ enum ProcessDetectedTerminalBinding {
         ) {
             return tmuxBinding
         }
-        if let herdrInvocation = HerdrResumeParser.invocation(
+        if let herdrInvocation = HerdrResumeInvocation(
             arguments: arguments,
             environment: environment
         ) {

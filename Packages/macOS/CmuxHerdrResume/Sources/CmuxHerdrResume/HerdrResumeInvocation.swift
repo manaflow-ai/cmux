@@ -29,37 +29,34 @@ public struct HerdrResumeInvocation: Equatable, Sendable {
     }
 }
 
-/// Recognizes a live herdr client from its process arguments and environment.
-///
-/// Only the three attach forms are accepted: `herdr`, `herdr --session <name>`
-/// and `herdr session attach <name>`. Everything else fails closed: the
-/// detached `herdr server`, socket subcommands such as `herdr pane list`,
-/// remote attaches (`--remote`, `--machine`) and any unknown option.
-///
-/// Unlike tmux, herdr does not rewrite its process title, so `argv[0]` is the
-/// authority. A process whose arguments are missing is rejected rather than
-/// read as a bare `herdr` attach.
-public enum HerdrResumeParser {
+extension HerdrResumeInvocation {
     /// Set by herdr inside every pane it hosts. A herdr client started there is
     /// nested in another herdr, not the surface's own attach.
     public static let nestedEnvironmentKey = "HERDR_ENV"
 
-    /// Returns the attach that `arguments` perform, or nil when the process is
-    /// not a herdr client attach that a relaunch may repeat.
-    public static func invocation(
-        arguments: [String],
-        environment: [String: String]
-    ) -> HerdrResumeInvocation? {
-        guard !isInsideHerdrPane(environment: environment),
-              let executable = normalized(arguments.first),
-              argumentLooksLikeHerdr(executable),
-              let sessionName = parseAttach(Array(arguments.dropFirst())) else {
+    /// Recognizes a live herdr client from its process arguments and environment,
+    /// or returns nil when the process is not a herdr client attach that a
+    /// relaunch may repeat.
+    ///
+    /// Only the three attach forms are accepted: `herdr`, `herdr --session <name>`
+    /// and `herdr session attach <name>`. Everything else fails closed: the
+    /// detached `herdr server`, socket subcommands such as `herdr pane list`,
+    /// remote attaches (`--remote`, `--machine`) and any unknown option.
+    ///
+    /// Unlike tmux, herdr does not rewrite its process title, so `argv[0]` is the
+    /// authority. A process whose arguments are missing is rejected rather than
+    /// read as a bare `herdr` attach.
+    public init?(arguments: [String], environment: [String: String]) {
+        guard !Self.isInsideHerdrPane(environment: environment),
+              let executable = Self.normalized(arguments.first),
+              Self.argumentLooksLikeHerdr(executable),
+              let session = Self.parseAttach(Array(arguments.dropFirst())) else {
             return nil
         }
-        return HerdrResumeInvocation(
+        self.init(
             executable: executable,
-            sessionName: sessionName.value,
-            workingDirectory: normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
+            sessionName: session.value,
+            workingDirectory: Self.normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
         )
     }
 
@@ -71,7 +68,7 @@ public enum HerdrResumeParser {
     }
 
     /// True when the executable's file name is `herdr`, in any letter case.
-    static func argumentLooksLikeHerdr(_ argument: String) -> Bool {
+    private static func argumentLooksLikeHerdr(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized

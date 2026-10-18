@@ -1,13 +1,13 @@
 import Testing
 @testable import CmuxHerdrResume
 
-@Suite("herdr resume parser")
-struct HerdrResumeParserTests {
+@Suite("herdr resume invocation")
+struct HerdrResumeInvocationTests {
     private func parse(
         _ arguments: [String],
         environment: [String: String] = [:]
     ) -> HerdrResumeInvocation? {
-        HerdrResumeParser.invocation(arguments: arguments, environment: environment)
+        HerdrResumeInvocation(arguments: arguments, environment: environment)
     }
 
     /// A named attach keeps its session and the directory it ran in.
@@ -95,8 +95,8 @@ struct HerdrResumeParserTests {
     /// A client started inside a herdr pane is not the surface's own attach.
     @Test("Client nested inside a herdr pane is rejected")
     func nestedClientIsRejected() {
-        #expect(HerdrResumeParser.isInsideHerdrPane(environment: ["HERDR_ENV": "1"]))
-        #expect(!HerdrResumeParser.isInsideHerdrPane(environment: [:]))
+        #expect(HerdrResumeInvocation.isInsideHerdrPane(environment: ["HERDR_ENV": "1"]))
+        #expect(!HerdrResumeInvocation.isInsideHerdrPane(environment: [:]))
         #expect(parse(["herdr", "--session", "manu"], environment: ["HERDR_ENV": "1"]) == nil)
     }
 
