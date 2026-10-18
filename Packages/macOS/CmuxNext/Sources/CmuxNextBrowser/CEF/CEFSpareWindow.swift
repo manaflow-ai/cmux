@@ -1,3 +1,5 @@
+import Foundation
+
 /// A Chromium window made at an idle moment before any Chromium tab needs
 /// one, so the first tab joins a live window (`cmux_tab_add`) instead of
 /// building one. Building Chromium's first browser window holds the main
@@ -7,37 +9,48 @@
 ///
 /// The spare is a host of the default profile's own store with an
 /// about:blank placeholder, in no pane (its window starts at the hidden-tab
-/// viewport). The first pane host the default profile's own store needs
-/// takes it (`take`): it is re-keyed to that pane, the pane's tab joins its
-/// window, and the placeholder closes (`CEFPaneHost.closeSparePlaceholder`).
-/// Another profile, a remote machine's store or an incognito window gets a
-/// window of its own as before. At most one spare per process, made only
-/// while no Chromium window exists.
+/// viewport). The first host the default profile's own store needs takes it
+/// (`take`): it is re-keyed, the tab joins its window, and on the next
+/// main-actor turn the placeholder closes (`CEFPaneHost.closeSparePlaceholder`).
+/// When that tab closes before the window shows it, the host becomes the
+/// spare again (`giveBack`). Another profile, a remote machine's store or an
+/// incognito window gets a window of its own as before. At most one spare per
+/// process, made only while no Chromium tab exists.
+///
+/// The spare is no window request's target (`CEFWindowRequests`): a page
+/// or extension that asks for a tab with no window of its own still opens a
+/// cmux tab. A tab Chromium puts into the spare's window anyway (an
+/// extension's `chrome.tabs.create` targets its last window) waits there
+/// (`park`) and is adopted by the first tab that takes the spare.
 final class CEFSpareWindow {
     static let shared = CEFSpareWindow()
     static let panePrefix = "spare-"
 
     enum State: String {
-        case none, creating, live, taken
+        case none, creating, live, taken, closed
     }
 
-    private var host: CEFPaneHost?
+    private(set) var host: CEFPaneHost?
     private var made = false
-    private(set) var tookAt: ContinuousClock.Instant?
+    /// Tabs Chromium created in the spare's window before a tab took it.
+    private var parked: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)] = []
 
     var state: State {
-        if let host { return host.isLive ? .live : .creating }
-        return made ? .taken : .none
+        guard let host else { return made ? .taken : .none }
+        guard host.placeholder != nil else { return .closed }
+        return host.isLive ? .live : host.isCreatingWindow ? .creating : .closed
     }
 
+    func isSpare(_ candidate: CEFPaneHost) -> Bool { host === candidate }
+
     /// Starts the spare window: true when it started. Chromium must run and
-    /// no Chromium window may exist or be on its way.
+    /// no Chromium tab may exist (its window may be on its way).
     @discardableResult
     func prepare(runtime: CEFRuntime) -> Bool {
         guard !made, runtime.state == .ready,
-              !runtime.hosts.values.contains(where: { $0.isLive || $0.isCreatingWindow }) else { return false }
+              !runtime.hosts.values.contains(where: { !$0.tabs.isEmpty || $0.isLive || $0.isCreatingWindow }) else { return false }
         made = true
-        let key = CEFPaneKey(pane: BrowserPaneID(rawValue: Self.panePrefix + BrowserTabID.random().rawValue), profile: .default)
+        let key = Self.spareKey()
         let spare = runtime.host(for: key)
         let blank = CEFTab(id: .random(), profile: .default, host: spare, runtime: runtime)
         spare.placeholder = blank
@@ -56,18 +69,45 @@ final class CEFSpareWindow {
     func take(for key: CEFPaneKey, runtime: CEFRuntime) -> CEFPaneHost? {
         guard let spare = host, key.profile == spare.key.profile, key.machineKey == nil, !key.offTheRecord,
               !key.pane.rawValue.hasPrefix(Self.panePrefix), !key.pane.rawValue.hasPrefix(CEFPaneHost.popupPrefix),
-              spare.isLive || spare.isCreatingWindow else { return nil }
+              spare.placeholder != nil, spare.isLive || spare.isCreatingWindow else { return nil }
         host = nil
-        tookAt = .now
         runtime.hosts[spare.key] = nil
         spare.rekey(key)
         runtime.hosts[key] = spare
         return spare
     }
+
+    /// The tab that took `taken` closed before it joined the window, and only
+    /// the placeholder is left: `taken` is the spare again.
+    func giveBack(_ taken: CEFPaneHost, runtime: CEFRuntime) {
+        guard host == nil, taken.placeholder != nil, taken.tabs.count == 1 else { return }
+        runtime.hosts[taken.key] = nil
+        taken.rekey(Self.spareKey())
+        runtime.hosts[taken.key] = taken
+        host = taken
+    }
+
+    /// Chromium put `browser` into the spare's window before a tab took it.
+    func park(_ browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?) {
+        parked.append((browser, disposition, bounds))
+    }
+
+    /// The parked tabs, for the host that took the spare.
+    func takeParked() -> [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)] {
+        defer { parked.removeAll() }
+        return parked
+    }
+
+    private static func spareKey() -> CEFPaneKey {
+        CEFPaneKey(pane: BrowserPaneID(rawValue: panePrefix + BrowserTabID.random().rawValue), profile: .default)
+    }
 }
 
 extension CEFPaneHost {
-    /// A spare window's host becomes pane `key`'s (same profile and store).
+    /// True while this host is the untaken spare window.
+    var isSpare: Bool { CEFSpareWindow.shared.isSpare(self) }
+
+    /// A spare window's host becomes another host key (same profile and store).
     func rekey(_ key: CEFPaneKey) {
         precondition(key.profile == self.key.profile && key.machineKey == self.key.machineKey && key.offTheRecord == self.key.offTheRecord,
                      "a spare Chromium window keeps its store")
@@ -75,10 +115,24 @@ extension CEFPaneHost {
     }
 
     /// `tab` joined this window: a spare window's about:blank placeholder
-    /// closes (a popup host closes its own in `movePopupsIn`).
+    /// closes on the next main-actor turn (never inside Chromium's tab
+    /// insertion or OnAfterCreated), and the tabs Chromium parked there are
+    /// adopted with `tab` as their opener. A popup host closes its own
+    /// placeholder in `movePopupsIn`.
     func closeSparePlaceholder(joined tab: CEFTab) {
-        guard !isPopupHost, let blank = placeholder, blank !== tab, tab.browserID != nil else { return }
-        placeholder = nil
-        blank.close()
+        guard !isPopupHost, !isSpare, placeholder != nil, placeholder !== tab, tab.browserID != nil else { return }
+        Task { @MainActor [weak self, weak tab] in
+            guard let self, let tab, let blank = self.placeholder, self.tabs.contains(where: { $0 === tab }) else { return }
+            self.placeholder = nil
+            // The joined tab is what this host shows: Chromium's activation
+            // after the close is this host's own, never a foreign one.
+            if let browser = tab.browserID { self.lastActivated = browser }
+            self.removed(blank)
+            blank.close()
+            for parked in CEFSpareWindow.shared.takeParked()
+            where self.runtime.tabsByBrowser[parked.browser] == nil && !self.runtime.orphans.ledger.isClosed(parked.browser) {
+                self.adoptChromiumTab(browser: parked.browser, disposition: parked.disposition, bounds: parked.bounds)
+            }
+        }
     }
 }

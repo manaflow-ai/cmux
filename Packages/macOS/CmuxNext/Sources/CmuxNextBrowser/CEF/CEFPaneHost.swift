@@ -273,6 +273,8 @@ final class CEFPaneHost {
     /// A `.popup` becomes a floating panel page with its own window
     /// (`adoptPopup`); `bounds` are its window features.
     func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
+        // The spare window has no pane to announce it to: the tab that takes it adopts it.
+        if isSpare { return CEFSpareWindow.shared.park(browser, disposition: disposition, bounds: bounds) }
         let opener = visibleTab ?? tabs.last
         if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
@@ -294,6 +296,8 @@ final class CEFPaneHost {
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        // A taken spare whose tab closed before it joined: the spare again.
+        if !isPopupHost, tabs.count == 1, placeholder != nil { CEFSpareWindow.shared.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             window = .none
             hostView.removeFromSuperview()

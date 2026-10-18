@@ -103,7 +103,7 @@ final class CEFRuntime {
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
-    private var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false

@@ -65,6 +65,7 @@ final class ChromiumWarmup {
     private var idleAction: (@MainActor () -> Void)?
     /// Warm up after the launch preload with no other signal (`start(atLaunch:)`).
     private var startsAtLaunch = false
+    private var stopped = false
 
     init(
         engine: CEFEngine,
@@ -103,12 +104,18 @@ final class ChromiumWarmup {
         guard self.reason == nil, isAvailable, !engine.isRunning else { return }
         self.reason = reason
         engine.preload()
-        waitForIdle { [weak self] in
-            guard let self else { return }
-            // task-owner: one warm start per process; CEFEngine owns its lifetime
-            Task { [weak self] in
-                await self?.engine.warmStart(reason: reason.rawValue)
-                self?.warmStarted()
+        // The idle wait starts once the framework is mapped, so CefInitialize
+        // never waits on a cold load and then lands in input.
+        // task-owner: one warm start per process; CEFEngine owns its lifetime
+        Task { [weak self] in
+            await self?.engine.libraryLoadEnded()
+            guard let self, !stopped else { return }
+            waitForIdle { [weak self] in
+                // task-owner: one warm start per process; CEFEngine owns its lifetime
+                Task { [weak self] in
+                    await self?.engine.warmStart(reason: reason.rawValue)
+                    self?.warmStarted()
+                }
             }
         }
     }
@@ -117,7 +124,7 @@ final class ChromiumWarmup {
     /// idle moment, a main-thread step of its own, so neither step lands in
     /// the first tab's open.
     private func warmStarted() {
-        guard engine.isRunning else { return }
+        guard !stopped, engine.isRunning else { return }
         waitForIdle { [weak self] in self?.engine.prepareSpareWindow() }
     }
 
@@ -133,6 +140,7 @@ final class ChromiumWarmup {
     }
 
     func stop() {
+        stopped = true
         launchTimer.cancel()
         finishWaiting()
     }

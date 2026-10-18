@@ -88,7 +88,13 @@ public final class CEFEngine: BrowserEngine {
         CEFSpareWindow.shared.prepare(runtime: .shared)
     }
 
-    /// `none`, `creating`, `live` or `taken` (`debug.cef`).
+    /// Returns once the framework load that `preload` started ended (at once
+    /// when none runs).
+    public func libraryLoadEnded() async {
+        _ = await CEFRuntime.shared.loadTask?.value
+    }
+
+    /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
 
     /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
