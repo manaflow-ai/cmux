@@ -195,3 +195,49 @@ pub(super) fn is_private_window(connection: &Connection, keys: &[String]) -> any
     )?;
     Ok(usize::try_from(ephemeral)? == distinct.len())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::strip_url;
+
+    #[test]
+    fn strip_url_drops_secret_query_keys_byte_for_byte() {
+        assert_eq!(strip_url("https://a.example/p?q=1&token=s"), "https://a.example/p?q=1");
+        assert_eq!(strip_url("https://a.example/p?token=s"), "https://a.example/p");
+        assert_eq!(strip_url("https://a.example/p?q=a%20b&x"), "https://a.example/p?q=a%20b&x");
+    }
+
+    #[test]
+    fn strip_url_drops_user_info() {
+        assert_eq!(strip_url("https://user:pass@a.example/p"), "https://a.example/p");
+        assert_eq!(strip_url("https://user@a.example"), "https://a.example");
+        // An `@` in the path is not user info.
+        assert_eq!(strip_url("https://a.example/@me"), "https://a.example/@me");
+    }
+
+    #[test]
+    fn strip_url_drops_secret_fragment_keys() {
+        assert_eq!(
+            strip_url("https://a.example/cb#access_token=t&x=1"),
+            "https://a.example/cb#x=1"
+        );
+        assert_eq!(strip_url("https://a.example/cb#access_token=t"), "https://a.example/cb");
+        // A fragment part without a value is an anchor, not a key.
+        assert_eq!(strip_url("https://a.example/doc#token"), "https://a.example/doc#token");
+        assert_eq!(strip_url("https://a.example/doc#section"), "https://a.example/doc#section");
+    }
+
+    #[test]
+    fn strip_url_strips_every_part_together() {
+        assert_eq!(
+            strip_url("https://user:pass@a.example/p?q=1&token=s#access_token=t&x=1"),
+            "https://a.example/p?q=1#x=1"
+        );
+    }
+
+    #[test]
+    fn strip_url_leaves_non_web_urls_alone() {
+        assert_eq!(strip_url("file:///tmp/a?token=s"), "file:///tmp/a?token=s");
+        assert_eq!(strip_url("cmux://history#access_token=t"), "cmux://history#access_token=t");
+    }
+}
