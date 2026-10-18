@@ -177,7 +177,9 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
 /// The binary under test. Only for values (a path a daemon passes on, an
 /// agent host launcher); start a process with [`acpmux`] or [`command`].
 pub fn bin() -> &'static Path {
-    Path::new(env!("CARGO_BIN_EXE_acpmux"))
+    // Other workspace test targets reuse the process environment without
+    // owning an acpmux executable. They must use their own native runner.
+    Path::new(option_env!("CARGO_BIN_EXE_acpmux").expect("this test target has no acpmux binary"))
 }
 
 /// Whether the daemon may start agent processes.
