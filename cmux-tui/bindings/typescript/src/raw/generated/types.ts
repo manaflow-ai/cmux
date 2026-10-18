@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0. */
+/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -343,6 +343,8 @@ export type ConversationTabSplit = {
   "direction": string;
   /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
   "pane_id"?: (string) | null;
+  /** Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed. */
+  "split_id"?: (string) | null;
 };
 
 export type ConversationTextRun = {
@@ -597,6 +599,8 @@ export type Layout = ({ "type": "leaf" } & {
   "ratio": number;
   /** Stable for the lifetime of this split node. */
   "split"?: Id;
+  /** The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it. */
+  "split_id"?: string;
   "type": "split";
 }) | ({ "type": "stack" } & {
   "expanded": Id;
