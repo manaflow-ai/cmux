@@ -5,7 +5,7 @@
  * Never executed.
  */
 import { name } from "@gdp-ts/core";
-import { Effect } from "effect";
+import { Effect, Redacted } from "effect";
 import type { Principal } from "../../src/domain/principal.ts";
 import type { VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
@@ -89,3 +89,28 @@ export const networkMisuse = (principal: Principal, vmId: VmId) =>
       yield* upstream.createVm(caller, { ...spec, initialNetwork: { publicEgress: true } }, { scope, mayCreate: decision.proof });
     })));
   });
+
+export const proxyMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effect.gen(function* () {
+  const upstream = yield* UpstreamClient;
+  yield* name(principal, vmA, vmB, (caller, a, b) => Effect.gen(function* () {
+    const owns = yield* tenantOwnsVm(caller, a);
+    const scope = keyHasScope(caller, "vm:network");
+    const write = keyHasScope(caller, "vm:write");
+    if (owns === null || scope === null || write === null) return;
+    const network = yield* vmNetworkAllowed(caller, { publicEgress: false, httpsProxies: [{
+      hostname: "api.cmux.internal", destination: "https://api.example.test", headers: Redacted.make({}),
+    }] });
+    yield* upstream.replaceVmHttpsProxy(a, { owns, scope, network });
+    // @ts-expect-error VM A's ownership does not authorize changing VM B's proxy
+    yield* upstream.replaceVmHttpsProxy(b, { owns, scope, network });
+    // @ts-expect-error ordinary VM write permission cannot change network policy
+    yield* upstream.replaceVmHttpsProxy(a, { owns, scope: write, network });
+    // @ts-expect-error network scope alone does not prove an approved replacement policy
+    yield* upstream.replaceVmHttpsProxy(a, { owns, scope });
+    yield* name(principal, (other) => Effect.gen(function* () {
+      const otherNetwork = yield* vmNetworkAllowed(other, { publicEgress: false, httpsProxies: [] });
+      // @ts-expect-error another caller's network policy does not authorize this VM
+      yield* upstream.replaceVmHttpsProxy(a, { owns, scope, network: otherNetwork });
+    }));
+  }));
+});

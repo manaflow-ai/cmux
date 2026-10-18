@@ -135,9 +135,12 @@ export function makeFakeUpstream(apiKey: string) {
       }
       case "get":
         return vm === undefined ? notFound() : Response.json(vmBody(vm));
-      case "listTlsRules":
+      case "listTlsRules": {
         // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
-        return Response.json({ rules: [...tlsRules.values()], totalCount: tlsRules.size });
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        return Response.json({ rules: [...tlsRules.values()].slice(offset, offset + limit), totalCount: tlsRules.size });
+      }
       case "replaceTlsRule": {
         const id = decodeURIComponent(url.pathname.slice("/v5/tls/".length));
         if (!tlsRules.has(id)) return notFound();

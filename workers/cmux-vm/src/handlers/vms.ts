@@ -14,6 +14,8 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
+import { idempotent } from "./idempotency.ts";
+import { replaceVmHttpsProxy } from "./https-proxies.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
@@ -34,7 +36,6 @@ import {
 } from "../errors.ts";
 import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type SnapshotId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
-import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
@@ -114,12 +115,6 @@ const idleOrFail = (principal: Principal, requested: number | undefined) =>
     const idle = resolveIdleTimeout(policy, principal.tenantId, requested);
     return idle.ok ? Effect.succeed(idle.seconds) : Effect.fail(badRequest(idle.message));
   });
-
-/** SHA-256 hex of a canonical JSON rendering; same request, same fingerprint. */
-const fingerprint = (value: unknown) =>
-  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))).pipe(
-    Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
-  );
 
 const sortedLabels = (labels: Readonly<Record<string, string>> | undefined) =>
   labels === undefined ? null : Object.fromEntries(Object.entries(labels).sort(([a], [b]) => (a < b ? -1 : 1)));
@@ -237,45 +232,6 @@ const replayVm = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:writ
         const current = yield* upstream.getVmForWrite(vm, { owns, scope }).pipe(Effect.mapError(onRead));
         return toVm(vm.value, owns, current);
       }),
-    );
-  });
-
-/**
- * Runs a create or fork under an optional idempotency key. A retry with the
- * same key and request replays the first VM (or resumes a fork from its kept
- * snapshot); the same key with a different request is 409, as is a retry
- * while the first request still runs. Keys are per tenant.
- */
-const idempotent = <E, R>(
-  principal: Principal,
-  key: string | undefined,
-  request: unknown,
-  run: (resumeFrom: IdempotencyProgress | null, keyed: string | null) => Effect.Effect<Vm, E, R>,
-  replay: (vmId: string) => Effect.Effect<Vm, E | NotFound | ServiceUnavailable, R | UpstreamClient | OwnershipStore>,
-) =>
-  Effect.gen(function* () {
-    if (key === undefined) return yield* run(null, null);
-    const limits = yield* TenantLimits;
-    // A service key (cx-b4h.13) shares the team's ledger but never its keys: the same key from a member never replays to it.
-    const scoped = `${yield* fingerprint(principal.actor.kind === "service" ? ["service", principal.actor.serviceId, key] : ["key", key])}`;
-    const claim = yield* limits
-      .begin(principal.tenantId, scoped, yield* fingerprint(request))
-      .pipe(Effect.mapError(() => unavailable()));
-    switch (claim.state) {
-      case "mismatch":
-        return yield* Effect.fail(conflict("This Idempotency-Key was already used with a different request"));
-      case "in_progress":
-        return yield* Effect.fail(conflict("A request with this Idempotency-Key is still running; retry shortly"));
-      case "resume":
-        if (claim.progress.phase === "done") return yield* replay(claim.progress.vmId);
-        break;
-      case "new":
-        break;
-    }
-    const resumeFrom = claim.state === "resume" ? claim.progress : null;
-    return yield* run(resumeFrom, scoped).pipe(
-      Effect.tap((vm) => limits.advance(principal.tenantId, scoped, { phase: "done", vmId: vm.id }).pipe(Effect.ignore)),
-      Effect.tapError(() => limits.abandon(principal.tenantId, scoped)),
     );
   });
 
@@ -530,6 +486,9 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       audited("vm.create", null, createVm(payload, headers["idempotency-key"]), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
+    .handle("replaceVmHttpsProxy", ({ path, payload, headers }) =>
+      audited("vm.https_proxy.replace", auditableVmId(path.vmId), replaceVmHttpsProxy(path.vmId, path.hostname, payload, headers["idempotency-key"]), (receipt) => receipt.id),
+    )
     .handle("startVm", ({ path }) =>
       audited(
         "vm.start",

@@ -17,6 +17,8 @@ export interface VmEndpointCase {
 }
 
 export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
+  { name: "replaceVmHttpsProxy", method: "PUT", template: "/v1/vms/{vmId}/https-proxies/{hostname}",
+    path: (id) => `/v1/vms/${id}/https-proxies/api.example.test`, scope: "vm:network", json: { destination: "https://proxy.example.test" } },
   { name: "getVm", method: "GET", template: "/v1/vms/{vmId}", path: (id) => `/v1/vms/${id}`, scope: "vm:read" },
   { name: "startVm", method: "POST", template: "/v1/vms/{vmId}/start", path: (id) => `/v1/vms/${id}/start`, scope: "vm:write" },
   { name: "stopVm", method: "POST", template: "/v1/vms/{vmId}/stop", path: (id) => `/v1/vms/${id}/stop`, scope: "vm:write" },

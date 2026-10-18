@@ -88,6 +88,10 @@ export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  readonly replaceVmHttpsProxy: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network">; readonly network: VmNetworkAllowed<C> },
+  ) => Effect.Effect<"updated" | "missing" | "ambiguous", UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },

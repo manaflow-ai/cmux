@@ -45,6 +45,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vms/{vmId}/https-proxies/{hostname}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace an HTTPS proxy
+         * @description Replace an HTTPS proxy. Requires the vm:network scope. Replaces only an existing HTTP proxy whose source is exactly this VM, never a shared-network or public rule. The destination must be approved by the deployment. Missing rules are 404; multiple matches are 409. Credentials are write-only. With an Idempotency-Key, identical retries replay the receipt; changed policy or credentials are 409. This does not install guest hosts entries or create new proxy rules. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        put: operations["vms.replaceVmHttpsProxy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/vms/{vmId}": {
         parameters: {
             query?: never;
@@ -943,6 +963,21 @@ export interface components {
             createdAt: string;
             updatedAt: string;
         };
+        /** @description Replace an existing creation-time HTTPS proxy; destinations must remain approved by the deployment. Omitted headers clear the previous header set. */
+        ReplaceVmHttpsProxyRequest: {
+            /**
+             * maxLength(2048)
+             * @description A bare HTTPS origin enabled by the deployment's proxy policy.
+             */
+            destination: string;
+            /** @description Redacted(<redacted>) */
+            headers?: components["schemas"]["VmProxyHeaders"];
+        };
+        VmHttpsProxyReceipt: {
+            /** @description a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            id: string;
+            hostname: string;
+        };
         ForkVmRequest: {
             /**
              * maxLength(100)
@@ -1550,6 +1585,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaymentRequired"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "vms.replaceVmHttpsProxy": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key"?: string;
+            };
+            path: {
+                vmId: string;
+                hostname: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceVmHttpsProxyRequest"];
+            };
+        };
+        responses: {
+            /** @description VmHttpsProxyReceipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VmHttpsProxyReceipt"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
                 };
             };
             /** @description Forbidden */

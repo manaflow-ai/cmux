@@ -168,9 +168,10 @@
       "reason": "planned in cx-b4h.9"
     },
     "list_tls_rules": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "vms.replaceVmHttpsProxy"
+      ]
     },
     "create_tls_rule": {
       "status": "planned",
@@ -213,9 +214,10 @@
       "reason": "planned in cx-b4h.6"
     },
     "update_tls_rule": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": [
+        "vms.replaceVmHttpsProxy"
+      ]
     },
     "list_tunnels": {
       "status": "planned",

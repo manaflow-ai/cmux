@@ -8,6 +8,8 @@
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { initialNetworkBody } from "./initial-network.ts";
+import { makeUpstreamHttp } from "./live-http.ts";
+import { makeHttpsProxies } from "./live-https-proxies.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -199,6 +201,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
+    ...makeHttpsProxies(makeUpstreamHttp(config)),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),

@@ -25,6 +25,7 @@ import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
+import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -307,6 +308,16 @@ export class VmsGroup extends HttpApiGroup.make("vms")
       .addError(BadRequest)
       .addError(QuotaExceeded)
       .annotateContext(describe("List the tenant's VMs, newest first", "vm:read", "A key with a resource allowlist sees only those VMs.")),
+  )
+  .add(
+    HttpApiEndpoint.put("replaceVmHttpsProxy", "/v1/vms/:vmId/https-proxies/:hostname")
+      .setPath(Schema.Struct({ vmId: Schema.String, hostname: Schema.String }))
+      .setPayload(ReplaceVmHttpsProxyRequest)
+      .setHeaders(CreateHeaders)
+      .addSuccess(VmHttpsProxyReceipt)
+      .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Replace an HTTPS proxy", "vm:network",
+        "Replaces only an existing HTTP proxy whose source is exactly this VM, never a shared-network or public rule. The destination must be approved by the deployment. Missing rules are 404; multiple matches are 409. Credentials are write-only. With an Idempotency-Key, identical retries replay the receipt; changed policy or credentials are 409. This does not install guest hosts entries or create new proxy rules.")),
   )
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")

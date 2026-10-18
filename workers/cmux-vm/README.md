@@ -110,6 +110,21 @@ rows, or returned in errors and VM responses. A retry with changed network
 intent or credentials under the same Idempotency-Key is 409. Forks do not
 inherit network intent.
 
+`PUT /v1/vms/{vmId}/https-proxies/{hostname}` replaces an existing HTTP
+proxy with `{ "destination": "https://api.example.com", "headers": { ... } }`.
+It requires `vm:network` and ownership of that VM, including any key resource
+allowlist or service labels. The same origin and header policy applies.
+Omitted headers clear the previous set. The receipt contains only `id` and
+`hostname`.
+
+Only rules whose source is exactly the owned VM qualify. Shared-network,
+public, foreign-VM and non-HTTP rules are never changed. No match is 404;
+multiple exact matches are 409. Lookup is bounded to 256 rules and refuses
+an incomplete listing before updating anything. Replacement never creates a
+rule or installs guest hosts/CA files. With an Idempotency-Key, replaying a
+completed rotation does not overwrite a later one; changing policy or
+credentials under the same key is 409.
+
 ## Layout
 
 | path | what |

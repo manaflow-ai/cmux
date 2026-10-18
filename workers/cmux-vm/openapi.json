@@ -345,6 +345,164 @@
         "summary": "List the tenant's VMs, newest first"
       }
     },
+    "/v1/vms/{vmId}/https-proxies/{hostname}": {
+      "put": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.replaceVmHttpsProxy",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "hostname",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmHttpsProxyReceipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmHttpsProxyReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replace an HTTPS proxy. Requires the vm:network scope. Replaces only an existing HTTP proxy whose source is exactly this VM, never a shared-network or public rule. The destination must be approved by the deployment. Missing rules are 404; multiple matches are 409. Credentials are write-only. With an Idempotency-Key, identical retries replay the receipt; changed policy or credentials are 409. This does not install guest hosts entries or create new proxy rules. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Replace an HTTPS proxy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceVmHttpsProxyRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/v1/vms/{vmId}": {
       "get": {
         "tags": [
@@ -6402,6 +6560,49 @@
             "type": "string"
           },
           "updatedAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReplaceVmHttpsProxyRequest": {
+        "type": "object",
+        "required": [
+          "destination"
+        ],
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "A bare HTTPS origin enabled by the deployment's proxy policy.",
+            "title": "maxLength(2048)",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "headers": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VmProxyHeaders"
+              }
+            ],
+            "description": "Redacted(<redacted>)"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Replace an existing creation-time HTTPS proxy; destinations must remain approved by the deployment. Omitted headers clear the previous header set."
+      },
+      "VmHttpsProxyReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "hostname"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "hostname": {
             "type": "string"
           }
         },
