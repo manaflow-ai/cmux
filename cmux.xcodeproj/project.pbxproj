@@ -4528,6 +4528,8 @@
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
 		6C22F42D4C32A1FC16606657 /* WorkspaceMergeDragRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2372CBDBDF42F138982364F /* WorkspaceMergeDragRegistry.swift */; };
 		D305133E351288EA04E14A27 /* WorkspaceMergeDropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249F3EAF2C42B1E73A101D48 /* WorkspaceMergeDropTests.swift */; };
+		BD8175EB8F7ABA14B7F13AE9 /* WorkspaceMergeIntoMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306581A539D0F3790629C8B0 /* WorkspaceMergeIntoMenu.swift */; };
+		20576B3B8ECAA81D585E1108 /* WorkspaceMergeIntoMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15BBB4534F253CA11F428B9 /* WorkspaceMergeIntoMenuTests.swift */; };
 		7A5CB79CC6593B900E8120CE /* WorkspacePaneFlashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */; };
 		E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */; };
 		D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */; };
@@ -9080,6 +9082,8 @@
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
 		D2372CBDBDF42F138982364F /* WorkspaceMergeDragRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/WorkspaceMergeDragRegistry.swift; sourceTree = "<group>"; };
 		249F3EAF2C42B1E73A101D48 /* WorkspaceMergeDropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceMergeDropTests.swift"; sourceTree = "<group>"; };
+		306581A539D0F3790629C8B0 /* WorkspaceMergeIntoMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMergeIntoMenu.swift; sourceTree = "<group>"; };
+		D15BBB4534F253CA11F428B9 /* WorkspaceMergeIntoMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceMergeIntoMenuTests.swift"; sourceTree = "<group>"; };
 		6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePaneFlashModel.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
@@ -12346,6 +12350,7 @@
 				32EE1C28EF7A7BF6ADD44E45 /* ClickByHintPreview.swift */,
 				A9415C44EEB98E47FEAD7BCD /* RemoteTmuxController+NewSession.swift */,
 				888DEA5181DA90BA20514C63 /* AgentSessionTurnNotifier.swift */,
+				306581A539D0F3790629C8B0 /* WorkspaceMergeIntoMenu.swift */,
 				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
 				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
 				352D4A0BA53BF9B5B3480BE8 /* MainWindowHitTestMutationMonitor.swift */,
@@ -13923,6 +13928,7 @@
 				90DE3B8367240280F25B9F8F /* TerminalPasteWorkerStartupDeadlineTests.swift */,
 				AE9E0374E48A69A913AF07CE /* AgentMessageHookClaimTests.swift */,
 				9FF26F73EF3C4096BF73A840 /* AgentSessionPanelNotificationTests.swift */,
+				D15BBB4534F253CA11F428B9 /* WorkspaceMergeIntoMenuTests.swift */,
 				60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */,
 				4D7B132532B469F533014740 /* TerminalFocusTestFixture.swift */,
 				826C6265890DC3A126404525 /* GhosttyMinimumContrastLayerBackgroundTests.swift */,
@@ -17410,6 +17416,7 @@
 				A17C0A110000000000000001 /* WorkspaceInitialCommandLoginShell.swift in Sources */,
 				CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */,
 				6C22F42D4C32A1FC16606657 /* WorkspaceMergeDragRegistry.swift in Sources */,
+				BD8175EB8F7ABA14B7F13AE9 /* WorkspaceMergeIntoMenu.swift in Sources */,
 				7A5CB79CC6593B900E8120CE /* WorkspacePaneFlashModel.swift in Sources */,
 				E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,
@@ -19156,6 +19163,7 @@
 				C0DE12746000000000000009 /* WorkspaceManualPullRequestTests.swift in Sources */,
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
 				D305133E351288EA04E14A27 /* WorkspaceMergeDropTests.swift in Sources */,
+				20576B3B8ECAA81D585E1108 /* WorkspaceMergeIntoMenuTests.swift in Sources */,
 				98303425ACB3352DC719B54C /* WorkspaceProgramStatusTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */,
