@@ -19,9 +19,11 @@ as fast as the socket answers:
              samples and the recorded window pixels (OUT/series-N/, read through sips) never jump.
   terminal   the shown terminal draws rows of palette red; its theme changes Mocha -> Latte -> Mocha
              within 300 ms. The recorded terminal pixels (OUT/terminal/) blend and never jump, the
-             Ghostty frame counters (debug.surfaces render_counters) show blend frames that rebuilt
-             no cells (a blend frame changes only the color table the shaders read), and no frame
-             is drawn once the blend ended (the frame callbacks stop).
+             Ghostty frame counters (debug.surfaces render_counters) show blend frames and 0 cell
+             rebuilds for the two color-only changes (the cells keep color references; only the
+             color table moves), and no frame is drawn once the blend ended. Then a font size
+             change rebuilds every row once (full_font; the preview switch and the restore that
+             follow keep rows whose content is the same).
   record     (--record) one debug.window_record of a blend, frames under OUT/record/.
   glass      (--material glass) a see-through Liquid Glass window instead: three switches between
              a dark and a light workspace, each recorded (OUT/glass-N/). The old tint's overlay
@@ -458,8 +460,13 @@ try:
         blend_frames = after["blend_frames"] - before["blend_frames"]
         rebuilds = after["cell_rebuilds"] - before["cell_rebuilds"]
         check(blend_frames >= 10, f"terminal: Ghostty drew the blend frame by frame ({blend_frames} blend frames)")
-        check(rebuilds <= 8 and rebuilds * 3 < blend_frames,
-              f"terminal: blend frames rebuild no cells ({rebuilds} cell rebuilds for {blend_frames} blend frames, two theme changes)")
+        full = {k: after.get(k, 0) - before.get(k, 0)
+                for k in ("full_palette", "full_config", "full_font", "full_other", "full_swap", "full_resize")}
+        updates = after.get("frame_updates", 0) - before.get("frame_updates", 0)
+        report["terminal-rebuilds"] = {"cell_rebuilds": rebuilds, "frame_updates": updates, **full}
+        check(rebuilds == 0 and not any(full.values()),
+              f"terminal: two color-only theme changes rebuild no cells ({rebuilds} cell rebuilds, full {full}, "
+              f"{updates} frame updates, {blend_frames} blend frames)")
         check(idle["frames"] - after["frames"] <= 1,
               f"terminal: no frame is drawn once the blend ended ({idle['frames'] - after['frames']} frames in 0.5 s)")
     else:
@@ -472,6 +479,29 @@ try:
         return bool(color) and color[0] - color[1] > 0.2
     check(bool(pixels) and reddish(pixels[0]) and reddish(pixels[-1]),
           f"terminal: the sampled spot is the red rows at both ends ({pixels[:1]} ... {pixels[-1:]})")
+
+    # font: a font size change (terminal.increaseFontSize) still rebuilds the cells, once for the
+    # new font grid.
+    before = counters()
+    fire("terminal.increaseFontSize")
+    trace, start = [], time.monotonic()
+    while time.monotonic() - start < 1.5:  # bounded sampling window
+        t = terminal_surface()
+        c = t.get("render_counters") or {}
+        trace.append((round(time.monotonic() - start, 3), t.get("grid"), t.get("fit_grid"), t.get("drawn_grid"),
+                      {k: c.get(k, 0) - before.get(k, 0) for k in c if k.startswith("full_") or k == "cell_rebuilds"}))
+    report["font-trace"] = trace
+    after = counters()
+    action("terminal.decreaseFontSize")
+    if before and after:
+        delta = {k: after.get(k, 0) - before.get(k, 0) for k in after}
+        report["font-rebuilds"] = delta
+        fulls = sum(v for k, v in delta.items() if k.startswith("full_"))
+        check(delta.get("full_font") == 1 and fulls == 1,
+              f"font: a font size change rebuilds every row once, for the new font ({delta})")
+    else:
+        check(False, "font: render counters before and after")
+    time.sleep(1.0)
 
     # instant: enabled false.
     config(enabled=False, duration=400, curve="linear")

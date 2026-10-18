@@ -126,6 +126,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
+                // What this Mac does while agents work (keep awake).
+                group("settings.group.sessions"),
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
             ],

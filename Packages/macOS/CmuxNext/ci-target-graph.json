@@ -185,6 +185,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextIcons",
+        "CmuxNextKeepAwake",
         "CmuxNextLayout",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
@@ -265,7 +266,8 @@
         "CmuxAgentQuestion",
         "CmuxGhosttyKit",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMessagesLab"
       ],
       "reads": [
         "Resources/ghostty/themes/",
@@ -637,6 +639,27 @@
         "CmuxNextCompat"
       ],
       "packages": []
+    },
+    "CmuxNextKeepAwake": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextKeepAwake",
+      "targets": [
+        "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextKeepAwakeTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextKeepAwakeTests",
+      "targets": [
+        "CmuxNextKeepAwake",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextLayout": {
       "kind": "regular",
