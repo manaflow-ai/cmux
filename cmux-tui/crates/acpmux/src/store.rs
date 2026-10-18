@@ -64,6 +64,22 @@ impl std::fmt::Display for SessionStatus {
     }
 }
 
+/// What a watched chat follows (`hub/watch.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Watching {
+    /// `claude` or `codex`.
+    pub family: String,
+    /// The harness's transcript, found in its own store (`adopt.rs`).
+    pub file: PathBuf,
+    /// How far into `file` acpmux has read, in bytes.
+    #[serde(default)]
+    pub offset: u64,
+    /// The rollout is a current Codex one, whose message items are its turns (`adopt_replay.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub codex_items: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -187,6 +203,10 @@ pub struct SessionMeta {
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub harness_roots: Vec<HarnessRoot>,
+    /// A Claude Code or Codex conversation this chat shows without running it (`hub/watch.rs`):
+    /// cleared when a client takes it over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watching: Option<Watching>,
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,

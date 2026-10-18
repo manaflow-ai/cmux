@@ -282,6 +282,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watch_take_over",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/archive",
       "params": true,
       "result": true
@@ -2233,6 +2239,13 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "watching": {
+          "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

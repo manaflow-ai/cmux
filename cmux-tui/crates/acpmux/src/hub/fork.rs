@@ -158,6 +158,7 @@ impl Hub {
             chat_store: parent_meta.chat_store.clone(),
             adopted_cwd: None,
             harness_roots: vec![],
+            watching: None,
             composer_draft: None,
             // Filled below with the fork's own seqs of the marked prompts it copies.
             bookmarks: Default::default(),

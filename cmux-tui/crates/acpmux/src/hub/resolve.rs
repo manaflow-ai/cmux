@@ -196,6 +196,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         chat_store: None,
         adopted_cwd: None,
         harness_roots: vec![],
+        watching: None,
         composer_draft: None,
         bookmarks: Default::default(),
         tools: Default::default(),
