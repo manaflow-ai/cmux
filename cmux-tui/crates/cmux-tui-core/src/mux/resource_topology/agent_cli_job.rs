@@ -40,7 +40,7 @@ impl Mux {
         Ok(match previous {
             None => json!({"state":"not_found"}),
             Some(ResourceCreationPreparation::Created { created_path, revision, .. }) => {
-                let mut path = serde_json::Map::new();
+                let mut path = Map::new();
                 for key in ["kind", "workspace_id", "screen_id", "pane_id", "tab_id", "terminal_id"]
                 {
                     path.insert(key.into(), created_path.get(key).cloned().unwrap_or(Value::Null));

@@ -78,7 +78,7 @@ pub(crate) struct ResourceCloseCommit {
 }
 
 pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    super::agent_cli_intents::create_schema(transaction)?;
+    agent_cli_intents::create_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_effect_receipts (
            idempotency_key TEXT PRIMARY KEY NOT NULL,
