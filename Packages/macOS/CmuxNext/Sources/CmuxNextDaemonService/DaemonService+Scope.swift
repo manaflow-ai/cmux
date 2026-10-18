@@ -31,7 +31,7 @@ extension DaemonService {
         if error == nil, let source = replying ?? connection, let sequence = await source.eventSequence() {
             ticket.scope.noteBarrier(sequence, machine: machineID)
         }
-        ticket.scope.end(ticket.ticket, failure: error.map { Self.scopeFailure(label, $0) })
+        ticket.scope.end(ticket.ticket, failure: error.map { Self.scopeFailure(label, $0) }, label: label)
     }
 
     static func scopeFailure(_ label: String, _ error: any Error) -> DaemonCommandScope.Failure {

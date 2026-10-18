@@ -56,6 +56,8 @@ public final class DaemonCommandScope: Sendable {
         var barriers: [String: UInt64] = [:]
         var closed = false
         var idleWaiters: [CheckedContinuation<Void, Never>] = []
+        /// What the run did and when (`stageLog`), at most 48 entries.
+        var stages: [String] = []
     }
 
     public let idempotencyKey: String?
@@ -63,6 +65,45 @@ public final class DaemonCommandScope: Sendable {
 
     public init(idempotencyKey: String? = nil) {
         self.idempotencyKey = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    // MARK: - Stage log
+
+    private let createdAt = ContinuousClock.now
+
+    /// What this run did and when, as `stage@ms` from the scope's creation:
+    /// its stages (`note`, `stage`), each command ticket opened (`open#N`)
+    /// and closed (`close#N label`). A control timeout reports it as
+    /// `data.waiting_on`, so a timed-out `action.run` says what it waited on.
+    public var stageLog: [String] { state.withLock { $0.stages } }
+
+    /// Records `stage` in the stage log.
+    public func note(_ stage: String) {
+        let ms = (ContinuousClock.now - createdAt).components
+        let stamp = ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000
+        state.withLock { state in
+            if state.stages.count < 48 { state.stages.append("\(stage)@\(stamp)") }
+        }
+    }
+
+    /// `note(stage)`, then true (for a `guard` condition).
+    public func noting(_ stage: String) -> Bool {
+        note(stage)
+        return true
+    }
+
+    /// Runs `body` between the stage log entries `name` and `name done`.
+    public func stage<T>(_ name: String, _ body: () async -> T) async -> T {
+        note(name)
+        let value = await body()
+        note(name + " done")
+        return value
+    }
+
+    /// The barriers, noting the snapshot stage that waits for them.
+    public func snapshotBarriers() -> [String: UInt64] {
+        note("snapshot")
+        return barriers
     }
 
     // MARK: - Tickets
@@ -74,12 +115,16 @@ public final class DaemonCommandScope: Sendable {
             state.nextTicket &+= 1
             state.open.insert(state.nextTicket)
             return Ticket(id: state.nextTicket)
+        }.map { ticket in
+            note("open#\(ticket.id)")
+            return ticket
         }
     }
 
     /// Closes `ticket`, recording `failure` when the command failed.
-    public func end(_ ticket: Ticket?, failure: Failure? = nil) {
+    public func end(_ ticket: Ticket?, failure: Failure? = nil, label: String? = nil) {
         guard let ticket else { return }
+        note("close#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
         let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
             guard state.open.remove(ticket.id) != nil else { return [] }
             if let failure { state.failures.append(failure) }
