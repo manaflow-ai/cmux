@@ -922,7 +922,10 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertTrue(any("cmux-tui/target" in str(step.get("with", {}).get("path", ""))
                             for step in restores))
         for step in restores + saves:
-            self.assertEqual(step.get("with", {}).get("backend"), "github")
+            self.assertIn(step.get("with", {}).get("backend"), ("r2", "${{ vars.CI_CACHE_BACKEND || 'r2' }}"))
+        cargo_steps = [step for step in steps if "Cargo fast-tier cache" in step.get("name", "")]
+        for step in cargo_steps:
+            self.assertIn("!contains(runner.name, '-glaeda')", step.get("if", ""))
         for save in saves:
             self.assertIn("github.event_name == 'push'", save.get("if", ""))
             self.assertIn("refs/heads/feat-cmux-next", save.get("if", ""))
@@ -933,6 +936,7 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertIn("--receipt", run["run"])
         upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", "")))
         self.assertEqual(upload.get("if"), "always()")
+        self.assertIn("github.run_attempt", upload["with"]["name"])
 
     def test_fast_tier_reuses_ghostty_next_instead_of_deinitializing_every_submodule(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
