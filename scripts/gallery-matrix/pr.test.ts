@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertRunRevision, assertScenarioParity, comparisonReceipt } from "./pr";
+import { scenarioFingerprint } from "./scenario";
 
 test("PR reports reject a matrix captured from the wrong head", () => {
   const dir = mkdtempSync(join(tmpdir(), "gallery-pr-provenance-"));
@@ -133,6 +134,26 @@ test("PR reports reject shared IDs whose manifest routes differ", () => {
     writeFileSync(leftManifest, JSON.stringify([{ id: "same", path_or_url: "frame.html", params: { entry: "same" } }]));
     writeFileSync(rightManifest, JSON.stringify([{ id: "same", path_or_url: "other-frame.html", params: { entry: "same" } }]));
     expect(() => assertScenarioParity(left, right, "base/head", leftManifest, rightManifest)).toThrow(/manifest mismatch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("PR receipt validation accepts equivalent manifest ordering", () => {
+  const root = mkdtempSync(join(tmpdir(), "gallery-pr-ordering-"));
+  const manifest = join(root, "manifest.json");
+  const results = join(root, "results");
+  try {
+    const ordered = [
+      { id: "a", path_or_url: "frame.html", params: { entry: "a" } },
+      { id: "b", path_or_url: "frame.html", params: { entry: "b" } },
+    ];
+    const reversed = [...ordered].reverse();
+    writeFileSync(manifest, JSON.stringify(ordered));
+    mkdirSync(results);
+    writeFileSync(join(results, "results.json"), JSON.stringify(ordered.map((item) => ({ id: item.id, params: item.params, revision: { sha: "head-a", source: `src/${item.id}.gallery.tsx` } }))));
+    writeFileSync(join(results, "receipt.json"), JSON.stringify({ captureId: "ordered", capturedAt: "2026-10-18T00:00:00Z", scenario: { count: 2, fingerprint: scenarioFingerprint(reversed) }, results: { count: 2, expected: 2, status: "complete" }, quality: "pass", revisions: { shas: ["head-a"], sources: ["src/a.gallery.tsx", "src/b.gallery.tsx"] } }));
+    expect(() => assertRunRevision(results, "head-a", "head", manifest)).not.toThrow();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
