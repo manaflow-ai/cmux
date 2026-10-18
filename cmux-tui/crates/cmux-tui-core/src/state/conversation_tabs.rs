@@ -36,13 +36,18 @@ use crate::state::store::StateChanges;
 use crate::state::values::fresh_upserts;
 use crate::workspace_registry::FrontendBrowserRecord;
 
-/// Where a new conversation tab goes: a pane (or the focused pane), or a
+/// Where a new conversation tab goes: a pane (or the focused pane), a
 /// workspace, which gets its first screen and pane when it has none (the
-/// home workspace starts empty).
-#[derive(Debug, Clone, Copy)]
+/// home workspace starts empty), or a new pane split from a pane
+/// (`conversation-tab-split-v1`).
+#[derive(Debug, Clone)]
 pub(crate) enum ConversationTabTarget {
     Pane(Option<PaneId>),
     Workspace(WorkspaceId),
+    /// A new pane on the `direction` side of `pane` (`right`, `down`, `left`
+    /// or `up`) that holds only the tab: one `pane.split` commit and one
+    /// `pane-added` delta, under the caller-minted `pane_id` when given.
+    Split { pane: PaneId, direction: &'static str, pane_id: Option<String> },
 }
 
 /// A created or replayed conversation tab.
@@ -67,7 +72,7 @@ impl Mux {
         let _serial = key
             .is_some()
             .then(|| KEYED_CREATION.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        let target_ids = self.conversation_tab_target_ids(target)?;
+        let target_ids = self.conversation_tab_target_ids(&target)?;
         let recorded = match key {
             Some((origin, id)) => {
                 self.read_registry_state(|connection| browser_for_mutation(connection, origin, id))?
@@ -145,6 +150,13 @@ impl Mux {
             ConversationTabTarget::Workspace(workspace) => {
                 self.new_conversation_tab_in(actor, workspace, fields)
             }
+            ConversationTabTarget::Split { pane, direction, pane_id } => {
+                fields.insert(PANE_BROWSER_URL_FIELD.into(), CONVERSATION_TAB_URL.into());
+                if let Some(pane_id) = pane_id {
+                    fields.insert(CLIENT_PANE_ID_FIELD.into(), Value::String(pane_id));
+                }
+                self.split_browser_pane_with_fields_as(actor, pane, direction, None, fields, size)
+            }
         };
         match created {
             Ok(surface) => {
@@ -185,18 +197,22 @@ impl Mux {
 
     /// The public ids a creation's target names (a key's fingerprint):
     /// numeric ids do not survive a daemon restart.
-    fn conversation_tab_target_ids(&self, target: ConversationTabTarget) -> anyhow::Result<Value> {
+    fn conversation_tab_target_ids(&self, target: &ConversationTabTarget) -> anyhow::Result<Value> {
         self.with_state(|state| match target {
             ConversationTabTarget::Pane(None) => Ok(serde_json::json!({"pane": null})),
             ConversationTabTarget::Pane(Some(pane)) => {
-                let id = state.resource_indexes.pane_ids.get(&pane).context("unknown pane")?;
+                let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 Ok(serde_json::json!({"pane": id.as_str()}))
+            }
+            ConversationTabTarget::Split { pane, direction, pane_id } => {
+                let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
+                Ok(serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id}))
             }
             ConversationTabTarget::Workspace(workspace) => {
                 let id = state
                     .workspaces
                     .iter()
-                    .find(|item| item.id == workspace)
+                    .find(|item| item.id == *workspace)
                     .map(|item| item.public_id.to_string())
                     .with_context(|| format!("unknown workspace {workspace}"))?;
                 Ok(serde_json::json!({"workspace": id}))
