@@ -106,6 +106,7 @@ enum CGSTransactionProbe {
     static var stacks: [String: Int] = [:]
     static var calls = 0
     private static var installed = false
+    // crash-allow: probe only; written once on the main thread before the swizzle is live.
     nonisolated(unsafe) private static var original: IMP?
 
     static func install() {
@@ -129,7 +130,8 @@ enum CGSTransactionProbe {
                     }
                 }
             }
-            return unsafeBitCast(original!, to: Fn.self)(me, NSSelectorFromString("currentTransaction"))
+            guard let original else { return nil }
+            return unsafeBitCast(original, to: Fn.self)(me, NSSelectorFromString("currentTransaction"))
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
     }
