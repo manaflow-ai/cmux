@@ -18,8 +18,7 @@ fn quick_checked_tables(database: &Path) -> Vec<String> {
         }))
         .unwrap();
     check_registry_integrity(&connection).unwrap();
-    let tables = checked.lock().unwrap().clone();
-    tables
+    checked.lock().unwrap().clone()
 }
 
 /// The mutation ledgers keep every write's result for idempotent retries and
