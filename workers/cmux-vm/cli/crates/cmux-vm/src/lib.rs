@@ -162,6 +162,9 @@ struct SnapshotCreateArgs {
 
 #[derive(Args, Debug)]
 struct SnapshotListArgs {
+    /// Only snapshots created by the authenticated caller
+    #[arg(long)]
+    created_by_me: bool,
     /// Page size (1-100)
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
     limit: Option<u32>,
@@ -289,6 +292,9 @@ struct ForkArgs {
 
 #[derive(Args, Debug)]
 struct ListArgs {
+    /// Only VMs created by the authenticated caller
+    #[arg(long)]
+    created_by_me: bool,
     /// Page size (1-100)
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
     limit: Option<u32>,
@@ -481,13 +487,17 @@ async fn dispatch(
             let state = parse_opt::<types::VmsListVmsState>("--state", args.state)?;
             let limit = args.limit.map(|n| n.to_string());
             // Label filters (`label=key:value`) are not a CLI flag yet.
-            let page = fetch_body(client.vms_list_vms(
-                cursor.as_ref(),
-                None,
-                limit.as_deref(),
-                state,
-                None,
-            ))
+            let page = fetch_body(
+                client.vms_list_vms(
+                    args.created_by_me
+                        .then_some(types::VmsListVmsCreatedBy::Caller),
+                    cursor.as_ref(),
+                    None,
+                    limit.as_deref(),
+                    state,
+                    None,
+                ),
+            )
             .await?;
             out.vm_list(&page)
         }
@@ -561,13 +571,17 @@ async fn snapshot(
             let vm = parse_opt::<types::SnapshotsListSnapshotsSourceVmId>("--vm", args.vm)?;
             let limit = args.limit.map(|n| n.to_string());
             // Label filters (`labels=key:value`) are not a CLI flag yet.
-            let page = fetch_body(client.snapshots_list_snapshots(
-                cursor.as_ref(),
-                None,
-                limit.as_deref(),
-                vm.as_ref(),
-                None,
-            ))
+            let page = fetch_body(
+                client.snapshots_list_snapshots(
+                    args.created_by_me
+                        .then_some(types::SnapshotsListSnapshotsCreatedBy::Caller),
+                    cursor.as_ref(),
+                    None,
+                    limit.as_deref(),
+                    vm.as_ref(),
+                    None,
+                ),
+            )
             .await?;
             out.snapshot_list(&page)
         }

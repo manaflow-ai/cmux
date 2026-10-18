@@ -1724,6 +1724,8 @@ export interface operations {
     "vms.listVms": {
         parameters: {
             query?: {
+                /** @description Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators. */
+                createdBy?: "caller";
                 /** @description a string to be decoded into a number */
                 limit?: string;
                 /** @description a string at most 512 character(s) long */
@@ -3099,6 +3101,8 @@ export interface operations {
     "snapshots.listSnapshots": {
         parameters: {
             query?: {
+                /** @description Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators. */
+                createdBy?: "caller";
                 /** @description a string to be decoded into a number */
                 limit?: string;
                 /** @description a string at most 512 character(s) long */

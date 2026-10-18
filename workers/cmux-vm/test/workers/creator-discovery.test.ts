@@ -10,8 +10,12 @@ interface Page {
 const TEAM = "team_alpha";
 const LABELS = { role: "cloud" };
 let h: Harness;
-beforeEach(async () => { h = await makeHarness(); });
-afterEach(async () => { await h.dispose(); });
+beforeEach(async () => {
+  h = await makeHarness();
+});
+afterEach(async () => {
+  await h.dispose();
+});
 
 const service = async () => {
   const key = await h.addServiceKey({ id: "cloud-driver", labels: LABELS, scopes: ["vm:read", "vm:write", "snapshot:read", "snapshot:write"] });
@@ -64,5 +68,65 @@ describe("creator-constrained discovery", () => {
     h.s3a.addSnapshot(TEAM, { labels: { role: "other" } });
     expect((await list(headers, "/v1/snapshots")).items.map((snapshot) => snapshot.id)).toEqual([mine.snapshotId]);
     expect((await list(headers, "/v1/snapshots?labels=role%3Dother")).items).toEqual([]);
+  });
+
+  it("keeps a service's creator stable across key rotation, separate from other services and tenants", async () => {
+    const headers = await service();
+    const mine = await create(headers, "/v1/vms");
+    const rotated = await service();
+    expect((await list(rotated, "/v1/vms?createdBy=caller")).items.map((vm) => vm.id)).toEqual([mine.id]);
+    const other = await h.addServiceKey({ id: "other-service", labels: LABELS, scopes: ["vm:read"] });
+    expect((await list({ ...bearer(other), "x-cmux-team-id": TEAM }, "/v1/vms?createdBy=caller")).items).toEqual([]);
+    expect((await list({ ...headers, "x-cmux-team-id": "team_bravo" }, "/v1/vms?createdBy=caller")).items).toEqual([]);
+  });
+
+  it("filters VM creators before pagination and still intersects requested labels", async () => {
+    const headers = await service();
+    const first = await create(headers, "/v1/vms");
+    const second = await create(headers, "/v1/vms");
+    for (let i = 0; i < 3; i++) h.addVm(TEAM, "running", LABELS);
+    const page = await list(headers, "/v1/vms?createdBy=caller&limit=1&label=role%3Dcloud");
+    expect(page.items.map((vm) => vm.id)).toEqual([second.id]);
+    expect(page.nextCursor).not.toBeNull();
+    const next = await list(headers, `/v1/vms?createdBy=caller&limit=1&cursor=${encodeURIComponent(page.nextCursor ?? "")}`);
+    expect(next.items.map((vm) => vm.id)).toEqual([first.id]);
+    expect((await list(headers, "/v1/vms?createdBy=caller&label=role%3Dother")).items).toEqual([]);
+    expect(JSON.stringify(page)).not.toMatch(/createdBy|created_by|upstreamId|service:cloud-driver/);
+  });
+
+  it("filters snapshot creators before pagination, intersects source and labels, and hides creator identity", async () => {
+    const headers = await service();
+    const { vmId } = h.addVm(TEAM, "running", LABELS);
+    const one = await create(headers, `/v1/vms/${vmId}/snapshots`);
+    const two = await create(headers, `/v1/vms/${vmId}/snapshots`);
+    for (let i = 0; i < 3; i++) h.s3a.addSnapshot(TEAM, { labels: LABELS, sourceVmId: vmId });
+    const query = `/v1/snapshots?createdBy=caller&limit=1&sourceVmId=${vmId}&labels=role%3Dcloud`;
+    const page = await list(headers, query);
+    expect(page.items).toHaveLength(1);
+    expect(page.nextCursor).not.toBeNull();
+    const next = await list(headers, `${query}&cursor=${encodeURIComponent(page.nextCursor ?? "")}`);
+    expect([...page.items, ...next.items].map((snapshot) => snapshot.id).sort()).toEqual([one.id, two.id].sort());
+    expect(next.nextCursor).toBeNull();
+    expect((await list(headers, "/v1/snapshots?createdBy=caller&labels=role%3Dother")).items).toEqual([]);
+    const otherVm = h.addVm(TEAM, "running", LABELS);
+    expect((await list(headers, `/v1/snapshots?createdBy=caller&sourceVmId=${otherVm.vmId}`)).items).toEqual([]);
+    expect(JSON.stringify(page)).not.toMatch(/createdBy|created_by|upstreamId|service:cloud-driver/);
+  });
+
+  it("rejects arbitrary actor selectors without reaching the provider", async () => {
+    const headers = await service();
+    for (const path of ["/v1/vms", "/v1/snapshots"]) {
+      for (const value of ["service:cloud-driver", "key:other", "", "all"]) {
+        expect((await h.request(`${path}?createdBy=${encodeURIComponent(value)}`, headers)).status).toBe(400);
+      }
+    }
+    expect(h.upstreamRequests).toHaveLength(0);
+  });
+
+  it("keeps read scopes required when creator filtering is requested", async () => {
+    const key = bearer(await h.addKey(TEAM, ["vm:write", "snapshot:write"]));
+    expect((await h.request("/v1/vms?createdBy=caller", key)).status).toBe(403);
+    expect((await h.request("/v1/snapshots?createdBy=caller", key)).status).toBe(403);
+    expect(h.upstreamRequests).toHaveLength(0);
   });
 });

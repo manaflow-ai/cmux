@@ -413,6 +413,7 @@ const parseLabelSelectors = (selectors: ReadonlyArray<string> | undefined): Read
 };
 
 const listVms = (params: {
+  readonly createdBy?: "caller" | undefined;
   readonly limit?: number | undefined;
   readonly cursor?: string | undefined;
   readonly state?: VmState | undefined;
@@ -429,7 +430,7 @@ const listVms = (params: {
         after = decoded.value;
       }
       const limit = params.limit ?? LIST_DEFAULT_LIMIT;
-      const page = yield* visitOwnedVms(caller, { limit, after, labels: parseLabelSelectors(params.label) }, (vm, owns, row) =>
+      const page = yield* visitOwnedVms(caller, { limit, after, labels: parseLabelSelectors(params.label), createdByCaller: params.createdBy === "caller" }, (vm, owns, row) =>
         upstream.getVm(vm, { owns, scope }).pipe(
           Effect.map((current) => Option.some(toVm(vm.value, row, current))),
           // A VM gone upstream is left out; its row is cleaned up by delete or a sweep.

@@ -462,6 +462,19 @@
             "description": "a string at most 128 character(s) long"
           },
           {
+            "name": "createdBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "caller"
+              ],
+              "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
+            },
+            "required": false,
+            "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
+          },
+          {
             "name": "limit",
             "in": "query",
             "schema": {
@@ -2375,6 +2388,19 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "createdBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "caller"
+              ],
+              "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
+            },
+            "required": false,
+            "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
           },
           {
             "name": "limit",

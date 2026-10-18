@@ -25,6 +25,8 @@ export interface PagePosition {
 }
 
 export interface ListPageOptions {
+  /** Exact persisted actor reference, derived from the authenticated principal. */
+  readonly createdBy?: string;
   readonly limit: number;
   readonly after: PagePosition | null;
   /** When set, only these public ids (a key's resource allowlist). */
@@ -180,6 +182,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           options.only === null ? null : [...options.only].join(" "),
           options.limit,
           options.labels === null ? null : JSON.stringify(options.labels),
+          options.createdBy ?? null,
         ];
         return sql
           .query(
@@ -190,6 +193,7 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
                 AND ($3::timestamptz IS NULL OR (created_at, cmux_id) < ($3::timestamptz, $4::text))
                 AND ($5::text IS NULL OR cmux_id = ANY (string_to_array($5::text, ' ')))
                 AND ($7::text::jsonb IS NULL OR labels @> $7::text::jsonb)
+                AND ($8::text IS NULL OR created_by = $8::text)
               ORDER BY created_at DESC, cmux_id DESC
               LIMIT $6`,
             params,

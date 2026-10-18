@@ -212,6 +212,32 @@ describe("S2 ownership queries", () => {
     expect(await list({ only: new Set([dev]), labels: { role: "ci" } })).toEqual([]);
   });
 
+  it("intersects creators with tenant, live rows, labels, allowlist and keyset before the limit", async () => {
+    const ids = Array.from({ length: 8 }, () => newVmId());
+    for (const [index, cmuxId] of ids.entries()) {
+      await record(row({
+        cmuxId, createdAt: new Date(Date.UTC(2026, 9, 1, 0, index)),
+        createdBy: index === 3 ? "key:other" : "service:cloud",
+        tenantId: index === 4 ? TenantId.make("team_b") : tenantA,
+        kind: index === 7 ? "snapshot" : "vm",
+        labels: { role: index === 5 ? "other" : "cloud" },
+      }));
+    }
+    const deleted = ids[6];
+    if (deleted === undefined) throw new Error("missing fixture");
+    await run(Effect.flatMap(OwnershipStore, (store) => store.markDeleted(tenantA, "vm", deleted, new Date())));
+    const base = { limit: 1, after: null, only: new Set(ids), labels: { role: "cloud" }, createdBy: "service:cloud" };
+    const list = (after: { createdAt: Date; cmuxId: string } | null) =>
+      run(Effect.flatMap(OwnershipStore, (store) => store.listPage(tenantA, "vm", { ...base, after })));
+    const first = await list(null);
+    expect(first.map((found) => found.cmuxId)).toEqual([ids[2]]);
+    const last = first[0];
+    if (last === undefined) throw new Error("empty creator page");
+    expect((await list({ createdAt: last.createdAt, cmuxId: last.cmuxId })).map((found) => found.cmuxId)).toEqual([ids[1]]);
+    expect(await run(Effect.flatMap(OwnershipStore, (store) => store.listPage(tenantA, "vm", { ...base, only: new Set([deleted]) })))).toEqual([]);
+    expect(await run(Effect.flatMap(OwnershipStore, (store) => store.countLive(tenantA, "vm")))).toBe(5);
+  });
+
   it("appends audit rows and refuses free text in their id column", async () => {
     const vmId = newVmId();
     await run(

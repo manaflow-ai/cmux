@@ -137,6 +137,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         resources
           .filter((row) => row.tenantId === tenantId && row.kind === kind && live(row))
+          .filter((row) => page.createdBy === undefined || row.createdBy === page.createdBy)
           .filter((row) => page.only === null || page.only.has(row.cmuxId))
           .filter((row) => page.labels === null || Object.entries(page.labels).every(([key, value]) => row.labels[key] === value))
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.cmuxId < b.cmuxId ? 1 : -1))

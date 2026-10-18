@@ -27,6 +27,7 @@ import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefiniti
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
 import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
 import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
+import { CreatedByCaller } from "./api/common.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -171,6 +172,7 @@ export class ForkVmRequest extends Schema.Class<ForkVmRequest>("ForkVmRequest")(
 const LabelSelector = Schema.String.pipe(Schema.pattern(/^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?=[A-Za-z0-9._:/@-]{0,63}$/));
 
 export const ListVmsParams = Schema.Struct({
+  createdBy: Schema.optional(CreatedByCaller),
   limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
   cursor: Schema.optional(Schema.String.pipe(Schema.maxLength(512))),
   state: Schema.optional(VmState.annotations({

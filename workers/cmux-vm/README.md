@@ -31,6 +31,17 @@ the only way to build its principal; audit rows and `created_by` name it as
 secret that does not parse disables service keys only. A team member can label
 a VM `role=chief` to hand it to the service.
 
+VM and snapshot lists accept `createdBy=caller` to recover resources created
+by the authenticated caller, using the persisted creation actor rather than
+caller-supplied labels. The filter intersects tenant, live rows, service labels,
+resource allowlists and other selectors before keyset pagination. Omit it to
+keep the usual authorized tenant-wide listing. A service keeps its creator
+across key rotation when its configured `id` stays the same; separate API keys
+have separate creators, and session/device requests use the owning user's or
+key's actor. Creator references remain private. Arbitrary actor selectors are
+rejected. The operator CLI sends this filter with `cmux-vm list --created-by-me`
+and `cmux-vm snapshot list --created-by-me`.
+
 ## gdp-ts proofs
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,
