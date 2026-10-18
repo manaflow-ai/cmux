@@ -41,7 +41,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item (I1, I2): `structure()` reads no tab field.
-    private lazy var tabItems = ObservedItems<TabModel, StripTabItem>(item: { [weak self] in self?.tabItem($0) },
+    private lazy var tabItems = ObservedItems<TabModel, StripTabItem>(item: { [weak self] in self?.tabItem($0) }, same: ==,
                                                                      changed: { [weak self] in self?.tabItemChanged() })
     private var lastStructure: Structure? // the strip's list as last observed; a tab item change applies with it
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
@@ -145,7 +145,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     private func compose(_ structure: Structure, refresh: Bool = false) -> Snapshot {
         lastStructure = structure
-        let items = tabItems.items(for: structure.tabs, id: \.id, refresh: refresh) + structure.local
+        let items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh) + structure.local
         let result = Snapshot(items: items, groups: structure.groups, defaultIndex: structure.defaultIndex,
                               connected: structure.connected, generation: structure.generation, hidesStrip: structure.hidesStrip)
         #if DEBUG
