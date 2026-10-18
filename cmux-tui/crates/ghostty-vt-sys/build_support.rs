@@ -29,20 +29,15 @@ pub fn resolve_vt_source(dir: &Path) -> Result<PathBuf, String> {
 
 /// The `-Dtarget=` argument for zig, if any.
 ///
-/// macOS builds always name the target and its minimum macOS: the deployment
-/// target rustc links the daemon at (`macos_deployment_target`, which is
-/// `MACOSX_DEPLOYMENT_TARGET`, else rustc's default). Zig's native target
-/// would otherwise give libghostty-vt's objects the build Mac's macOS version,
-/// and a bare `*-macos` target Zig's default.
-pub fn zig_target_arg(
-    target: &str,
-    host: &str,
-    macos_deployment_target: Option<&str>,
-) -> Option<String> {
+/// macOS builds always name the target with Ghostty's macOS minimum
+/// (`ghostty_macos_min`). Ghostty's build (`src/build/Config.zig`) replaces a
+/// macOS target with its generic macOS target at that minimum when the build
+/// host is macOS, so neither MACOSX_DEPLOYMENT_TARGET nor rustc's default
+/// reaches libghostty-vt's objects on a Mac. Naming the same minimum
+/// explicitly gives the same objects on every build host.
+pub fn zig_target_arg(target: &str, host: &str, ghostty_macos_min: &str) -> Option<String> {
     if let Some(arch) = macos_arch(target) {
-        let version = macos_deployment_target
-            .unwrap_or_else(|| rustc_default_macos_deployment_target(target));
-        return Some(format!("-Dtarget={arch}-macos.{version}"));
+        return Some(format!("-Dtarget={arch}-macos.{ghostty_macos_min}"));
     }
     // Preserve Zig's native target selection for other native builds. The
     // GNU Windows host is the exception: Zig otherwise defaults to MSVC and
@@ -51,6 +46,23 @@ pub fn zig_target_arg(
         return None;
     }
     zig_target_for_rust_target(target).map(|zig_target| format!("-Dtarget={zig_target}"))
+}
+
+/// Ghostty's macOS minimum, `MAJOR.MINOR`: the `.macos` arm of `osVersionMin`
+/// in a Ghostty `src/build/Config.zig`. `genericMacOSTarget` (the target a
+/// macOS build host uses) takes its minimum from that function.
+pub fn ghostty_macos_min(config_zig: &str) -> Option<String> {
+    let body = &config_zig[config_zig.find("pub fn osVersionMin(")?..];
+    let body = &body[..body.find("\n}").unwrap_or(body.len())];
+    let arm = &body[body.find(".macos =>")?..];
+    let arm = &arm[..arm.find("},").unwrap_or(arm.len())];
+    let field = |name: &str| -> Option<u32> {
+        let rest = &arm[arm.find(name)? + name.len()..];
+        let rest = rest.trim_start().strip_prefix('=')?.trim_start();
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().ok()
+    };
+    Some(format!("{}.{}", field(".major")?, field(".minor")?))
 }
 
 /// The `-Dcpu=` argument for zig, if any: `CMUX_GHOSTTY_VT_ZIG_CPU` when set,
@@ -70,11 +82,6 @@ fn macos_arch(target: &str) -> Option<&'static str> {
         "x86_64-apple-darwin" => Some("x86_64"),
         _ => None,
     }
-}
-
-/// rustc's default minimum macOS for a target that sets no MACOSX_DEPLOYMENT_TARGET.
-fn rustc_default_macos_deployment_target(target: &str) -> &'static str {
-    if target.starts_with("aarch64") { "11.0" } else { "10.12" }
 }
 
 fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
@@ -172,7 +179,7 @@ mod tests {
     #[test]
     fn native_windows_gnu_keeps_the_explicit_gnu_abi() {
         assert_eq!(
-            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu", None).as_deref(),
+            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu", "13.0").as_deref(),
             Some("-Dtarget=x86_64-windows-gnu")
         );
     }
@@ -180,47 +187,53 @@ mod tests {
     #[test]
     fn native_linux_builds_keep_zigs_native_target() {
         assert_eq!(
-            zig_target_arg("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", None),
+            zig_target_arg("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "13.0"),
             None
         );
         assert_eq!(zig_cpu_arg("x86_64-unknown-linux-gnu", None), None);
     }
 
-    // Zig's native target is the build Mac's macOS version and CPU. libghostty-vt
-    // must instead match the Rust link: the deployment target rustc uses
-    // (MACOSX_DEPLOYMENT_TARGET, else rustc's default) and a baseline CPU, native
-    // build or not, or the daemon's real floor follows whichever Mac built it.
+    // On a macOS build host Ghostty's build replaces the macOS target with its
+    // generic macOS target at Ghostty's minimum. Every build host names that
+    // minimum, so the objects do not depend on where they were built.
     #[test]
-    fn macos_builds_name_the_deployment_target_even_when_native() {
+    fn macos_builds_name_ghosttys_minimum_on_every_host() {
         let cases = [
-            ("aarch64-apple-darwin", "aarch64-apple-darwin", None, "-Dtarget=aarch64-macos.11.0"),
-            ("x86_64-apple-darwin", "aarch64-apple-darwin", None, "-Dtarget=x86_64-macos.10.12"),
-            (
-                "aarch64-apple-darwin",
-                "x86_64-unknown-linux-gnu",
-                None,
-                "-Dtarget=aarch64-macos.11.0",
-            ),
-            (
-                "x86_64-apple-darwin",
-                "x86_64-apple-darwin",
-                Some("10.15"),
-                "-Dtarget=x86_64-macos.10.15",
-            ),
-            (
-                "aarch64-apple-darwin",
-                "aarch64-apple-darwin",
-                Some("26.0"),
-                "-Dtarget=aarch64-macos.26.0",
-            ),
+            ("aarch64-apple-darwin", "aarch64-apple-darwin", "-Dtarget=aarch64-macos.13.0"),
+            ("x86_64-apple-darwin", "aarch64-apple-darwin", "-Dtarget=x86_64-macos.13.0"),
+            ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-macos.13.0"),
+            ("x86_64-apple-darwin", "x86_64-apple-darwin", "-Dtarget=x86_64-macos.13.0"),
         ];
-        for (target, host, deployment, expected) in cases {
+        for (target, host, expected) in cases {
             assert_eq!(
-                zig_target_arg(target, host, deployment).as_deref(),
+                zig_target_arg(target, host, "13.0").as_deref(),
                 Some(expected),
                 "{target} on {host}"
             );
         }
+    }
+
+    #[test]
+    fn ghostty_macos_min_reads_the_macos_arm_of_os_version_min() {
+        let config = r#"
+pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
+    return switch (tag) {
+        .macos => .{ .semver = .{
+            .major = 13,
+            .minor = 0,
+            .patch = 0,
+        } },
+        .ios => .{ .semver = .{
+            .major = 14,
+            .minor = 0,
+            .patch = 0,
+        } },
+        else => null,
+    };
+}
+"#;
+        assert_eq!(ghostty_macos_min(config).as_deref(), Some("13.0"));
+        assert_eq!(ghostty_macos_min("pub fn other() void {}\n"), None);
     }
 
     #[test]
@@ -262,7 +275,7 @@ mod tests {
         ];
 
         for (target, host, expected) in cases {
-            assert_eq!(zig_target_arg(target, host, None).as_deref(), Some(expected), "{target}");
+            assert_eq!(zig_target_arg(target, host, "13.0").as_deref(), Some(expected), "{target}");
         }
     }
 }
