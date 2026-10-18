@@ -138,7 +138,7 @@ public final class RemoteBrowserContentView: NSView {
         super.layout()
         guard let failureLabel else { return }
         let width = min(max(bounds.width - 48, 0), 480)
-        let height = failureLabel.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude)).height
+        let height = failureLabel.size(forWidth: width).height
         failureLabel.frame = NSRect(x: (bounds.width - width) / 2, y: max((bounds.height - height) / 2, 0), width: width, height: height)
     }
 
