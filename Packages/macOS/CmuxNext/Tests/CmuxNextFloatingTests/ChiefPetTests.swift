@@ -145,15 +145,14 @@ import Testing
     @Test func controllerShowsThePetOnlyWhileItIsOn() {
         let flag = Flag(false)
         let defaults = Self.defaults()
-        var clicks = 0
         let controller = ChiefPetController(enabled: { flag.on }, makePanel: { ChiefPetPanel(defaults: defaults) },
-                                            onClick: { clicks += 1 })
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
         controller.sync(false)
         #expect(controller.panel == nil)
         controller.sync(true)
         #expect(controller.isShown)
         controller.panel?.onClick?()
-        #expect(clicks == 1)
+        #expect(controller.replyPanel?.isVisible == true, "a click opens the reply box")
         let made = controller.panel
         controller.sync(false)
         #expect(!controller.isShown)

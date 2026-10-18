@@ -7,7 +7,8 @@ import CmuxNextWakeups
 /// show and kept, with its spot, while hidden), and the notice bubble over it
 /// (`ChiefPetFeed`). A finished notice leaves on its own after
 /// `doneSeconds`; one that waits for the user stays until its tab is read.
-/// The rail's chevron folds and unfolds the notices.
+/// The rail's chevron folds and unfolds the notices; a click on the pet or the rail's compose
+/// opens the reply box (`ChiefPetController+Reply`).
 @MainActor
 public final class ChiefPetController {
     /// How long a finished notice stays up.
@@ -15,14 +16,18 @@ public final class ChiefPetController {
 
     private let enabled: @MainActor @Sendable () -> Bool
     private let makePanel: () -> ChiefPetPanel
-    /// What a click on the pet opens.
-    private let onClick: () -> Void
-    /// What a click on a notice opens: its tab.
-    private let onOpen: (ChiefPetNotice) -> Void
+    /// Opening and sending, the App's (a click on a notice opens its tab).
+    let actions: ChiefPetActions
     private let clock: any Clock<Duration>
     private(set) var panel: ChiefPetPanel?
     private(set) var bubble: ChiefPetBubblePanel?
     private(set) var feed = ChiefPetFeed()
+    /// The reply box, made on the first click on the pet.
+    var replyPanel: ChiefPetReplyPanel?
+    /// A send in flight: Return again does nothing until it is answered.
+    var sending = false
+    /// Ordering the reply box out takes its keys, which would close it again.
+    var closingReply = false
     /// Finished notices' leave timers, by notification id (one-shot `DemandTimer`s).
     private var expiries: [UInt64: DemandTimer] = [:]
     private var watch: Task<Void, Never>?
@@ -33,13 +38,11 @@ public final class ChiefPetController {
     /// `enabled`: whether the pet shows, read under observation; nil reads `ChiefPetTunables.enabled`.
     public init(enabled: (@MainActor @Sendable () -> Bool)? = nil,
          makePanel: @escaping () -> ChiefPetPanel,
-         onClick: @escaping () -> Void,
-         onOpen: @escaping (ChiefPetNotice) -> Void = { _ in },
+         actions: ChiefPetActions,
          clock: any Clock<Duration> = ContinuousClock()) {
         self.enabled = enabled ?? { ChiefPetTunables.enabled.value }
         self.makePanel = makePanel
-        self.onClick = onClick
-        self.onOpen = onOpen
+        self.actions = actions
         self.clock = clock
     }
 
@@ -67,6 +70,7 @@ public final class ChiefPetController {
             render(animated: false)
         } else {
             // Turned off, it forgets what it showed: a later show starts from new arrivals.
+            closeReply()
             feed.clear()
             expiries.values.forEach { $0.cancel() }
             expiries.removeAll()
@@ -101,17 +105,16 @@ public final class ChiefPetController {
 
     /// Draws the feed: the badge, and the bubble while there is a notice.
     /// `animated`: a new front notice fades the bubble in once; nothing else moves.
-    private func render(animated: Bool) {
+    func render(animated: Bool) {
         panel?.pet.badge = feed.attention
+        replyPanel?.show(targets: ChiefPetReply.targets(feed))
         if feed.notices.isEmpty, expanded {
             expanded = false
             panel?.setExpanded(false)
         }
-        guard let panel, isOn, !feed.notices.isEmpty else {
-            if let bubble, bubble.isVisible {
-                bubble.parent?.removeChildWindow(bubble)
-                bubble.orderOut(nil)
-            }
+        // While the reply box is up, it sits where the notices do.
+        guard let panel, isOn, replyPanel?.isVisible != true, !feed.notices.isEmpty else {
+            hideBubble()
             return
         }
         let bubble = bubbleOnce()
@@ -129,14 +132,20 @@ public final class ChiefPetController {
         }
     }
 
+    func hideBubble() {
+        guard let bubble, bubble.isVisible else { return }
+        bubble.parent?.removeChildWindow(bubble)
+        bubble.orderOut(nil)
+    }
+
     private func panelOnce() -> ChiefPetPanel {
         if let panel { return panel }
         let made = makePanel()
-        made.onClick = { [weak self] in self?.onClick() }
-        // With no notices the chevron opens the Chief, as the character does.
+        made.onClick = { [weak self] in self?.toggleReply() }
+        // With no notices the chevron opens the Chief.
         made.onExpand = { [weak self] in
             guard let self else { return }
-            guard !self.feed.notices.isEmpty else { return self.onClick() }
+            guard !self.feed.notices.isEmpty else { return self.actions.open(.chief) }
             self.expanded.toggle()
             self.panel?.setExpanded(self.expanded)
             self.render(animated: false)
@@ -156,7 +165,7 @@ public final class ChiefPetController {
         let made = ChiefPetBubblePanel()
         made.onOpen = { [weak self] index in
             guard let self, self.feed.notices.indices.contains(index) else { return }
-            self.onOpen(self.feed.notices[index])
+            self.actions.open(.notice(self.feed.notices[index]))
         }
         bubble = made
         return made

@@ -24,6 +24,16 @@ public struct ChiefPetNotice: Equatable, Identifiable {
         var waits: Bool { self != .done }
     }
 
+    /// How the pet's reply box answers it.
+    public enum Reply: Equatable {
+        /// Typed text goes into its terminal, then Return (a `notify --reply` banner's path).
+        case type
+        /// Its agent chat opens to answer in (a prompt is sent only from the chat's own composer).
+        case openChat
+        /// Only opening its tab.
+        case openTab
+    }
+
     /// The daemon's notification id.
     public let id: UInt64
     /// The tab that holds it; one notice per tab.
@@ -32,23 +42,31 @@ public struct ChiefPetNotice: Equatable, Identifiable {
     public let title: String
     public let detail: String
     public let kind: Kind
+    public var reply: Reply = .openTab
+    /// The agent chat's session, for `openChat`.
+    public var session: String?
 
-    public init(id: UInt64, tab: String, surface: SurfaceID?, title: String, detail: String, kind: Kind) {
+    public init(id: UInt64, tab: String, surface: SurfaceID?, title: String, detail: String, kind: Kind,
+                reply: Reply = .openTab, session: String? = nil) {
         self.id = id
         self.tab = tab
         self.surface = surface
         self.title = title
         self.detail = detail
         self.kind = kind
+        self.reply = reply
+        self.session = session
     }
 
     /// The notice as the banner reads: the program's or poster's title (else the tab's), and
     /// one line of its text (else the subtitle, else the workspace).
-    public init(_ notification: DaemonNotification, tab: String, tabTitle: String, workspace: String?, programTitle: String?, body: String) {
+    public init(_ notification: DaemonNotification, tab: String, tabTitle: String, workspace: String?, programTitle: String?, body: String,
+                reply: Reply = .openTab, session: String? = nil) {
         let line = body.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
         self.init(id: notification.notification.rawValue, tab: tab, surface: notification.surface,
                   title: programTitle ?? (notification.title.isEmpty ? tabTitle : notification.title),
-                  detail: line.isEmpty ? (notification.shownSubtitle ?? workspace ?? "") : line, kind: Kind(notification.level))
+                  detail: line.isEmpty ? (notification.shownSubtitle ?? workspace ?? "") : line, kind: Kind(notification.level),
+                  reply: reply, session: session)
     }
 
     /// What the bubble draws: the same content shown again is not a new arrival.

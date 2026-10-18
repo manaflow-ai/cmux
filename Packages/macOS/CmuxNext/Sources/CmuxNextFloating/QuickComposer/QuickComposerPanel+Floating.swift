@@ -1,12 +1,11 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextFloating
 
 /// The floating chat (cx-b9qi): once a started chat stays in the panel, it
 /// resizes, drags by its top edge or with ⌘ anywhere, and keeps the frame it
 /// was left at on each screen.
 extension QuickComposerPanel {
-    func holdChat(_ holds: Bool) {
+    public func holdChat(_ holds: Bool) {
         guard holds != holdsChat else { return }
         holdsChat = holds
         grip.isHidden = !holds
@@ -28,13 +27,13 @@ extension QuickComposerPanel {
     }
 
     /// Floats over other apps' windows, or sits among them like a document window.
-    func setOnTop(_ onTop: Bool) {
+    public func setOnTop(_ onTop: Bool) {
         level = onTop ? .floating : .normal
     }
 
     /// Folds to the compact bar, its top edge where it was, or opens back to
     /// the height it had, kept on its screen.
-    func setCollapsed(_ collapsed: Bool) {
+    public func setCollapsed(_ collapsed: Bool) {
         guard collapsed != isCollapsed else { return }
         isCollapsed = collapsed
         let top = frame.maxY
@@ -56,9 +55,9 @@ extension QuickComposerPanel {
         Motion.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }
     }
 
-    func windowDidMove(_ notification: Notification) { saveFrame() }
+    public func windowDidMove(_ notification: Notification) { saveFrame() }
 
-    func windowDidEndLiveResize(_ notification: Notification) { saveFrame() }
+    public func windowDidEndLiveResize(_ notification: Notification) { saveFrame() }
 
     private func saveFrame() {
         // The compact bar's height is not the floating chat's.

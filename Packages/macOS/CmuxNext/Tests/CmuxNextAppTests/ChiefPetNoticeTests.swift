@@ -31,10 +31,12 @@ import Testing
             service.clock = clock
             service.desktopPostingEnabled = false
             service.terminalNotificationsEnabled = { true }
-            var opened: (ChiefPetNotice) -> Void = { _ in }
+            var opened: (ChiefPetReplyTarget) -> Void = { _ in }
             controller = ChiefPetController(enabled: { false }, makePanel: { [defaults] in ChiefPetPanel(defaults: defaults) },
-                                            onClick: {}, onOpen: { opened($0) }, clock: clock)
-            opened = { [weak self] in self?.opened.append($0.id) }
+                                            actions: ChiefPetActions(open: { opened($0) }, send: { _, _ in false }), clock: clock)
+            opened = { [weak self] target in
+                if case .notice(let notice) = target { self?.opened.append(notice.id) }
+            }
             service.chiefPet = controller.hooks
             controller.sync(true)
         }
@@ -66,7 +68,8 @@ import Testing
         #expect(harness.controller.bubble?.isVisible == true)
         #expect(harness.controller.panel?.pet.badge == 1)
         harness.controller.bubble?.onOpen?(0)
-        #expect(harness.opened == [6], "a bubble click opens the front notice's tab")
+        #expect(harness.opened == [6], "a click on the front capsule opens its tab")
+        #expect(harness.controller.feed.notices.allSatisfy { $0.reply == .type }, "terminal notices take a typed reply")
         try harness.read(surface: 1)
         #expect(harness.titles == ["Codex finished"])
         #expect(harness.controller.panel?.pet.badge == 0)
