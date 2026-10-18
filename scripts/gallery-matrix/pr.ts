@@ -75,7 +75,14 @@ const receiptFingerprint = (manifest: string): string => {
 type EvidenceReceipt = { captureId: string; capturedAt?: string; scenarioFingerprint: string; quality?: string; status?: string };
 const evidenceReceipt = (dir: string, label: string, manifest?: string, captureManifest?: string): EvidenceReceipt | undefined => {
   const receipt = readReceipt(dir);
-  if (!receipt?.captureId || !receipt.scenario?.fingerprint) return undefined;
+  if (!receipt) {
+    if (captureManifest) throw new Error(`${label} matrix has no capture receipt`);
+    return undefined;
+  }
+  if (!receipt.captureId || !receipt.scenario?.fingerprint) {
+    if (captureManifest) throw new Error(`${label} matrix has malformed capture receipt`);
+    return undefined;
+  }
   if (receipt.quality !== "pass" || receipt.results?.status !== "complete")
     throw new Error(`${label} capture receipt is not complete quality evidence`);
   const manifestForReceipt = captureManifest ?? manifest;
@@ -126,7 +133,7 @@ export function comparisonReceipt(
 }
 
 /** Refuses to compare a matrix directory captured from a different checkout. */
-export function assertRunRevision(dir: string, expected: string, label: string, manifest?: string): void {
+export function assertRunRevision(dir: string, expected: string, label: string, manifest?: string, captureManifest?: string): void {
   if (!expected) return;
   const results = matrixResults(dir);
   const mismatches = results.filter(
@@ -140,7 +147,7 @@ export function assertRunRevision(dir: string, expected: string, label: string, 
         .join(", ") || "no results"}`,
     );
   if (manifest) assertRunScenario(dir, manifest, label);
-  if (manifest) evidenceReceipt(dir, label, manifest);
+  if (manifest || captureManifest) evidenceReceipt(dir, label, manifest, captureManifest);
 }
 
 /** Refuses a matrix whose captured controls do not match the manifest it claims to render. */
@@ -208,11 +215,11 @@ if (import.meta.main) {
   const out = values.out!;
   mkdirSync(out, { recursive: true });
   if (!values.outcomes) {
-    assertRunRevision(values.base!, values["base-sha"]!, "base", values["base-manifest"]!);
-    assertRunRevision(values.head!, values["head-sha"]!, "head", values["head-manifest"]!);
+    assertRunRevision(values.base!, values["base-sha"]!, "base", values["base-manifest"]!, values["capture-manifest"]!);
+    assertRunRevision(values.head!, values["head-sha"]!, "head", values["head-manifest"]!, values["capture-manifest"]!);
     assertScenarioParity(values.base!, values.head!, "base/head");
     if (values.repeat) {
-      assertRunRevision(values.repeat, values["head-sha"]!, "repeat", values["head-manifest"]!);
+      assertRunRevision(values.repeat, values["head-sha"]!, "repeat", values["head-manifest"]!, values["capture-manifest"]!);
       assertScenarioParity(values.head!, values.repeat, "head/repeat");
     }
   }

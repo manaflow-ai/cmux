@@ -64,6 +64,26 @@ test("PR reports reject failed or partial capture receipts", () => {
   }
 });
 
+test("PR reports require a receipt when a union capture manifest is supplied", () => {
+  const root = mkdtempSync(join(tmpdir(), "gallery-pr-missing-receipt-"));
+  const manifest = join(root, "manifest.json");
+  const captureManifest = join(root, "capture-manifest.json");
+  const results = join(root, "results");
+  try {
+    const cases = [{ id: "head", path_or_url: "frame.html", params: { entry: "head" } }];
+    writeFileSync(manifest, JSON.stringify(cases));
+    writeFileSync(captureManifest, JSON.stringify(cases));
+    mkdirSync(results);
+    writeFileSync(
+      join(results, "results.json"),
+      JSON.stringify([{ id: "head", params: { entry: "head" }, revision: { sha: "head-a", source: "src/head.gallery.tsx" } }]),
+    );
+    expect(() => assertRunRevision(results, "head-a", "head", manifest, captureManifest)).toThrow(/capture receipt/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("PR reports allow union captures to include cases outside a side manifest", () => {
   const root = mkdtempSync(join(tmpdir(), "gallery-pr-union-"));
   const manifest = join(root, "manifest.json");
