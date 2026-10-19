@@ -10,7 +10,9 @@ import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextPages
+import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -50,8 +52,7 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
-    /// Phone access; started by the account layer once signed in.
-    let mobile = MobileHostService()
+    let mobile = MobileHostService(displayName: { await MacName.computerName() })  // phone access; the account layer starts it
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
@@ -170,8 +171,8 @@ final class AppServices {
     var borderObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
-    /// Sized browser popups (OAuth, payment) in floating panels.
-    let popups: BrowserPopupPanels
+    /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
+    let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
@@ -217,7 +218,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupPanels(contextMenus: contextMenus)
+        popups = BrowserPopupWindows(contextMenus: contextMenus)
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
@@ -280,6 +281,7 @@ final class AppServices {
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }
             PageInfoHandlers.installRouter(on: entry, registry: registry)

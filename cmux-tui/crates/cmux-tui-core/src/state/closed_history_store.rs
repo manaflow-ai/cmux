@@ -45,7 +45,9 @@ pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> any
            change_json TEXT NOT NULL
          );",
     )?;
-    migrate_v1(transaction)
+    migrate_v1(transaction)?;
+    // After the copy, so groups copied from v1 are scrubbed too.
+    privacy::scrub_closed_groups(transaction)
 }
 
 /// `closed-history-v1` rows are COPIED to one-member groups with the same

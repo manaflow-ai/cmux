@@ -44,7 +44,7 @@ final class NotificationRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// The text colors the panel uses.
     enum Tone {

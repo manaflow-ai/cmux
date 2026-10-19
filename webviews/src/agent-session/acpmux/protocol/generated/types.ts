@@ -53,16 +53,30 @@ export type Enforcement = {
 
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
 
+export interface InventoryWatchParams {
+  enabled: boolean;
+}
+
 /** acpmux never claims host isolation. */
 export type Isolation = "unverified";
 
 /** The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`). */
 export type Lane = {
-  /** The failed or lost turn's error text. */
+  /** The failed or lost turn's error text, secrets masked (`secret_scan`). */
   error: (string | null);
   /** Unix ms the state began; null when the daemon does not know. */
   since: (number | null);
   state: LaneState;
+  /**
+   * What the session is doing now, one line: the running turn's prompt,
+   * else the agent's last reply line, secrets masked (`secret_scan`).
+   */
+  step: (string | null);
+  /**
+   * The session's title, else its latest prompt, one line, secrets masked
+   * (`secret_scan`).
+   */
+  title: (string | null);
 } & Record<string, unknown>;
 
 export type LaneState = "working" | "input" | "failed" | "lost" | "idle";
@@ -89,7 +103,11 @@ export type LastTurn = {
   turnId?: (string | null);
 } & Record<string, unknown>;
 
-/** A durable lifecycle fact supplied by an explicit producer. */
+/**
+ * A durable lifecycle fact supplied by an explicit producer. This contract
+ * is intentionally optional and opaque to the session sidebar until a
+ * producer wires it to a real controller receipt.
+ */
 export type LifecycleReceipt = {
   id: string;
   sequence: number;
@@ -352,7 +370,11 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
-  /** An optional explicit lifecycle receipt; absent until a producer supplies validated evidence. */
+  /**
+   * An optional controller/daemon lifecycle receipt. It is absent until a
+   * producer supplies a validated receipt; clients must not infer one from
+   * status or placement fields.
+   */
   lifecycleReceipt?: (LifecycleReceipt | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
