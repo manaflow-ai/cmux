@@ -115,6 +115,13 @@ public struct DaemonLanePolicy: Sendable {
                                               message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
             }
         }
+        // Binary frames (`terminal-binary-frames-v1`) would not survive this
+        // line splice in either direction; the phone keeps JSON lines.
+        if command == "set-client-info", let capabilities = object["capabilities"] as? [Any],
+           capabilities.contains(where: { $0 as? String == "terminal-binary-frames-v1" }) {
+            return .refuse(Self.errorLine(id: id, code: "forbidden",
+                                          message: "terminal-binary-frames-v1 is not available to a phone"))
+        }
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")
         }

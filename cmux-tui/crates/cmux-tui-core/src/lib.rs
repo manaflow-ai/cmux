@@ -51,7 +51,8 @@ mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
 pub mod launch_credential;
-use cmux_tui_util::machine_name;
+/// This machine's name as `identify.machine_name` reports it.
+pub use cmux_tui_util::machine_name;
 mod model;
 mod mux;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.

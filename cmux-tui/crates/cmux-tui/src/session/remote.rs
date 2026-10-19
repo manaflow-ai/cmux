@@ -1661,9 +1661,11 @@ pub struct RemoteSession {
     provider_workspaces_guarded: AtomicBool,
     /// The daemon's sidebar document (`sidebar-doc-v1`), as a read model.
     sidebar_doc: sidebar_doc::RemoteSidebarDoc,
-    /// The transport is a byte stream to the daemon's local socket, so this
-    /// session may negotiate `terminal-binary-frames-v1`.
-    binary_frames_allowed: bool,
+    /// The pid at the other end of a local socket this session dialed by
+    /// path. Binary frames (`terminal-binary-frames-v1`) are negotiated only
+    /// when it is the daemon itself on this machine (`identify` `pid` and
+    /// `machine_name`): a relay or bridge socket in between carries lines.
+    socket_peer_pid: Option<u32>,
     /// `terminal-binary-frames-v1` was negotiated: input goes as frames.
     binary_frames: AtomicBool,
 }
@@ -1870,10 +1872,17 @@ impl RemoteMessageReader for JsonLineReader {
         on_progress: &mut dyn FnMut(&[u8]),
     ) -> io::Result<Option<RemoteMessage>> {
         // A NUL never starts a JSON line: it starts a binary frame.
-        if self.inner.fill_buf()?.first() == Some(&cmux_tui_core::binary_frames::MARKER) {
+        let first = loop {
+            match self.inner.fill_buf() {
+                Ok(buffered) => break buffered.first().copied(),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        };
+        if first == Some(cmux_tui_core::binary_frames::MARKER) {
             return cmux_tui_core::binary_frames::read_frame(
                 &mut self.inner,
-                REMOTE_SESSION_MESSAGE_MAX_BYTES,
+                cmux_tui_core::binary_frames::MAX_DAEMON_FRAME_PAYLOAD_BYTES,
             )
             .map(|frame| Some(RemoteMessage::Frame(frame)));
         }
@@ -2551,7 +2560,7 @@ fn test_session_with_writer(
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
         sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
-        binary_frames_allowed: false,
+        socket_peer_pid: None,
         binary_frames: AtomicBool::new(false),
     })
 }

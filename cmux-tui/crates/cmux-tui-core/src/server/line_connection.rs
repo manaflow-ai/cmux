@@ -79,8 +79,14 @@ pub(super) fn serve_line_connection(
         // negotiated the capability may send one; anything else ends the
         // connection, as an unreadable line does.
         if matches!(transport, ClientTransport::Unix) {
-            match reader.fill_buf() {
-                Ok(buffered) if buffered.first() == Some(&crate::binary_frames::MARKER) => {
+            let buffered = loop {
+                match reader.fill_buf() {
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    other => break other.map(|buffered| buffered.first().copied()),
+                }
+            };
+            match buffered {
+                Ok(Some(crate::binary_frames::MARKER)) => {
                     let keep_open = mux.control_clients.binary_frames(client)
                         && hello.admits_binary_input()
                         && match crate::binary_frames::read_frame(&mut reader, MAX_JSON_LINE_BYTES)
@@ -89,7 +95,7 @@ pub(super) fn serve_line_connection(
                                 let keep_open = handle_input_frame(
                                     &mux,
                                     client,
-                                    &frame,
+                                    &mut frame,
                                     &writer,
                                     &surface_scheduler,
                                 );

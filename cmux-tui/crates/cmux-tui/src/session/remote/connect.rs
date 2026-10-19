@@ -28,8 +28,10 @@ impl RemoteSession {
             cmux_tui_core::server::connect_session_socket(path, is_derived).map_err(|e| {
                 anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
             })?;
-        // The daemon's own socket: output and input may use binary frames.
-        Self::connect_stream_with_subscription(stream, subscribe, true)
+        // Maybe the daemon's own socket: output and input may then use
+        // binary frames (`initialize` checks the peer is the daemon).
+        let peer_pid = stream.peer_process_key().and_then(|key| peer_key_pid(&key));
+        Self::connect_stream_with_subscription(stream, subscribe, peer_pid)
     }
 
     /// Connect over an already-established full-duplex byte stream.
@@ -42,20 +44,20 @@ impl RemoteSession {
     /// frames.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
-        Self::connect_stream_with_subscription(stream, true, false)
+        Self::connect_stream_with_subscription(stream, true, None)
     }
 
-    /// `local_socket`: the stream is the daemon's own socket, never a relay
-    /// that may carry only JSON lines.
+    /// `socket_peer_pid`: the process at the other end of a local socket
+    /// dialed by path; `None` for any other stream, which keeps JSON lines.
     fn connect_stream_with_subscription(
         stream: Box<dyn transport::Stream>,
         subscribe: bool,
-        local_socket: bool,
+        socket_peer_pid: Option<u32>,
     ) -> anyhow::Result<Arc<Self>> {
         let transport = RemoteTransport::json_lines(stream).map_err(|error| {
             anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
-        Self::connect_transport_with_provider_authority(transport, None, subscribe, local_socket)
+        Self::connect_transport_with_provider_authority(transport, None, subscribe, socket_peer_pid)
     }
 
     pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
@@ -66,21 +68,21 @@ impl RemoteSession {
         transport: RemoteTransport,
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, None, subscribe, false)
+        Self::connect_transport_with_provider_authority(transport, None, subscribe, None)
     }
 
     pub fn connect_provider_transport(
         transport: RemoteTransport,
         authority: BearerToken,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, Some(authority), true, false)
+        Self::connect_transport_with_provider_authority(transport, Some(authority), true, None)
     }
 
     fn connect_transport_with_provider_authority(
         transport: RemoteTransport,
         provider_workspace_authority: Option<BearerToken>,
         subscribe: bool,
-        binary_frames_allowed: bool,
+        socket_peer_pid: Option<u32>,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer, abort } = transport;
         let interactive_writer = InteractiveWriter::spawn(writer, abort)
@@ -118,7 +120,7 @@ impl RemoteSession {
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
             sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
-            binary_frames_allowed,
+            socket_peer_pid,
             binary_frames: AtomicBool::new(false),
         });
 
@@ -234,9 +236,16 @@ impl RemoteSession {
         if self.supports_capability(PLACEMENT_SHIFT_CAPABILITY) {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
         }
-        // Raw PTY bytes instead of base64 in JSON, both ways, on the
-        // daemon's local socket only.
-        let binary_frames = self.binary_frames_allowed
+        // Raw PTY bytes instead of base64 in JSON, both ways, only when
+        // the socket's other end is the daemon itself: a bridge or relay
+        // socket (`cmux-tui remote`, SSH) carries lines and has another pid,
+        // and a remote daemon is on another machine.
+        let direct = self.socket_peer_pid.is_some_and(|pid| {
+            ident.get("pid").and_then(Value::as_u64) == Some(u64::from(pid))
+                && ident.get("machine_name").and_then(Value::as_str)
+                    == Some(cmux_tui_core::machine_name::machine_name().as_str())
+        });
+        let binary_frames = direct
             && self.supports_capability(cmux_tui_core::binary_frames::BINARY_FRAMES_CAPABILITY);
         if binary_frames {
             negotiated.push(cmux_tui_core::binary_frames::BINARY_FRAMES_CAPABILITY);
@@ -256,4 +265,9 @@ impl RemoteSession {
         }
         Ok(())
     }
+}
+
+/// The pid of a peer process key (`token:<pid>.<version>`).
+fn peer_key_pid(key: &str) -> Option<u32> {
+    key.strip_prefix("token:")?.split('.').next()?.parse().ok()
 }

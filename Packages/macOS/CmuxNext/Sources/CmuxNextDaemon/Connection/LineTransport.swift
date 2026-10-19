@@ -173,6 +173,18 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+
+    /// The pid of the process at the other end of the socket (`LOCAL_PEERPID`),
+    /// or nil when the socket is closed or the call fails.
+    var peerPID: Int32? {
+        socket.withLock { socket -> Int32? in
+            guard socket.fd >= 0 else { return nil }
+            var pid: pid_t = 0
+            var length = socklen_t(MemoryLayout<pid_t>.size)
+            guard getsockopt(socket.fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0, pid > 0 else { return nil }
+            return pid
+        }
+    }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
@@ -349,7 +361,7 @@ final class LineTransport: Sendable {
                 closeDetail = "binary frame exceeds \(Self.maxLineBytes) bytes"
                 break reading
             }
-            if lines.pending.count > Self.maxLineBytes + BinaryFrame.headerBytes {
+            if lines.pending.count > Self.maxLineBytes + (onFrame == nil ? 0 : BinaryFrame.headerBytes) {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
             }

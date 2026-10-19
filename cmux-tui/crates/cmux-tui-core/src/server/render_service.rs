@@ -503,7 +503,7 @@ impl RenderService {
 fn frame_payload_len(prefix: usize, data: usize) -> std::io::Result<u32> {
     prefix
         .checked_add(data)
-        .filter(|len| *len <= crate::REMOTE_SESSION_MESSAGE_MAX_BYTES)
+        .filter(|len| *len <= crate::binary_frames::MAX_DAEMON_FRAME_PAYLOAD_BYTES)
         .and_then(|len| u32::try_from(len).ok())
         .ok_or_else(frame_too_large)
 }

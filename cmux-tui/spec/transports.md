@@ -169,9 +169,15 @@ the local Unix socket. The daemon advertises it in `identify`. A client opts in
 by listing it in `set-client-info` `capabilities`; an older daemon drops the
 unknown name and keeps JSON lines, and a client that does not list it gets
 JSON lines only. The daemon honors it only on a local Unix connection: a
-WebSocket, `cmux link` remote entry or relay keeps JSON lines even when the
-client lists it, so a client that reaches the daemon through a relay or bridge
-must not send input frames.
+WebSocket or `cmux link` remote entry keeps JSON lines even when the client
+lists it. A relay or bridge that forwards lines (the `cmux-tui remote` local
+socket, an SSH relay, the phone lane) cannot carry frames, and the daemon
+behind it may still see a Unix client, so a client lists the capability only
+when the process at the other end of its socket (`LOCAL_PEERPID`,
+`SO_PEERCRED`) is the daemon itself: its pid equals `identify.pid` and
+`identify.machine_name` is this machine's name. A daemon that adopted its
+listening socket from an earlier daemon reports another peer pid, and its
+clients keep JSON lines.
 
 A negotiated connection keeps its JSON lines. The daemon may write a binary
 frame between two lines wherever it would have written the equivalent JSON
@@ -199,11 +205,13 @@ An `output` with colors (`OutputWithColors`), `vt-state`, `resized`,
 unchanged: the stream has no gap or duplicated byte, a snapshot viewer's
 `generation` and `offset` are those of the JSON events, and the viewer backlog
 (`viewer_backlog_bytes`, default 8 MiB) still turns into a fresh READY. A
-frame's payload is at most 33,554,432 bytes from the daemon and 16,777,216
-bytes from the client. The daemon closes a connection that sends a frame
-without the negotiation, on a transport other than the local socket, of an
-unknown kind or with a malformed payload, and a page relay or page-scoped
-connection may not send input frames.
+frame's payload is at most 67,108,864 bytes from the daemon (a large
+snapshot READY; output frames stay under the viewer backlog) and 16,777,216
+bytes from the client (more raw input than one JSON `send` line holds after
+base64). On the local socket the daemon closes a connection that sends a frame
+without the negotiation, of an unknown kind or with a malformed payload, and
+from a page relay, a page-scoped connection or a remote client; on another
+transport a NUL-led message is an ordinary line and fails to parse as JSON.
 
 ## Relay Stdio
 

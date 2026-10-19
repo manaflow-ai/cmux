@@ -193,7 +193,7 @@ fn test_session_with_abort_and_context(
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
         sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
-        binary_frames_allowed: false,
+        socket_peer_pid: None,
         binary_frames: AtomicBool::new(false),
     })
 }

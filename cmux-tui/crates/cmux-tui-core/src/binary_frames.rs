@@ -48,6 +48,11 @@ pub const OUTPUT_FLAG_POSITION: u16 = 0x0001;
 /// `KIND_INPUT`: the bytes are a paste (`send` with `paste: true`).
 pub const INPUT_FLAG_PASTE: u16 = 0x0001;
 
+/// Largest payload of a daemon frame: the line limit of the CmuxNext reader
+/// (a snapshot READY or history chunk; output frames stay under the 8 MiB
+/// viewer backlog).
+pub const MAX_DAEMON_FRAME_PAYLOAD_BYTES: usize = 64 << 20;
+
 pub const OUTPUT_PREFIX_BYTES: usize = 24;
 pub const INPUT_PREFIX_BYTES: usize = 16;
 
@@ -126,18 +131,16 @@ impl Frame {
         Ok(rest.split_at(json_len))
     }
 
-    /// An input frame: `(id, surface, paste, bytes)`.
-    pub fn input(&self) -> std::io::Result<(u64, u64, bool, &[u8])> {
+    /// An input frame: `(id, surface, paste, bytes)`; the bytes move out of
+    /// the frame (the prefix stays behind).
+    pub fn take_input(&mut self) -> std::io::Result<(u64, u64, bool, Vec<u8>)> {
         if self.kind != KIND_INPUT || self.payload.len() < INPUT_PREFIX_BYTES {
             return Err(invalid("malformed input frame"));
         }
         let word = |at: usize| u64::from_le_bytes(self.payload[at..at + 8].try_into().unwrap());
-        Ok((
-            word(0),
-            word(8),
-            self.flags & INPUT_FLAG_PASTE != 0,
-            &self.payload[INPUT_PREFIX_BYTES..],
-        ))
+        let (id, surface) = (word(0), word(8));
+        let bytes = self.payload.split_off(INPUT_PREFIX_BYTES);
+        Ok((id, surface, self.flags & INPUT_FLAG_PASTE != 0, bytes))
     }
 }
 
