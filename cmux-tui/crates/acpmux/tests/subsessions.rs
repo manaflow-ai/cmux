@@ -5,7 +5,8 @@
 //! `children`; the width and depth limits come from the settings file and
 //! refuse with a reason and advice; a parent closes a child's subtree, which
 //! frees its slots; limits change at runtime only from an ancestor within
-//! its own budget (the person path is the app's proof, `hub/person.rs`).
+//! its own budget (the person path is the app's proof, `hub/person.rs`);
+//! what the tools read back of a child's text is masked (`secret_scan`).
 //!
 //! Stand-in agents (fake_agent.py); the live run against Claude Code and
 //! Codex is `subsessions_live.rs`. One test function: the settings file is
@@ -163,6 +164,16 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
     let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
     assert_eq!(got["lastReply"], "echo: echo child a", "{got}");
+    // A secret in a child's text comes back masked from every read.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": format!("echo use {key}")}))
+        .await;
+    p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
+    let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
+    let reply = got["lastReply"].as_str().unwrap_or_default();
+    assert!(reply.starts_with("echo: echo use [") && !reply.contains(&key), "{got}");
+    let list = p.ok("_acpmux/subsession/list", json!({})).await;
+    assert!(!list.to_string().contains(&key), "{list}");
 
     // Depth: the child starts a grandchild (depth 2); the grandchild may not go deeper.
     let mut pa = Client::as_session(&hub, &a).await;
