@@ -118,13 +118,14 @@ pub fn enabled() -> bool {
     }
 }
 
-/// One limit as the settings give it: a whole number from 1 to `max`.
+/// One limit as the settings give it, clamped to 1..=`max` the way the app's
+/// Settings reads it (a fraction rounds down).
 fn setting(key: &str, max: u32) -> Option<u32> {
     let crate::user_settings::Settings::Parsed(doc) = crate::user_settings::read() else {
         return None;
     };
-    let n = crate::user_settings::value(&doc, key)?.as_u64()?;
-    (1..=u64::from(max)).contains(&n).then_some(n as u32)
+    let n = crate::user_settings::value(&doc, key)?.as_f64().filter(|n| n.is_finite())?;
+    Some(n.floor().clamp(1.0, f64::from(max)) as u32)
 }
 
 /// The open children of each parent, and the slots reserved by starts in flight.
@@ -137,6 +138,9 @@ pub struct Index {
 struct IndexState {
     open: HashMap<String, BTreeSet<String>>,
     reserved: HashMap<String, u32>,
+    /// Every short name a child of each parent has or had, open or closed;
+    /// a failed start keeps its name, so a name is never given twice.
+    names: HashMap<String, BTreeSet<String>>,
 }
 
 impl Index {
@@ -155,6 +159,23 @@ impl Index {
                 s.open.remove(parent);
             }
         }
+    }
+
+    /// Notes a loaded child's short name as taken.
+    pub(super) fn note_name(&self, parent: &str, short: &str) {
+        self.lock().names.entry(parent.to_owned()).or_default().insert(short.to_owned());
+    }
+
+    /// Takes the first free short name of `parent` from `base`, `base-2`, ...
+    fn claim_name(&self, parent: &str, base: &str) -> String {
+        let mut s = self.lock();
+        let taken = s.names.entry(parent.to_owned()).or_default();
+        let short = (1..)
+            .map(|n| if n == 1 { base.to_owned() } else { format!("{base}-{n}") })
+            .find(|n| !taken.contains(n))
+            .unwrap_or_else(|| base.to_owned());
+        taken.insert(short.clone());
+        short
     }
 
     /// How many children of `parent` are open.
@@ -458,6 +479,14 @@ impl Hub {
         };
         let (child, reply) = self.start_reserved(parent, &pm, depth, req).await?;
         slot.settle(&child);
+        // A stop_session close:true of an ancestor that ran while this start
+        // was in flight did not see the child: close it now, not orphaned.
+        if parent.meta().status == SessionStatus::Closed {
+            let _ = self.kill(&child, false).await;
+            return Err(RpcError::invalid_params(
+                "the session closed while its sub-session started",
+            ));
+        }
         let link = child.meta().subsession.clone();
         self.append(
             parent,
@@ -476,16 +505,8 @@ impl Hub {
         depth: u32,
         req: StartRequest,
     ) -> Result<(Arc<Session>, Value), RpcError> {
-        let taken: BTreeSet<String> = self
-            .subsession_children(&parent.id)
-            .iter()
-            .filter_map(|s| s.meta().subsession.map(|l| l.short_name))
-            .collect();
         let base = short_name_of(req.name.as_deref(), &req.prompt);
-        let short = (0..)
-            .map(|n| if n == 0 { base.clone() } else { format!("{base}-{}", n + 1) })
-            .find(|n| !taken.contains(n))
-            .unwrap_or(base);
+        let short = self.subsessions.claim_name(&parent.id, &base);
         let name = self.unique_name(&format!("{}/{short}", pm.name));
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
         if let Some(cwd) = &req.cwd

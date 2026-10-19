@@ -507,6 +507,10 @@ impl Hub {
                 meta.event_count += extra.len() as u64;
                 meta.last_seq = last.seq;
             }
+            // Every child's short name stays taken (`subsessions.rs`).
+            if let Some(link) = &meta.subsession {
+                self.subsessions.note_name(&link.started_by, &link.short_name);
+            }
             // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
             if let Some(link) =
                 meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
