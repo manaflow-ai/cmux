@@ -158,6 +158,7 @@ public final class Terminal {
         Options.ViewerSize options
     ) {
         Map<String, Object> params = withExtra(params(), options.control().extra());
+        params.put(Wire.ATTACHMENT_LEASE, options.attachmentLease());
         params.put(Wire.COLS, options.width());
         params.put(Wire.ROWS, options.height());
         return Client.decodeViewerResize(client.requestValue(
@@ -165,12 +166,14 @@ public final class Terminal {
         ));
     }
 
-    public EmptyResult releaseViewer(Options.Control options) {
-        return Client.decodeEmptyResult(client.requestValue(
+    public Results.ViewerReleaseResult releaseViewer(Options.ViewAttachment options) {
+        Map<String, Object> params = withExtra(params(), options.control().extra());
+        params.put(Wire.ATTACHMENT_LEASE, options.attachmentLease());
+        return Client.decodeViewerRelease(client.requestValue(
             Operations.TERMINAL_VIEWER_RELEASE,
-            withExtra(params(), options == null ? Map.of() : options.extra()),
+            params,
             null
-        ), "terminal viewer release result");
+        ));
     }
 
     public MutationResult<EmptyResult> scrollViewport(Options.Scroll options) {

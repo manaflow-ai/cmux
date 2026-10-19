@@ -1,19 +1,88 @@
+import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
     var newWorkspaceButton: WorkspaceListNewWorkspaceMenu {
-        WorkspaceListNewWorkspaceMenu(
+        let scopedExternalHostID = scopedExternalHostID
+        let computerTargets = newWorkspaceComputerTargets.filter { target in
+            switch target.kind {
+            case .cloud:
+                createWorkspaceOnCloudMachine != nil
+            case .mac:
+                switchMac != nil
+            case .ssh:
+                createWorkspaceOnComputer != nil || createSSHWorkspace != nil
+            }
+        }
+        let createOnComputer: ((WorkspaceCreateComputerTarget, MobileSSHWorkspaceKind?) -> Void)? =
+            computerTargets.isEmpty
+            ? nil
+            : { target, kind in
+                createWorkspaceOnComputerTarget(target, kind: kind)
+            }
+        let createWorkspaceAction: () -> Void = {
+            if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
+                createWorkspaceOnCloudMachine(scopedExternalHostID)
+            } else if let target = WorkspaceListNewWorkspaceMenuValue.soleConnectedTarget(
+                scopedExternalHostID: scopedExternalHostID,
+                targets: computerTargets
+            ),
+               let createOnComputer {
+                createOnComputer(target, nil)
+            } else {
+                createWorkspace()
+            }
+        }
+        return WorkspaceListNewWorkspaceMenu(
             value: WorkspaceListNewWorkspaceMenuValue(
                 canCreate: canCreateWorkspaceForMacSelection,
-                canCreateGroup: createWorkspaceGroup != nil
+                // Groups are a Mac concept; a Cloud machine has none.
+                canCreateGroup: createWorkspaceGroup != nil && scopedExternalHostID == nil,
+                scopedExternalHostID: scopedExternalHostID,
+                computerTargets: createOnComputer == nil ? [] : computerTargets,
+                sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds,
+                sshTargetHostID: createSSHWorkspace == nil ? nil : sshCreateHostID
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
-                createWorkspace: createWorkspace,
-                createWorkspaceGroup: createWorkspaceGroup
+                createWorkspace: createWorkspaceAction,
+                createWorkspaceGroup: createWorkspaceGroup,
+                createWorkspaceOnComputer: createOnComputer,
+                createSSHWorkspace: createSSHWorkspace
             )
         )
+    }
+
+    /// Applies one computer choice from the shared `+` menu. Paired Macs use
+    /// the same switch path as the title picker; Cloud machines go straight
+    /// to the external-host bridge.
+    private func createWorkspaceOnComputerTarget(
+        _ target: WorkspaceCreateComputerTarget,
+        kind: MobileSSHWorkspaceKind?
+    ) {
+        switch target.kind {
+        case .cloud(let hostID):
+            guard let createWorkspaceOnCloudMachine else { return }
+            createWorkspaceOnCloudMachine(hostID)
+        case .ssh:
+            if let createWorkspaceOnComputer {
+                createWorkspaceOnComputer(target, kind)
+            } else if let kind, let createSSHWorkspace {
+                createSSHWorkspace(kind)
+            }
+        case .mac(let macDeviceID, let instanceTag):
+            guard macSelectionScope.shouldSwitch(to: target.id) else {
+                createWorkspace()
+                return
+            }
+            guard let switchMac else { return }
+            Task { @MainActor in
+                guard await switchMac(macDeviceID, instanceTag) else { return }
+                createWorkspace()
+            }
+        }
     }
 
     @discardableResult
@@ -26,7 +95,11 @@ extension WorkspaceListView {
     }
 
     @discardableResult
+    @MainActor
     func selectWorkspaceFromList(_ id: CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Task<Void, Never>? {
+        #if os(iOS) && DEBUG
+        releaseGateUIProbe?.record(.workspaceSelectionTapped)
+        #endif
         invalidateDeferredWorkspaceSelection()
         let selectionGeneration = deferredWorkspaceSelectionGeneration
         guard let cancelTask = prepareWorkspaceSelectionFromList() else {
@@ -51,8 +124,23 @@ extension WorkspaceListView {
             return nil
         }
         return { workspaceID in
+            guard let confirmation = workspaceCloseConfirmation(for: workspaceID) else {
+                closeWorkspace?(workspaceID)
+                return
+            }
+            workspacePendingCloseConfirmation = confirmation
             workspacePendingCloseID = workspaceID
         }
+    }
+
+    /// What closing `workspaceID` asks first (the store's one rule for every
+    /// close entrypoint); `nil` closes at once. Previews without a store keep
+    /// the Mac question.
+    func workspaceCloseConfirmation(
+        for workspaceID: CmuxMobileShellModel.MobileWorkspacePreview.ID
+    ) -> MobileWorkspaceCloseConfirmation? {
+        guard let store else { return .macWorkspace }
+        return store.workspaceCloseConfirmation(id: workspaceID)
     }
 
     #if os(iOS)
@@ -67,7 +155,11 @@ extension WorkspaceListView {
 
     var requestWorkspaceCustomization: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
         guard customizeWorkspace != nil else { return nil }
-        return { workspacePendingCustomizationID = $0 }
+        return { workspaceID in
+            workspaceCustomizationPresentation.present {
+                workspacePendingCustomizationID = workspaceID
+            }
+        }
     }
 
     var requestWorkspaceGroupRename: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
@@ -104,14 +196,17 @@ extension WorkspaceListView {
         )
     }
 
-    var workspaceCustomizationIsPresented: Binding<Bool> {
-        Binding(
-            get: { workspacePendingCustomizationID != nil },
-            set: { isPresented in
-                if !isPresented {
-                    workspacePendingCustomizationID = nil
-                }
-            }
+    var workspaceCustomizationPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.customization),
+            fallback: $isWorkspaceCustomizationPresented
+        )
+    }
+
+    var workspaceChangesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.changes),
+            fallback: $isWorkspaceChangesPresented
         )
     }
 

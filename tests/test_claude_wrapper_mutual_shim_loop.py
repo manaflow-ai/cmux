@@ -10,15 +10,71 @@ import tempfile
 from pathlib import Path
 
 from node_runtime import ensure_node_on_path
+from test_claude_wrapper_hooks import generated_claude_hook_settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+GENERATED_HOOK_SETTINGS = generated_claude_hook_settings()
+
+
+def generated_hook_count(name: str) -> int:
+    return len(json.loads(GENERATED_HOOK_SETTINGS)["hooks"][name])
+
+# Fixtures exit at once while this is set, so priming runs none of their logic.
+PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
+
+
+def prime_first_exec(path: Path, environment: dict[str, str]) -> None:
+    """Pay macOS's first-exec assessment for a new executable before timing it.
+
+    The first exec of every newly written file, a copy included, blocks in
+    syspolicyd (Gatekeeper scan, notarization lookup, XProtect scan): 0.15-0.4 s
+    on an idle Mac and seconds on a loaded shared mini. Each repro below runs a
+    fresh wrapper copy and several fresh shims under a 5 s guard; installed
+    shims were executed before, so the guard must time only the shim chain.
+    """
+    subprocess.run(
+        [str(path)],
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=120,
+        check=False,
+    )
 
 
 def write_executable(path: Path, contents: str) -> None:
-    path.write_text(contents, encoding="utf-8")
+    """Write a fixture that exits at once while primed, then prime it."""
+    shebang, newline, body = contents.partition("\n")
+    if "node" in shebang:
+        guard = f"if (process.env.{PRIME_ENVIRONMENT_KEY}) process.exit(0);\n"
+    else:
+        guard = f'if [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n'
+    path.write_text(f"{shebang}{newline}{guard}{body}", encoding="utf-8")
     path.chmod(0o755)
+    prime_first_exec(
+        path,
+        {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"},
+    )
+
+
+def install_wrapper_copy(path: Path) -> None:
+    """Copy the wrapper to a shim path and prime it.
+
+    Without CMUX_SURFACE_ID or a claude on PATH the wrapper exits 127 before
+    it does any work.
+    """
+    shutil.copy2(WRAPPER, path)
+    path.chmod(0o755)
+    prime_first_exec(path, {"PATH": "/usr/bin:/bin"})
+
+
+def load_settings_value(value: str) -> dict:
+    if value.lstrip().startswith(("{", "[")):
+        return json.loads(value)
+    return json.loads(Path(value).read_text(encoding="utf-8"))
 
 
 def build_mutual_shim_tree(root: Path) -> tuple[Path, dict[str, str]]:
@@ -30,8 +86,7 @@ def build_mutual_shim_tree(root: Path) -> tuple[Path, dict[str, str]]:
         directory.mkdir(parents=True, exist_ok=True)
 
     cmux_shim = cmux_shim_dir / "claude"
-    shutil.copy2(WRAPPER, cmux_shim)
-    cmux_shim.chmod(0o755)
+    install_wrapper_copy(cmux_shim)
 
     shim_template = """#!/usr/bin/env bash
 printf 'delimit shim hop: %s\\n' "$0" >&2
@@ -112,8 +167,7 @@ def test_wrapper_stops_node_based_foreign_shim_loop(failures: list[str]) -> None
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         node_shim_template = """#!/usr/bin/env node
 const { spawnSync } = require("node:child_process");
@@ -182,8 +236,7 @@ def test_wrapper_stops_indirect_shell_foreign_shim_loop(failures: list[str]) -> 
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         shell_shim_template = """#!/usr/bin/env bash
 next_path=""
@@ -255,8 +308,7 @@ def test_wrapper_guard_allows_child_claude_process(failures: list[str]) -> None:
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         write_executable(
             real_dir / "claude",
@@ -316,8 +368,7 @@ def test_wrapper_allows_finite_layered_foreign_shims(failures: list[str]) -> Non
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         shim_template = """#!/usr/bin/env bash
 next_path=""
@@ -383,8 +434,7 @@ def test_app_owned_resume_keeps_authorization_across_finite_shim_reentry(failure
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
         write_executable(
             foreign_shim_dir / "claude",
             f"""#!/usr/bin/env bash
@@ -464,8 +514,7 @@ def test_passthrough_real_node_claude_does_not_receive_guard_env(failures: list[
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         write_executable(
             foreign_shim_dir / "claude",
@@ -551,8 +600,7 @@ def test_custom_shim_path_with_colon_is_tracked_as_one_target(failures: list[str
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         custom_shim = custom_shim_dir / "claude"
         write_executable(
@@ -610,8 +658,7 @@ def test_real_shell_claude_launcher_allows_child_claude_process(failures: list[s
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         write_executable(
             real_dir / "claude",
@@ -679,8 +726,7 @@ def test_custom_shell_wrapper_execing_real_claude_allows_child_claude(failures: 
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         custom_wrapper = custom_dir / "claude-wrapper"
         write_executable(
@@ -752,8 +798,7 @@ def test_interactive_finite_shim_chain_does_not_duplicate_hooks(failures: list[s
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         write_executable(
             cmux_shim_dir / "cmux",
@@ -762,6 +807,10 @@ if [[ "${1:-}" == "--socket" ]]; then
   shift 2
 fi
 if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
   exit 0
 fi
 exit 0
@@ -794,6 +843,7 @@ done
                 "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
                 "CMUX_SURFACE_ID": "surface-interactive",
                 "CMUX_SOCKET_PATH": socket_path,
+                "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
             }
             result = subprocess.run(
                 [str(cmux_shim)],
@@ -821,7 +871,7 @@ done
             failures.append(f"expected --settings value after finite shim chain, got: {args!r}")
             return
         try:
-            settings = json.loads(args[settings_index + 1])
+            settings = load_settings_value(args[settings_index + 1])
         except Exception as exc:  # noqa: BLE001 - simple test harness
             failures.append(f"expected JSON --settings value, got {args[settings_index + 1]!r}: {exc}")
             return
@@ -829,7 +879,7 @@ done
         hooks = settings.get("hooks", {})
         session_start = hooks.get("SessionStart", [])
         stop = hooks.get("Stop", [])
-        if len(session_start) != 1 or len(stop) != 3:
+        if len(session_start) != generated_hook_count("SessionStart") or len(stop) != generated_hook_count("Stop"):
             failures.append(
                 "expected one cmux hook injection after finite shim chain, "
                 f"got SessionStart={len(session_start)} Stop={len(stop)} settings={settings!r}"
@@ -846,8 +896,7 @@ def test_interactive_spawning_shim_chain_refreshes_claude_pid(failures: list[str
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
-        shutil.copy2(WRAPPER, cmux_shim)
-        cmux_shim.chmod(0o755)
+        install_wrapper_copy(cmux_shim)
 
         write_executable(
             cmux_shim_dir / "cmux",
@@ -856,6 +905,10 @@ if [[ "${1:-}" == "--socket" ]]; then
   shift 2
 fi
 if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
   exit 0
 fi
 exit 0
@@ -899,6 +952,7 @@ done
                 "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
                 "CMUX_SURFACE_ID": "surface-spawn",
                 "CMUX_SOCKET_PATH": socket_path,
+                "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
             }
             result = subprocess.run(
                 [str(cmux_shim)],
@@ -941,10 +995,185 @@ done
         if settings_index + 1 >= len(args):
             failures.append(f"expected --settings value after spawning shim chain, got: {combined_output!r}")
             return
-        settings = json.loads(args[settings_index + 1])
+        settings = load_settings_value(args[settings_index + 1])
         hooks = settings.get("hooks", {})
-        if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
+        if len(hooks.get("SessionStart", [])) != generated_hook_count("SessionStart") or len(hooks.get("Stop", [])) != generated_hook_count("Stop"):
             failures.append(f"expected one hook injection after spawning shim chain, got: {settings!r}")
+
+
+def verify_custom_path_reentry_result(
+    result: subprocess.CompletedProcess[str],
+    settings_output: Path,
+    inherited_path_log: Path,
+    failures: list[str],
+) -> None:
+    combined_output = result.stdout + result.stderr
+    if result.returncode != 0:
+        failures.append(f"issue #10230 re-entry failed with {result.returncode}: {combined_output!r}")
+        return
+    if not settings_output.is_file():
+        failures.append(f"issue #10230 re-entry never reached the real Claude binary: {combined_output!r}")
+        return
+    if not inherited_path_log.is_file():
+        failures.append("issue #10230 custom launcher did not record its inherited PATH")
+        inherited_path_values: list[str] = []
+    else:
+        inherited_path_values = inherited_path_log.read_text(encoding="utf-8").splitlines()
+    if any(value == "true" for value in inherited_path_values):
+        failures.append(
+            "issue #10230 custom launcher inherited cmux's shim directory on PATH: "
+            f"{inherited_path_values!r}"
+        )
+    try:
+        settings = json.loads(settings_output.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        failures.append(f"issue #10230 emitted invalid settings JSON: {exc}")
+        return
+    hooks = settings.get("hooks")
+    if (
+        not isinstance(hooks, dict)
+        or not isinstance(hooks.get("SessionStart"), list)
+        or not isinstance(hooks.get("Stop"), list)
+    ):
+        failures.append(f"issue #10230 emitted malformed hooks structure: {hooks!r}")
+        return
+    if len(hooks["SessionStart"]) != generated_hook_count("SessionStart") or len(hooks["Stop"]) != generated_hook_count("Stop"):
+        failures.append(
+            "issue #10230 re-entry should converge to one cmux hook block, "
+            f"got SessionStart={len(hooks['SessionStart'])} "
+            f"Stop={len(hooks['Stop'])}: {settings!r}"
+        )
+
+
+def test_custom_path_reentry_converges_to_one_settings_block(failures: list[str]) -> None:
+    """A launcher that re-enters the cmux shim once must not duplicate hooks."""
+    node_path = ensure_node_on_path()
+    if node_path is None:
+        failures.append("issue #10230 re-entry requires a Node runtime")
+        return
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-issue-10230-reentry-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-10230"
+        launcher_dir = root / "launcher"
+        custom_dir = root / "custom"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, launcher_dir, custom_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        install_wrapper_copy(cmux_shim)
+
+        cmux_bin = cmux_shim_dir / "cmux"
+        write_executable(
+            cmux_bin,
+            """#!/usr/bin/env bash
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
+  exit 0
+fi
+exit 0
+""",
+        )
+
+        launch_count = root / "launcher-count"
+        inherited_path_log = root / "launcher-inherited-path.log"
+        managed_path = (
+            f"{cmux_shim_dir}:{launcher_dir}:{real_dir}:"
+            f"{Path(node_path).parent}:/usr/bin:/bin"
+        )
+        write_executable(
+            launcher_dir / "resolve-claude",
+            f"""#!/usr/bin/env node
+const fs = require("node:fs");
+const {{ spawnSync }} = require("node:child_process");
+const countPath = {json.dumps(str(launch_count))};
+const inheritedPathLog = {json.dumps(str(inherited_path_log))};
+fs.appendFileSync(inheritedPathLog, `${{(process.env.PATH || "").includes("/cmux-cli-shims/")}}\n`);
+const firstHop = !fs.existsSync(countPath);
+if (firstHop) fs.writeFileSync(countPath, "1");
+// The first lookup intentionally restores the managed path to reproduce a
+// downstream launcher that does not know about cmux's shim directory.
+process.env.PATH = firstHop
+  ? {json.dumps(managed_path)}
+  : process.env.PATH.split(":").filter((entry) => !entry.includes("/cmux-cli-shims/")).join(":");
+const entries = (process.env.PATH || "").split(":");
+const target = entries.map((entry) => `${{entry}}/claude`).find((candidate) =>
+  fs.existsSync(candidate) && fs.statSync(candidate).isFile()
+);
+if (!target) process.exit(127);
+const child = spawnSync(target, process.argv.slice(2), {{ env: process.env, encoding: "utf8" }});
+process.stdout.write(child.stdout || "");
+process.stderr.write(child.stderr || "");
+process.exit(child.status ?? 1);
+""",
+        )
+
+        custom_path = custom_dir / "agent-entry"
+        write_executable(
+            custom_path,
+            """#!/usr/bin/env bash
+exec "$CMUX_LAUNCHER" "$@"
+""",
+        )
+
+        settings_output = root / "settings-output.json"
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+settings_path=""
+while (( $# > 0 )); do
+  if [[ "$1" == "--settings" && $# -gt 1 ]]; then
+    settings_path="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+[[ -n "$settings_path" ]] && cp "$settings_path" "$FAKE_SETTINGS_OUTPUT"
+""",
+        )
+
+        socket_path = root / "cmux.sock"
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            test_socket.bind(str(socket_path))
+            inherited_path = os.environ.get("PATH", "/usr/bin:/bin")
+            env = {
+                "HOME": str(root / "home"),
+                "PATH": f"{cmux_shim_dir}:{launcher_dir}:{real_dir}:{inherited_path}",
+                "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+                "CMUX_CUSTOM_CLAUDE_PATH": str(custom_path),
+                "CMUX_LAUNCHER": str(launcher_dir / "resolve-claude"),
+                "CMUX_SURFACE_ID": "surface-10230",
+                "CMUX_SOCKET_PATH": str(socket_path),
+                "CMUX_BUNDLED_CLI_PATH": str(cmux_bin),
+                "TMPDIR": str(root / "tmp"),
+                "FAKE_SETTINGS_OUTPUT": str(settings_output),
+                "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
+            }
+            result = subprocess.run(
+                [str(cmux_shim), "hello"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append("issue #10230 re-entry timed out instead of converging")
+            return
+        finally:
+            test_socket.close()
+
+        verify_custom_path_reentry_result(result, settings_output, inherited_path_log, failures)
 
 
 def main() -> int:
@@ -964,6 +1193,7 @@ def main() -> int:
     test_custom_shell_wrapper_execing_real_claude_allows_child_claude(failures)
     test_interactive_finite_shim_chain_does_not_duplicate_hooks(failures)
     test_interactive_spawning_shim_chain_refreshes_claude_pid(failures)
+    test_custom_path_reentry_converges_to_one_settings_block(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:

@@ -200,7 +200,7 @@ export default function EulaPage() {
       <ul>
         <li>
           Email us at{" "}
-          <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>
+          <a href="mailto:founders@cmux.com">founders@cmux.com</a>
         </li>
       </ul>
     </>

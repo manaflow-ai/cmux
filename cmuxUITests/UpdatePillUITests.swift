@@ -59,6 +59,32 @@ final class UpdatePillUITests: XCTestCase {
         attachScreenshot(name: "background-detected-update-available")
     }
 
+    /// Regression for #12467: a passive Sparkle discovery can arrive after the sidebar has
+    /// mounted. The update pill must observe that in-place model mutation without a foreground
+    /// check or an unrelated sidebar redraw.
+    func testPassiveDetectedUpdateAppearsAfterSidebarMounted() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_DELAY_MS"] = "2500"
+        launchAndActivate(app)
+
+        let sidebar = app.otherElements["Sidebar"]
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 6.0))
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(
+            pill.waitForExistence(timeout: 8.0),
+            "Passive detected update did not reach the mounted sidebar"
+        )
+        XCTAssertEqual(pill.label, "Update Available: 9.9.9")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "passive-detected-update-after-mount")
+    }
+
     func testDetectedBackgroundUpdateFirstClickOpensPopover() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
@@ -456,6 +482,9 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         let hintedNotificationsFrame = hintedNotifications.frame
         let hintedNewTabFrame = hintedNewTab.frame
 
+        XCTAssertEqual(hintedToggleFrame.minX, baselineToggleFrame.minX, accuracy: 1.0)
+        XCTAssertEqual(hintedNotificationsFrame.minX, baselineNotificationsFrame.minX, accuracy: 1.0)
+        XCTAssertEqual(hintedNewTabFrame.minX, baselineNewTabFrame.minX, accuracy: 1.0)
         XCTAssertEqual(hintedToggleFrame.minY, baselineToggleFrame.minY, accuracy: 1.0)
         XCTAssertEqual(hintedNotificationsFrame.minY, baselineNotificationsFrame.minY, accuracy: 1.0)
         XCTAssertEqual(hintedNewTabFrame.minY, baselineNewTabFrame.minY, accuracy: 1.0)

@@ -7,15 +7,63 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 from claude_teams_test_utils import install_pi_extension, resolve_cmux_cli
 
 
+# Fixtures exit at once while this is set, so priming runs none of their logic.
+PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
+
+
+def prime_first_exec(path: Path) -> None:
+    """Pay macOS's first-exec assessment for a new executable before timing it.
+
+    The first exec of every newly written file blocks while syspolicyd assesses
+    it, one file at a time across the whole machine: about 0.2 s on an idle Mac
+    and seconds on a loaded shared mini. The extension times each child from
+    spawn, and the timeout serialization check allows only 1 s, so an unprimed
+    fixture can be sent SIGTERM before it runs its first line.
+    """
+    subprocess.run(
+        [str(path)],
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=120,
+        check=False,
+    )
+
+
 def make_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    """Write a fixture that exits at once while primed, then prime it."""
+    shebang, newline, body = content.partition("\n")
+    if "python" in shebang:
+        guard = f'import os\nif os.environ.get("{PRIME_ENVIRONMENT_KEY}"):\n    raise SystemExit(0)\n'
+    elif "node" in shebang:
+        guard = f"if (process.env.{PRIME_ENVIRONMENT_KEY}) process.exit(0);\n"
+    else:
+        guard = f'if [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n'
+    path.write_text(f"{shebang}{newline}{guard}{body}", encoding="utf-8")
     path.chmod(0o755)
+    prime_first_exec(path)
+
+
+def diagnostic_payloads(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    payloads: list[dict[str, object]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
 
 
 def run_extension(
@@ -200,6 +248,11 @@ const ctx = {
 };
 await Promise.resolve(handlers.get("session_start")({}, ctx));
 await Promise.resolve(handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
+await Promise.resolve(handlers.get("tool_execution_start")({
+  toolCallId: "ui-lifecycle-tool",
+  toolName: "bash",
+  args: { command: "gh pr create --title parity" }
+}, ctx));
 await Promise.resolve(handlers.get("tool_execution_end")({
   toolCallId: "ui-lifecycle-tool",
   toolName: "bash",
@@ -221,7 +274,7 @@ while (performance.now() < deadline) {
     text = await Bun.file(logPath).text();
   } catch (_) {}
   const completed = text.split("\\n").filter((line) => line.startsWith("end ")).length;
-  if (completed >= 7) break;
+  if (completed >= 5) break;
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 """
@@ -249,28 +302,174 @@ while (performance.now() < deadline) {
 
     calls = lifecycle_log.read_text(encoding="utf-8").splitlines()
     completed = [line for line in calls if line.startswith("end ")]
-    expected = (
+    expected = [
         "hooks pi session-start",
-        "--json surface resume set",
-        "--json surface resume get",
         "hooks pi prompt-submit",
+        "hooks feed --source pi --event PreToolUse",
         "hooks feed --source pi --event PostToolUse",
         "hooks pi notification",
         "hooks pi stop",
-    )
+    ]
+    lifecycle_completed = [
+        line for line in completed
+        if " report_pwd " not in line
+        and " clear_git_branch " not in line
+        and " report_pr_action " not in line
+    ]
     indexes = {
-        command: [index for index, line in enumerate(completed) if command in line]
+        command: [index for index, line in enumerate(lifecycle_completed) if command in line]
         for command in expected
     }
     orderedIndexes = [indexes[command][0] for command in expected if indexes[command]]
-    commandPhases = [line.split(" ", 1)[0] for line in calls if line.startswith(("start ", "end "))]
+    commandPhases = [
+        line.split(" ", 1)[0]
+        for line in calls
+        if line.startswith(("start ", "end "))
+        and " report_pwd " not in line
+        and " clear_git_branch " not in line
+        and " report_pr_action " not in line
+    ]
     if (
-        len(completed) != len(expected)
+        len(lifecycle_completed) != len(expected)
         or any(len(found) != 1 for found in indexes.values())
         or orderedIndexes != sorted(orderedIndexes)
         or commandPhases != [phase for _ in expected for phase in ("start", "end")]
+        or sum("report_pwd " in line for line in completed) < 2
+        or sum("clear_git_branch " in line for line in completed) < 2
+        or not any("report_pr_action create" in line for line in completed)
     ):
         print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
+        return 1
+    return 0
+
+
+def check_ui_dialogs_publish_needs_input(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    if "installPiUIDialogHooks" not in extension_path.read_text(encoding="utf-8"):
+        return 0
+    dialog_log = root / "ui-dialog-cmux.log"
+    dialog_cmux = root / "ui-dialog-cmux"
+    make_executable(
+        dialog_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload=\"$(cat)\"
+printf '%s|%s\\n' \"$*\" \"$payload\" >> \"$CMUX_TEST_PI_DIALOG_LOG\"
+printf '{}\\n'
+""",
+    )
+    dialog_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  hasUI: true,
+  cwd: "/tmp/pi-dialog-project",
+  ui: {
+    confirm: async () => true,
+    select: async (_title, options) => options[0],
+    input: async () => "answer",
+  },
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-dialog-session"; } },
+};
+await handlers.get("session_start")({}, ctx);
+await ctx.ui.confirm("Idle command", "Run this extension action?");
+await handlers.get("before_agent_start")({ prompt: "ask me" }, ctx);
+await ctx.ui.confirm("Choose", "Which option should I use?");
+await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=dialog_cmux,
+        source=dialog_source,
+        extra_env={"CMUX_TEST_PI_DIALOG_LOG": str(dialog_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi UI dialog harness failed: {result.stderr!r}")
+        return 1
+    calls = dialog_log.read_text(encoding="utf-8").splitlines()
+    question = [line for line in calls if "hooks pi notification" in line and "questionAsked" in line]
+    response = [line for line in calls if "hooks pi approval-response" in line]
+    response_payloads = [json.loads(line.split("|", 1)[1]) for line in response]
+    question_payloads = [json.loads(line.split("|", 1)[1]) for line in question]
+    response_payload = response_payloads[-1] if response_payloads else {}
+    if (
+        len(question) != 2
+        or len(response) != 2
+        or calls.index(question[0]) > calls.index(response[0])
+        or calls.index(question[1]) > calls.index(response[1])
+        or question_payloads[1].get("turn_id") != response_payload.get("turn_id")
+        or question_payloads[0].get("turn_id") == response_payloads[1].get("turn_id")
+        or response_payloads[0].get("cmux_pi_idle_dialog") is not True
+        or response_payloads[1].get("cmux_pi_idle_dialog") is not False
+        or any("Which option should I use?" in line for line in question)
+    ):
+        print(f"FAIL: Pi UI dialog did not bracket a needs-input lifecycle: {calls!r}")
+        return 1
+    return 0
+
+
+def check_ui_dialog_rejection_publishes_response(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    if "installPiUIDialogHooks" not in extension_path.read_text(encoding="utf-8"):
+        return 0
+    dialog_log = root / "ui-dialog-rejection-cmux.log"
+    dialog_cmux = root / "ui-dialog-rejection-cmux"
+    make_executable(
+        dialog_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_DIALOG_REJECTION_LOG"
+printf '{}\n'
+""",
+    )
+    dialog_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  hasUI: true,
+  cwd: "/tmp/pi-dialog-rejection-project",
+  ui: {
+    confirm: async () => { throw new Error("dialog failed"); },
+    select: async () => undefined,
+    input: async () => undefined,
+  },
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-dialog-rejection-session"; } },
+};
+await handlers.get("session_start")({}, ctx);
+try { await ctx.ui.confirm("Question", "This dialog fails"); } catch (_) {}
+await handlers.get("session_shutdown")({ reason: "dialog test" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=dialog_cmux,
+        source=dialog_source,
+        extra_env={"CMUX_TEST_PI_DIALOG_REJECTION_LOG": str(dialog_log)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi rejected-dialog harness failed: {result.stderr!r}")
+        return 1
+    calls = dialog_log.read_text(encoding="utf-8").splitlines()
+    questions = [line for line in calls if "hooks pi notification" in line and "questionAsked" in line]
+    responses = [line for line in calls if "hooks pi approval-response" in line]
+    if len(questions) != 1 or len(responses) != 1:
+        print(f"FAIL: rejected Pi dialog did not publish a response: {calls!r}")
         return 1
     return 0
 
@@ -440,7 +639,7 @@ const ctx = {
 };
 handlers.get("before_agent_start")({ prompt: "first" }, ctx);
 handlers.get("agent_end")({
-  messages: [{ role: "assistant", content: "first done" }],
+  messages: [{ role: "assistant", content: "The docs now explain which version to choose." }],
   stopReason: "completed"
 }, ctx);
 handlers.get("before_agent_start")({ prompt: "second" }, ctx);
@@ -458,12 +657,17 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
         print(f"FAIL: Pi turn-transition harness failed: {result.stderr!r}")
         return 1
     calls = transition_log.read_text(encoding="utf-8").splitlines()
+    prompts = [json.loads(line.split('|', 1)[1]) for line in calls
+               if 'hooks pi prompt-submit ' in line]
+    if len(prompts) != 2 or prompts[0]['turn_id'] == prompts[1]['turn_id']:
+        print(f"FAIL: Pi turns did not receive distinct IDs: {calls!r}")
+        return 1
     first_stop = next(
         (
             index
             for index, line in enumerate(calls)
             if "hooks pi stop" in line
-            and '"turn_id":"pi-turn-transition-session:turn-1"' in line
+            and json.loads(line.split('|', 1)[1])['turn_id'] == prompts[0]['turn_id']
         ),
         None,
     )
@@ -472,12 +676,19 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
             index
             for index, line in enumerate(calls)
             if "hooks pi prompt-submit" in line
-            and '"turn_id":"pi-turn-transition-session:turn-2"' in line
+            and json.loads(line.split('|', 1)[1])['turn_id'] == prompts[1]['turn_id']
         ),
         None,
     )
     if first_stop is None or second_prompt is None or first_stop > second_prompt:
         print(f"FAIL: previous Pi completion raced the next prompt: {calls!r}")
+        return 1
+    first_notification = next(
+        (line for line in calls if "hooks pi notification" in line and '"turn_id":"pi-turn-transition-session:turn-1"' in line),
+        "",
+    )
+    if '"type":"question"' in first_notification:
+        print(f"FAIL: declarative Pi completion was classified as a question: {calls!r}")
         return 1
     return 0
 
@@ -1270,8 +1481,8 @@ const releasePath = process.env.CMUX_TEST_PI_AGGREGATE_RELEASE;
 const mod = await import(extensionPath);
 const handlers = new Map();
 mod.default({ on(name, handler) { handlers.set(name, handler); } });
-async function waitForAggregateState(label, predicate) {
-  const deadline = performance.now() + 5000;
+async function waitForAggregateState(label, predicate, timeoutMs = 5000) {
+  const deadline = performance.now() + timeoutMs;
   let lastState = null;
   let lastError = null;
   while (performance.now() < deadline) {
@@ -1308,6 +1519,7 @@ writeFileSync(releasePath, "ready");
 await waitForAggregateState(
   "waiting for aggregate Feed drain",
   (state) => state.starts === 34 && state.active === 0,
+  10000,
 );
 """
     result = run_extension(
@@ -1517,6 +1729,89 @@ await new Promise((resolve) => setTimeout(resolve, 750));
     return 0
 
 
+def check_lifecycle_backlog_shedding(bun: str, root: Path, extension_path: Path) -> int:
+    backlog_log = root / "lifecycle-backlog-cmux.log"
+    diagnostic_log = root / "lifecycle-backlog-diagnostics.log"
+    release_marker = root / "lifecycle-backlog-release"
+    backlog_cmux = root / "lifecycle-backlog-cmux"
+    make_executable(
+        backlog_cmux,
+        """#!/usr/bin/env python3
+import os
+import sys
+import time
+
+args = " ".join(sys.argv[1:])
+sys.stdin.read()
+with open(os.environ["CMUX_TEST_PI_BACKLOG_LOG"], "a", encoding="utf-8") as stream:
+    stream.write(args + "\\n")
+if "hooks pi session-start" in args:
+    while not os.path.exists(os.environ["CMUX_TEST_PI_BACKLOG_RELEASE"]):
+        time.sleep(0.01)
+print("{}")
+""",
+    )
+    backlog_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-lifecycle-backlog-project",
+  sessionManager: { getSessionId() { return "pi-lifecycle-backlog-session"; } }
+};
+handlers.get("session_start")({}, ctx);
+const logPath = process.env.CMUX_TEST_PI_BACKLOG_LOG;
+while (!Bun.file(logPath).size) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+for (let index = 0; index < 60; index += 1) {
+  handlers.get("tool_execution_end")({
+    toolCallId: `backlog-tool-${index}`,
+    toolName: "bash",
+    result: { content: [{ type: "text", text: `terminal result ${index}` }] },
+    isError: false
+  }, ctx);
+}
+await Bun.write(process.env.CMUX_TEST_PI_BACKLOG_RELEASE, "release");
+await handlers.get("session_shutdown")({ reason: "reload" }, ctx);
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=backlog_cmux,
+        source=backlog_source,
+        extra_env={
+            "CMUX_TEST_PI_BACKLOG_LOG": str(backlog_log),
+            "CMUX_TEST_PI_BACKLOG_RELEASE": str(release_marker),
+            "CMUX_DEBUG_LOG": str(diagnostic_log),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: lifecycle backlog harness failed: {result.stderr!r}")
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: lifecycle backlog shedding leaked into Pi's prompt: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
+    dropped = [
+        payload
+        for payload in diagnostic_payloads(diagnostic_log)
+        if payload.get("message") == "cmux feed delivery dropped"
+        and payload.get("reason") == "dispatch-dropped"
+    ]
+    if len(dropped) != 1:
+        print(
+            "FAIL: a stalled lifecycle hook did not shed excess Feed work as a "
+            f"dropped delivery: {diagnostic_payloads(diagnostic_log)!r}"
+        )
+        return 1
+    return 0
+
+
 def check_completion_order(bun: str, root: Path, extension_path: Path) -> int:
     completion_cmux = make_feed_lifecycle_cmux(root, "completion-order-cmux")
     completion_log = root / "completion-order-cmux.log"
@@ -1683,13 +1978,17 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         ("shutdown", shutdown_source),
     ):
         log_path = root / f"terminal-feed-{label}-failure.log"
+        diagnostic_log = root / f"terminal-feed-{label}-diagnostics.log"
         result = run_extension(
             bun=bun,
             root=root,
             extension_path=extension_path,
             fake_cmux=failure_cmux,
             source=source,
-            extra_env={"CMUX_TEST_PI_FAILURE_LOG": str(log_path)},
+            extra_env={
+                "CMUX_TEST_PI_FAILURE_LOG": str(log_path),
+                "CMUX_DEBUG_LOG": str(diagnostic_log),
+            },
         )
         if result.returncode != 0:
             print(f"FAIL: terminal-feed {label} failure harness failed: {result.stderr!r}")
@@ -1706,8 +2005,19 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         if any("hooks pi notification" in line for line in calls):
             print(f"FAIL: terminal-feed {label} failure emitted a completion notification: {calls!r}")
             return 1
-        if '"message":"cmux hook command failed"' not in result.stderr:
-            print(f"FAIL: failed terminal-feed {label} delivery was not surfaced: {result.stderr!r}")
+        diagnostics = diagnostic_payloads(diagnostic_log)
+        command_failure = next(
+            (payload for payload in diagnostics if payload.get("message") == "cmux hook command failed"),
+            None,
+        )
+        if command_failure is None or command_failure.get("reason") != "nonzero-exit":
+            print(f"FAIL: failed terminal-feed {label} delivery was not diagnosed: {diagnostics!r}")
+            return 1
+        if result.stdout or result.stderr:
+            print(
+                f"FAIL: failed terminal-feed {label} delivery leaked into Pi's prompt: "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
             return 1
 
     return 0
@@ -1762,6 +2072,9 @@ resolveActive({
   stdout: "",
   stderr: "",
   error: new Error("cmux command timed out after 5000ms"),
+  reason: "timeout",
+  timeoutMs: 5000,
+  elapsedMs: 5000,
   surfaceUnavailable: false
 });
 const settleDeadline = Date.now() + 1_000;
@@ -1794,6 +2107,7 @@ if (!completionFailed) {
 
 def check_completion_drain_deadline(bun: str, root: Path, extension_path: Path) -> int:
     ordered_log = root / "completion-drain-order-cmux.log"
+    ordered_diagnostic_log = root / "completion-drain-order-diagnostics.log"
     ordered_cmux = root / "completion-drain-order-cmux"
     make_executable(
         ordered_cmux,
@@ -1851,7 +2165,10 @@ console.log(`ordered_completion_ms=${performance.now() - startedAt}`);
         extension_path=extension_path,
         fake_cmux=ordered_cmux,
         source=ordered_source,
-        extra_env={"CMUX_TEST_PI_DRAIN_ORDER_LOG": str(ordered_log)},
+        extra_env={
+            "CMUX_TEST_PI_DRAIN_ORDER_LOG": str(ordered_log),
+            "CMUX_DEBUG_LOG": str(ordered_diagnostic_log),
+        },
     )
     if ordered.returncode != 0:
         print(f"FAIL: completion-drain ordering harness failed: {ordered.stderr!r}")
@@ -1894,11 +2211,13 @@ console.log(`ordered_completion_ms=${performance.now() - startedAt}`);
             f"{ordered_calls!r}"
         )
         return 1
-    if '"message":"cmux hook command failed"' in ordered.stderr:
-        print(f"FAIL: late successful terminal Feed result was marked failed: {ordered.stderr!r}")
+    ordered_diagnostics = diagnostic_payloads(ordered_diagnostic_log)
+    if any(payload.get("message") == "cmux hook command failed" for payload in ordered_diagnostics):
+        print(f"FAIL: late successful terminal Feed result was marked failed: {ordered_diagnostics!r}")
         return 1
 
     deadline_log = root / "completion-deadline-cmux.log"
+    deadline_diagnostic_log = root / "completion-deadline-diagnostics.log"
     deadline_cmux = root / "completion-deadline-cmux"
     make_executable(
         deadline_cmux,
@@ -1962,7 +2281,10 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
         extension_path=extension_path,
         fake_cmux=deadline_cmux,
         source=deadline_source,
-        extra_env={"CMUX_TEST_PI_DEADLINE_LOG": str(deadline_log)},
+        extra_env={
+            "CMUX_TEST_PI_DEADLINE_LOG": str(deadline_log),
+            "CMUX_DEBUG_LOG": str(deadline_diagnostic_log),
+        },
     )
     if deadline.returncode != 0:
         print(f"FAIL: completion-drain deadline harness failed: {deadline.stderr!r}")
@@ -1983,8 +2305,16 @@ console.log(`completion_ms=${performance.now() - startedAt}`);
     if any("hooks pi notification" in line for line in deadline_calls):
         print(f"FAIL: terminal-feed drain deadline emitted a completion notification: {deadline_calls!r}")
         return 1
-    if '"message":"cmux hook command failed"' not in deadline.stderr:
-        print(f"FAIL: terminal-feed drain deadline was not surfaced: {deadline.stderr!r}")
+    deadline_diagnostics = diagnostic_payloads(deadline_diagnostic_log)
+    dropped = next(
+        (payload for payload in deadline_diagnostics if payload.get("message") == "cmux feed delivery dropped"),
+        None,
+    )
+    if dropped is None or dropped.get("reason") != "dispatch-dropped":
+        print(f"FAIL: terminal-feed drain deadline was not diagnosed: {deadline_diagnostics!r}")
+        return 1
+    if "timeout_ms" in dropped or "elapsed_ms" in dropped:
+        print(f"FAIL: terminal-feed drop reported unrelated command timing: {dropped!r}")
         return 1
 
     return 0
@@ -2057,6 +2387,7 @@ await Promise.all([first, second]);
         extra_env={
             "CMUX_TEST_PI_TIMEOUT_LOG": str(timeout_log),
             "CMUX_TEST_PI_TIMEOUT_LOCK": str(timeout_lock),
+            "CMUX_PI_HOOK_TIMEOUT_MS": "1000",
         },
     )
     if timed_out.returncode != 0:
@@ -2288,8 +2619,8 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         return 1
     calls = moved_log.read_text(encoding="utf-8").splitlines()
     resume_calls = [line for line in calls if "surface resume" in line]
-    if len(resume_calls) != 3:
-        print(f"FAIL: moved-surface harness missed resume set/get/clear: {calls!r}")
+    if len(resume_calls) != 1 or "surface resume clear" not in resume_calls[0]:
+        print(f"FAIL: moved-surface harness emitted unexpected resume mutations: {calls!r}")
         return 1
     moved_target = (
         "--workspace 00000000-0000-0000-0000-000000008674 "
@@ -2308,6 +2639,7 @@ def check_failed_resume_clear_releases_session_runtime(
     extension_path: Path,
 ) -> int:
     log_path = root / "failed-resume-clear.log"
+    diagnostic_log = root / "failed-resume-clear-diagnostics.log"
     fake_cmux = root / "failed-resume-clear-cmux"
     make_executable(
         fake_cmux,
@@ -2364,7 +2696,10 @@ if (mod.surfaceTargetsFor(probeDispatcher).has("probe-session")) {
         extension_path=inspectable_extension,
         fake_cmux=fake_cmux,
         source=source,
-        extra_env={"CMUX_TEST_PI_FAILED_CLEAR_LOG": str(log_path)},
+        extra_env={
+            "CMUX_TEST_PI_FAILED_CLEAR_LOG": str(log_path),
+            "CMUX_DEBUG_LOG": str(diagnostic_log),
+        },
     )
     if result.returncode != 0:
         print(f"FAIL: failed resume clear retained Pi runtime state: {result.stderr!r}")
@@ -2378,8 +2713,13 @@ if (mod.surfaceTargetsFor(probeDispatcher).has("probe-session")) {
     if len(prompt_calls) != 1 or expected_new_target not in prompt_calls[0]:
         print(f"FAIL: failed resume clear retained the old resolved target: {calls!r}")
         return 1
-    if '"message":"failed to clear Pi resume binding"' not in result.stderr:
-        print(f"FAIL: failed resume clear was not reported: {result.stderr!r}")
+    diagnostics = diagnostic_payloads(diagnostic_log)
+    clear_failure = next(
+        (payload for payload in diagnostics if payload.get("hook_name") == "surface-resume-clear"),
+        None,
+    )
+    if clear_failure is None or clear_failure.get("reason") != "nonzero-exit":
+        print(f"FAIL: failed resume clear was not diagnosed: {diagnostics!r}")
         return 1
 
     return 0
@@ -2523,6 +2863,7 @@ await handlers.get("session_shutdown")({ reason: "session isolation test" }, hea
 
 def check_stale_surface(bun: str, root: Path, extension_path: Path) -> int:
     stale_log = root / "stale-cmux.log"
+    stale_diagnostic_log = root / "stale-cmux-diagnostics.log"
     stale_cmux = root / "stale-cmux"
     make_executable(
         stale_cmux,
@@ -2563,7 +2904,10 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         extension_path=extension_path,
         fake_cmux=stale_cmux,
         source=stale_source,
-        extra_env={"CMUX_TEST_PI_STALE_LOG": str(stale_log)},
+        extra_env={
+            "CMUX_TEST_PI_STALE_LOG": str(stale_log),
+            "CMUX_DEBUG_LOG": str(stale_diagnostic_log),
+        },
     )
     if stale.returncode != 0:
         print("FAIL: stale-surface Pi harness failed to execute")
@@ -2576,11 +2920,637 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
     if len(stale_calls) != 1:
         print(f"FAIL: stale CMUX_SURFACE_ID was retried after its first permanent failure: {stale_calls!r}")
         return 1
-    warning_count = stale.stderr.count('"source":"cmux-pi-extension"')
-    if warning_count != 1:
-        print(f"FAIL: stale surface emitted {warning_count} warnings instead of one: {stale.stderr!r}")
+    diagnostics = diagnostic_payloads(stale_diagnostic_log)
+    command_failures = [
+        payload for payload in diagnostics if payload.get("message") == "cmux hook command failed"
+    ]
+    if len(command_failures) != 1:
+        print(f"FAIL: stale surface logged {len(command_failures)} failures instead of one: {diagnostics!r}")
+        return 1
+    if stale.stdout or stale.stderr:
+        print(
+            "FAIL: stale surface warning leaked into Pi's prompt: "
+            f"stdout={stale.stdout!r} stderr={stale.stderr!r}"
+        )
         return 1
 
+    return 0
+
+
+def check_concurrent_stale_surface_logs_once(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    diagnostic_log = root / "concurrent-stale-surface-diagnostics.log"
+    inspectable_extension = root / "concurrent-stale-surface.ts"
+    inspectable_extension.write_text(
+        extension_path.read_text(encoding="utf-8")
+        + "\nexport { PiCmuxCommandDispatcher };\n",
+        encoding="utf-8",
+    )
+    source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+process.env.CMUX_PI_CMUX_BIN = "/bin/sh";
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_CONCURRENT_STALE_DIAGNOSTIC_LOG;
+process.env.CMUX_PI_HOOK_TIMEOUT_MS = "5000";
+
+const iterations = 8;
+for (let index = 0; index < iterations; index += 1) {
+  const dispatcher = new mod.PiCmuxCommandDispatcher();
+  const context = {
+    sessionId: `pi-concurrent-stale-${index}`,
+    cwd: "/tmp",
+  };
+  dispatcher.enqueueFeed(`feed-${index}`, {
+    args: ["-c", "exit 69"],
+    cwd: "/tmp",
+    payload: {},
+    context,
+    terminal: true,
+  });
+  await dispatcher.run(["-c", "exit 69"], "/tmp", undefined, context);
+  const deadline = performance.now() + 5000;
+  while (dispatcher.activeFeeds.size > 0 && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  if (dispatcher.activeFeeds.size > 0) {
+    throw new Error(`concurrent stale Feed did not finish for iteration ${index}`);
+  }
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=Path("/bin/sh"),
+        source=source,
+        extra_env={
+            "CMUX_TEST_PI_CONCURRENT_STALE_DIAGNOSTIC_LOG": str(diagnostic_log),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: concurrent stale-surface harness failed: {result.stderr!r}")
+        return 1
+    diagnostics = [
+        payload
+        for payload in diagnostic_payloads(diagnostic_log)
+        if payload.get("dispatch_disabled") is True
+    ]
+    if len(diagnostics) != 8:
+        print(
+            "FAIL: concurrent Feed/control stale failures emitted "
+            f"{len(diagnostics)} dispatch-disabled diagnostics instead of 8: {diagnostics!r}"
+        )
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: concurrent stale-surface diagnostics leaked into Pi's prompt: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
+    return 0
+
+
+def check_timeout_configuration_and_failure_telemetry(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    extension_text = extension_path.read_text(encoding="utf-8")
+    if "CMUX_PI_HOOK_TIMEOUT_MS" not in extension_text:
+        print("FAIL: generated Pi extension does not expose CMUX_PI_HOOK_TIMEOUT_MS")
+        return 1
+    if "publishPiWorkspaceMetadata" in extension_text and "cmux-pi-session-extension-marker v4" not in extension_text:
+        print("FAIL: generated Pi extension did not advance its regeneration marker to v4")
+        return 1
+    forbidden_console_calls = [
+        call
+        for call in ("console.warn(", "console.error(")
+        if call in extension_text
+    ]
+    if forbidden_console_calls:
+        print(
+            "FAIL: generated Pi extension can render failure diagnostics in Pi's prompt: "
+            f"{forbidden_console_calls!r}"
+        )
+        return 1
+
+    inspectable_extension = root / "timeout-telemetry-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_text
+        + "\nexport { PiCmuxCommandDispatcher, piHookTimeoutMilliseconds, piCommandTimeoutMilliseconds, commandFailureReason, piHookName, createPiLifecycleQueue };\n",
+        encoding="utf-8",
+    )
+
+    fake_cmux = root / "timeout-telemetry-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env python3
+import sys
+import time
+
+sys.stdin.read()
+if "session-start" in sys.argv:
+    time.sleep(5)
+    print("{}")
+elif "prompt-submit" in sys.argv:
+    raise SystemExit(23)
+else:
+    print("{}")
+""",
+    )
+
+    diagnostic_log = root / "pi-hook-diagnostics.log"
+    missing_cmux = root / "missing-cmux"
+    timeout_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+
+const parsingCases = [
+  [undefined, 15000],
+  ["", 15000],
+  ["   ", 15000],
+  [" 25000 ", 25000],
+  ["0017", 17],
+  ["0", 15000],
+  ["-1", 15000],
+  ["1.5", 15000],
+  ["1e3", 15000],
+  ["not-a-number", 15000],
+  ["59999", 59999],
+  ["60000", 60000],
+  ["999999", 60000],
+  ["999999999999999999999999", 60000],
+  ["9".repeat(309), 60000],
+];
+for (const [value, expected] of parsingCases) {
+  const actual = mod.piHookTimeoutMilliseconds(value);
+  if (actual !== expected) {
+    throw new Error(`timeout parse ${JSON.stringify(value)} produced ${actual}, expected ${expected}`);
+  }
+}
+
+const commandTimeoutCases = [
+  [["hooks", "pi", "session-start"], undefined, 15000],
+  [["hooks", "feed", "--source", "pi"], undefined, 5000],
+  [["hooks", "feed", "--source", "pi"], "25000", 5000],
+  [["hooks", "feed", "--source", "pi"], "4200", 4200],
+  [["hooks", "feed", "--source", "pi"], "1000", 1000],
+];
+for (const [args, value, expected] of commandTimeoutCases) {
+  const actual = mod.piCommandTimeoutMilliseconds(args, value);
+  if (actual !== expected) {
+    throw new Error(`command timeout for ${JSON.stringify(args)} and ${value} produced ${actual}, expected ${expected}`);
+  }
+}
+
+const lifecycle = mod.createPiLifecycleQueue();
+const lifecycleContext = {
+  sessionId: "pi-lifecycle-backlog",
+  cwd: "/tmp/pi-lifecycle-backlog",
+};
+let releaseStalledLifecycleHook;
+const stalledLifecycleHook = new Promise((resolve) => {
+  releaseStalledLifecycleHook = resolve;
+});
+const stalledTask = lifecycle.enqueue(
+  "pi-lifecycle-backlog",
+  lifecycleContext,
+  () => stalledLifecycleHook,
+);
+let queuedDroppableRuns = 0;
+let acceptedDroppableTasks = 0;
+for (let index = 0; index < 40; index += 1) {
+  const accepted = lifecycle.tryEnqueue("pi-lifecycle-backlog", lifecycleContext, () => {
+    queuedDroppableRuns += 1;
+  });
+  if (accepted) acceptedDroppableTasks += 1;
+}
+if (acceptedDroppableTasks !== 31) {
+  throw new Error(`stalled lifecycle backlog accepted ${acceptedDroppableTasks} droppable tasks, expected 31`);
+}
+if (!lifecycle.tryEnqueue("pi-lifecycle-backlog-other", lifecycleContext, () => {})) {
+  throw new Error("saturated session backlog rejected another session's work");
+}
+let criticalRuns = 0;
+const criticalTask = lifecycle.enqueue("pi-lifecycle-backlog", lifecycleContext, () => {
+  criticalRuns += 1;
+});
+if (queuedDroppableRuns !== 0) {
+  throw new Error("droppable lifecycle tasks ran ahead of the stalled hook");
+}
+releaseStalledLifecycleHook();
+await stalledTask;
+await criticalTask;
+if (queuedDroppableRuns !== 31 || criticalRuns !== 1) {
+  throw new Error(`queued lifecycle tasks did not run after drain: droppable=${queuedDroppableRuns} critical=${criticalRuns}`);
+}
+if (!lifecycle.tryEnqueue("pi-lifecycle-backlog", lifecycleContext, () => {})) {
+  throw new Error("drained lifecycle backlog rejected new droppable work");
+}
+
+const classified = [
+  [mod.commandFailureReason(null, undefined, "timeout"), "timeout"],
+  [mod.commandFailureReason(0, new Error("write EPIPE")), undefined],
+  [mod.commandFailureReason(42, undefined), "nonzero-exit"],
+  [mod.commandFailureReason(null, new Error("ENOENT")), "spawn-error"],
+];
+for (const [actual, expected] of classified) {
+  if (actual !== expected) {
+    throw new Error(`failure classification produced ${actual}, expected ${expected}`);
+  }
+}
+
+const boundedHookName = mod.piHookName(["hooks", "pi", "x".repeat(10_000)]);
+if (boundedHookName.length > 128) {
+  throw new Error(`hook name was not bounded: ${boundedHookName.length}`);
+}
+
+process.env.CMUX_PI_HOOK_TIMEOUT_MS = "80";
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_DIAGNOSTIC_LOG;
+const context = {
+  sessionId: "pi-timeout-telemetry-session",
+  cwd: "/tmp/pi-timeout-telemetry",
+};
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+const timedOut = await dispatcher.run(
+  ["hooks", "pi", "session-start"],
+  context.cwd,
+  "{}",
+  context,
+);
+if (timedOut.reason !== "timeout") {
+  throw new Error(`signal-killed child was classified as ${timedOut.reason}`);
+}
+if (timedOut.timeoutMs !== 80 || timedOut.elapsedMs < 1) {
+  throw new Error(`timeout result omitted timing metadata: ${JSON.stringify(timedOut)}`);
+}
+
+process.env.CMUX_PI_HOOK_TIMEOUT_MS = "5000";
+const nonzero = await dispatcher.run(
+  ["hooks", "pi", "prompt-submit"],
+  context.cwd,
+  "{}",
+  context,
+);
+if (nonzero.reason !== "nonzero-exit" || nonzero.status !== 23) {
+  throw new Error(`nonzero child was misclassified: ${JSON.stringify(nonzero)}`);
+}
+
+process.env.CMUX_PI_CMUX_BIN = process.env.CMUX_TEST_PI_MISSING_CMUX;
+const spawnError = await dispatcher.run(
+  ["hooks", "pi", "stop"],
+  context.cwd,
+  "{}",
+  context,
+);
+if (spawnError.reason !== "spawn-error" || spawnError.status !== null) {
+  throw new Error(`spawn failure was misclassified: ${JSON.stringify(spawnError)}`);
+}
+
+const logPath = process.env.CMUX_TEST_PI_DIAGNOSTIC_LOG;
+let diagnostics = [];
+const deadline = performance.now() + 3000;
+while (performance.now() < deadline) {
+  try {
+    diagnostics = (await Bun.file(logPath).text())
+      .split("\\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch (_) {}
+  if (diagnostics.length >= 3) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+const expectedFailures = new Map([
+  ["session-start", { reason: "timeout", timeout_ms: 80 }],
+  ["prompt-submit", { reason: "nonzero-exit", timeout_ms: 5000 }],
+  ["stop", { reason: "spawn-error", timeout_ms: 5000 }],
+]);
+for (const [hookName, expected] of expectedFailures) {
+  const payload = diagnostics.find((candidate) => candidate.hook_name === hookName);
+  if (!payload) throw new Error(`missing ${hookName} diagnostic: ${JSON.stringify(diagnostics)}`);
+  if (payload.reason !== expected.reason || payload.timeout_ms !== expected.timeout_ms) {
+    throw new Error(`wrong ${hookName} diagnostic: ${JSON.stringify(payload)}`);
+  }
+  if (!Number.isFinite(payload.elapsed_ms) || payload.elapsed_ms < 0) {
+    throw new Error(`missing ${hookName} elapsed_ms: ${JSON.stringify(payload)}`);
+  }
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=inspectable_extension,
+        fake_cmux=fake_cmux,
+        source=timeout_source,
+        extra_env={
+            "CMUX_TEST_PI_DIAGNOSTIC_LOG": str(diagnostic_log),
+            "CMUX_TEST_PI_MISSING_CMUX": str(missing_cmux),
+        },
+    )
+    if result.returncode != 0:
+        print(f"FAIL: Pi timeout telemetry harness failed: {result.stderr!r}")
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: Pi timeout telemetry wrote to the host streams: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
+
+    return 0
+
+
+def check_diagnostic_log_safety_and_routing(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    extension_text = extension_path.read_text(encoding="utf-8")
+    inspectable_extension = root / "diagnostic-log-cmux-session.ts"
+    inspectable_extension.write_text(
+        extension_text
+        + "\nexport { PiCmuxCommandDispatcher, appendPiHookDiagnostic, piHookDiagnosticPath, runPiHookDiagnosticWrite, warn };\n",
+        encoding="utf-8",
+    )
+
+    fake_cmux = root / "diagnostic-log-cmux"
+    make_executable(
+        fake_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+exit 23
+""",
+    )
+
+    home = root / "diagnostic-home"
+    home.mkdir()
+    boundary_log = root / "diagnostic-boundary.log"
+    boundary_log.write_text('{"existing":true}', encoding="utf-8")
+    pointer_file = root / "last-debug-log-path"
+    pointer_file.write_text("~/pointer.log\n", encoding="utf-8")
+    pointer_symlink = root / "last-debug-log-path.symlink"
+    pointer_symlink.symlink_to(pointer_file)
+    pointer_fifo = root / "last-debug-log-path.fifo"
+    os.mkfifo(pointer_fifo)
+    missing_pointer = root / "missing-last-debug-log-path"
+    fallback_log = root / "fallback.log"
+    invalid_log_destination = root / "diagnostic-directory"
+    invalid_log_destination.mkdir()
+    symlink_log_target = root / "diagnostic-symlink-target.log"
+    symlink_log_target.write_text("symlink canary\n", encoding="utf-8")
+    symlink_log = root / "diagnostic-symlink.log"
+    symlink_log.symlink_to(symlink_log_target)
+    fifo_log = root / "diagnostic.fifo"
+    os.mkfifo(fifo_log)
+    socket_tag = f"pi-routing-{os.getpid()}"
+    socket_path_log = Path(f"/tmp/cmux-debug-{socket_tag}.log")
+    legacy_socket_log = Path(f"/tmp/cmux-debug-{socket_tag}-legacy.log")
+    shadow_socket_log = Path(f"/tmp/cmux-debug-{socket_tag}-shadow.log")
+    for path in (socket_path_log, legacy_socket_log, shadow_socket_log):
+        path.unlink(missing_ok=True)
+
+    source = r"""
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const failures = [];
+
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_BOUNDARY_LOG;
+await mod.appendPiHookDiagnostic({
+  source: "cmux-pi-extension",
+  level: "warning",
+  message: "boundary canary",
+  hook_name: "boundary",
+  reason: "test",
+});
+const boundaryText = readFileSync(process.env.CMUX_TEST_PI_BOUNDARY_LOG, "utf8");
+const boundaryLines = boundaryText.split("\n").filter(Boolean);
+if (boundaryLines.length !== 2) {
+  failures.push(`diagnostic append did not preserve a JSONL boundary: ${JSON.stringify(boundaryText)}`);
+} else {
+  try {
+    const parsed = boundaryLines.map((line) => JSON.parse(line));
+    if (parsed[0].existing !== true || parsed[1].hook_name !== "boundary") {
+      failures.push(`diagnostic append changed existing JSONL content: ${JSON.stringify(parsed)}`);
+    }
+  } catch (error) {
+    failures.push(`diagnostic append produced invalid JSONL: ${String(error)}`);
+  }
+}
+
+const home = process.env.CMUX_TEST_PI_ROUTING_HOME;
+const pointerFile = process.env.CMUX_TEST_PI_POINTER_FILE;
+const missingPointer = process.env.CMUX_TEST_PI_MISSING_POINTER;
+const fallbackLog = process.env.CMUX_TEST_PI_FALLBACK_LOG;
+const socketTag = process.env.CMUX_TEST_PI_SOCKET_TAG;
+const cases = [
+  {
+    label: "explicit",
+    environment: {
+      HOME: home,
+      CMUX_DEBUG_LOG: "~/explicit.log",
+      CMUX_SOCKET_PATH: `/tmp/cmux-debug-${socketTag}-shadow.sock`,
+    },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `${home}/explicit.log`,
+  },
+  {
+    label: "socket-path",
+    environment: { HOME: home, CMUX_SOCKET_PATH: `/tmp/cmux-debug-${socketTag}.sock` },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `/tmp/cmux-debug-${socketTag}.log`,
+  },
+  {
+    label: "socket",
+    environment: { HOME: home, CMUX_SOCKET: `/tmp/cmux-debug-${socketTag}-legacy.sock` },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `/tmp/cmux-debug-${socketTag}-legacy.log`,
+  },
+  {
+    label: "pointer",
+    environment: { HOME: home },
+    pointer: pointerFile,
+    fallback: fallbackLog,
+    expected: `${home}/pointer.log`,
+  },
+  {
+    label: "fallback",
+    environment: { HOME: home },
+    pointer: missingPointer,
+    fallback: fallbackLog,
+    expected: fallbackLog,
+  },
+];
+
+let routesMatched = true;
+for (const candidate of cases) {
+  const actual = mod.piHookDiagnosticPath(
+    candidate.environment,
+    candidate.pointer,
+    candidate.fallback,
+  );
+  if (actual !== candidate.expected) {
+    routesMatched = false;
+    failures.push(`${candidate.label} diagnostic route was ${actual}, expected ${candidate.expected}`);
+  }
+}
+
+const pointerFifoRoute = mod.piHookDiagnosticPath(
+  { HOME: home },
+  process.env.CMUX_TEST_PI_POINTER_FIFO,
+  fallbackLog,
+);
+if (pointerFifoRoute !== fallbackLog) {
+  failures.push(`FIFO pointer route was ${pointerFifoRoute}, expected ${fallbackLog}`);
+}
+
+const pointerSymlinkRoute = mod.piHookDiagnosticPath(
+  { HOME: home },
+  process.env.CMUX_TEST_PI_POINTER_SYMLINK,
+  fallbackLog,
+);
+if (pointerSymlinkRoute !== fallbackLog) {
+  failures.push(`symlink pointer route was ${pointerSymlinkRoute}, expected ${fallbackLog}`);
+}
+
+if (routesMatched) {
+  for (const candidate of cases) {
+    try { unlinkSync(candidate.expected); } catch (_) {}
+    await mod.appendPiHookDiagnostic(
+      {
+        source: "cmux-pi-extension",
+        level: "warning",
+        message: "routing canary",
+        hook_name: candidate.label,
+        reason: "test",
+      },
+      candidate.environment,
+      candidate.pointer,
+      candidate.fallback,
+    );
+    if (!existsSync(candidate.expected)) {
+      failures.push(`${candidate.label} diagnostic route did not create ${candidate.expected}`);
+      continue;
+    }
+    try {
+      const lines = readFileSync(candidate.expected, "utf8").split("\n").filter(Boolean);
+      const payload = JSON.parse(lines.at(-1));
+      if (payload.hook_name !== candidate.label) {
+        failures.push(`${candidate.label} diagnostic route wrote the wrong payload`);
+      }
+    } catch (error) {
+      failures.push(`${candidate.label} diagnostic route was not JSONL: ${String(error)}`);
+    }
+  }
+  const explicitText = readFileSync(`${home}/explicit.log`, "utf8");
+  if (explicitText.includes("socket-path") || explicitText.includes("pointer")) {
+    failures.push("lower-priority diagnostics leaked into the explicit log");
+  }
+}
+
+const symlinkLogTarget = process.env.CMUX_TEST_PI_SYMLINK_LOG_TARGET;
+const symlinkLogBefore = readFileSync(symlinkLogTarget, "utf8");
+await mod.appendPiHookDiagnostic(
+  {
+    source: "cmux-pi-extension",
+    level: "warning",
+    message: "symlink destination canary",
+    hook_name: "symlink-destination",
+    reason: "test",
+  },
+  { CMUX_DEBUG_LOG: process.env.CMUX_TEST_PI_SYMLINK_LOG },
+  missingPointer,
+  fallbackLog,
+);
+const symlinkLogAfter = readFileSync(symlinkLogTarget, "utf8");
+if (symlinkLogAfter !== symlinkLogBefore) {
+  failures.push("diagnostic append followed a symlink destination");
+}
+
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_FIFO_LOG;
+const dispatcher = new mod.PiCmuxCommandDispatcher();
+const context = {
+  sessionId: "pi-diagnostic-fifo-session",
+  cwd: "/tmp/pi-diagnostic-fifo",
+};
+await dispatcher.run(["hooks", "pi", "prompt-submit"], context.cwd, "{}", context);
+
+let notificationCount = 0;
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_INVALID_LOG_DESTINATION;
+await Promise.resolve(mod.warn(
+  { ui: { notify() { notificationCount += 1; } } },
+  "failed append canary",
+));
+if (notificationCount !== 0) {
+  failures.push(`failed diagnostic append emitted ${notificationCount} Pi UI notifications`);
+}
+
+let hungDiagnosticStarts = 0;
+let laterDiagnosticStarts = 0;
+await mod.runPiHookDiagnosticWrite(() => {
+  hungDiagnosticStarts += 1;
+  return new Promise(() => {});
+});
+await mod.runPiHookDiagnosticWrite(async () => {
+  laterDiagnosticStarts += 1;
+});
+if (hungDiagnosticStarts !== 1 || laterDiagnosticStarts !== 0) {
+  failures.push(
+    `diagnostic writer was not bounded: hung=${hungDiagnosticStarts} later=${laterDiagnosticStarts}`,
+  );
+}
+
+for (const candidate of cases) {
+  if (candidate.expected.startsWith("/tmp/")) {
+    try { unlinkSync(candidate.expected); } catch (_) {}
+  }
+}
+if (failures.length) throw new Error(failures.join("\n"));
+"""
+
+    try:
+        result = run_extension(
+            bun=bun,
+            root=root,
+            extension_path=inspectable_extension,
+            fake_cmux=fake_cmux,
+            source=source,
+            extra_env={
+                "CMUX_TEST_PI_BOUNDARY_LOG": str(boundary_log),
+                "CMUX_TEST_PI_ROUTING_HOME": str(home),
+                "CMUX_TEST_PI_POINTER_FILE": str(pointer_file),
+                "CMUX_TEST_PI_POINTER_SYMLINK": str(pointer_symlink),
+                "CMUX_TEST_PI_POINTER_FIFO": str(pointer_fifo),
+                "CMUX_TEST_PI_MISSING_POINTER": str(missing_pointer),
+                "CMUX_TEST_PI_FALLBACK_LOG": str(fallback_log),
+                "CMUX_TEST_PI_FIFO_LOG": str(fifo_log),
+                "CMUX_TEST_PI_INVALID_LOG_DESTINATION": str(invalid_log_destination),
+                "CMUX_TEST_PI_SYMLINK_LOG": str(symlink_log),
+                "CMUX_TEST_PI_SYMLINK_LOG_TARGET": str(symlink_log_target),
+                "CMUX_TEST_PI_SOCKET_TAG": socket_tag,
+            },
+        )
+    finally:
+        for path in (socket_path_log, legacy_socket_log, shadow_socket_log):
+            path.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        print(f"FAIL: Pi diagnostic log safety harness failed: {result.stderr!r}")
+        return 1
+    if result.stdout or result.stderr:
+        print(
+            "FAIL: Pi diagnostic log safety wrote to the host streams: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        return 1
     return 0
 
 
@@ -2588,6 +3558,8 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
         check_ui_lifecycle_handlers_return_immediately,
+        check_ui_dialogs_publish_needs_input,
+        check_ui_dialog_rejection_publishes_response,
         check_hot_path_defers_projection_and_reuses_launch_probes,
         check_completion_precedes_next_prompt,
         check_cross_session_lifecycle_isolation,
@@ -2602,6 +3574,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_aggregate_feed_bound,
         check_feed_failure_overflow_fails_closed,
         check_feed_cancellation,
+        check_lifecycle_backlog_shedding,
         check_completion_order,
         check_terminal_feed_failure_emits_one_stop,
         check_nonterminal_timeout_marks_dropped_completion,
@@ -2615,10 +3588,21 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_runtime_isolation,
         check_session_isolation_within_runtime,
         check_stale_surface,
+        check_concurrent_stale_surface_logs_once,
+        check_timeout_configuration_and_failure_telemetry,
+        check_diagnostic_log_safety_and_routing,
     )
     for check in checks:
         if check(bun, root, extension_path) != 0:
             return 1
+    wakeup = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name("test_pi_extension_wakeup.py"))],
+        env={**os.environ, "CMUX_TEST_PI_EXTENSION_PATH": str(extension_path)},
+        check=False,
+        timeout=30,
+    )
+    if wakeup.returncode != 0:
+        return wakeup.returncode
     print("PASS: Pi dispatch stays responsive, serialized, and fails stale surfaces once")
     return 0
 

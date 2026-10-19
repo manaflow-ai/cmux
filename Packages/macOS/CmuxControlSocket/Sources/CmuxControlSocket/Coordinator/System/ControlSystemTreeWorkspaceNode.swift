@@ -17,6 +17,11 @@ public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
     public let isPinned: Bool
     /// The workspace's pane nodes, in pane order.
     public let panes: [ControlSystemTreePaneNode]
+    /// The workspace's split-layout tree (direction + ratio + nesting), or
+    /// `nil` when unavailable. `panes` is a flat list and cannot express how
+    /// the panes are arranged; this restores that geometry. Leaves reference
+    /// the same pane IDs as `panes`.
+    public let layout: ControlSystemTreeLayoutNode?
 
     /// Creates a workspace node.
     ///
@@ -28,6 +33,7 @@ public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
     ///   - isSelected: Whether this is the selected workspace.
     ///   - isPinned: Whether the workspace is pinned.
     ///   - panes: The workspace's pane nodes.
+    ///   - layout: The split-layout tree, or `nil` when unavailable.
     public init(
         workspaceID: UUID,
         index: Int,
@@ -35,7 +41,8 @@ public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
         description: String?,
         isSelected: Bool,
         isPinned: Bool,
-        panes: [ControlSystemTreePaneNode]
+        panes: [ControlSystemTreePaneNode],
+        layout: ControlSystemTreeLayoutNode? = nil
     ) {
         self.workspaceID = workspaceID
         self.index = index
@@ -44,5 +51,6 @@ public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
         self.isSelected = isSelected
         self.isPinned = isPinned
         self.panes = panes
+        self.layout = layout
     }
 }

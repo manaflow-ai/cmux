@@ -45,10 +45,13 @@ export default async function SessionRestorePage({
 
       <h2>{t("agentResumeTitle")}</h2>
       <p>{t("agentResumeDesc")}</p>
-      <CodeBlock lang="bash">{`cmux hooks setup
+      <CodeBlock lang="bash">{`# all integrations cmux can find on PATH
+cmux hooks setup
+
+# or one agent at a time
+cmux hooks setup antigravity
 cmux hooks setup codex
 cmux hooks setup grok
-cmux hooks setup antigravity
 cmux hooks setup omp
 cmux hooks setup --agent opencode`}</CodeBlock>
       <p>{t("setupBehavior")}</p>
@@ -71,108 +74,23 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Claude Code</td>
-            <td><code>claude</code></td>
-            <td><code>claude --resume &lt;id&gt;</code></td>
-            <td>{t("feedPermissionRequest")}</td>
-          </tr>
-          <tr>
-            <td>Codex</td>
-            <td><code>codex</code></td>
-            <td><code>codex resume &lt;id&gt;</code></td>
-            <td>{t("feedPreToolUsePermissionRequest")}</td>
-          </tr>
-          <tr>
-            <td>Grok / Grok Build CLI</td>
-            <td><code>grok</code></td>
-            <td><code>grok -r &lt;id&gt;</code></td>
-            <td>{t("feedPreToolUse")}</td>
-          </tr>
-          <tr>
-            <td>OpenCode</td>
-            <td><code>opencode</code></td>
-            <td><code>opencode --session &lt;id&gt;</code></td>
-            <td>{t("pluginEventBus")}</td>
-          </tr>
-          <tr>
-            <td>Pi</td>
-            <td><code>pi</code></td>
-            <td><code>pi --session &lt;id&gt;</code></td>
-            <td>{t("none")}</td>
-          </tr>
-          <tr>
-            <td>OMP</td>
-            <td><code>omp</code></td>
-            <td><code>omp --session &lt;id&gt;</code></td>
-            <td>{t("none")}</td>
-          </tr>
-          <tr>
-            <td>Campfire</td>
-            <td><code>campfire</code></td>
-            <td><code>campfire --session &lt;id&gt;</code></td>
-            <td>{t("none")}</td>
-          </tr>
-          <tr>
-            <td>Amp</td>
-            <td><code>amp</code></td>
-            <td><code>amp threads continue &lt;id&gt;</code></td>
-            <td>{t("none")}</td>
-          </tr>
-          <tr>
-            <td>Cursor CLI</td>
-            <td><code>cursor-agent</code></td>
-            <td><code>cursor-agent --resume &lt;id&gt;</code></td>
-            <td>{t("feedBeforeShellExecution")}</td>
-          </tr>
-          <tr>
-            <td>Gemini</td>
-            <td><code>gemini</code></td>
-            <td><code>gemini --resume &lt;id&gt;</code></td>
-            <td>{t("feedPreToolUse")}</td>
-          </tr>
-          <tr>
-            <td>Antigravity CLI</td>
-            <td><code>agy</code></td>
-            <td><code>agy --conversation &lt;id&gt;</code></td>
-            <td>{t("feedPrePostToolUse")}</td>
-          </tr>
-          <tr>
-            <td>Rovo Dev</td>
-            <td><code>acli</code></td>
-            <td><code>acli rovodev run --restore &lt;id&gt;</code></td>
-            <td>{t("none")}</td>
-          </tr>
-          <tr>
-            <td>Hermes Agent</td>
-            <td><code>hermes</code></td>
-            <td><code>hermes --resume &lt;id&gt;</code></td>
-            <td>{t("feedHermes")}</td>
-          </tr>
-          <tr>
-            <td>Copilot</td>
-            <td><code>copilot</code></td>
-            <td><code>copilot --resume &lt;id&gt;</code></td>
-            <td>{t("feedPreToolUse")}</td>
-          </tr>
-          <tr>
-            <td>CodeBuddy</td>
-            <td><code>codebuddy</code></td>
-            <td><code>codebuddy --resume &lt;id&gt;</code></td>
-            <td>{t("feedPreToolUse")}</td>
-          </tr>
-          <tr>
-            <td>Factory</td>
-            <td><code>droid</code></td>
-            <td><code>droid --resume &lt;id&gt;</code></td>
-            <td>{t("feedPreToolUse")}</td>
-          </tr>
-          <tr>
-            <td>Qoder</td>
-            <td><code>qodercli</code></td>
-            <td><code>qodercli --resume &lt;id&gt;</code></td>
-            <td>{t("feedPreToolUse")}</td>
-          </tr>
+          <tr><td>Claude Code</td><td><code>claude</code></td><td><code>claude --resume &lt;id&gt;</code></td><td>{t("feedPermissionRequest")}</td></tr>
+          <tr><td>Codex</td><td><code>codex</code></td><td><code>codex resume &lt;id&gt;</code></td><td>{t("feedPreToolUsePermissionRequest")}</td></tr>
+          <tr><td>Grok / Grok Build CLI</td><td><code>grok</code></td><td><code>grok -r &lt;id&gt;</code></td><td>{t("feedPreToolUse")}</td></tr>
+          <tr><td>OpenCode</td><td><code>opencode</code></td><td><code>opencode --session &lt;id&gt;</code></td><td>{t("pluginEventBus")}</td></tr>
+          <tr><td>Pi</td><td><code>pi</code></td><td><code>pi --session &lt;id&gt;</code></td><td>{t("none")}</td></tr>
+          <tr><td>OMP</td><td><code>omp</code></td><td><code>omp --session &lt;id&gt;</code></td><td>{t("none")}</td></tr>
+          <tr><td>Campfire</td><td><code>campfire</code></td><td><code>campfire --session &lt;id&gt;</code></td><td>{t("none")}</td></tr>
+          <tr><td>Amp</td><td><code>amp</code></td><td><code>amp threads continue &lt;id&gt;</code></td><td>{t("none")}</td></tr>
+          <tr><td>Cursor CLI</td><td><code>cursor-agent</code></td><td><code>cursor-agent --resume &lt;id&gt;</code></td><td>{t("feedBeforeShellExecution")}</td></tr>
+          <tr><td>Gemini</td><td><code>gemini</code></td><td><code>gemini --resume &lt;id&gt;</code></td><td>{t("feedPreToolUse")}</td></tr>
+          <tr><td>Antigravity CLI</td><td><code>agy</code></td><td><code>agy --conversation &lt;id&gt;</code></td><td>{t("feedPrePostToolUse")}</td></tr>
+          <tr><td>Rovo Dev</td><td><code>acli</code></td><td><code>acli rovodev run --restore &lt;id&gt;</code></td><td>{t("none")}</td></tr>
+          <tr><td>Hermes Agent</td><td><code>hermes</code></td><td><code>hermes --resume &lt;id&gt;</code></td><td>{t("feedHermes")}</td></tr>
+          <tr><td>Copilot</td><td><code>copilot</code></td><td><code>copilot --resume &lt;id&gt;</code></td><td>{t("feedPreToolUse")}</td></tr>
+          <tr><td>CodeBuddy</td><td><code>codebuddy</code></td><td><code>codebuddy --resume &lt;id&gt;</code></td><td>{t("feedPreToolUse")}</td></tr>
+          <tr><td>Factory</td><td><code>droid</code></td><td><code>droid --resume &lt;id&gt;</code></td><td>{t("feedPreToolUse")}</td></tr>
+          <tr><td>Qoder</td><td><code>qodercli</code></td><td><code>qodercli --resume &lt;id&gt;</code></td><td>{t("feedPreToolUse")}</td></tr>
         </tbody>
       </table>
       <p>{t("supportedNote")}</p>

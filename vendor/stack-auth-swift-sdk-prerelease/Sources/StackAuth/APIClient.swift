@@ -73,59 +73,64 @@ func isTokenExpired(_ accessToken: String?) -> Bool {
     return payload.expiresInMillis <= 0
 }
 
+/// Default refresh lead: a token is refreshed once it expires within this
+/// window (before per-client jitter is added).
+let defaultTokenRefreshLeadMillis = 60_000
+
+/// Smallest refresh lead, so a token is never handed out with only seconds
+/// of validity left.
+let minimumTokenRefreshLeadMillis = 20_000
+
 /// Check if token should NOT be refreshed (is "fresh enough").
-/// Returns TRUE if token expires in > 20 seconds AND was issued < 75 seconds ago.
-func isTokenFreshEnough(_ accessToken: String?) -> Bool {
+///
+/// A token is fresh until it is within `refreshLeadMillis` of its `exp`. The
+/// lead is capped at half the token's lifetime (`exp - iat`), so a short-lived
+/// token is not refreshed the moment it arrives, and floored at 20 seconds.
+///
+/// The upstream SDK also treated every token issued more than 75 seconds ago
+/// as stale. Every app poller that asked for a token after that point minted
+/// a new one, so one signed-in Mac refreshed about every 90 seconds while its
+/// access token was still valid for minutes. Many Macs behind one office IP
+/// then hit the sign-in service's per-IP rate limit.
+func isTokenFreshEnough(
+    _ accessToken: String?,
+    refreshLeadMillis: Int = defaultTokenRefreshLeadMillis
+) -> Bool {
     guard let token = accessToken,
           let payload = decodeJWTPayload(token) else {
         return false  // Can't decode, should refresh
     }
-    
-    let expiresInMoreThan20s = payload.expiresInMillis > 20_000
-    let issuedLessThan75sAgo = payload.issuedMillisAgo < 75_000
-    
-    return expiresInMoreThan20s && issuedLessThan75sAgo
+    var lead = refreshLeadMillis
+    if let exp = payload.exp, let iat = payload.iat, exp > iat {
+        let lifetimeMillis = Int((exp - iat) * 1000)
+        lead = min(lead, lifetimeMillis / 2)
+    }
+    lead = max(lead, minimumTokenRefreshLeadMillis)
+    return payload.expiresInMillis > lead
 }
 
-// MARK: - Refresh Lock Manager
-
-/// Manages per-token-store refresh locks to ensure only one refresh per store at a time.
-/// Uses ObjectIdentifier to key locks since token stores no longer have an id property.
-actor RefreshLockManager {
-    static let shared = RefreshLockManager()
-    
-    private var activeLocks: [ObjectIdentifier: Bool] = [:]
-    private var waiters: [ObjectIdentifier: [CheckedContinuation<Void, Never>]] = [:]
-    
-    func acquireLock(for store: any TokenStoreProtocol) async {
-        let key = ObjectIdentifier(store)
-        // Use WHILE loop to re-check condition after waking up.
-        // Multiple waiters may be resumed at once, but only one should acquire the lock.
-        while activeLocks[key] == true {
-            // Wait for existing refresh to complete
-            await withCheckedContinuation { continuation in
-                waiters[key, default: []].append(continuation)
-            }
-        }
-        activeLocks[key] = true
+/// Parse an HTTP `Retry-After` value (delta-seconds or an HTTP-date) into
+/// seconds from `now`. Returns `nil` when absent or unparseable.
+func retryAfterSeconds(_ value: String?, now: Date = Date()) -> TimeInterval? {
+    guard let raw = value?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+    if let seconds = TimeInterval(raw), seconds.isFinite, seconds >= 0 {
+        // A remote header: keep it in a range every caller can convert.
+        return min(seconds, 86_400)
     }
-    
-    func releaseLock(for store: any TokenStoreProtocol) {
-        let key = ObjectIdentifier(store)
-        activeLocks[key] = false
-        if let storeWaiters = waiters[key] {
-            for waiter in storeWaiters {
-                waiter.resume()
-            }
-            waiters[key] = nil
-        }
-    }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "GMT")
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+    guard let date = formatter.date(from: raw) else { return nil }
+    return min(max(0, date.timeIntervalSince(now)), 86_400)
 }
 
 /// Result of getOrFetchLikelyValidTokens
 public struct TokenPair: Sendable {
     public let refreshToken: String?
     public let accessToken: String?
+    /// Why refresh could not safely return credentials, if applicable.
+    public var refreshFailure: TokenRefreshFailure? = nil
 }
 
 /// Internal API client for making HTTP requests to Stack Auth
@@ -135,6 +140,19 @@ actor APIClient {
     let publishableClientKey: String
     let secretServerKey: String?
     private let tokenStore: any TokenStoreProtocol
+    private let session: URLSession
+    private let refreshCoordinator: TokenRefreshCoordinator
+    let refreshClock: TokenRefreshClock
+    let refreshTimeoutNanoseconds: UInt64
+    /// Refresh lead for this client: the default lead plus a random jitter
+    /// chosen once, so many clients that signed in together do not refresh
+    /// in the same second.
+    let refreshLeadMillis: Int
+    /// Monotonic time (``refreshClock``) before which a rate-limited refresh
+    /// exchange must not be retried.
+    private var refreshRateLimitedUntil: UInt64?
+    /// Consecutive rate-limited refresh exchanges, for exponential backoff.
+    private var refreshRateLimitStreak = 0
     
     private static let sdkVersion = "1.0.0"
     
@@ -143,13 +161,23 @@ actor APIClient {
         projectId: String,
         publishableClientKey: String,
         secretServerKey: String? = nil,
-        tokenStore: any TokenStoreProtocol
+        tokenStore: any TokenStoreProtocol,
+        session: URLSession = .shared,
+        refreshCoordinator: TokenRefreshCoordinator = TokenStoreRegistry.shared.refreshCoordinator,
+        refreshClock: TokenRefreshClock = .system,
+        refreshTimeoutNanoseconds: UInt64 = 30_000_000_000,
+        refreshLeadMillis: Int = defaultTokenRefreshLeadMillis + Int.random(in: 0...defaultTokenRefreshLeadMillis)
     ) {
         self.baseUrl = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
         self.projectId = projectId
         self.publishableClientKey = publishableClientKey
         self.secretServerKey = secretServerKey
         self.tokenStore = tokenStore
+        self.session = session
+        self.refreshCoordinator = refreshCoordinator
+        self.refreshClock = refreshClock
+        self.refreshTimeoutNanoseconds = refreshTimeoutNanoseconds
+        self.refreshLeadMillis = refreshLeadMillis
     }
     
     // MARK: - Request Methods
@@ -172,28 +200,28 @@ actor APIClient {
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         
         // Required headers
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
-        request.setValue("swift@\(Self.sdkVersion)", forHTTPHeaderField: "x-stack-client-version")
-        request.setValue(serverOnly ? "server" : "client", forHTTPHeaderField: "x-stack-access-type")
-        request.setValue("true", forHTTPHeaderField: "x-stack-override-error-status")
-        request.setValue(UUID().uuidString, forHTTPHeaderField: "x-stack-random-nonce")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue(publishableClientKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
+        request.setValue("swift@\(Self.sdkVersion)", forHTTPHeaderField: "x-hexclave-client-version")
+        request.setValue(serverOnly ? "server" : "client", forHTTPHeaderField: "x-hexclave-access-type")
+        request.setValue("true", forHTTPHeaderField: "x-hexclave-override-error-status")
+        request.setValue(UUID().uuidString, forHTTPHeaderField: "x-hexclave-random-nonce")
         
         // Server key if required
         if serverOnly {
             guard let serverKey = secretServerKey else {
                 throw StackAuthError(code: "missing_server_key", message: "Server key required for this operation")
             }
-            request.setValue(serverKey, forHTTPHeaderField: "x-stack-secret-server-key")
+            request.setValue(serverKey, forHTTPHeaderField: "x-hexclave-secret-server-key")
         }
         
         // Auth headers
         if authenticated {
             if let accessToken = await effectiveTokenStore.getStoredAccessToken() {
-                request.setValue(accessToken, forHTTPHeaderField: "x-stack-access-token")
+                request.setValue(accessToken, forHTTPHeaderField: "x-hexclave-access-token")
             }
             if let refreshToken = await effectiveTokenStore.getStoredRefreshToken() {
-                request.setValue(refreshToken, forHTTPHeaderField: "x-stack-refresh-token")
+                request.setValue(refreshToken, forHTTPHeaderField: "x-hexclave-refresh-token")
             }
         }
         
@@ -215,10 +243,11 @@ actor APIClient {
         request: URLRequest,
         authenticated: Bool,
         tokenStore: any TokenStoreProtocol,
-        attempt: Int = 0
+        attempt: Int = 0,
+        didRefreshAccessToken: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw StackAuthError(code: "invalid_response", message: "Invalid HTTP response")
@@ -226,7 +255,7 @@ actor APIClient {
             
             // Check for actual status code in header
             let actualStatus: Int
-            if let statusHeader = httpResponse.value(forHTTPHeaderField: "x-stack-actual-status"),
+            if let statusHeader = httpResponse.hexclaveHeader("actual-status"),
                let status = Int(statusHeader) {
                 actualStatus = status
             } else {
@@ -234,55 +263,92 @@ actor APIClient {
             }
             
             // Handle 401 with token refresh
-            if actualStatus == 401 && authenticated {
+            if actualStatus == 401 && authenticated && !didRefreshAccessToken {
                 // Check if it's an invalid access token error
-                if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error"),
+                if let errorCode = httpResponse.hexclaveHeader("known-error"),
                    errorCode == "invalid_access_token" {
-                    // Try to refresh token
-                    let tokens = await fetchNewAccessToken(tokenStore: tokenStore)
+                    // Try to refresh the token once. The failed token is used
+                    // by the refresh lock to let concurrent 401s reuse the
+                    // token that the first waiter already installed.
+                    let failedAccessToken = request.value(forHTTPHeaderField: "x-hexclave-access-token")
+                    let tokens = await fetchNewAccessToken(
+                        tokenStore: tokenStore,
+                        ifAccessTokenUnchangedFrom: failedAccessToken
+                    )
                     if tokens.accessToken != nil {
                         // Retry with new token
                         var newRequest = request
-                        newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-stack-access-token")
-                        return try await sendWithRetry(request: newRequest, authenticated: authenticated, tokenStore: tokenStore, attempt: 0)
+                        newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-hexclave-access-token")
+                        return try await sendWithRetry(
+                            request: newRequest,
+                            authenticated: authenticated,
+                            tokenStore: tokenStore,
+                            attempt: 0,
+                            didRefreshAccessToken: true
+                        )
                     }
                 }
             }
             
-            // Handle rate limiting (max 5 retries)
-            if actualStatus == 429 && attempt < 5 {
-                if let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After"),
-                   let seconds = Double(retryAfter) {
-                    // Use Retry-After header if provided
-                    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                } else {
-                    // No Retry-After header: use exponential backoff (1s, 2s, 4s, 8s, 16s)
-                    let delayMs = 1000.0 * pow(2.0, Double(attempt))
-                    try await Task.sleep(nanoseconds: UInt64(delayMs * 1_000_000))
-                }
-                return try await sendWithRetry(request: request, authenticated: authenticated, tokenStore: tokenStore, attempt: attempt + 1)
-            }
-            
-            // Rate limit exhausted after max retries
+            // A provider 429 is already a backpressure signal. Retrying it in
+            // the SDK multiplies one app request into six upstream requests,
+            // and the callers cannot see the Retry-After until that burst has
+            // finished. Return the typed error immediately so the app-level
+            // coordinator owns any deliberate, bounded recovery.
             if actualStatus == 429 {
-                throw StackAuthError(code: "RATE_LIMITED", message: "Too many requests, please try again later")
+                // The edge may answer with an HTML page instead of a Stack
+                // JSON error, so classify by status, never by body.
+                let observation = StackAuthRateLimitObservation(
+                    endpoint: StackAuthRateLimitReporting.endpoint(of: request.url),
+                    bodyKind: StackAuthRateLimitReporting.bodyKind(
+                        contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+                        data: data
+                    ),
+                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After"))
+                )
+                var details = httpResponse.stackDiagnostics(status: actualStatus)
+                details[StackAuthError.endpointKey] = observation.endpoint
+                details[StackAuthError.bodyKindKey] = observation.bodyKind.rawValue
+                if let seconds = observation.retryAfterSeconds {
+                    details[StackAuthError.retryAfterSecondsKey] = seconds
+                }
+                if !StackAuthRateLimitReporting.callerReports {
+                    StackAuthRateLimitReporting.observer?.stackAuthDidRateLimit(observation)
+                }
+                throw StackAuthError(
+                    code: "RATE_LIMITED",
+                    message: "Too many requests, please try again later",
+                    details: details
+                )
             }
             
             // Check for known error
-            if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error") {
+            if let errorCode = httpResponse.hexclaveHeader("known-error") {
                 let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                let message = errorData?["message"] as? String ?? "Unknown error"
-                let details = errorData?["details"] as? [String: Any]
+                let message = errorData?["message"] as? String
+                    ?? errorData?["error"] as? String
+                    ?? "Unknown error"
+                // Response diagnostics (HTTP status, request ID) ride along so
+                // the sign-in failure line can name them; body details win.
+                let details = httpResponse.stackDiagnostics(status: actualStatus)
+                    .merging(errorData?["details"] as? [String: Any] ?? [:]) { _, body in body }
                 throw StackAuthError.from(code: errorCode, message: message, details: details)
             }
             
             // Success
             if actualStatus >= 200 && actualStatus < 300 {
+                if !StackAuthRateLimitReporting.callerReports {
+                    StackAuthRateLimitReporting.observer?.stackAuthRequestDidSucceed()
+                }
                 return (data, httpResponse)
             }
             
             // Other error
-            throw StackAuthError(code: "http_error", message: "HTTP \(actualStatus)")
+            throw StackAuthError(
+                code: "http_error",
+                message: "HTTP \(actualStatus)",
+                details: httpResponse.stackDiagnostics(status: actualStatus)
+            )
             
         } catch let error as URLError {
             // Network error - retry for idempotent requests
@@ -290,7 +356,13 @@ actor APIClient {
             if idempotent && attempt < 5 {
                 let delay = pow(2.0, Double(attempt)) * 1.0 // Exponential backoff
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                return try await sendWithRetry(request: request, authenticated: authenticated, tokenStore: tokenStore, attempt: attempt + 1)
+                return try await sendWithRetry(
+                    request: request,
+                    authenticated: authenticated,
+                    tokenStore: tokenStore,
+                    attempt: attempt + 1,
+                    didRefreshAccessToken: didRefreshAccessToken
+                )
             }
             throw StackAuthError(code: "network_error", message: error.localizedDescription)
         }
@@ -315,6 +387,9 @@ actor APIClient {
         /// The refresh could not be completed for a reason that is not the token's
         /// fault (network/server). Tokens must be preserved and the caller retried.
         case transientFailure
+        /// The server answered 429. Tokens are preserved like a transient
+        /// failure, and no new exchange starts until the backoff passes.
+        case rateLimited(retryAfterSeconds: TimeInterval?, bodyKind: StackAuthRateLimitObservation.BodyKind)
     }
 
     /// Performs the actual token refresh request, classifying the result so the
@@ -326,9 +401,9 @@ actor APIClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
-        request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue(publishableClientKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
+        request.setValue("client", forHTTPHeaderField: "x-hexclave-access-type")
 
         let body = [
             "grant_type=refresh_token",
@@ -340,7 +415,7 @@ actor APIClient {
         request.httpBody = body.data(using: .utf8)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return .transientFailure
@@ -364,6 +439,15 @@ actor APIClient {
             if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
                 return .definitivelyRejected
             }
+            if httpResponse.statusCode == 429 {
+                return .rateLimited(
+                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After")),
+                    bodyKind: StackAuthRateLimitReporting.bodyKind(
+                        contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+                        data: data
+                    )
+                )
+            }
             return .transientFailure
         } catch {
             // URLError and friends (offline, timeout, DNS, cancelled) are never the
@@ -372,22 +456,75 @@ actor APIClient {
         }
     }
     
+    /// Runs one refresh exchange unless a recent 429 is still cooling down.
+    ///
+    /// A rate-limited exchange is reported as transient, so stored tokens
+    /// survive and a still-valid access token stays usable. The cooldown
+    /// honors `Retry-After` (capped at 10 minutes); without it the delay is
+    /// exponential from 5 seconds to 5 minutes, with jitter.
+    private func refreshRespectingRateLimit(refreshToken: String) async -> RefreshOutcome {
+        if let until = refreshRateLimitedUntil, refreshClock.now() < until {
+            return .transientFailure
+        }
+        let outcome = await refresh(refreshToken: refreshToken)
+        switch outcome {
+        case .rateLimited(let retryAfter, let bodyKind):
+            refreshRateLimitStreak += 1
+            let delaySeconds = Self.rateLimitDelaySeconds(
+                retryAfterSeconds: retryAfter,
+                streak: refreshRateLimitStreak
+            )
+            refreshRateLimitedUntil = refreshClock.now() &+ UInt64(delaySeconds * 1_000_000_000)
+            StackAuthRateLimitReporting.observer?.stackAuthDidRateLimit(StackAuthRateLimitObservation(
+                endpoint: StackAuthRateLimitReporting.endpoint(of: URL(string: "\(baseUrl)/api/v1/auth/oauth/token")),
+                bodyKind: bodyKind,
+                retryAfterSeconds: retryAfter,
+                refreshBackoffSeconds: delaySeconds,
+                refreshAttempt: refreshRateLimitStreak
+            ))
+            return .transientFailure
+        case .success, .definitivelyRejected:
+            if case .success = outcome, refreshRateLimitStreak > 0 {
+                StackAuthRateLimitReporting.observer?.stackAuthTokenRefreshDidRecover()
+            }
+            refreshRateLimitStreak = 0
+            refreshRateLimitedUntil = nil
+            return outcome
+        case .transientFailure:
+            return outcome
+        }
+    }
+
+    /// Backoff for a rate-limited refresh exchange, in seconds.
+    static func rateLimitDelaySeconds(retryAfterSeconds: TimeInterval?, streak: Int) -> TimeInterval {
+        if let retryAfterSeconds {
+            return min(max(retryAfterSeconds, 1), 600)
+        }
+        let exponent = Double(max(0, min(streak - 1, 6)))
+        let base = min(5 * pow(2, exponent), 300)
+        return base * Double.random(in: 0.5...1.0)
+    }
+
     // MARK: - Token Management
     
     func setTokens(accessToken: String?, refreshToken: String?) async {
         await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        await refreshCoordinator.tokensDidChange(store: tokenStore, refreshToken: refreshToken)
     }
     
     func setTokens(accessToken: String?, refreshToken: String?, tokenStoreOverride: any TokenStoreProtocol) async {
         await tokenStoreOverride.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        await refreshCoordinator.tokensDidChange(store: tokenStoreOverride, refreshToken: refreshToken)
     }
     
     func clearTokens() async {
         await tokenStore.clearTokens()
+        await refreshCoordinator.tokensDidChange(store: tokenStore, refreshToken: nil)
     }
 
     func clearTokens(tokenStoreOverride: any TokenStoreProtocol) async {
         await tokenStoreOverride.clearTokens()
+        await refreshCoordinator.tokensDidChange(store: tokenStoreOverride, refreshToken: nil)
     }
 
     /// Compare-and-clear: clears the stored tokens only while the stored
@@ -399,8 +536,11 @@ actor APIClient {
             newRefreshToken: nil,
             newAccessToken: nil
         )
+        await refreshCoordinator.tokensDidChange(
+            store: tokenStore, refreshToken: await tokenStore.getStoredRefreshToken()
+        )
     }
-    
+
     /// Gets tokens, refreshing if needed. See spec for algorithm.
     /// This is the main function to use for getting an access token.
     func getOrFetchLikelyValidTokens() async -> TokenPair {
@@ -413,121 +553,78 @@ actor APIClient {
     
     /// Internal implementation of getOrFetchLikelyValidTokens algorithm.
     private func getOrFetchLikelyValidTokensFromStore(_ ts: any TokenStoreProtocol) async -> TokenPair {
-        // Acquire lock to ensure only one refresh per token store
-        await RefreshLockManager.shared.acquireLock(for: ts)
-        
-        let originalRefreshToken = await ts.getStoredRefreshToken()
-        let originalAccessToken = await ts.getStoredAccessToken()
-        
-        let result: TokenPair
-        
-        // Case 1: No refresh token
-        if originalRefreshToken == nil {
-            // If access token expires in > 0 seconds, return it
-            if let token = originalAccessToken, !isTokenExpired(token) {
-                result = TokenPair(refreshToken: nil, accessToken: token)
-            } else {
-                // Access token is expired or nil
-                result = TokenPair(refreshToken: nil, accessToken: nil)
-            }
-        } else {
-            // Case 2: Refresh token exists
-            let refreshToken = originalRefreshToken!
-            
-            // Check if token is fresh enough (expires in > 20s AND issued < 75s ago)
-            if isTokenFreshEnough(originalAccessToken) {
-                result = TokenPair(refreshToken: refreshToken, accessToken: originalAccessToken)
-            } else {
-                // Need to refresh
-                switch await refresh(refreshToken: refreshToken) {
-                case .success(let newToken):
-                    // Refresh succeeded - update tokens atomically
-                    await ts.compareAndSet(
-                        compareRefreshToken: refreshToken,
-                        newRefreshToken: refreshToken,
-                        newAccessToken: newToken
-                    )
-                    result = TokenPair(refreshToken: refreshToken, accessToken: newToken)
-                case .definitivelyRejected:
-                    // The server rejected the refresh token; it will never work
-                    // again. Clear both tokens so the user is prompted to re-auth.
-                    await ts.compareAndSet(
-                        compareRefreshToken: refreshToken,
-                        newRefreshToken: nil,
-                        newAccessToken: nil
-                    )
-                    result = TokenPair(refreshToken: nil, accessToken: nil)
-                case .transientFailure:
-                    // Network/server hiccup. PRESERVE the refresh token so a retry
-                    // after recovery succeeds, and never silently sign the user out.
-                    // Return the original access token only if it is still usable;
-                    // a proactive refresh fires every 75s of token age (see
-                    // `isTokenFreshEnough`) while the token is valid for ~1h, so the
-                    // common transient-failure case still has a good token. When the
-                    // token is genuinely expired, return nil access + non-nil refresh
-                    // so the caller can classify "recoverable" without decoding a JWT.
-                    let usableAccessToken = isTokenExpired(originalAccessToken) ? nil : originalAccessToken
-                    result = TokenPair(refreshToken: refreshToken, accessToken: usableAccessToken)
-                }
-            }
+        guard !Task.isCancelled else {
+            return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: .cancelled)
         }
-        
-        // Release lock synchronously before returning
-        await RefreshLockManager.shared.releaseLock(for: ts)
-        return result
+        let refresh = await ts.getStoredRefreshToken()
+        let access = await ts.getStoredAccessToken()
+        guard let refresh else {
+            // Token-only sessions are valid, but the store may be shared with a
+            // concurrent sign-out or account replacement. Re-read both values
+            // before returning so a late reader cannot publish the old session.
+            guard await ts.getStoredRefreshToken() == nil,
+                  await ts.getStoredAccessToken() == access else {
+                return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: .sessionChanged)
+            }
+            return TokenPair(refreshToken: nil, accessToken: isTokenExpired(access) ? nil : access)
+        }
+        guard await ts.getStoredRefreshToken() == refresh else {
+            return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: .sessionChanged)
+        }
+        if isTokenFreshEnough(access, refreshLeadMillis: refreshLeadMillis) {
+            return TokenPair(refreshToken: refresh, accessToken: access)
+        }
+        return await resolveRefresh(store: ts, refresh: refresh, observedAccess: access, allowFallback: true)
     }
-    
+
     /// Forcefully fetches a new access token from the server if possible.
     func fetchNewAccessToken() async -> TokenPair {
-        return await fetchNewAccessToken(tokenStore: tokenStore)
+        await fetchNewAccessToken(tokenStore: tokenStore)
     }
-    
+
     func fetchNewAccessToken(tokenStoreOverride: any TokenStoreProtocol) async -> TokenPair {
-        return await fetchNewAccessToken(tokenStore: tokenStoreOverride)
+        await fetchNewAccessToken(tokenStore: tokenStoreOverride)
     }
-    
-    private func fetchNewAccessToken(tokenStore ts: any TokenStoreProtocol) async -> TokenPair {
-        // Acquire lock to ensure only one refresh per token store
-        await RefreshLockManager.shared.acquireLock(for: ts)
-        
-        let result: TokenPair
-        
-        if let refreshToken = await ts.getStoredRefreshToken() {
-            switch await refresh(refreshToken: refreshToken) {
-            case .success(let newToken):
-                await ts.compareAndSet(
-                    compareRefreshToken: refreshToken,
-                    newRefreshToken: refreshToken,
-                    newAccessToken: newToken
-                )
-                result = TokenPair(refreshToken: refreshToken, accessToken: newToken)
-            case .definitivelyRejected:
-                await ts.compareAndSet(
-                    compareRefreshToken: refreshToken,
-                    newRefreshToken: nil,
-                    newAccessToken: nil
-                )
-                result = TokenPair(refreshToken: nil, accessToken: nil)
-            case .transientFailure:
-                // Preserve the refresh token on a network/server hiccup; the caller
-                // retries later instead of being signed out (compareAndSet is NOT
-                // called, so the store keeps both tokens). Return nil access
-                // deliberately: this "force a NEW token" path runs only after the
-                // stored access token was just rejected (401 invalid_access_token in
-                // sendWithRetry), so handing it back would make the caller re-send the
-                // same dead token in a tight 401 loop. nil means "no new token right
-                // now"; the still-valid refresh token stays in the store for next time.
-                result = TokenPair(refreshToken: refreshToken, accessToken: nil)
-            }
-        } else {
-            result = TokenPair(refreshToken: nil, accessToken: nil)
+
+    private func fetchNewAccessToken(
+        tokenStore ts: any TokenStoreProtocol,
+        ifAccessTokenUnchangedFrom failedAccessToken: String? = nil
+    ) async -> TokenPair {
+        let refresh = await ts.getStoredRefreshToken()
+        let access = await ts.getStoredAccessToken()
+        guard let refresh else { return TokenPair(refreshToken: nil, accessToken: nil) }
+        if let failedAccessToken, let access, access != failedAccessToken, !isTokenExpired(access) {
+            return TokenPair(refreshToken: refresh, accessToken: access)
         }
-        
-        // Release lock synchronously before returning
-        await RefreshLockManager.shared.releaseLock(for: ts)
+        // A forced refresh must not fall back to the token the server rejected.
+        return await resolveRefresh(store: ts, refresh: refresh, observedAccess: access, allowFallback: false)
+    }
+
+    private func resolveRefresh(store: any TokenStoreProtocol, refresh: String, observedAccess: String?, allowFallback: Bool) async -> TokenPair {
+        let result = await refreshCoordinator.resolve(
+            store: store, refreshToken: refresh, accessToken: observedAccess,
+            clock: refreshClock, timeoutNanoseconds: refreshTimeoutNanoseconds
+        ) { await self.refreshRespectingRateLimit(refreshToken: refresh) }
+        let storedRefresh = await store.getStoredRefreshToken()
+        guard !Task.isCancelled else {
+            return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: .cancelled)
+        }
+        // A proactive refresh timeout must retain the same offline fallback as
+        // a transport failure. Forced refresh never reuses a rejected token.
+        if result.refreshFailure == .timedOut, allowFallback,
+           storedRefresh == refresh, !isTokenExpired(observedAccess) {
+            return TokenPair(refreshToken: refresh, accessToken: observedAccess)
+        }
+        guard storedRefresh == result.refreshToken else {
+            return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: result.refreshFailure ?? .sessionChanged)
+        }
+        if result.refreshFailure == nil, result.refreshToken != nil,
+           result.accessToken == nil, allowFallback, !isTokenExpired(observedAccess) {
+            return TokenPair(refreshToken: refresh, accessToken: observedAccess)
+        }
         return result
     }
-    
+
     /// Get access token, refreshing if needed. Convenience wrapper around getOrFetchLikelyValidTokens.
     func getAccessToken() async -> String? {
         let tokens = await getOrFetchLikelyValidTokens()
@@ -566,5 +663,25 @@ extension APIClient {
             throw StackAuthError(code: "parse_error", message: "Failed to parse response")
         }
         return json
+    }
+}
+
+extension HTTPURLResponse {
+    /// Reads a Stack response header by its Hexclave name, falling back to the
+    /// legacy `x-stack-*` name. Stack sends both on every response; requests must
+    /// carry only the Hexclave names, because since 2026-10-13 Stack answers 429
+    /// to requests that carry the `x-stack-*` aliases.
+    func hexclaveHeader(_ suffix: String) -> String? {
+        value(forHTTPHeaderField: "x-hexclave-\(suffix)") ?? value(forHTTPHeaderField: "x-stack-\(suffix)")
+    }
+
+    /// Status and request ID of a failed response, so the app can show the user
+    /// something they can report.
+    func stackDiagnostics(status: Int) -> [String: Any] {
+        var details: [String: Any] = ["httpStatus": status]
+        if let requestID = hexclaveHeader("request-id") {
+            details["requestId"] = requestID
+        }
+        return details
     }
 }

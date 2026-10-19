@@ -40,8 +40,11 @@ extension CmxIrohRegistryContextProviderTests {
                     activeNetworkProfiles: [profile]
                 )
             },
-            customPrivateFallback: { deviceID in
-                await recorder.paths(for: deviceID)
+            customPrivateFallback: { deviceID, instanceTag in
+                await recorder.paths(
+                    for: deviceID,
+                    instanceTag: instanceTag
+                )
             },
             now: { fixture.now }
         )
@@ -49,6 +52,7 @@ extension CmxIrohRegistryContextProviderTests {
         let context = try await provider.context(for: fixture.request(hints: []))
 
         #expect(await recorder.requestedDeviceIDs() == [fixture.acceptor.deviceID])
+        #expect(await recorder.requestedInstanceTags() == [fixture.acceptor.tag])
         #expect(context.dialPlan.privateFallbackPaths.map(\.value) == [
             "10.0.0.8:50909",
             "[fd00::8]:54750",
@@ -113,7 +117,7 @@ extension CmxIrohRegistryContextProviderTests {
                         activeNetworkProfiles: [profile]
                     )
                 },
-                customPrivateFallback: { _ in [path] },
+                customPrivateFallback: { _, _ in [path] },
                 now: { fixture.now }
             )
 
@@ -167,7 +171,7 @@ extension CmxIrohRegistryContextProviderTests {
                     custom: await customState.snapshot()
                 )
             },
-            customPrivateFallback: { _ in [path] },
+            customPrivateFallback: { _, _ in [path] },
             now: { fixture.now }
         )
         let context = try await provider.context(for: fixture.request(hints: []))
@@ -188,17 +192,23 @@ extension CmxIrohRegistryContextProviderTests {
 private actor TestCustomPrivateFallbackRecorder {
     private let configuredPaths: [CmxIrohCustomPrivatePathBootstrap]
     private var deviceIDs: [String] = []
+    private var instanceTags: [String?] = []
 
     init(paths: [CmxIrohCustomPrivatePathBootstrap]) throws {
         configuredPaths = paths
     }
 
-    func paths(for deviceID: String) -> [CmxIrohCustomPrivatePathBootstrap] {
+    func paths(
+        for deviceID: String,
+        instanceTag: String?
+    ) -> [CmxIrohCustomPrivatePathBootstrap] {
         deviceIDs.append(deviceID)
+        instanceTags.append(instanceTag)
         return configuredPaths
     }
 
     func requestedDeviceIDs() -> [String] { deviceIDs }
+    func requestedInstanceTags() -> [String?] { instanceTags }
 }
 
 private actor TestCustomPrivateSnapshotState {

@@ -53,6 +53,7 @@ export default async function ChangelogPage({
     fixed: t("sections.fixed"),
     removed: t("sections.removed"),
     contributors: t("sections.contributors"),
+    tryIt: t("tryIt"),
   };
 
   return (

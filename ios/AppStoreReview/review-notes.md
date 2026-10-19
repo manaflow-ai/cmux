@@ -10,6 +10,14 @@ send input to an active terminal session from iPhone or iPad.
 
 Official App Store Connect app: Apple ID `6783338052`.
 
+Demonstration mode: the review demo account is server-flagged
+(`cmuxReviewDemoContent: true` in Stack `clientReadOnlyMetadata`, set with
+`web/scripts/set-review-demo-content.ts`). After sign-in the app shows a local
+"Demo Mac" with sample developer workspaces, notifications, and interactive
+canned terminals through the same UI as a live Mac, so the reviewer can
+exercise the full app even if the prepared review Mac or its network route is
+temporarily unreachable. Real computers still appear alongside it.
+
 Reviewer access:
 
 - Use the demo account entered in App Store Connect Review Information. Do not
@@ -43,15 +51,21 @@ Reviewer access:
 
 Payments:
 
-- The iOS App Store build does not sell digital goods and does not expose Stripe,
-  Stack checkout, external purchase links, or billing management links.
+- The iOS app sells the cmux Go, Pro, and Max monthly subscriptions through
+  StoreKit in-app purchase only (subscription group "cmux Plans"). Open
+  Settings > Account > Plan, or Cloud > Upgrade, to see the plans screen with
+  Restore Purchases, Manage Subscription, the auto-renewal terms, and links to
+  the Terms of Service and Privacy Policy.
+- The app does not expose Stripe, Stack checkout, external purchase links, or
+  billing management links. Accounts that already pay on the web see a
+  plain-text note and no purchase buttons.
 - The web billing surface is gated for App Store mode with
   `cmux_distribution=appstore`; direct checkout requests with that distribution
   are redirected before Stack or Stripe checkout creation.
 - Direct billing portal requests with `cmux_distribution=appstore` are also
   redirected before Stack or Stripe portal session creation.
-- Existing paid access from web or desktop accounts is read-only entitlement
-  state in the iOS app. There is no in-app upsell or purchase call to action.
+- Use a Sandbox Apple Account to test a purchase. The server verifies each
+  signed transaction and grants the plan to the signed-in cmux account.
 
 Privacy and account handling:
 
@@ -67,7 +81,8 @@ Primary review path:
 2. For email-code sign-in, open the Mailinator public inbox URL supplied in ASC
    Review Information and enter the newest one-time code from the email subject.
 3. Wait for the prepared review Mac to appear. If the ASC notes include a manual
-   fallback, use Add Computer with the exact fallback values supplied there.
+   fallback, select Tailscale Only under Settings > Connection Method, then use
+   Add Computer with the exact fallback values supplied there.
 4. Open the workspace list, then open the `App Review` workspace detail.
 5. Send `echo app-review-ok` from the message box.
 6. Enable phone notifications and verify the opt-in prompt, then disable them

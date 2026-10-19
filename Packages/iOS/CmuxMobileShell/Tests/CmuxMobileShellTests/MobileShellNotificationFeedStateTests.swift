@@ -105,7 +105,21 @@ struct MobileShellNotificationFeedStateTests {
 
     @Test("Computer-scoped feeds aggregate before the global feed cap")
     func computerScopedFeedsAggregateBeforeGlobalCap() throws {
-        let store = MobileShellComposite()
+        var macAWorkspace = MobileWorkspacePreview(
+            id: "mac-a-workspace-row",
+            macDeviceID: "mac-a",
+            name: "A",
+            terminals: []
+        )
+        macAWorkspace.remoteWorkspaceID = "workspace"
+        var macBWorkspace = MobileWorkspacePreview(
+            id: "mac-b-workspace-row",
+            macDeviceID: "mac-b",
+            name: "B",
+            terminals: []
+        )
+        macBWorkspace.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [macAWorkspace, macBWorkspace])
         let cap = MobileNotificationFeedAggregation.maxItemCount
         let macAEntries = (0..<cap).map { offset in
             NotificationResponseEntry(
@@ -139,6 +153,89 @@ struct MobileShellNotificationFeedStateTests {
         let scopedItems = store.notificationFeedItems(scopedTo: ["mac-b"])
         #expect(scopedItems.map(\.notificationID) == (0..<10).reversed().map { "b-\($0)" })
         #expect(scopedItems.allSatisfy { $0.macDeviceID == "mac-b" })
+    }
+
+    @Test("Visible feed omits notifications whose workspace no longer exists")
+    func visibleFeedOmitsDeletedWorkspaceNotifications() throws {
+        var liveWorkspace = MobileWorkspacePreview(
+            id: "live-workspace-row",
+            macDeviceID: "mac",
+            name: "Live workspace",
+            terminals: []
+        )
+        liveWorkspace.remoteWorkspaceID = "live-workspace"
+        let store = MobileShellComposite(workspaces: [liveWorkspace])
+        let response = try MobileNotificationFeedListResponse.decode(Data(
+            """
+            {"revision":1,"notifications":[
+            {"id":"deleted","workspace_id":"deleted-workspace","title":"Deleted","body":"Orphaned","created_at":200,"is_read":false},
+            {"id":"live","workspace_id":"live-workspace","title":"Live","body":"Reachable","created_at":100,"is_read":false}
+            ]}
+            """.utf8
+        ))
+
+        #expect(store.applyNotificationFeedSnapshot(
+            response,
+            macDeviceID: "mac",
+            displayName: "Mac"
+        ))
+        #expect(store.notificationFeedItems.map(\.notificationID) == ["deleted", "live"])
+
+        let visibleItems = store.notificationFeedItems(scopedTo: nil)
+
+        #expect(visibleItems.map(\.notificationID) == ["live"])
+    }
+
+    @Test("Visible feed fails closed when one pairing exposes duplicate target rows")
+    func visibleFeedOmitsAmbiguousDuplicateWorkspaceTargets() throws {
+        var firstWorkspace = MobileWorkspacePreview(
+            id: "first-row",
+            macDeviceID: "mac",
+            name: "First",
+            terminals: []
+        )
+        firstWorkspace.macInstanceTag = "norph"
+        firstWorkspace.remoteWorkspaceID = "workspace"
+        var secondWorkspace = MobileWorkspacePreview(
+            id: "second-row",
+            macDeviceID: "mac",
+            name: "Second",
+            terminals: []
+        )
+        secondWorkspace.macInstanceTag = "norph"
+        secondWorkspace.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [firstWorkspace, secondWorkspace])
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, id: "ambiguous", createdAt: 100),
+            macDeviceID: "mac\u{1F}norph",
+            displayName: "Mac"
+        ))
+
+        #expect(store.notificationFeedItems.map(\.notificationID) == ["ambiguous"])
+        #expect(store.notificationFeedItems(scopedTo: nil).isEmpty)
+    }
+
+    @Test("Device-only notifications cannot borrow a tagged workspace")
+    func legacyNotificationDoesNotRouteToTaggedWorkspace() throws {
+        var nightlyWorkspace = MobileWorkspacePreview(
+            id: "nightly-row",
+            macDeviceID: "mac",
+            name: "Nightly",
+            terminals: []
+        )
+        nightlyWorkspace.macInstanceTag = "nightly"
+        nightlyWorkspace.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [nightlyWorkspace])
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, id: "legacy", createdAt: 100),
+            macDeviceID: "mac",
+            displayName: "Mac"
+        ))
+
+        #expect(store.notificationFeedItems.map(\.notificationID) == ["legacy"])
+        #expect(store.notificationFeedItems(scopedTo: nil).isEmpty)
     }
 
     @Test("Mark All targets all selected Macs before applying the visible feed cap")

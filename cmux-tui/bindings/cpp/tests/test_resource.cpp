@@ -167,6 +167,16 @@ std::string stream_open_response(
         "{\"stream_id\":\"" + stream_id + "\"}");
 }
 
+std::string attachment_open_response(
+    const std::string& request_id,
+    const std::string& stream_id,
+    const std::string& attachment_lease) {
+    return response(
+        request_id,
+        "{\"stream_id\":\"" + stream_id +
+            "\",\"attachment_lease\":\"" + attachment_lease + "\"}");
+}
+
 std::string resource_snapshot(std::uint64_t revision) {
     const auto decimal = std::to_string(revision);
     return
@@ -538,6 +548,292 @@ TEST("session auxiliary APIs emit typed notification and agent routes") {
     CHECK(!report_params->contains("agent"));
 }
 
+TEST("generic journal producer contracts stay userland and wire-compatible") {
+    auto manifest_wire = cmux::Json::parse(R"({
+        "producer_id":"screen-detector",
+        "namespace":"plugin.screen-detector",
+        "manifest_version":1,
+        "max_sensitivity":"sensitive",
+        "permissions":["journal.append.plugin.screen-detector"],
+        "events":[{
+            "kind":"plugin.screen-detector.state.changed",
+            "schema_version":1,
+            "class":"state",
+            "replay":"required",
+            "sensitivity":"sensitive",
+            "payload_schema":{"type":"object"}
+        }]
+    })");
+    CHECK(manifest_wire);
+    auto manifest = cmux::detail::decode_value<cmux::JournalProducerManifest>(
+        manifest_wire.value());
+    CHECK(manifest);
+    CHECK_EQ(manifest.value().namespace_, "plugin.screen-detector");
+    CHECK_EQ(manifest.value().events.front().class_, cmux::JournalClass::state);
+
+    auto encoded = manifest.value().to_json();
+    CHECK(encoded);
+    CHECK(encoded.value().find("namespace") != nullptr);
+    CHECK(encoded.value().find("namespace_") == nullptr);
+    const auto* encoded_events =
+        encoded.value().find("events")->as_array().value();
+    CHECK_EQ(
+        encoded_events->front().find("class")->as_string().value(),
+        std::string_view("state"));
+
+    auto list_wire = cmux::Json::parse(
+        R"({"producers":[{"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":["journal.append.plugin.screen-detector"],"events":[{"kind":"plugin.screen-detector.state.changed","schema_version":1,"class":"state","replay":"required","sensitivity":"sensitive","payload_schema":{"type":"object"}}]}]})");
+    CHECK(list_wire);
+    auto list = cmux::detail::decode_value<cmux::JournalProducerListResult>(
+        list_wire.value());
+    CHECK(list);
+    CHECK_EQ(list.value().producers.size(), 1U);
+
+    auto put_wire = cmux::Json::parse(
+        R"({"producer_id":"screen-detector","manifest_version":1,"namespace":"plugin.screen-detector","sequence":"7","event_id":"evt-7"})");
+    CHECK(put_wire);
+    auto put = cmux::detail::decode_value<cmux::JournalProducerPutResult>(
+        put_wire.value());
+    CHECK(put);
+    CHECK_EQ(put.value().sequence, 7U);
+
+    auto append_wire = cmux::Json::parse(
+        R"({"producer_id":"screen-detector","sequence":"8","event_id":"evt-8"})");
+    CHECK(append_wire);
+    auto appended = cmux::detail::decode_value<cmux::JournalAppendResult>(
+        append_wire.value());
+    CHECK(appended);
+    CHECK_EQ(appended.value().sequence, 8U);
+
+    auto agent_wire = cmux::Json::parse(
+        R"({"id":"agent_11111111111111111111111111111111","session_id":"session_22222222222222222222222222222222","terminal_id":"term_33333333333333333333333333333333","state":"working","source":"plugin","updated_at_ms":"9","source_session":null})");
+    CHECK(agent_wire);
+    auto agent = cmux::detail::decode_value<cmux::AgentSnapshot>(
+        agent_wire.value());
+    CHECK(agent);
+    CHECK_EQ(agent.value().source, cmux::AgentSource::plugin);
+
+    auto screen_wire = cmux::Json::parse(
+        R"({"text":"ready","revision":"12","osc_progress":"4;1;50","cols":80,"rows":24,"cursor_row":1,"cursor_col":2,"cursor_visible":true})");
+    CHECK(screen_wire);
+    auto screen = cmux::detail::decode_value<cmux::TerminalScreenResult>(
+        screen_wire.value());
+    CHECK(screen);
+    CHECK_EQ(screen.value().revision, std::optional<std::uint64_t>(12));
+    CHECK_EQ(screen.value().osc_progress, std::optional<std::string>("4;1;50"));
+
+    auto unavailable_screen_wire = cmux::Json::parse(
+        R"({"text":"unavailable","revision":null,"osc_progress":null,"cols":80,"rows":24,"cursor_row":0,"cursor_col":0,"cursor_visible":true})");
+    CHECK(unavailable_screen_wire);
+    auto unavailable_screen = cmux::detail::decode_value<cmux::TerminalScreenResult>(
+        unavailable_screen_wire.value());
+    CHECK(unavailable_screen);
+    CHECK(!unavailable_screen.value().revision);
+    CHECK(!unavailable_screen.value().osc_progress);
+
+    cmux::JournalIngress invalid_ingress{
+        "screen-detector",
+        1,
+        "agent.state.changed",
+        1,
+        std::nullopt,
+        {},
+        std::nullopt,
+        cmux::Json(cmux::Json::Object{}),
+        std::nullopt,
+        std::nullopt};
+    auto invalid_ingress_json = invalid_ingress.to_json();
+    CHECK(!invalid_ingress_json);
+    CHECK_EQ(
+        invalid_ingress_json.error().code,
+        cmux::ErrorCode::invalid_argument);
+
+    // The decoder applies the same grammar and size limits as the outgoing
+    // producer contract. A malformed server response must not enter the SDK.
+    auto malformed_manifest_wire = cmux::Json::parse(
+        R"({"producer_id":"screen!detector","namespace":"plugin.screen!detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":["journal.append.plugin.screen!detector"],"events":[{"kind":"plugin.screen!detector.state.changed","schema_version":1,"class":"state","replay":"required","sensitivity":"sensitive","payload_schema":{}}]})");
+    CHECK(malformed_manifest_wire);
+    auto malformed_manifest =
+        cmux::detail::decode_value<cmux::JournalProducerManifest>(
+            malformed_manifest_wire.value());
+    CHECK(!malformed_manifest);
+    CHECK_EQ(malformed_manifest.error().code, cmux::ErrorCode::decode);
+
+    auto malformed_put_wire = cmux::Json::parse(
+        R"({"producer_id":"screen!detector","manifest_version":1,"namespace":"plugin.screen!detector","sequence":"1","event_id":"event-1"})");
+    CHECK(malformed_put_wire);
+    auto malformed_put = cmux::detail::decode_value<cmux::JournalProducerPutResult>(
+        malformed_put_wire.value());
+    CHECK(!malformed_put);
+    CHECK_EQ(malformed_put.error().code, cmux::ErrorCode::decode);
+
+    auto malformed_append_wire = cmux::Json::parse(
+        R"({"producer_id":"screen!detector","sequence":"1","event_id":"event-1"})");
+    CHECK(malformed_append_wire);
+    auto malformed_append = cmux::detail::decode_value<cmux::JournalAppendResult>(
+        malformed_append_wire.value());
+    CHECK(!malformed_append);
+    CHECK_EQ(malformed_append.error().code, cmux::ErrorCode::decode);
+
+    cmux::TerminalScreenResult legacy_screen{
+        "legacy", 80, 24, 0, 0, true, {}};
+    CHECK_EQ(legacy_screen.cols, 80);
+    CHECK(!legacy_screen.revision);
+}
+
+TEST("journal subject decoder enforces lowercase component grammar") {
+    auto record_wire = cmux::Json::parse(R"({
+        "sequence":"1",
+        "event_id":"event-1",
+        "schema_version":1,
+        "kind":"plugin.screen-detector.agent.state.changed",
+        "class":"state",
+        "replay":"required",
+        "occurred_at_ms":"1",
+        "committed_at_ms":"2",
+        "producer":{"kind":"plugin","id":"screen-detector"},
+        "authority":null,
+        "causation_id":null,
+        "correlation_id":null,
+        "causation_depth":0,
+        "subjects":[{"kind":"Agent","id":"agent-1"}],
+        "sensitivity":"metadata",
+        "payload":{},
+        "resource_revision":null,
+        "previous_resource_revision":null
+    })");
+    CHECK(record_wire);
+
+    auto decoded = cmux::detail::decode_session_journal_record(
+        record_wire.value(), cmux::Cursor{"g", 1});
+    CHECK(!decoded);
+    CHECK_EQ(decoded.error().code, cmux::ErrorCode::decode);
+}
+
+TEST("journal producer decoders reject oversized arrays before item parsing") {
+    const auto repeated = [](std::string_view item, std::size_t count) {
+        std::string result = "[";
+        for (std::size_t index = 0; index < count; ++index) {
+            if (index != 0) result += ',';
+            result += item;
+        }
+        result += ']';
+        return result;
+    };
+    const std::string event =
+        R"({"kind":"plugin.screen-detector.state.changed","schema_version":1,"class":"state","replay":"required","sensitivity":"sensitive","payload_schema":{}})";
+    const std::string manifest =
+        R"({"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":["journal.append.plugin.screen-detector"],"events":)";
+
+    // Put an invalid item first. The size guard must win before the decoder
+    // attempts to parse that item.
+    auto oversized_permissions = cmux::Json::parse(
+        R"({"producer_id":"screen-detector","namespace":"plugin.screen-detector","manifest_version":1,"max_sensitivity":"sensitive","permissions":[1,"journal.append.plugin.screen-detector"] ,"events":[]})");
+    CHECK(oversized_permissions);
+    auto permissions = oversized_permissions.value().find("permissions");
+    CHECK(permissions != nullptr);
+    auto permission_array = permissions->as_array();
+    CHECK(permission_array);
+    permission_array.value()->insert(
+        permission_array.value()->end(), 31, cmux::Json("journal.append.plugin.screen-detector"));
+    auto decoded_permissions = cmux::detail::decode_value<cmux::JournalProducerManifest>(
+        oversized_permissions.value());
+    CHECK(!decoded_permissions);
+    CHECK(
+        decoded_permissions.error().message.find("more than 32") !=
+        std::string::npos);
+
+    const auto event_array = repeated(event, 64);
+    auto oversized_events = cmux::Json::parse(
+        manifest + "[1," + event_array.substr(1) + "}");
+    CHECK(oversized_events);
+    auto decoded_events = cmux::detail::decode_value<cmux::JournalProducerManifest>(
+        oversized_events.value());
+    CHECK(!decoded_events);
+    CHECK(
+        decoded_events.error().message.find("more than 64") !=
+        std::string::npos);
+
+    const auto producer_array = repeated(manifest + event_array + "}", 1024);
+    auto oversized_producers = cmux::Json::parse(
+        "{\"producers\":[1," + producer_array.substr(1) + "}");
+    CHECK(oversized_producers);
+    auto decoded_producers = cmux::detail::decode_value<cmux::JournalProducerListResult>(
+        oversized_producers.value());
+    CHECK(!decoded_producers);
+    CHECK(
+        decoded_producers.error().message.find("more than 1024") !=
+        std::string::npos);
+}
+
+TEST("journal encoders reject out-of-range enum values") {
+    const auto manifest = [] {
+        cmux::JournalProducerManifest value;
+        value.producer_id = "screen-detector";
+        value.namespace_ = "plugin.screen-detector";
+        value.manifest_version = 1;
+        value.max_sensitivity = cmux::JournalSensitivity::sensitive;
+        value.permissions = {"journal.append.plugin.screen-detector"};
+        value.events.push_back(cmux::JournalEventSchema{
+            "plugin.screen-detector.state.changed",
+            1,
+            cmux::JournalClass::state,
+            cmux::JournalReplayPolicy::required,
+            cmux::JournalSensitivity::sensitive,
+            cmux::Json(cmux::Json::Object{}),
+        });
+        return value;
+    }();
+
+    auto invalid_class = manifest;
+    invalid_class.events.front().class_ =
+        static_cast<cmux::JournalClass>(99);
+    CHECK(!invalid_class.to_json());
+
+    auto invalid_replay = manifest;
+    invalid_replay.events.front().replay =
+        static_cast<cmux::JournalReplayPolicy>(99);
+    CHECK(!invalid_replay.to_json());
+
+    auto invalid_event_sensitivity = manifest;
+    invalid_event_sensitivity.events.front().sensitivity =
+        static_cast<cmux::JournalSensitivity>(99);
+    CHECK(!invalid_event_sensitivity.to_json());
+
+    auto invalid_manifest_sensitivity = manifest;
+    invalid_manifest_sensitivity.max_sensitivity =
+        static_cast<cmux::JournalSensitivity>(99);
+    CHECK(!invalid_manifest_sensitivity.to_json());
+
+    cmux::JournalIngress ingress{
+        "screen-detector",
+        1,
+        "plugin.screen-detector.state.changed",
+        1,
+        std::nullopt,
+        {},
+        static_cast<cmux::JournalSensitivity>(99),
+        cmux::Json(cmux::Json::Object{}),
+        std::nullopt,
+        std::nullopt,
+    };
+    CHECK(!ingress.to_json());
+
+    cmux::SessionJournalOptions invalid_filter;
+    invalid_filter.filter.classes.push_back(
+        static_cast<cmux::JournalClass>(99));
+    CHECK(!invalid_filter.to_params());
+
+    invalid_filter = {};
+    invalid_filter.filter.max_sensitivity =
+        static_cast<cmux::JournalSensitivity>(99);
+    CHECK(!invalid_filter.to_params());
+
+    invalid_filter = {};
+    invalid_filter.start = static_cast<cmux::JournalStart>(99);
+    CHECK(!invalid_filter.to_params());
+}
+
 TEST("session auxiliary options reject invalid values before I/O") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);
@@ -585,7 +881,11 @@ TEST("all creation options validate and encode correlation keys") {
 
     cmux::SplitPaneOptions split(cmux::PaneDirection::right);
     split.correlation_key = "create-correlation";
+    split.viewport_width = 0.5;
     check(split.to_params());
+    CHECK_EQ(
+        split.to_params().value().at("viewport_width").as_double().value(),
+        0.5);
 
     cmux::CreateTerminalTabOptions terminal;
     terminal.correlation_key = "create-correlation";
@@ -705,6 +1005,36 @@ TEST("mutation sends one stable injected idempotency key without retry") {
     CHECK_EQ(
         params->at("expected_revision").as_string().value(),
         std::string_view("42"));
+}
+
+TEST("workspace creation accepts an expected resource revision") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"value":{"kind":"workspace","workspace_id":"ws_0123456789abcdef0123456789abcdef"},"generation":"g","revision":"1","replayed":false})"));
+    auto key = cmux::MutationOptions::with_key("workspace-create-key");
+    CHECK(key);
+    auto result = client.mutate(
+        cmux::Operation::workspace_create,
+        {{"initial_content", cmux::Json("empty")}},
+        std::move(key).value().expecting(0));
+    CHECK(result);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    CHECK_EQ(
+        envelope.value().find("operation")->as_string().value(),
+        std::string_view("workspace.create"));
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("expected_revision").as_string().value(),
+        std::string_view("0"));
 }
 
 TEST("default idempotency keys contain independent random 128-bit values") {
@@ -1420,7 +1750,7 @@ TEST("malformed wait cleanup preserves timeout and fail closes once") {
 TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto running = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(running);
     CHECK_EQ(
@@ -1430,10 +1760,17 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
 
     auto projected = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(projected);
     CHECK_EQ(projected.value().tab_ids.size(), 2U);
+
+    auto missing_attached_views = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(!missing_attached_views);
+    CHECK_EQ(missing_attached_views.error().code, cmux::ErrorCode::decode);
 
     auto legacy_attached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
@@ -1441,35 +1778,30 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
             .value());
     CHECK(legacy_attached);
     CHECK_EQ(legacy_attached.value().tab_ids.size(), 1U);
-    CHECK_EQ(
-        legacy_attached.value().tab_ids.front(),
-        legacy_attached.value().tab_id.value());
 
     auto legacy_detached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
             R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(legacy_detached);
-    CHECK(!legacy_detached.value().tab_id.has_value());
     CHECK(legacy_detached.value().tab_ids.empty());
 
-    auto nonnull_empty = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto consistent_dual = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(!nonnull_empty);
-    CHECK_EQ(nonnull_empty.error().code, cmux::ErrorCode::decode);
+    CHECK(consistent_dual);
 
-    auto mismatched_primary = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto inconsistent_dual = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_11111111111111111111111111111111","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(!mismatched_primary);
-    CHECK_EQ(mismatched_primary.error().code, cmux::ErrorCode::decode);
+    CHECK(!inconsistent_dual);
+    CHECK_EQ(inconsistent_dual.error().code, cmux::ErrorCode::decode);
 
     auto exited = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
             .value());
     CHECK(exited);
     CHECK(exited.value().exit.has_value());
@@ -1479,7 +1811,7 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto inconsistent =
         cmux::detail::decode_value<cmux::TerminalSnapshot>(
             cmux::Json::parse(
-                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
+                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
                 .value());
     CHECK(!inconsistent);
     CHECK_EQ(inconsistent.error().code, cmux::ErrorCode::decode);
@@ -2911,11 +3243,13 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     auto client = client_for(control, stream_state);
     std::atomic<bool> open_route_ok{false};
     std::atomic<bool> resize_route_ok{false};
+    std::atomic<bool> release_route_ok{false};
 
     std::thread server([
         stream_state,
         &open_route_ok,
-        &resize_route_ok
+        &resize_route_ok,
+        &release_route_ok
     ] {
         wait_for_writes(stream_state, 1);
         cmux::Json open;
@@ -2939,7 +3273,10 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
             std::memory_order_release);
         enqueue(
             stream_state,
-            stream_open_response(request_id, stream_id));
+            attachment_open_response(
+                request_id,
+                stream_id,
+                "terminal-lease"));
 
         wait_for_writes(stream_state, 2);
         cmux::Json resize;
@@ -2956,6 +3293,8 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
                     "terminal.viewer.resize" &&
                 resize_params->at("terminal").as_string().value() ==
                     "term_0123456789abcdef0123456789abcdef" &&
+                resize_params->at("attachment_lease").as_string().value() ==
+                    "terminal-lease" &&
                 resize_params->at("cols").as_uint64().value() == 100U &&
                 resize_params->at("rows").as_uint64().value() == 40U,
             std::memory_order_release);
@@ -2963,7 +3302,7 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
             stream_state,
             response(
                 resize_id,
-                R"({"accepted":true,"size":{"cols":100,"rows":40}})"));
+                R"({"accepted":true,"size":{"cols":100,"rows":40},"outcome":"applied"})"));
 
         wait_for_writes(stream_state, 3);
         cmux::Json release;
@@ -2974,7 +3313,19 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
         }
         const auto release_id =
             std::string(release.find("id")->as_string().value());
-        enqueue(stream_state, response(release_id));
+        const auto* release_params =
+            release.find("params")->as_object().value();
+        release_route_ok.store(
+            release.find("operation")->as_string().value() ==
+                    "terminal.viewer.release" &&
+                release_params->at("terminal").as_string().value() ==
+                    "term_0123456789abcdef0123456789abcdef" &&
+                release_params->at("attachment_lease").as_string().value() ==
+                    "terminal-lease",
+            std::memory_order_release);
+        enqueue(
+            stream_state,
+            response(release_id, R"({"outcome":"applied"})"));
     });
 
     auto terminal_id = cmux::TerminalId::parse(
@@ -2991,11 +3342,18 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     CHECK(resized);
     CHECK(resized.value().accepted);
     CHECK_EQ(resized.value().size.cols, 100U);
+    CHECK_EQ(
+        resized.value().outcome,
+        cmux::ViewerResizeResult::Outcome::applied);
     auto released = stream.value().release_viewer();
     CHECK(released);
+    CHECK_EQ(
+        released.value().outcome,
+        cmux::ViewerResizeResult::Outcome::applied);
     server.join();
     CHECK(open_route_ok.load(std::memory_order_acquire));
     CHECK(resize_route_ok.load(std::memory_order_acquire));
+    CHECK(release_route_ok.load(std::memory_order_acquire));
     std::lock_guard lock(control->mutex);
     CHECK(control->outgoing.empty());
 }

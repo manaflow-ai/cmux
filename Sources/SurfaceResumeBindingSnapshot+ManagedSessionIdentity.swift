@@ -52,6 +52,10 @@ enum ManagedAgentSessionIdentity {
 }
 
 extension SurfaceResumeBindingSnapshot {
+    /// Maximum time a CLI restore may hold an in-memory binding claim while
+    /// handing control to the restored process.
+    static let restoreClaimTTL: TimeInterval = 60
+
     var hasCompleteManagedSessionIdentity: Bool {
         managedSessionIdentity != nil
     }
@@ -67,6 +71,104 @@ extension SurfaceResumeBindingSnapshot {
                 lhs: identity.checkpointId,
                 rhs: otherIdentity.checkpointId
             )
+    }
+
+    /// Whether an incoming hook refresh belongs to a claimed restore session.
+    ///
+    /// A same-session refresh consumes the claim; a different checkpoint or
+    /// kind remains blocked until the claim expires or is explicitly cleared.
+    func acceptsRestoreBindingClaim(
+        from incoming: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        isAgentHookBinding
+            && incoming.isAgentHookBinding
+            && isSameManagedSession(as: incoming)
+    }
+
+    /// Whether storing this agent-hook write would weaken an already-trusted
+    /// binding for the same managed session.
+    ///
+    /// Hook publishers always carry `auto_resume`. A same-session `agent-hook`
+    /// write without it comes from the public `surface resume set` CLI (the Pi
+    /// extension shipped before #12084 re-published its binding that way, and
+    /// a Pi process that already loaded that extension keeps doing so after
+    /// cmux updates). Accepting it silently turns the pane manual, and the
+    /// next relaunch restores a bare shell instead of the agent. The same
+    /// session refresh must also retain a captured absolute executable: a
+    /// PATH-dependent launcher can re-publish a bare name after restore when
+    /// its runtime process argv no longer exposes the original wrapper path.
+    /// Callers run this inside the store mutation so no get/set interleaving
+    /// can observe-then-downgrade the trusted binding.
+    func downgradesTrustedAgentHookBinding(
+        _ existing: SurfaceResumeBindingSnapshot?
+    ) -> Bool {
+        guard let existing,
+              isAgentHookBinding,
+              existing.isAgentHookBinding,
+              existing.autoResume == true,
+              existing.isSameManagedSession(as: self) else {
+            return false
+        }
+        if autoResume != true {
+            return true
+        }
+        return launchCommandDowngradesTrustedBinding(existing)
+    }
+
+    private func launchCommandDowngradesTrustedBinding(
+        _ existing: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        guard let existingLaunch = existing.launchCommand,
+              let existingExecutable = existingLaunch.executablePath
+                ?? existingLaunch.arguments.first,
+              existingExecutable.hasPrefix("/") else {
+            return false
+        }
+        guard let incomingLaunch = launchCommand else {
+            return true
+        }
+        let incomingExecutable = incomingLaunch.executablePath
+            ?? incomingLaunch.arguments.first
+        return incomingExecutable?.hasPrefix("/") != true
+    }
+
+    /// Projects an authoritative agent-hook binding into the structured
+    /// session snapshot used by close history and workspace restore. A new
+    /// checkpoint may reuse only kind-level registration metadata from the
+    /// previous snapshot; cwd, launch capture, permission mode, and identity
+    /// must come from the new binding so a fork cannot retain its parent.
+    func managedRestorableAgentSnapshot(
+        replacing previous: SessionRestorableAgentSnapshot?
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let identity = managedSessionIdentity else { return nil }
+        let previousForKind = previous.flatMap {
+            $0.kind.rawValue == identity.kind ? $0 : nil
+        }
+        guard let kind = RestorableAgentKind(
+            persistedRawValue: identity.kind,
+            registration: previousForKind?.registration
+        ) else {
+            return nil
+        }
+        let continuesPreviousSession = previousForKind.map {
+            ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: identity.kind,
+                lhs: $0.sessionId,
+                rhs: identity.checkpointId
+            )
+        } == true
+        return SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: identity.checkpointId,
+            workingDirectory: cwd
+                ?? launchCommand?.workingDirectory
+                ?? (continuesPreviousSession ? previousForKind?.workingDirectory : nil),
+            launchCommand: launchCommand
+                ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
+            registration: previousForKind?.registration,
+            permissionMode: permissionMode
+                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil)
+        )
     }
 
     private var managedSessionIdentity: (kind: String, checkpointId: String)? {

@@ -40,6 +40,7 @@ enum RemoteShellSessionParsing {
         "port",
         "reversetunnel",
         "serverfifo",
+        "ssh-config",
         "ssh-socket",
         "terminal-path",
         "tunnel",
@@ -51,6 +52,7 @@ enum RemoteShellSessionParsing {
         "kill-other-sessions",
         "logtostdout",
         "macserver",
+        "no-ssh-config",
         "no-terminal",
         "noexit",
         "silent",
@@ -88,7 +90,7 @@ enum RemoteShellSessionParsing {
         var destination: String?
         var port: Int?
         var identityFile: String?
-        let configFile: String? = nil
+        var configFile: String?
         var jumpHost: String?
         var controlPath: String?
         var loginName: String?
@@ -123,6 +125,8 @@ enum RemoteShellSessionParsing {
                 jumpHost = resolvedJumpHost
             case "jport", "keepalive", "port":
                 guard Int(trimmedValue) != nil else { return false }
+            case "ssh-config":
+                configFile = trimmedValue
             case "username":
                 loginName = trimmedValue
             default:
@@ -183,7 +187,14 @@ enum RemoteShellSessionParsing {
                 let optionName = String(parts[0])
 
                 if optionName == "forward-ssh-agent" {
+                    guard parts.count == 1 else { return nil }
                     forwardAgent = true
+                    index += 1
+                    continue
+                }
+                if optionName == "no-ssh-config" {
+                    guard parts.count == 1 else { return nil }
+                    configFile = "/dev/null"
                     index += 1
                     continue
                 }
@@ -218,7 +229,8 @@ enum RemoteShellSessionParsing {
                     }
                     continue
                 }
-                if eternalTerminalLongNoArgumentOptions.contains(optionName) || parts.count == 2 {
+                if eternalTerminalLongNoArgumentOptions.contains(optionName) {
+                    guard parts.count == 1 else { return nil }
                     index += 1
                     continue
                 }

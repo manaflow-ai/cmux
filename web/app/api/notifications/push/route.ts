@@ -1,7 +1,5 @@
-// Send a push to the authenticated user's registered iOS devices. Called by the
-// macOS app when it shows a terminal notification AND the user enabled phone
-// forwarding. No-ops (no APNs traffic) when the user has no registered devices.
-// Auth: Stack Bearer from the Mac's signed-in user; routing is by that user id.
+// New encrypted Mac senders may omit the target to fan out to every registered
+// iOS bundle. The encrypted tuple still names each exact bundle and key.
 
 import crypto from "node:crypto";
 import * as Effect from "effect/Effect";
@@ -17,7 +15,9 @@ import {
   withApnsApiRoute,
 } from "../../../../services/apns/routeHandler";
 import {
+  MAX_ENCRYPTED_PUSH_REQUEST_BYTES,
   MAX_PUSH_REQUEST_BYTES,
+  normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
   type PushPayload,
@@ -32,6 +32,7 @@ import {
   PushDeliveryService,
   type PushDeliveryError,
 } from "../../../../services/apns/pushDeliveryService";
+import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 
 // through that loop while staying comfortably below the 120s event TTL.
 export const maxDuration = 45;
@@ -46,18 +47,29 @@ function apnsConfig(): ApnsConfig | null {
 
 export const DEFAULT_PUSH_TTL_SECONDS = 120;
 const MAX_PUSH_TTL_SECONDS = 300;
+export type PushProtocol = "legacy-v1" | "e2e-v1";
 
-function pushPayloadFingerprint(payload: PushPayload): string {
+function pushPayloadFingerprint(
+  payload: PushPayload,
+  targetBundleId: string,
+): string {
   const canonicalPayload = {
+    targetBundleId,
     kind: payload.kind,
-    title: payload.title,
-    subtitle: payload.subtitle,
-    body: payload.body,
-    workspaceId: payload.workspaceId,
-    surfaceId: payload.surfaceId,
-    retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
-    macDeviceId: payload.macDeviceId,
-    notificationId: payload.notificationId,
+    ...(payload.encryptedPayloads?.length
+      ? { encryptedPayloads: payload.encryptedPayloads }
+      : {
+          title: payload.title,
+          subtitle: payload.subtitle,
+          body: payload.body,
+          replyShape: payload.replyShape,
+          workspaceId: payload.workspaceId,
+          surfaceId: payload.surfaceId,
+          macDeviceId: payload.macDeviceId,
+          macInstanceTag: payload.macInstanceTag,
+          notificationId: payload.notificationId,
+          retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
+        }),
     expirationEpochSeconds: payload.expirationEpochSeconds,
     dismissedIds: payload.dismissedIds,
     badgeCount: payload.badgeCount,
@@ -67,6 +79,44 @@ function pushPayloadFingerprint(payload: PushPayload): string {
     .createHash("sha256")
     .update(JSON.stringify(canonicalPayload))
     .digest("hex");
+}
+
+function validatePushProtocol(
+  protocol: PushProtocol | undefined,
+  encryptedPayloads: readonly Record<string, unknown>[],
+): Response | null {
+  if (protocol === "legacy-v1" && encryptedPayloads.length > 0) {
+    return jsonResponse({ error: "encrypted_payload_requires_e2e_endpoint" }, 400);
+  }
+  if (protocol === "e2e-v1" && encryptedPayloads.length === 0) {
+    return jsonResponse({ error: "e2e_endpoint_requires_encrypted_payload" }, 400);
+  }
+  return null;
+}
+
+function validateEncryptedRecipients(
+  userID: string,
+  payload: PushPayload,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  targetNamespace: ReturnType<typeof normalizeApnsBundle>,
+): Response | null {
+  if (encryptedPayloads.length === 0) return null;
+  const matchesOwner = encryptedPayloads.every((envelope) => {
+    const tuple = envelope.tuple;
+    if (!tuple || typeof tuple !== "object" || Array.isArray(tuple)) return false;
+    const tupleRecord = tuple as Record<string, unknown>;
+    const tupleBundle = typeof tupleRecord.iosBuildID === "string"
+      ? normalizeApnsBundle(tupleRecord.iosBuildID)
+      : null;
+    return tupleRecord.accountID === userID
+      && tupleBundle != null
+      && (targetNamespace == null || tupleRecord.iosBuildID === targetNamespace.bundleId)
+      && tupleRecord.macDeviceID === payload.macDeviceId
+      && (tupleRecord.macInstanceTag ?? null) === (payload.macInstanceTag ?? null);
+  });
+  return matchesOwner
+    ? null
+    : jsonResponse({ error: "push_recipient_tuple_mismatch" }, 403);
 }
 
 function summaryResponse(
@@ -88,14 +138,23 @@ function summaryResponse(
 }
 
 export async function POST(request: Request): Promise<Response> {
+  return POSTWithProtocol(request, "legacy-v1");
+}
+
+export async function POSTWithProtocol(
+  request: Request,
+  protocol: PushProtocol,
+): Promise<Response> {
   return withApnsApiRoute(
     request,
-    "/api/notifications/push",
+    protocol === "e2e-v1"
+      ? "/api/notifications/push/e2e"
+      : "/api/notifications/push",
     "send",
     async () => sendPush(request, {
       send: sendApnsNotificationReliably,
       config: apnsConfig(),
-    }),
+    }, protocol),
   );
 }
 
@@ -114,20 +173,44 @@ async function sendPush(
     send: typeof sendApnsNotificationReliably;
     config: ApnsConfig | null;
   },
+  protocol?: PushProtocol,
 ): Promise<Response> {
-  const user = await verifyRequest(request, { allowCookie: false });
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, { allowCookie: false });
+  } catch (error) {
+    return authProviderErrorResponse(error, "notifications.push.auth");
+  }
   if (!user) return unauthorized();
 
-  const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
+  const body = await readBoundedJsonObject(
+    request,
+    protocol === "e2e-v1"
+      ? MAX_ENCRYPTED_PUSH_REQUEST_BYTES
+      : MAX_PUSH_REQUEST_BYTES,
+  );
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   }
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  const encryptedPayloads = payload.value.encryptedPayloads ?? [];
+  const routing = validatePushRouting(
+    request,
+    user.id,
+    payload.value,
+    encryptedPayloads,
+    protocol,
+  );
+  if (!routing.ok) return routing.response;
+  const targetNamespace = routing.value;
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
-  const payloadFingerprint = pushPayloadFingerprint(payload.value);
+  const payloadFingerprint = pushPayloadFingerprint(
+    payload.value,
+    targetNamespace?.bundleId ?? "legacy",
+  );
   const startedAt = new Date();
   const nowEpochSeconds = Math.floor(startedAt.getTime() / 1_000);
   if (
@@ -162,6 +245,7 @@ async function sendPush(
       const delivery = yield* PushDeliveryService;
       return yield* delivery.deliver({
         userId: user.id,
+        targetBundleId: targetNamespace?.bundleId ?? null,
         correlationId,
         payloadFingerprint,
         startedAt,
@@ -193,6 +277,50 @@ async function sendPush(
       correlationId,
     );
   }
+}
+
+function validatePushRouting(
+  request: Request,
+  userID: string,
+  payload: PushPayload,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  protocol: PushProtocol | undefined,
+): { ok: true; value: ReturnType<typeof normalizeApnsBundle> }
+  | { ok: false; response: Response } {
+  // An omitted header is account-wide fanout. Each encrypted tuple names its
+  // exact iOS bundle, and APNs delivery selects the matching payload per token.
+  // A present-but-unknown value remains a hard error.
+  const targetNamespaceResult = resolveTargetNamespace(
+    request.headers.get("x-cmux-ios-target-namespace"),
+  );
+  if (!targetNamespaceResult.ok) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: targetNamespaceResult.error }, 400),
+    };
+  }
+  const protocolError = validatePushProtocol(protocol, encryptedPayloads);
+  if (protocolError) return { ok: false, response: protocolError };
+  const recipientError = validateEncryptedRecipients(
+    userID,
+    payload,
+    encryptedPayloads,
+    targetNamespaceResult.value,
+  );
+  if (recipientError) return { ok: false, response: recipientError };
+  return { ok: true, value: targetNamespaceResult.value };
+}
+
+function resolveTargetNamespace(
+  requestedNamespace: string | null,
+): { ok: true; value: ReturnType<typeof normalizeApnsBundle> } | { ok: false; error: string } {
+  if (requestedNamespace === null) {
+    return { ok: true, value: null };
+  }
+  const targetNamespace = normalizeApnsBundle(requestedNamespace);
+  return targetNamespace
+    ? { ok: true, value: targetNamespace }
+    : { ok: false, error: "invalid_target_namespace" };
 }
 
 function deliveryErrorResponse(

@@ -8,6 +8,9 @@ public import UIKit
 /// content inset, and content offset updates use the exact duration and curve of
 /// the system keyboard animation.
 public struct MobileKeyboardTransition: Sendable {
+    /// The keyboard's initial screen-space frame from the notification payload.
+    public let beginFrame: CGRect
+
     /// The keyboard's final screen-space frame from the notification payload.
     public let endFrame: CGRect
 
@@ -25,6 +28,8 @@ public struct MobileKeyboardTransition: Sendable {
         guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return nil
         }
+        beginFrame = notification.userInfo?[UIResponder.keyboardFrameBeginUserInfoKey] as? CGRect
+            ?? endFrame
         self.endFrame = endFrame
         duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0
         let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int
@@ -37,8 +42,21 @@ public struct MobileKeyboardTransition: Sendable {
     /// - Parameter view: The view whose bounds should be compared to the keyboard.
     /// - Returns: The bottom overlap in `view` coordinates, or zero when detached.
     @MainActor public func overlap(in view: UIView) -> CGFloat {
+        overlap(of: endFrame, in: view)
+    }
+
+    /// Returns how much of `view` is covered by the keyboard's initial frame.
+    ///
+    /// The begin/end pair identifies the keyboard transition that emitted a later
+    /// `didChangeFrame` notification, allowing clients to reject a completion from
+    /// a transition superseded by a rapid reversal.
+    @MainActor public func beginOverlap(in view: UIView) -> CGFloat {
+        overlap(of: beginFrame, in: view)
+    }
+
+    @MainActor private func overlap(of frame: CGRect, in view: UIView) -> CGFloat {
         guard let window = view.window else { return 0 }
-        let keyboardFrameInWindow = window.convert(endFrame, from: nil)
+        let keyboardFrameInWindow = window.convert(frame, from: nil)
         let viewFrameInWindow = view.convert(view.bounds, to: window)
         return MobileKeyboardReservation(
             keyboardFrameInWindow: keyboardFrameInWindow,

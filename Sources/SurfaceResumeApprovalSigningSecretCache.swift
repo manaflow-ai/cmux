@@ -255,6 +255,9 @@ extension SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data
     ) -> SurfaceResumeBindingSnapshot {
+        if binding.isUntrustedSessionImportBinding {
+            return binding.forcingManualRestore()
+        }
         if let trustedBinding = trustedBinding(from: binding) {
             return trustedBinding
         }
@@ -291,6 +294,11 @@ extension SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecretResolution: SurfaceResumeApprovalSigningSecretResolution
     ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
+        // Untrusted session-file bindings skip approval lookup entirely: an
+        // approved prefix must not auto-run a file-provided command.
+        if binding.isUntrustedSessionImportBinding {
+            return .resolved(binding.forcingManualRestore())
+        }
         if let trustedBinding = trustedBinding(from: binding) {
             return .resolved(trustedBinding)
         }
@@ -338,6 +346,9 @@ extension SurfaceResumeApprovalStore {
         effectiveBinding: SurfaceResumeBindingSnapshot,
         existingRecord: SurfaceResumeApprovalRecord?
     )> {
+        if binding.isUntrustedSessionImportBinding {
+            return .resolved((binding.forcingManualRestore(), nil))
+        }
         if let trustedBinding = trustedBinding(from: binding) {
             return .resolved((trustedBinding, nil))
         }

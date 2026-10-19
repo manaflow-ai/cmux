@@ -8,7 +8,30 @@ internal import Foundation
 // coordinator's general exec argv, including the non-batch and
 // drop-ControlPath variants the batch builders do not have.)
 extension RemoteSessionCoordinator {
-    func sshCommonArguments(batchMode: Bool, dropControlPath: Bool = false) -> [String] {
+    /// Builds batch SSH arguments for daemon bootstrap traffic.
+    ///
+    /// Bootstrap owns the binary-install transaction, so it must not inherit
+    /// an existing multiplexed channel: a half-open ControlMaster can report
+    /// healthy while forwarding no payload bytes. `ControlPath=none` is placed
+    /// before caller options because OpenSSH keeps the first value it obtains.
+    func daemonBootstrapSSHArguments() -> [String] {
+        ["-o", "ControlPath=none"] + sshCommonArguments(
+            batchMode: true,
+            dropControlPath: true
+        )
+    }
+
+    /// - Parameter batchForwarding: The forwarding batch runs turn off.
+    ///   Batch execs only run helper commands and never become a master
+    ///   (`ControlMaster=no`), so by default they forward no agent, X11
+    ///   display or port. A run that sets up its own `-R` passes
+    ///   `SSHBackgroundForwarding.agentAndX11Off`, because
+    ///   `ClearAllForwardings` would drop that forward too.
+    func sshCommonArguments(
+        batchMode: Bool,
+        dropControlPath: Bool = false,
+        batchForwarding: SSHBackgroundForwarding = .allOff
+    ) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {
                 return backgroundSSHOptions(configuration.sshOptions, dropControlPath: dropControlPath)
@@ -34,6 +57,7 @@ extension RemoteSessionCoordinator {
             // option, so these also win over caller-supplied conflicts.
             args += SSHHostConfiguredRemoteCommand().overrideArguments
             args += ["-o", "RequestTTY=no"]
+            args += batchForwarding.optionArguments
         }
         if let port = configuration.port {
             args += ["-p", String(port)]

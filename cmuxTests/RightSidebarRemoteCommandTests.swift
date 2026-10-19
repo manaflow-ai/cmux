@@ -93,6 +93,8 @@ extension TerminalControllerSocketSecurityTests {
                 fileExplorerState: fileExplorerState
             )
             defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+            fileExplorerState.setVisible(false)
+            fileExplorerState.mode = .files
 
             #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus").hasPrefix("ERROR:"))
             #expect(!fileExplorerState.isVisible)

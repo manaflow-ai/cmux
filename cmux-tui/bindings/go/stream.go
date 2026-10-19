@@ -39,10 +39,11 @@ func (e *StreamEndError) Error() string {
 // handshake. After acknowledgement, each Recv or Cancel context governs that
 // operation without imposing an idle stream deadline.
 type Stream[T any] struct {
-	client *Client
-	id     StreamID
-	route  *streamRoute
-	decode func(json.RawMessage) (T, error)
+	client          *Client
+	id              StreamID
+	attachmentLease string
+	route           *streamRoute
+	decode          func(json.RawMessage, *Cursor) (T, error)
 
 	mu            sync.Mutex
 	finished      bool
@@ -54,6 +55,12 @@ type Stream[T any] struct {
 }
 
 func (s *Stream[T]) ID() StreamID { return s.id }
+
+// AttachmentLease returns the lease required to size or release a terminal or
+// browser attachment. Other stream kinds return false.
+func (s *Stream[T]) AttachmentLease() (string, bool) {
+	return s.attachmentLease, s.attachmentLease != ""
+}
 
 func (s *Stream[T]) Recv(ctx context.Context) (StreamItem[T], error) {
 	var zero StreamItem[T]
@@ -100,7 +107,7 @@ func (s *Stream[T]) consume(message streamMessage) (StreamItem[T], error) {
 		s.markFinished(end)
 		return zero, end
 	}
-	value, err := s.decode(message.envelope.Item)
+	value, err := s.decode(message.envelope.Item, message.envelope.Cursor)
 	if err != nil {
 		return zero, err
 	}
@@ -144,8 +151,8 @@ func (s *Stream[T]) Cancel(ctx context.Context) error {
 
 func (s *Stream[T]) cancel(ctx context.Context) error {
 	s.client.mu.Lock()
-	ownsCleanup := s.route.beginExplicitCancel(func(raw json.RawMessage) error {
-		_, err := s.decode(raw)
+	ownsCleanup := s.route.beginExplicitCancel(func(envelope streamEnvelope) error {
+		_, err := s.decode(envelope.Item, envelope.Cursor)
 		return err
 	})
 	if !ownsCleanup {
@@ -322,7 +329,7 @@ func (s *Stream[T]) consumeCancelMessage(
 				Message: "stream cancellation received a mismatched stream item",
 			}
 		}
-		if _, err := s.decode(message.envelope.Item); err != nil {
+		if _, err := s.decode(message.envelope.Item, message.envelope.Cursor); err != nil {
 			return nil, false, err
 		}
 		return nil, false, nil
@@ -354,6 +361,22 @@ func openStream[T any](
 	operation wirev2.Operation,
 	params map[string]any,
 	decode func(json.RawMessage) (T, error),
+) (*Stream[T], error) {
+	return openDecodedStream(
+		ctx,
+		client,
+		operation,
+		params,
+		func(raw json.RawMessage, _ *Cursor) (T, error) { return decode(raw) },
+	)
+}
+
+func openDecodedStream[T any](
+	ctx context.Context,
+	client *Client,
+	operation wirev2.Operation,
+	params map[string]any,
+	decode func(json.RawMessage, *Cursor) (T, error),
 ) (*Stream[T], error) {
 	id, err := newStreamID()
 	if err != nil {
@@ -408,16 +431,31 @@ func openStream[T any](
 		}
 		return failOpen(err)
 	}
-	opened, err := decodeValue[StreamOpened](raw, operation.Name+" result")
-	if err != nil {
-		return failOpen(err)
+	openedID := StreamID("")
+	attachmentLease := ""
+	if operation.Name == wirev2.TerminalAttach.Name || operation.Name == wirev2.BrowserAttach.Name {
+		opened, decodeErr := decodeValue[ViewAttachmentStreamOpened](raw, operation.Name+" result")
+		if decodeErr != nil {
+			return failOpen(decodeErr)
+		}
+		openedID = opened.StreamID
+		attachmentLease = opened.AttachmentLease
+		if len(attachmentLease) < 1 || len(attachmentLease) > 128 {
+			return failOpen(&ProtocolError{Message: operation.Name + " attachment_lease must contain 1 to 128 bytes"})
+		}
+	} else {
+		opened, decodeErr := decodeValue[StreamOpened](raw, operation.Name+" result")
+		if decodeErr != nil {
+			return failOpen(decodeErr)
+		}
+		openedID = opened.StreamID
 	}
-	if opened.StreamID != id {
+	if openedID != id {
 		return failOpen(&ProtocolError{
 			Message: fmt.Sprintf(
 				"%s returned stream %s for %s",
 				operation.Name,
-				opened.StreamID,
+				openedID,
 				id,
 			),
 		})
@@ -437,7 +475,8 @@ func openStream[T any](
 	client.mu.Unlock()
 	return &Stream[T]{
 		client: client, id: id, route: route, decode: decode,
-		cancelParams: cancelParams,
+		attachmentLease: attachmentLease,
+		cancelParams:    cancelParams,
 	}, nil
 }
 

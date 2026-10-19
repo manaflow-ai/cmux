@@ -49,7 +49,9 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
             localMoshMissingMessage: "local Mosh missing",
             localMoshUnsupportedMessage: "local Mosh unsupported",
             remoteMoshMissingMessage: "remote Mosh missing",
-            remoteMoshProbeFailedMessage: "remote Mosh probe failed"
+            remoteMoshProbeFailedMessage: "remote Mosh probe failed",
+            remoteBootstrapInstallFailedMessage: "remote bootstrap install failed",
+            remoteMoshAddressFallbackMessage: "remote Mosh address fallback"
         ).command()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -84,12 +86,32 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         let command = try #require(configuration.terminalStartupCommand)
 
         #expect(configuration.terminalTransport == .mosh)
-        #expect(command.contains("--experimental-remote-ip=remote"), "\(command)")
+        #expect(command.contains("cmux_mosh_remote_ip_mode"), "\(command)")
         #expect(command.contains("dev@example.com"), "\(command)")
         #expect(command.contains("2222"), "\(command)")
         #expect(command.contains("ProxyJump=bastion"), "\(command)")
         #expect(command.contains("id with space"), "\(command)")
         #expect(command.contains("exec /bin/sh -c"), "\(command)")
+    }
+
+    @Test("keeps a durable TTY request on the SSH fallback, not the Mosh bootstrap")
+    func keepsTTYRequestOnlyOnSSHRestoreFallback() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            destination: "dev@example.com",
+            sshOptions: ["RequestTTY=force"]
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration(preserveSSHOptions: true))
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.sshOptions == ["RequestTTY=force"])
+        #expect(command.contains("RequestTTY=no"), "Mosh management SSH must force no PTY: \(command)")
+        #expect(
+            command.components(separatedBy: "RequestTTY=force").count - 1 == 1,
+            "Only the embedded direct-SSH fallback should receive RequestTTY: \(command)"
+        )
     }
 
     @Test("restores a named Mosh tmux terminal profile")

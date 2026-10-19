@@ -32,9 +32,19 @@ import type {
   DiffCommentSide,
 } from "./comments/types";
 import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
+import { deferredDiffReason, type DeferredDiffReason } from "./deferred-diffs";
 import { resolveDiffFileLanguage, resolveDiffPreloadLanguages } from "./diff-language";
-import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
+import { fileName, fileStats, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
 import { DiffHeaderMetadata } from "./diff-metadata";
+import {
+  allDiffFileStatuses,
+  defaultDiffFileFilter,
+  filterDiffItems,
+  isDiffFileFilterActive,
+  toggleStatusFilter,
+  type DiffFileFilter,
+  type DiffFileStatus,
+} from "./file-filter";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
@@ -48,12 +58,42 @@ import {
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
 import { resolveToolbarOverflow } from "./toolbar-overflow";
 import { useToolbarWidth } from "./useToolbarWidth";
+import {
+  type ViewedChange,
+  type ViewedFileEntry,
+  type ViewedFileState,
+  type ViewedScope,
+  type ViewedSession,
+  applyLoadedViewed,
+  beginViewedLoad,
+  formatViewedProgress,
+  loadViewedFiles,
+  persistViewedChange,
+  recordViewedChange,
+  toggleViewedItem,
+  viewedProgress,
+  viewedScopeFor,
+  viewedScopeKey,
+  viewedStateOfItem,
+} from "./viewed-files";
+import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
+import { loadViewerPrefs, readLocalViewerPrefs, sanitizeViewerPrefs, saveViewerPrefs, type ViewerPrefs } from "./viewer-prefs";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
+import { FindBar } from "./find/FindBar";
+import { useDiffFind, type DiffFindController } from "./find/useDiffFind";
+import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
+
+const statusIconName: Record<DiffFileStatus, IconName> = {
+  added: "diffAdded",
+  modified: "diffModified",
+  deleted: "diffRemoved",
+  renamed: "diffRenamed",
+};
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -74,21 +114,43 @@ type AppState = {
   comments: DiffCommentRecord[];
   copyFeedback: string;
   draft: CommentDraft | null;
+  /** Path, status, and hide-viewed filter; hides diff sections and tree rows. */
+  fileFilter: DiffFileFilter;
   fileSearchOpen: boolean;
   fileSearchRequest: number;
   filesWidth: number;
   filesVisible: boolean;
+  findOpen: boolean;
+  findQuery: string;
+  findRequest: number;
+  /** Paths the sidecar marked generated (`.gitattributes`) for this session. */
+  generatedPaths: string[];
   items: DiffItem[];
   languages: string[];
   metrics: StreamMetrics | null;
   options: DiffViewerOptions;
   optionsOpen: boolean;
+  /** Bumped by a soft refresh so the render effect re-streams in place. */
+  renderGeneration: number;
   status: DiffViewerStatus;
   treeSource: FileTreeSource | null;
+  /** Persisted "Viewed" entries for `viewedScopeKey`, keyed by file path. */
+  viewedByPath: Map<string, ViewedFileEntry>;
+  /** Toggles made in this scope; they win over a later stored-marks reply. */
+  viewedLocalEdits: Map<string, ViewedFileEntry | null>;
+  viewedScopeKey: string;
 };
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "apply-persisted-options"; prefs: ViewerPrefs; allowLayout: boolean }
+  | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
+  | { type: "begin-viewed-load"; scopeKey: string }
+  | { type: "expand-item"; itemId: string }
+  | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
+  | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
+  | { type: "set-generated-paths"; paths: string[] }
+  | { type: "refresh"; status: DiffViewerStatus }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
@@ -98,6 +160,9 @@ type AppAction =
   | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "request-file-search" }
+  | { type: "set-find-open"; open: boolean }
+  | { type: "set-find-query"; query: string }
+  | { type: "request-find" }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
@@ -109,22 +174,29 @@ type AppAction =
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
-const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
-const persistedLayoutKey = "cmux.diffViewer.layout";
 type DiffViewerLayout = DiffViewerOptions["layout"];
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
+  // Display toggles persisted by previous sessions are baked into the payload
+  // by the CLI so first paint matches; the viewerPrefs bridge re-syncs them
+  // live after boot. Layout is owned by payload.layout/layoutSource.
+  const { layout: _seededLayout, ...seededOptions } = sanitizeViewerPrefs(payload.viewerOptions);
   return {
     activeItemId: "",
     activeTreePath: "",
     comments: [],
     copyFeedback: "",
     draft: null,
+    fileFilter: defaultDiffFileFilter(),
     fileSearchOpen: false,
     fileSearchRequest: 0,
     filesWidth: 252,
     filesVisible: true,
+    findOpen: false,
+    findQuery: "",
+    findRequest: 0,
+    generatedPaths: [],
     items: [],
     languages: ["text"],
     metrics: null,
@@ -132,25 +204,114 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
       collapsed: false,
       diffIndicators: "bars",
       expandUnchanged: false,
-      layout: initialDiffViewerLayout(payload),
       lineNumbers: true,
       showBackgrounds: true,
       wordDiffs: false,
       wordWrap: false,
+      ...seededOptions,
+      layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
     optionsOpen: false,
+    renderGeneration: 0,
     status: initialStatus,
     treeSource: null,
+    viewedByPath: new Map(),
+    viewedLocalEdits: new Map(),
+    viewedScopeKey: "",
   };
+}
+
+/**
+ * Generated and large files start collapsed (GitHub "Load diff" behavior),
+ * and a file whose stored viewed fingerprint still matches starts collapsed
+ * too. `collapsed` is otherwise the session-wide collapse-all toggle.
+ */
+function prepareAppendedItem(item: DiffItem, state: AppState, generatedPaths: ReadonlySet<string>): DiffItem {
+  const diff = item.fileDiff ?? {};
+  const stats = fileStats(diff);
+  const reason = deferredDiffReason({
+    path: fileName(diff, ""),
+    changedLines: stats.added + stats.deleted,
+    patchBytes: typeof diff.cmuxPatchByteLength === "number" ? diff.cmuxPatchByteLength : 0,
+    generatedPaths,
+  });
+  if (reason != null) {
+    diff.cmuxDeferredReason = reason;
+  }
+  const viewed = viewedStateOfItem(item, state.viewedByPath) === "viewed";
+  return state.options.collapsed || reason != null || viewed ? { ...item, collapsed: true } : item;
+}
+
+function viewedSessionOf(state: AppState): ViewedSession {
+  return { scopeKey: state.viewedScopeKey, viewedByPath: state.viewedByPath, localEdits: state.viewedLocalEdits };
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
+  case "apply-viewed": {
+    const session = recordViewedChange(viewedSessionOf(state), action.change);
+    return { ...state, items: action.items, viewedByPath: session.viewedByPath, viewedLocalEdits: session.localEdits };
+  }
+  case "begin-viewed-load": {
+    const session = beginViewedLoad(action.scopeKey);
+    return { ...state, viewedByPath: session.viewedByPath, viewedLocalEdits: session.localEdits, viewedScopeKey: session.scopeKey };
+  }
+  case "expand-item":
+    return {
+      ...state,
+      items: state.items.map((item) => (
+        item.id === action.itemId ? { ...item, collapsed: false, version: (item.version ?? 0) + 1 } : item
+      )),
+    };
+  case "replace-viewed": {
+    const session = applyLoadedViewed(viewedSessionOf(state), action.scopeKey, action.entries);
+    if (session == null) {
+      return state;
+    }
+    const { viewedByPath } = session;
+    // Files already streamed collapse once their stored mark turns out to
+    // still match, the same way a late-arriving batch would.
+    const items = state.items.map((item) => {
+      const viewed = viewedStateOfItem(item, viewedByPath) === "viewed";
+      return viewed && !item.collapsed ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 } : item;
+    });
+    return { ...state, items, viewedByPath };
+  }
+  case "set-file-filter":
+    return { ...state, fileFilter: { ...state.fileFilter, ...action.filter } };
+  case "set-generated-paths":
+    return { ...state, generatedPaths: action.paths };
+  case "apply-persisted-options": {
+    const { layout, ...prefs } = action.prefs;
+    return {
+      ...state,
+      options: {
+        ...state.options,
+        ...prefs,
+        ...(action.allowLayout && layout != null ? { layout } : {}),
+      },
+    };
+  }
+  case "refresh":
+    return {
+      ...state,
+      activeItemId: "",
+      activeTreePath: "",
+      draft: null,
+      generatedPaths: [],
+      items: [],
+      languages: ["text"],
+      metrics: null,
+      renderGeneration: state.renderGeneration + 1,
+      status: action.status,
+      treeSource: null,
+    };
   case "append-items": {
+    const generatedPaths = new Set(state.generatedPaths);
     const nextItems = action.items.map((item) => {
       resolveDiffItemLanguage(item);
       const annotated = withCommentAnnotations(item, state.comments, state.draft);
-      return state.options.collapsed ? { ...annotated, collapsed: true } : annotated;
+      return prepareAppendedItem(annotated, state, generatedPaths);
     });
     const languages = mergeLanguages(state.languages, nextItems.flatMap(diffItemPreloadLanguages));
     return {
@@ -167,6 +328,7 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: "",
       activeTreePath: "",
       draft: null,
+      generatedPaths: [],
       items: [],
       languages: ["text"],
       metrics: null,
@@ -219,6 +381,13 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
   case "request-file-search":
     return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
+  case "set-find-open":
+    // The query is kept when closing so reopening recovers the last search.
+    return { ...state, findOpen: action.open };
+  case "set-find-query":
+    return { ...state, findQuery: action.query };
+  case "request-find":
+    return { ...state, findOpen: true, findRequest: state.findRequest + 1 };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
@@ -291,11 +460,38 @@ export function App({ config, initialStatus }: ConfigProps) {
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
-  const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
-  const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
+  const workerPoolOptions = createDiffWorkerPoolOptions();
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
+  useEffect(() => {
+    const configuredTitle =
+      typeof payload.title === "string" ? payload.title.trim() : "";
+    if (configuredTitle === "") {
+      return;
+    }
+
+    const activeSource = resolvedSessionSource ?? activeSessionSource;
+    if (activeSource?.kind === "patch") {
+      document.title = configuredTitle;
+      return;
+    }
+
+    const repoRoot = diffSourceRepoRoot(activeSource) ?? payloadRepoRoot;
+    const repoOption = Array.isArray(payload.repoOptions)
+      ? payload.repoOptions.find((option) => option?.value === repoRoot)
+      : undefined;
+    const repoLabel =
+      typeof repoOption?.label === "string" ? repoOption.label.trim() : "";
+    document.title =
+      repoLabel === "" ? configuredTitle : `${configuredTitle} — ${repoLabel}`;
+  }, [
+    activeSessionSource,
+    payload.repoOptions,
+    payload.title,
+    payloadRepoRoot,
+    resolvedSessionSource,
+  ]);
   const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
@@ -339,7 +535,40 @@ export function App({ config, initialStatus }: ConfigProps) {
     setResolvedSessionSource(source);
   }, []);
 
+  // Review-parity state: per-file "Viewed" marks (native, scoped by repo +
+  // source identity) and the sidebar file filter, which hides diff sections
+  // as well as tree rows so `visibleItems` is the single visible list.
+  const viewedScope = viewedScopeFor(resolvedSessionSource ?? activeSessionSource, payload);
+  const viewedStateOf = (item: DiffItem): ViewedFileState => viewedStateOfItem(item, state.viewedByPath);
+  const visibleItems = useMemo(
+    () => filterDiffItems(state.items, state.fileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
+    [state.fileFilter, state.items, state.viewedByPath],
+  );
+  const visibleItemsRef = useSyncedRef(visibleItems);
+  const filteredTreeSource = useMemo(
+    () => filteredFileTreeSource(state.treeSource, state.fileFilter, visibleItems),
+    [state.fileFilter, state.treeSource, visibleItems],
+  );
+  const progress = viewedProgress(state.items, state.viewedByPath);
+  const viewedScopeRef = useSyncedRef(viewedScope);
+  const toggleViewed = useCallback((itemId: string) => {
+    const current = latestState.current;
+    const result = toggleViewedItem(current.items, current.viewedByPath, itemId);
+    if (result.change == null) {
+      return;
+    }
+    dispatch({ type: "apply-viewed", items: result.items, change: result.change });
+    persistViewedChange(viewedScopeRef.current, result.change);
+  }, [latestState, viewedScopeRef]);
+  const toggleViewedPath = useCallback((path: string) => {
+    const itemId = latestState.current.treeSource?.pathToItemId.get(path);
+    if (itemId) {
+      toggleViewed(itemId);
+    }
+  }, [latestState, toggleViewed]);
+
   usePageDataAttributes(state);
+  useViewedFilesBootstrap(viewedScope, dispatch);
   usePendingReplacement(payload, label, dispatch, transport);
   useRenderDiff(
     config,
@@ -352,7 +581,9 @@ export function App({ config, initialStatus }: ConfigProps) {
     closeActiveSession,
     activeSessionSource,
     rememberResolvedSessionSource,
+    state.renderGeneration,
   );
+  useViewerPrefsBootstrap(payload, dispatch);
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
   useOptionsDismiss(state.optionsOpen, dispatch);
   useFileSearchDismiss(state.fileSearchOpen, dispatch);
@@ -404,12 +635,16 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
+  // Index of the last hunk reached through n/p; -1 once a file-level jump or
+  // refresh makes it stale so the next keypress re-seeds from the active file.
+  const hunkNavIndex = useRef(-1);
   const scrollToItem = useCallback((itemId: string) => {
     const current = latestState.current;
     const target = scrollTargetForItem(itemId, current.items);
     if (!target) {
       return;
     }
+    hunkNavIndex.current = -1;
     codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
     dispatch({
       type: "set-active-item",
@@ -417,33 +652,101 @@ export function App({ config, initialStatus }: ConfigProps) {
       treePath: current.treeSource?.treePathByItemId.get(target),
     });
   }, [latestState]);
-  const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
+  const currentVisibleItemId = useCallback(() => {
     const current = latestState.current;
-    const visibleItem = visibleItemId(
-      current.items,
+    const items = visibleItemsRef.current;
+    return visibleItemId(
+      items,
       codeViewScrollTopRef.current,
       (itemId) => codeViewRef.current?.getInstance()?.getTopForItem(itemId),
-    );
-    const target = adjacentItemId(visibleItem || current.activeItemId, current.items, direction);
+    ) || (items.some((item) => item.id === current.activeItemId) ? current.activeItemId : "");
+  }, [latestState, visibleItemsRef]);
+  const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
+    const target = adjacentItemId(currentVisibleItemId(), visibleItemsRef.current, direction);
     if (target) {
       scrollToItem(target);
     }
-  }, [latestState, scrollToItem]);
+  }, [currentVisibleItemId, scrollToItem, visibleItemsRef]);
+  // GitHub's `v`: toggles the file under the viewport (or the active file).
+  const toggleViewedCurrentFile = useCallback(() => {
+    const target = currentVisibleItemId();
+    if (target) {
+      toggleViewed(target);
+    }
+  }, [currentVisibleItemId, toggleViewed]);
+  const jumpAdjacentHunk = useCallback((direction: -1 | 1) => {
+    const current = latestState.current;
+    const anchors = buildHunkAnchors(visibleItemsRef.current);
+    const index = nextHunkIndex(anchors, hunkNavIndex.current, current.activeItemId, direction);
+    if (index < 0) {
+      return;
+    }
+    const anchor = anchors[index];
+    hunkNavIndex.current = index;
+    codeViewRef.current?.scrollTo({
+      type: "line",
+      id: anchor.itemId,
+      lineNumber: anchor.lineNumber,
+      side: anchor.side,
+      align: "center",
+      behavior: "smooth-auto",
+    });
+    dispatch({
+      type: "set-active-item",
+      itemId: anchor.itemId,
+      treePath: current.treeSource?.treePathByItemId.get(anchor.itemId),
+    });
+  }, [latestState, visibleItemsRef]);
   const handleCodeViewScroll = useCallback((scrollTop: number) => {
     codeViewScrollTopRef.current = scrollTop;
   }, []);
-  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
+  const find = useDiffFind({
+    items: state.items,
+    open: state.findOpen,
+    query: state.findQuery,
+    dispatch,
+    codeViewRef,
+    viewerContainerRef,
+  });
+  const findBridgeRef = useSyncedRef({ open: state.findOpen, controller: find });
+  useFindKeyboard(dispatch, findBridgeRef);
+  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile, jumpAdjacentHunk, toggleViewedCurrentFile, findBridgeRef);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
   };
   const setLayout = (layout: DiffViewerLayout) => {
-    persistDiffViewerLayout(layout);
+    saveViewerPrefs({ layout });
     dispatch({ type: "set-option", key: "layout", value: layout });
+  };
+  // Dispatches an options change and persists it globally when the key is a
+  // persisted preference (`collapsed` stays session-local).
+  const setOption = (key: keyof DiffViewerOptions, value: any) => {
+    dispatch({ type: "set-option", key, value });
+    if (key !== "collapsed") {
+      saveViewerPrefs({ [key]: value });
+    }
+  };
+  const refresh = () => {
+    // Pages with nothing to re-stream (baked status messages, or a pending
+    // replacement without a typed session) still need the full reload so a
+    // native replacement page can resolve.
+    if (isStatusOnlyPayload(payload, transport, activeSessionSource)) {
+      void closeActiveSession().then(() => window.location.reload());
+      return;
+    }
+    // Soft refresh: re-open the typed session (or re-stream the patch) in
+    // place so layout and the options-menu toggles survive (#5284).
+    hunkNavIndex.current = -1;
+    const status = createDiffViewerStatus(label("loadingDiff"), { pending: true });
+    applyDiffViewerStatusToDocument(status);
+    dispatch({ type: "refresh", status });
+    setActivePatchURL(undefined);
+    void closeActiveSession();
   };
 
   return (
-    <div id="app" data-file-search-open={state.fileSearchOpen}>
+    <div id="app" data-file-search-open={state.fileSearchOpen} data-file-filter-active={isDiffFileFilterActive(state.fileFilter)}>
       <Toolbar
         config={config}
         transport={transport}
@@ -483,13 +786,12 @@ export function App({ config, initialStatus }: ConfigProps) {
           setResolvedSessionSource(selectedSource);
           setActiveSessionSource(selectedSource);
         }}
-        onReload={async () => {
-          await closeActiveSession();
-          window.location.reload();
-        }}
+        onReload={refresh}
         onSetLayout={setLayout}
+        onSetOption={setOption}
         dispatch={dispatch}
         state={state}
+        visibleItems={visibleItems}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebarBackdrop
@@ -504,11 +806,24 @@ export function App({ config, initialStatus }: ConfigProps) {
           label={label}
           onSelectComment={selectCommentEntry}
           onSelectItem={scrollToItem}
+          onToggleViewedPath={toggleViewedPath}
+          progress={progress}
           selectedPath={selectedTreePath}
+          treeSource={filteredTreeSource}
+          viewedStateOf={viewedStateOf}
+          visibleItemCount={visibleItems.length}
           dispatch={dispatch}
           state={state}
         />
         <main id="viewer" aria-label={label("diffViewer")}>
+          {state.findOpen ? (
+            <FindBar
+              controller={find}
+              label={label}
+              query={state.findQuery}
+              requestToken={state.findRequest}
+            />
+          ) : null}
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
               poolOptions={workerPoolOptions}
@@ -519,11 +834,20 @@ export function App({ config, initialStatus }: ConfigProps) {
                 ref={codeViewRef}
                 className="code-view-root"
                 containerRef={viewerContainerRef}
-                items={state.items}
+                items={visibleItems}
                 onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
                 renderHeaderMetadata={(item) => (
-                  <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                  <>
+                    <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                    <FileReviewControls
+                      item={item as DiffItem}
+                      label={label}
+                      onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
+                      onToggleViewed={() => toggleViewed(item.id)}
+                      viewedState={viewedStateOf(item as DiffItem)}
+                    />
+                  </>
                 )}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
@@ -566,10 +890,6 @@ export function FilesSidebarBackdrop({
       onClick={onClose}
     />
   );
-}
-
-function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
-  return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
 }
 
 /**
@@ -684,27 +1004,192 @@ function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout
   if (payload.layoutSource === "explicit" && payloadLayout) {
     return payloadLayout;
   }
-  return readPersistedDiffViewerLayout() ?? payloadLayout ?? "unified";
-}
-
-function readPersistedDiffViewerLayout(): DiffViewerLayout | null {
-  try {
-    return parseDiffViewerLayout(window.localStorage.getItem(persistedLayoutKey));
-  } catch {
-    return null;
-  }
-}
-
-function persistDiffViewerLayout(layout: DiffViewerLayout): void {
-  try {
-    window.localStorage.setItem(persistedLayoutKey, layout);
-  } catch {
-    // Storage may be unavailable for some generated viewer origins.
-  }
+  // The CLI bakes the globally persisted layout into the payload at generation
+  // time; local storage only matters for pages opened outside cmux. The
+  // viewerPrefs bridge re-syncs the live value right after boot.
+  return readLocalViewerPrefs().layout ?? payloadLayout ?? "unified";
 }
 
 function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" ? value : null;
+}
+
+function useViewerPrefsBootstrap(payload: any, dispatch: React.Dispatch<AppAction>) {
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) {
+      return;
+    }
+    started.current = true;
+    loadViewerPrefs()
+      .then((prefs) => {
+        dispatch({
+          type: "apply-persisted-options",
+          prefs,
+          allowLayout: payload.layoutSource !== "explicit",
+        });
+      })
+      .catch(() => {
+        // Preferences are a convenience; boot continues with payload defaults.
+      });
+  }, [dispatch, payload]);
+}
+
+/**
+ * Loads the persisted "Viewed" marks whenever the reviewed change's identity
+ * (repo + source) changes. Cleanup invalidates an older load so a slow reply
+ * cannot overwrite marks after a source switch; an unknown scope clears them.
+ */
+function useViewedFilesBootstrap(scope: ViewedScope | null, dispatch: React.Dispatch<AppAction>): void {
+  const scopeKey = viewedScopeKey(scope);
+  useEffect(() => {
+    const currentScope = scope;
+    // Clear the previous scope's marks before the new diff streams in, so no
+    // file of the new source collapses on a mark that belongs to the old one.
+    dispatch({ type: "begin-viewed-load", scopeKey });
+    if (currentScope == null || scopeKey === "") {
+      return;
+    }
+    let active = true;
+    loadViewedFiles(currentScope)
+      .then((entries) => {
+        if (active) {
+          dispatch({ type: "replace-viewed", scopeKey, entries });
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          console.warn("cmux diff viewed state load failed", error);
+        }
+      });
+    return () => {
+      active = false;
+    };
+    // `scope` is a fresh object per render; `scopeKey` is its identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch, scopeKey]);
+}
+
+/**
+ * Per-file review controls rendered into Pierre's header metadata slot: the
+ * "Viewed" checkbox with its "changed since viewed" badge, and the generated /
+ * large badge with a "Load diff" button while such a file is still collapsed.
+ * Clicks stop propagating so Pierre's own header collapse toggle stays put.
+ */
+function FileReviewControls({
+  item,
+  label,
+  onLoadDiff,
+  onToggleViewed,
+  viewedState,
+}: {
+  item: DiffItem;
+  label: DiffViewerLabelResolver;
+  onLoadDiff: () => void;
+  onToggleViewed: () => void;
+  viewedState: ViewedFileState;
+}) {
+  const reason = item.fileDiff?.cmuxDeferredReason as DeferredDiffReason | undefined;
+  const viewed = viewedState === "viewed";
+  return (
+    <span className="file-review-controls" data-viewed-state={viewedState}>
+      {reason != null ? (
+        <span className="file-review-badge" data-deferred-reason={reason}>
+          {reason === "generated" ? label("generatedFile") : label("largeDiff")}
+        </span>
+      ) : null}
+      {reason != null && item.collapsed ? (
+        <button
+          type="button"
+          className="file-review-load"
+          title={reason === "generated" ? label("generatedFile") : label("largeDiff")}
+          onClick={(event) => {
+            event.stopPropagation();
+            onLoadDiff();
+          }}
+        >
+          {label("loadDiff")}
+        </button>
+      ) : null}
+      {viewedState === "changed" ? (
+        <span className="file-review-badge" data-changed-since-viewed="true">{label("changedSinceViewed")}</span>
+      ) : null}
+      <button
+        type="button"
+        className="file-review-viewed"
+        aria-pressed={viewed}
+        title={viewed ? label("markNotViewed") : label("markViewed")}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleViewed();
+        }}
+      >
+        <span className="file-review-checkbox" aria-hidden="true">{viewed ? <Icon name="check" /> : null}</span>
+        <span className="file-review-viewed-label">{label("viewed")}</span>
+      </button>
+    </span>
+  );
+}
+
+/**
+ * The tree source narrowed to the visible (filtered) items. With no active
+ * filter the streamed source passes through unchanged so incremental tree
+ * appends keep working; a filtered source resets the tree instead.
+ */
+function filteredFileTreeSource(
+  source: FileTreeSource | null,
+  filter: DiffFileFilter,
+  visibleItems: readonly DiffItem[],
+): FileTreeSource | null {
+  if (source == null || !isDiffFileFilterActive(filter)) {
+    return source;
+  }
+  const visibleIds = new Set(visibleItems.map((item) => item.id));
+  const paths = source.paths.filter((path) => {
+    const itemId = source.pathToItemId.get(path);
+    return itemId != null && visibleIds.has(itemId);
+  });
+  const pathSet = new Set(paths);
+  return {
+    ...source,
+    gitStatus: source.gitStatus.filter((entry) => pathSet.has(entry.path)),
+    gitStatusPatch: undefined,
+    pathCount: paths.length,
+    paths,
+    previousRevision: undefined,
+    previousSource: undefined,
+    statsChanged: true,
+  };
+}
+
+/** Re-renders tree rows after viewed marks change so decorations update. */
+function usePierreFileTreeViewedRefresh(
+  model: ReturnType<typeof useFileTree>["model"],
+  source: FileTreeSource,
+  viewedStateByPath: ReadonlyMap<string, ViewedFileState>,
+): void {
+  const previous = useRef<ReadonlyMap<string, ViewedFileState> | null>(null);
+  useEffect(() => {
+    if (previous.current != null && !sameViewedStates(previous.current, viewedStateByPath)) {
+      model.setGitStatus(source.gitStatus as any);
+    }
+    previous.current = viewedStateByPath;
+  }, [model, source, viewedStateByPath]);
+}
+
+function sameViewedStates(
+  previous: ReadonlyMap<string, ViewedFileState>,
+  next: ReadonlyMap<string, ViewedFileState>,
+): boolean {
+  if (previous.size !== next.size) {
+    return false;
+  }
+  for (const [path, state] of next) {
+    if (previous.get(path) !== state) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function WorkerRenderOptionsSync({
@@ -729,8 +1214,10 @@ function Toolbar({
   onSelectSessionSource,
   onReload,
   onSetLayout,
+  onSetOption,
   state,
   transport,
+  visibleItems,
 }: {
   activeSessionSource: DiffSource | null;
   config: DiffViewerConfig;
@@ -742,8 +1229,10 @@ function Toolbar({
   onSelectSessionSource: (source: DiffSource) => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   state: AppState;
   transport: DiffTransport | null;
+  visibleItems: DiffItem[];
 }) {
   const payload = config.payload ?? {};
   const externalURL =
@@ -796,7 +1285,7 @@ function Toolbar({
           option per file. */}
       <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
         <JumpSelect
-          items={state.items}
+          items={visibleItems}
           label={label}
           onJump={onJump}
           onOpenSearch={() => dispatch({ type: "set-file-search-open", open: true })}
@@ -867,6 +1356,7 @@ function Toolbar({
           onCopyGitApply={onCopyGitApply}
           onReload={onReload}
           onSetLayout={onSetLayout}
+          onSetOption={onSetOption}
           state={state}
         />
       ) : null}
@@ -933,6 +1423,7 @@ function SourceControls({
           onSelectSessionSource={(source) => onSelectSessionSource(
             repoSelectionWithActiveSource(source, activeSessionSource),
           )}
+          selectedOptionTitle
           selectedValue={diffSourceRepoRoot(activeSessionSource)}
         />
       ) : null}
@@ -1096,6 +1587,7 @@ function NavigationSelect({
   onNavigate,
   onSelectSessionSource,
   options,
+  selectedOptionTitle = false,
   selectedValue,
 }: {
   ariaLabel: string;
@@ -1104,6 +1596,7 @@ function NavigationSelect({
   onNavigate: (url: string) => void;
   onSelectSessionSource?: (source: DiffSource) => void;
   options: any[] | undefined;
+  selectedOptionTitle?: boolean;
   selectedValue?: string | null;
 }) {
   if (!Array.isArray(options) || options.length < 2) {
@@ -1112,12 +1605,19 @@ function NavigationSelect({
   const selected = options.find((option) => option.value === selectedValue)
     ?? options.find((option) => option.selected)
     ?? options.find((option) => !option.disabled);
+  const selectedTitle = selectedOptionTitle
+    ? (
+        typeof selected?.message === "string" && selected.message.trim() !== ""
+          ? selected.message
+          : (String(selected?.value ?? fallbackValue).trim() || ariaLabel)
+      )
+    : ariaLabel;
   return (
     <select
       id={id}
       aria-label={ariaLabel}
       value={selected?.value ?? fallbackValue}
-      title={ariaLabel}
+      title={selectedTitle}
       onChange={(event) => {
         const next = options.find((option) => option.value === event.currentTarget.value);
         if (validDiffSource(next?.sessionSource) && onSelectSessionSource) {
@@ -1202,6 +1702,7 @@ function OptionsMenu({
   onCopyGitApply,
   onReload,
   onSetLayout,
+  onSetOption,
   state,
 }: {
   dispatch: React.Dispatch<AppAction>;
@@ -1210,9 +1711,10 @@ function OptionsMenu({
   onCopyGitApply: () => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   state: AppState;
 }) {
-  const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
+  const toggle = (key: keyof DiffViewerOptions) => onSetOption(key, !state.options[key]);
   return (
     <div id="options-menu" aria-label={label("options")}>
       <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
@@ -1239,7 +1741,7 @@ function OptionsMenu({
           {[
             { value: "bars", icon: "bars", label: label("bars") },
             { value: "classic", icon: "classic", label: label("classic") },
-            { value: "none", icon: "eye", label: label("none") },
+            { value: "none", icon: "none", label: label("none") },
           ].map((option) => (
             <button
               key={option.value}
@@ -1248,7 +1750,7 @@ function OptionsMenu({
               title={option.label}
               aria-label={option.label}
               aria-pressed={state.options.diffIndicators === option.value}
-              onClick={() => dispatch({ type: "set-option", key: "diffIndicators", value: option.value })}
+              onClick={() => onSetOption("diffIndicators", option.value)}
             >
               <Icon name={option.icon as IconName} />
             </button>
@@ -1294,8 +1796,13 @@ function FilesSidebar({
   label,
   onSelectComment,
   onSelectItem,
+  onToggleViewedPath,
+  progress,
   selectedPath,
   state,
+  treeSource,
+  viewedStateOf,
+  visibleItemCount,
 }: {
   commentEntries: SidebarCommentEntry[];
   commentLabels: DiffCommentLabels;
@@ -1304,9 +1811,32 @@ function FilesSidebar({
   label: DiffViewerLabelResolver;
   onSelectComment: (entry: SidebarCommentEntry) => void;
   onSelectItem: (itemId: string) => void;
+  onToggleViewedPath: (path: string) => void;
+  progress: { viewed: number; total: number };
   selectedPath: string;
   state: AppState;
+  treeSource: FileTreeSource | null;
+  viewedStateOf: (item: DiffItem) => ViewedFileState;
+  visibleItemCount: number;
 }) {
+  const filter = state.fileFilter;
+  const filterActive = isDiffFileFilterActive(filter);
+  const statusLabel = (status: DiffFileStatus): string => {
+    switch (status) {
+    case "added": return label("filterAddedFiles");
+    case "deleted": return label("filterDeletedFiles");
+    case "renamed": return label("filterRenamedFiles");
+    default: return label("filterModifiedFiles");
+    }
+  };
+  // Viewed marks by tree path so the tree row decorations can look them up.
+  const viewedStateByPath = new Map<string, ViewedFileState>();
+  for (const item of state.items) {
+    const treePath = state.treeSource?.treePathByItemId.get(item.id);
+    if (treePath != null) {
+      viewedStateByPath.set(treePath, viewedStateOf(item));
+    }
+  }
   const dragStart = useRef<{ startWidth: number; startX: number } | null>(null);
   const resizeFiles = (clientX: number) => {
     const start = dragStart.current;
@@ -1368,16 +1898,76 @@ function FilesSidebar({
           </button>
         </span>
       </div>
+      <div id="files-review-bar" data-filter-active={filterActive}>
+        <span id="files-viewed-progress" aria-live="polite">
+          {formatViewedProgress(label("filesViewedProgress"), progress)}
+        </span>
+        <div id="files-filter">
+          <input
+            id="file-filter-input"
+            type="search"
+            value={filter.query}
+            placeholder={label("filterFiles")}
+            aria-label={label("filterFiles")}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => dispatch({ type: "set-file-filter", filter: { query: event.currentTarget.value } })}
+          />
+          {filterActive ? (
+            <button
+              id="file-filter-clear"
+              type="button"
+              className="files-filter-button"
+              title={label("clearFileFilter")}
+              aria-label={label("clearFileFilter")}
+              onClick={() => dispatch({ type: "set-file-filter", filter: defaultDiffFileFilter() })}
+            >
+              <Icon name="close" />
+            </button>
+          ) : null}
+        </div>
+        <div id="files-filter-toggles">
+          {allDiffFileStatuses.map((status) => (
+            <button
+              key={status}
+              type="button"
+              className="files-filter-button files-status-filter"
+              data-file-status-filter={status}
+              title={statusLabel(status)}
+              aria-label={statusLabel(status)}
+              aria-pressed={filter.statuses.includes(status)}
+              onClick={() => dispatch({ type: "set-file-filter", filter: { statuses: toggleStatusFilter(filter.statuses, status) } })}
+            >
+              <Icon name={statusIconName[status]} />
+            </button>
+          ))}
+          <button
+            id="hide-viewed-toggle"
+            type="button"
+            className="files-filter-button"
+            title={filter.hideViewed ? label("showViewedFiles") : label("hideViewedFiles")}
+            aria-label={filter.hideViewed ? label("showViewedFiles") : label("hideViewedFiles")}
+            aria-pressed={filter.hideViewed}
+            onClick={() => dispatch({ type: "set-file-filter", filter: { hideViewed: !filter.hideViewed } })}
+          >
+            <Icon name={filter.hideViewed ? "eyeClosed" : "eye"} />
+          </button>
+        </div>
+      </div>
       <div id="file-list">
-        {state.treeSource ? (
+        {treeSource && (visibleItemCount > 0 || !filterActive) ? (
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
             fileSearchRequest={state.fileSearchRequest}
             label={label}
             onSelectItem={onSelectItem}
+            onToggleViewedPath={onToggleViewedPath}
             selectedPath={selectedPath}
-            source={state.treeSource}
+            source={treeSource}
+            viewedStateByPath={viewedStateByPath}
           />
+        ) : treeSource && filterActive ? (
+          <div id="files-filter-empty">{label("noFilesMatchFilter")}</div>
         ) : state.status.loading || state.status.pending ? (
           <LoadingFileList />
         ) : (
@@ -1399,17 +1989,21 @@ function PierreFileTree({
   fileSearchRequest,
   label,
   onSelectItem,
+  onToggleViewedPath,
   selectedPath,
   source,
+  viewedStateByPath,
 }: {
   fileSearchOpen: boolean;
   fileSearchRequest: number;
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
+  onToggleViewedPath: (path: string) => void;
   selectedPath: string;
   source: FileTreeSource;
+  viewedStateByPath: ReadonlyMap<string, ViewedFileState>;
 }) {
-  const latest = useSyncedRef({ label, onSelectItem, source });
+  const latest = useSyncedRef({ label, onSelectItem, source, viewedStateByPath });
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
   const { model } = useFileTree({
     flattenEmptyDirectories: false,
@@ -1426,6 +2020,20 @@ function PierreFileTree({
     gitStatus: source.gitStatus as any,
     sort: () => 0,
     unsafeCSS: fileTreeUnsafeCSS(),
+    composition: { contextMenu: { enabled: true, triggerMode: "right-click" } },
+    // Pierre tree rows accept a text/icon decoration, not custom children, so
+    // the "Viewed" checkmark is a decoration and the toggle lives in the row's
+    // context menu (the header checkbox and `v` are the primary controls).
+    renderRowDecoration({ item }) {
+      const state = latest.current.viewedStateByPath.get(item.path);
+      if (state === "viewed") {
+        return { text: "✓", title: latest.current.label("viewed") };
+      }
+      if (state === "changed") {
+        return { text: "↻", title: latest.current.label("changedSinceViewed") };
+      }
+      return null;
+    },
     onSelectionChange(paths: readonly string[]) {
       const path = paths[paths.length - 1];
       const itemId = latest.current.source.pathToItemId.get(path);
@@ -1438,8 +2046,36 @@ function PierreFileTree({
   usePierreFileTreeSource(model, source);
   usePierreFileTreeSearch(model, fileSearchOpen, fileSearchRequest);
   usePierreFileTreeSelection(model, selectedPath);
+  usePierreFileTreeViewedRefresh(model, source, viewedStateByPath);
 
-  return <FileTree model={model} style={{ height: "100%" }} />;
+  return (
+    <FileTree
+      model={model}
+      style={{ height: "100%" }}
+      renderContextMenu={(item, context) => {
+        if (item.kind !== "file") {
+          return null;
+        }
+        const viewed = viewedStateByPath.get(item.path) === "viewed";
+        return (
+          <div className="file-tree-context-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                onToggleViewedPath(item.path);
+                context.close();
+              }}
+            >
+              <Icon name={viewed ? "eye" : "check"} />
+              <span className="menu-label">{viewed ? label("markNotViewed") : label("markViewed")}</span>
+            </button>
+          </div>
+        );
+      }}
+    />
+  );
 }
 
 function LoadingFileList() {
@@ -1628,11 +2264,15 @@ function useRenderDiff(
   closeActiveSession: () => Promise<void>,
   sessionSource: DiffSource | null,
   onResolvedSessionSource: (source: DiffSource) => void,
+  renderGeneration: number,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
       return;
     }
+    // A soft refresh bumps the generation: the cleanup below closes the
+    // superseded session and this effect re-streams in place.
+    document.body.dataset.diffRenderGeneration = String(renderGeneration);
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     for (const theme of [appearance.themes.light, appearance.themes.dark]) {
@@ -1666,6 +2306,11 @@ function useRenderDiff(
           }
           activeSessionRef.current = openedSession;
           onResolvedSessionSource(result.value.source);
+          // Older sidecars omit the field; the lockfile heuristic still applies.
+          const generatedPaths = Array.isArray(result.value.generatedPaths)
+            ? result.value.generatedPaths.filter((path): path is string => typeof path === "string")
+            : [];
+          dispatch({ type: "set-generated-paths", paths: generatedPaths });
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
@@ -1720,7 +2365,12 @@ function useRenderDiff(
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
         if (!empty) {
-          console.error("cmux diff viewer render failed", error);
+          // Error objects JSON.stringify to {} in the native console mirror,
+          // so serialize the message and stack explicitly.
+          console.error(
+            "cmux diff viewer render failed",
+            String((error as any)?.stack ?? (error as any)?.message ?? error),
+          );
         }
         const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
         dispatch({
@@ -1739,7 +2389,7 @@ function useRenderDiff(
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
-  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, renderGeneration, sessionSource, transport]);
 }
 
 function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
@@ -1914,6 +2564,7 @@ function usePageDataAttributes(state: AppState) {
     document.documentElement.dataset.layout = state.options.layout;
     document.documentElement.dataset.wordWrap = String(state.options.wordWrap);
     document.documentElement.dataset.diffIndicators = state.options.diffIndicators;
+    document.body.dataset.generatedPathCount = String(state.generatedPaths.length);
     if (state.metrics) {
       document.body.dataset.streamFileCount = String(state.metrics.fileCount ?? state.items.length);
       document.body.dataset.streamRenderableFileCount = String(state.metrics.renderableFileCount ?? state.items.length);
@@ -1932,6 +2583,9 @@ function useNativeViewerNavigation(
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
   onJumpAdjacentFile: (direction: -1 | 1) => void,
+  onJumpAdjacentHunk: (direction: -1 | 1) => void,
+  onToggleViewed: () => void,
+  findBridgeRef: React.MutableRefObject<{ open: boolean; controller: DiffFindController }>,
 ) {
   useEffect(() => {
     window.__cmuxPerformDiffViewerNavigationAction = (action: string) => {
@@ -1939,6 +2593,7 @@ function useNativeViewerNavigation(
       if (viewer && CmuxViewerNavigation.performAction(action, viewer)) {
         return true;
       }
+      const findBridge = findBridgeRef.current;
       switch (action) {
         case "diffViewerOpenFileSearch":
           dispatch({ type: "request-file-search" });
@@ -1950,6 +2605,32 @@ function useNativeViewerNavigation(
         case "diffViewerPreviousFile":
           if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(-1);
+          return true;
+        case "diffViewerNextHunk":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentHunk(1);
+          return true;
+        case "diffViewerPreviousHunk":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentHunk(-1);
+          return true;
+        case "diffViewerToggleViewed":
+          onToggleViewed();
+          return true;
+        case "diffViewerOpenFind":
+          dispatch({ type: "request-find" });
+          return true;
+        case "diffViewerFindNext":
+          if (!findBridge.open) return false;
+          findBridge.controller.goToNext();
+          return true;
+        case "diffViewerFindPrevious":
+          if (!findBridge.open) return false;
+          findBridge.controller.goToPrevious();
+          return true;
+        case "diffViewerCloseFind":
+          if (!findBridge.open) return false;
+          findBridge.controller.closeFind();
           return true;
       }
       return false;
@@ -1966,7 +2647,7 @@ function useNativeViewerNavigation(
       document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
       disposeManualInputReset();
     };
-  }, [dispatch, onJumpAdjacentFile, viewerRef]);
+  }, [dispatch, findBridgeRef, onJumpAdjacentFile, onJumpAdjacentHunk, onToggleViewed, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {

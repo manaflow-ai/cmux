@@ -12,31 +12,21 @@ let package = Package(
             name: "CmuxTerminalCore",
             targets: ["CmuxTerminalCore"]
         ),
-        // Re-vends the GhosttyKit binaryTarget so the CmuxTerminal runtime
-        // package can implement seam protocols whose signatures use ghostty C
-        // types, without declaring a duplicate binary target for the one
-        // xcframework.
-        .library(
-            name: "CmuxGhosttyKit",
-            targets: ["GhosttyKit"]
-        ),
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CMUXDebugLog"),
+        .package(path: "../../Shared/CmuxGhosttyKit"),
     ],
     targets: [
-        // The same libghostty the app links; the terminal core's value types and
-        // FFI seam speak the ghostty C types directly so no translation layer
-        // can drift from the runtime.
-        .binaryTarget(
-            name: "GhosttyKit",
-            path: "../../../GhosttyKit.xcframework"
-        ),
         .target(
             name: "CmuxTerminalCore",
             dependencies: [
-                "GhosttyKit",
+                // The same libghostty the app links; the terminal core's
+                // value types and FFI seam speak the ghostty C types
+                // directly so no translation layer can drift from the
+                // runtime.
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],

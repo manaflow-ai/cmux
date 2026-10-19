@@ -1,46 +1,5 @@
 import AppKit
 
-@MainActor
-func presentSidebarWorkspaceGroupRenamePrompt(
-    tabManager: TabManager,
-    groupId: UUID,
-    currentName: String
-) {
-    let alert = NSAlert()
-    alert.messageText = String(
-        localized: "workspaceGroup.rename.title",
-        defaultValue: "Rename Group"
-    )
-    alert.informativeText = String(
-        localized: "workspaceGroup.rename.message",
-        defaultValue: "Enter a new name for this group."
-    )
-    alert.addButton(
-        withTitle: String(localized: "workspaceGroup.rename.confirm", defaultValue: "Rename")
-    )
-    alert.addButton(
-        withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
-    )
-    let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-    input.stringValue = currentName
-    input.placeholderString = String(
-        localized: "workspaceGroup.rename.placeholder",
-        defaultValue: "Group name"
-    )
-    alert.accessoryView = input
-
-    let alertWindow = alert.window
-    alertWindow.initialFirstResponder = input
-    DispatchQueue.main.async {
-        alertWindow.makeFirstResponder(input)
-        input.selectText(nil)
-    }
-
-    let response = alert.runCmuxModal()
-    guard response == .alertFirstButtonReturn else { return }
-    tabManager.renameWorkspaceGroup(groupId: groupId, name: input.stringValue)
-}
-
 /// Confirmation dialog for destructive group deletion.
 @MainActor
 func confirmDeleteWorkspaceGroup(groupName: String, memberCount: Int) -> Bool {

@@ -6,7 +6,6 @@ Regression tests for OMO subagent panes through cmux's tmux compatibility shim.
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -14,6 +13,7 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 WINDOW_ID = "22222222-2222-4222-8222-222222222222"
@@ -35,11 +35,12 @@ ATTACH_COMMAND = (
 
 def shell_wrapped(command: str) -> str:
     """Mirror CMUXCLI.tmuxShellInvokedStartCommand: respawn shell-commands are run
-    through a POSIX shell (`/bin/sh -c`) so Ghostty's macOS `exec -l <command>`
-    execs a shell rather than the raw expression (issue #6447). Quoting mirrors
+    through a POSIX login shell (`/bin/sh -lc`) so macOS profile/path_helper
+    restores the login PATH before Ghostty's `exec -l <command>` execs a shell
+    rather than the raw expression (issues #6447 and #10189). Quoting mirrors
     tmuxShellQuote (single-quote, with embedded single quotes escaped)."""
     quoted = "'" + command.replace("'", "'\"'\"'") + "'"
-    return "/bin/sh -c " + quoted
+    return "/bin/sh -lc " + quoted
 
 
 class FakeCmuxState:
@@ -193,7 +194,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             if not line:
                 return
 
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -225,12 +226,10 @@ def run_cli(
     fake_home: Path,
     args: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env = cli_environment(socket_path, home=fake_home)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = f"%{PANE_ID}"
-    env["HOME"] = str(fake_home)
     env["CMUX_OMO_CMUX_BIN"] = cli_path
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), *args],

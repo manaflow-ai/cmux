@@ -46,8 +46,10 @@ extension AgentLaunchSanitizer {
         ],
         optionalValueOptions: [
             "--debug",
-            "-d"
+            "-d",
+            "--remote-control"
         ],
+        greedyOptionalValueOptions: ["--remote-control"],
         // Claude booleans (from `claude --help`) pinned to width 1 so a following
         // one-word prompt is never inferred as the flag's value and replayed on
         // resume. Permission booleans are deliberately preserved for user-owned
@@ -415,6 +417,8 @@ extension AgentLaunchSanitizer {
             "--conversation",
             "--log-file",
             "--print-timeout",
+            "--prompt-interactive",
+            "-i",
             "--prompt",
             "-p",
             "--sandbox",
@@ -435,6 +439,8 @@ extension AgentLaunchSanitizer {
             "--continue",
             "-c",
             "--conversation",
+            "--prompt-interactive",
+            "-i",
         ],
         droppedOptionPrefixes: [
             "--conversation=",
@@ -442,8 +448,6 @@ extension AgentLaunchSanitizer {
         rejectOptions: [
             "--prompt",
             "-p",
-            "--prompt-interactive",
-            "-i",
             "--print",
         ]
     )

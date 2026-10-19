@@ -29,12 +29,29 @@ public enum WorkstreamStatus: Codable, Sendable, Equatable {
     }
 }
 
+/// A free-text response sent to the terminal for a completed feed event.
+/// The owning item UUID is the event identity; keeping the response on the
+/// item makes the acknowledgement durable and unambiguous after a restart.
+public struct WorkstreamReply: Codable, Sendable, Equatable {
+    public let text: String
+    public let createdAt: Date
+
+    public init(text: String, createdAt: Date = Date()) {
+        self.text = text
+        self.createdAt = createdAt
+    }
+}
+
 /// A single feed entry. Workstream IDs group items that belong to the same
 /// agent session (e.g. `claude-<sessionId>`, `opencode-<sessionId>`).
 public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     public let id: UUID
     public let workstreamId: String
     public let source: WorkstreamSource
+    /// Raw producer id when the wire source is not represented by
+    /// ``WorkstreamSource``. This keeps persisted migrations lossless for
+    /// newly registered or custom agents; older rows may leave it `nil`.
+    public let sourceID: String?
     public let kind: WorkstreamKind
     public let createdAt: Date
     public var updatedAt: Date
@@ -43,6 +60,9 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     public var status: WorkstreamStatus
     public var payload: WorkstreamPayload
     public var context: WorkstreamContext?
+    /// The terminal response associated with this exact event, when one was
+    /// submitted from mobile or another remote surface.
+    public var reply: WorkstreamReply?
     /// PID of the agent process that emitted the event (hook's parent
     /// pid). When non-nil, pending items get expired automatically as
     /// soon as the agent process is gone — a crashed/killed `claude`
@@ -54,6 +74,7 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         id: UUID = UUID(),
         workstreamId: String,
         source: WorkstreamSource,
+        sourceID: String? = nil,
         kind: WorkstreamKind,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
@@ -62,11 +83,14 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         status: WorkstreamStatus? = nil,
         payload: WorkstreamPayload,
         context: WorkstreamContext? = nil,
+        reply: WorkstreamReply? = nil,
         ppid: Int? = nil
     ) {
         self.id = id
         self.workstreamId = workstreamId
         self.source = source
+        let normalizedSourceID = sourceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.sourceID = normalizedSourceID?.isEmpty == true ? nil : normalizedSourceID
         self.kind = kind
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
@@ -76,6 +100,7 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.status = kind.isActionable ? resolvedStatus : .telemetry
         self.payload = payload
         self.context = context?.isEmpty == true ? nil : context
+        self.reply = reply
         self.ppid = ppid
     }
 }

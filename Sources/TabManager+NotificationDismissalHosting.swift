@@ -65,6 +65,11 @@ extension TabManager: NotificationDismissalHosting {
             .value(for: Self.notificationsSettings.suppressOnlyFocusedSurface)
     }
 
+    var paneFlashOnTyping: Bool {
+        UserDefaultsSettingsClient(defaults: .standard)
+            .value(for: Self.notificationsSettings.paneFlashOnTyping)
+    }
+
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
         if let dock = DockSplitStore.liveStore(containingPanel: surfaceId),
            dock.workspaceId == workspaceId,
@@ -85,6 +90,11 @@ extension TabManager: NotificationDismissalHosting {
 
     func storeHasManualUnread(workspaceId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.hasManualUnread(forTabId: workspaceId) ?? false
+    }
+
+    func storeHasManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .hasManualUnread(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
@@ -109,9 +119,20 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceId, surfaceId: surfaceId)
     }
 
+    func storeMarkWorkspaceLevelNotificationsRead(workspaceId: UUID) {
+        AppDelegate.shared?.notificationStore?
+            .markWorkspaceLevelNotificationsRead(forTabId: workspaceId)
+    }
+
     @discardableResult
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.clearManualUnread(forTabId: workspaceId) ?? false
+    }
+
+    @discardableResult
+    func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .clearManualUnread(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     @discardableResult

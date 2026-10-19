@@ -742,7 +742,7 @@ fn raw_cell_bg_spec(raw: sys::GhosttyCell) -> Option<ColorSpec> {
     }
 }
 
-fn cell_width(raw: sys::GhosttyCell) -> CellWidth {
+pub(crate) fn cell_width(raw: sys::GhosttyCell) -> CellWidth {
     let mut wide = sys::GHOSTTY_CELL_WIDE_NARROW;
     let result = unsafe {
         sys::ghostty_cell_get(raw, sys::GHOSTTY_CELL_DATA_WIDE, &mut wide as *mut _ as *mut c_void)

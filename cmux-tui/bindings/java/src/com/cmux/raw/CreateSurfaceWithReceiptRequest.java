@@ -15,6 +15,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
     private final Field<List<String>> argv;
     private final Field<Integer> cols;
     private final Field<String> cwd;
+    private final Field<String> idempotencyKey;
     private final String operation;
     private final String origin;
     private final Field<UInt64> pane;
@@ -30,6 +31,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
         this.argv = builder.argv.map(value -> List.copyOf(value));
         this.cols = builder.cols;
         this.cwd = builder.cwd;
+        this.idempotencyKey = builder.idempotencyKey;
         if (!builder.operationSet) throw new IllegalArgumentException("operation is required");
         this.operation = Wire.nonNull(builder.operation, "operation");
         if (!builder.originSet) throw new IllegalArgumentException("origin is required");
@@ -50,6 +52,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
     public Field<List<String>> argv() { return argv; }
     public Field<Integer> cols() { return cols; }
     public Field<String> cwd() { return cwd; }
+    public Field<String> idempotencyKey() { return idempotencyKey; }
     public String operation() { return operation; }
     public String origin() { return origin; }
     public Field<UInt64> pane() { return pane; }
@@ -75,6 +78,10 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
         Object rawCwd = Wire.optional(object, "cwd");
         if (!Wire.isMissing(rawCwd)) {
             builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "CreateSurfaceWithReceiptRequest.cwd"));
+        }
+        Object rawIdempotencyKey = Wire.optional(object, "idempotency_key");
+        if (!Wire.isMissing(rawIdempotencyKey)) {
+            builder.idempotencyKey(rawIdempotencyKey == null ? null : Wire.string(rawIdempotencyKey, "CreateSurfaceWithReceiptRequest.idempotency_key"));
         }
         Object rawOperation = Wire.required(object, "operation");
         builder.operation(Wire.string(rawOperation, "CreateSurfaceWithReceiptRequest.operation"));
@@ -119,6 +126,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
         Wire.put(object, "argv", argv);
         Wire.put(object, "cols", cols);
         Wire.put(object, "cwd", cwd);
+        Wire.put(object, "idempotency_key", idempotencyKey);
         Wire.put(object, "operation", operation);
         Wire.put(object, "origin", origin);
         Wire.put(object, "pane", pane);
@@ -135,11 +143,11 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateSurfaceWithReceiptRequest that)) return false;
-        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(operation, that.operation) && Objects.equals(origin, that.origin) && Objects.equals(pane, that.pane) && Objects.equals(receipt, that.receipt) && Objects.equals(rows, that.rows) && Objects.equals(selectorFallbacks, that.selectorFallbacks) && Objects.equals(selectors, that.selectors) && Objects.equals(url, that.url) && Objects.equals(width, that.width) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(operation, that.operation) && Objects.equals(origin, that.origin) && Objects.equals(pane, that.pane) && Objects.equals(receipt, that.receipt) && Objects.equals(rows, that.rows) && Objects.equals(selectorFallbacks, that.selectorFallbacks) && Objects.equals(selectors, that.selectors) && Objects.equals(url, that.url) && Objects.equals(width, that.width) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(argv, cols, cwd, operation, origin, pane, receipt, rows, selectorFallbacks, selectors, url, width, workspace); }
+    public int hashCode() { return Objects.hash(argv, cols, cwd, idempotencyKey, operation, origin, pane, receipt, rows, selectorFallbacks, selectors, url, width, workspace); }
 
     @Override
     public String toString() { return "CreateSurfaceWithReceiptRequest" + toWire(); }
@@ -148,6 +156,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
         private Field<List<String>> argv = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> cwd = Field.omitted();
+        private Field<String> idempotencyKey = Field.omitted();
         private String operation;
         private boolean operationSet;
         private String origin;
@@ -172,6 +181,10 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
         }
         public Builder cwd(String value) {
             this.cwd = Field.ofNullable(value);
+            return this;
+        }
+        public Builder idempotencyKey(String value) {
+            this.idempotencyKey = Field.ofNullable(value);
             return this;
         }
         public Builder operation(String value) {

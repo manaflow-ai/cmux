@@ -216,6 +216,10 @@ struct BrowserDesignModeArtifactStoreTests {
             artifactPaths: [replacement.path],
             operation: 0
         ))
+        // Clipboard delivery schedules old-lease cleanup outside the handoff.
+        #expect(await AppKitTestEventPump().waitUntil {
+            (try? handoffMarkerNames(in: directory).count) == 1
+        })
         #expect(try handoffMarkerNames(in: directory).count == 1)
         #expect(try handoffMarkerNames(in: directory)[0].hasSuffix(replacement.lastPathComponent))
     }

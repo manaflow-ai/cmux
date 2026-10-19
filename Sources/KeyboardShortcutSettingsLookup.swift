@@ -16,7 +16,7 @@ extension KeyboardShortcutSettings {
             managedBySettingsFile: managedBySettingsFile
         )
 
-        if action == .reopenClosedBrowserPanel,
+        if action == .reopenClosedBrowserPanel || action == .jumpToLastPrompt,
            resolvedShortcut == action.defaultShortcut,
            configuredShortcut != resolvedShortcut {
             return defaultShortcutResolvingLegacyConflicts(
@@ -37,6 +37,7 @@ extension KeyboardShortcutSettings {
         }
         return settingsAction.effectivePersistedShortcutResolvingLegacyConflicts(
             nil,
+            defaultShortcut: action.defaultShortcut.cmuxSettingsStoredShortcut,
             explicitlyConfiguredShortcut: { settingsConfiguredAction in
                 guard let configuredAction = Action(rawValue: settingsConfiguredAction.rawValue) else {
                     return nil
@@ -145,7 +146,7 @@ extension KeyboardShortcutSettings.Action {
 
     var usesNumberedDigitMatching: Bool {
         switch self {
-        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber:
             return true
         default:
             return false

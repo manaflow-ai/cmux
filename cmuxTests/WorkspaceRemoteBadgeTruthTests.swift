@@ -497,15 +497,17 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
             externalRemoteTerminalDocks: [dock]
         )
         XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
-        XCTAssertTrue(
+        XCTAssertFalse(
             dock.markRemoteTerminalSessionConnected(
                 panelId: surfaceId,
                 authority: .relayPort(64008)
-            )
+            ),
+            "A replacement relay must not claim a Dock terminal from the original connection"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
         )
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
     }
 
     @MainActor
@@ -558,7 +560,7 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         let terminal = try XCTUnwrap(sourceWorkspace.panels[surfaceId] as? TerminalPanel)
 
         let destinationWorkspace = Workspace()
-        let dock = destinationWorkspace.dockSplit
+        let dock = destinationWorkspace.requiredDockSplitForTesting
         defer { dock.closeAllPanels() }
         let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
         let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: surfaceId))

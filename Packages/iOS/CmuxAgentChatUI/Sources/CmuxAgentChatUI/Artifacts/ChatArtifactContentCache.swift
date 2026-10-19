@@ -79,9 +79,12 @@ public actor ChatArtifactContentCache {
     ) async throws -> Bool {
         if let data = memoryCache.object(forKey: key as NSString) {
             let value = Data(referencing: data)
-            try? touch(fileURL(for: key), at: accessedAt)
-            try await receive(Self.chunk(data: value, totalSize: expectedSize))
-            return true
+            if Int64(value.count) == expectedSize {
+                try? touch(fileURL(for: key), at: accessedAt)
+                try await receive(Self.chunk(data: value, totalSize: expectedSize))
+                return true
+            }
+            memoryCache.removeObject(forKey: key as NSString)
         }
 
         if try await replayDiskEntry(
@@ -93,12 +96,18 @@ public actor ChatArtifactContentCache {
             return true
         }
 
-        let writer = try ChatArtifactContentCacheWriter(
-            directory: directory,
-            key: key,
-            expectedSize: expectedSize,
-            retainsMemoryCopy: expectedSize <= Int64(maxMemoryBytes)
-        )
+        let writer: ChatArtifactContentCacheWriter
+        do {
+            writer = try ChatArtifactContentCacheWriter(
+                directory: directory,
+                key: key,
+                expectedSize: expectedSize,
+                retainsMemoryCopy: expectedSize <= Int64(maxMemoryBytes)
+            )
+        } catch {
+            try await fetch(receive)
+            return false
+        }
         do {
             try await fetch { chunk in
                 try Task.checkCancellation()
@@ -110,8 +119,8 @@ public actor ChatArtifactContentCache {
             if let data, maxMemoryBytes > 0 {
                 memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
             }
-            try touch(fileURL(for: key), at: accessedAt)
-            try enforceDiskBudget()
+            try? touch(fileURL(for: key), at: accessedAt)
+            try? enforceDiskBudget()
             return false
         } catch {
             await writer.discard()
@@ -131,19 +140,35 @@ public actor ChatArtifactContentCache {
             try? fileManager.removeItem(at: url)
             return false
         }
-        try touch(url, at: accessedAt)
+        try? touch(url, at: accessedAt)
         if expectedSize == 0 {
             try await receive(Self.chunk(data: Data(), totalSize: 0))
             return true
         }
-        let handle = try FileHandle(forReadingFrom: url)
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forReadingFrom: url)
+        } catch {
+            try? fileManager.removeItem(at: url)
+            return false
+        }
         defer { try? handle.close() }
         var offset: Int64 = 0
         while offset < expectedSize {
             try Task.checkCancellation()
             let requested = Int(min(Int64(Self.diskReadChunkBytes), expectedSize - offset))
-            guard let data = try handle.read(upToCount: requested), !data.isEmpty else {
-                throw CocoaError(.fileReadCorruptFile)
+            let data: Data
+            do {
+                guard let bytes = try handle.read(upToCount: requested), !bytes.isEmpty else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                data = bytes
+            } catch {
+                try? fileManager.removeItem(at: url)
+                if offset == 0 {
+                    return false
+                }
+                throw ChatArtifactError.localStorageUnavailable
             }
             let chunkOffset = offset
             offset += Int64(data.count)

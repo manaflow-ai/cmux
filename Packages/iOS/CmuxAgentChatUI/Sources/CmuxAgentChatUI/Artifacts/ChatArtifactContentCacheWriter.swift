@@ -3,13 +3,11 @@ import Foundation
 
 /// Serializes one artifact stream into an atomic content-cache entry.
 actor ChatArtifactContentCacheWriter {
-    private let expectedSize: Int64
     private let temporaryURL: URL
     private let destinationURL: URL
     private var fileHandle: FileHandle?
     private var memoryData: Data?
-    private var nextOffset: Int64 = 0
-    private var reachedEOF = false
+    private var validator: ChatArtifactChunkValidator
 
     init(
         directory: URL,
@@ -17,9 +15,9 @@ actor ChatArtifactContentCacheWriter {
         expectedSize: Int64,
         retainsMemoryCopy: Bool
     ) throws {
+        validator = ChatArtifactChunkValidator(expectedSize: expectedSize)
         let fileManager = FileManager()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        self.expectedSize = expectedSize
         destinationURL = directory.appendingPathComponent(key, isDirectory: false)
         temporaryURL = directory.appendingPathComponent(
             ".\(key).\(UUID().uuidString).partial",
@@ -41,37 +39,48 @@ actor ChatArtifactContentCacheWriter {
     }
 
     func append(_ chunk: ChatArtifactChunk) throws {
-        guard !reachedEOF,
-              chunk.offset == nextOffset,
-              chunk.totalSize == expectedSize,
-              nextOffset <= expectedSize - Int64(chunk.data.count),
-              let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+        try validator.receive(chunk)
+        if let fileHandle {
+            do {
+                try fileHandle.write(contentsOf: chunk.data)
+            } catch {
+                disablePersistence()
+            }
         }
-        try fileHandle.write(contentsOf: chunk.data)
         memoryData?.append(chunk.data)
-        nextOffset += Int64(chunk.data.count)
-        reachedEOF = chunk.eof
-        if reachedEOF, nextOffset != expectedSize {
-            throw ChatArtifactError.macUnreachable
-        }
     }
 
     func finish() throws -> Data? {
-        guard reachedEOF, nextOffset == expectedSize, let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+        try validator.finish()
+        guard let fileHandle else {
+            return memoryData
         }
-        try fileHandle.close()
+        do {
+            try fileHandle.close()
+        } catch {
+            disablePersistence()
+            return memoryData
+        }
         self.fileHandle = nil
         let fileManager = FileManager()
-        if fileManager.fileExists(atPath: destinationURL.path) {
-            try fileManager.removeItem(at: destinationURL)
+        do {
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
         }
-        try fileManager.moveItem(at: temporaryURL, to: destinationURL)
         return memoryData
     }
 
     func discard() {
+        try? fileHandle?.close()
+        fileHandle = nil
+        try? FileManager().removeItem(at: temporaryURL)
+    }
+
+    private func disablePersistence() {
         try? fileHandle?.close()
         fileHandle = nil
         try? FileManager().removeItem(at: temporaryURL)

@@ -4,6 +4,9 @@ import Foundation
 extension TerminalController {
     /// Handles one `mobile.task.attachment.upload` chunk.
     func v2MobileTaskAttachmentUpload(params: [String: Any]) -> V2CallResult {
+        guard Self.mobileTaskComposerFeatureEnabled else {
+            return Self.mobileTaskComposerDisabledResult
+        }
         guard let operationIDString = v2RawString(params, "operation_id"),
               let operationID = UUID(uuidString: operationIDString),
               let uploadIDString = v2RawString(params, "upload_id"),

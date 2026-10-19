@@ -65,7 +65,7 @@ public actor MobileTaskModelDiscovery {
     /// Returns a fresh cached result or performs one coalesced discovery.
     ///
     /// - Parameter provider: Provider whose models are requested.
-    /// - Returns: Discovered, augmented, or curated fallback models.
+    /// - Returns: Agent-discovered models, or an empty fallback result.
     public func models(
         for provider: MobileTaskModelProvider
     ) async -> MobileTaskModelListResult {
@@ -84,7 +84,12 @@ public actor MobileTaskModelDiscovery {
         }
         inFlight[provider] = pending
         let result = await pending.value
-        cache[provider] = CacheEntry(result: result, fetchedAt: await now())
+        // A failed probe is a snapshot of a transient command or provider
+        // state. Keep successful catalogs cached, but let the next request
+        // retry failures instead of replaying a stale error for ten minutes.
+        if result.error == nil {
+            cache[provider] = CacheEntry(result: result, fetchedAt: await now())
+        }
         inFlight[provider] = nil
         return result
     }

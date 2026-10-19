@@ -2,7 +2,7 @@
 import CmuxFoundation
 
 /// Bounds each screenshot backend independently until its task retires.
-nonisolated final class WindowScreenshotCaptureCoordinator: Sendable {
+final class WindowScreenshotCaptureCoordinator: Sendable {
     private let appKitIsAvailable = AtomicBooleanGate(true)
     private let screenCaptureKitIsAvailable = AtomicBooleanGate(true)
 

@@ -7,16 +7,19 @@ import SwiftUI
 struct GPUSpinner: NSViewRepresentable {
     let style: GPUSpinnerStyle
     let color: NSColor
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeNSView(context: Context) -> GPUSpinnerNSView {
         let view = GPUSpinnerNSView(frame: .zero)
         view.style = style
         view.color = color
+        view.colorScheme = colorScheme
         return view
     }
 
     func updateNSView(_ view: GPUSpinnerNSView, context: Context) {
         view.style = style
         view.color = color
+        view.colorScheme = colorScheme
     }
 }

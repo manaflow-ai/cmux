@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { escapeMarkdownRawHTML, isSafeURL, renderPlainTextHTML, sanitizedMarkdownURLAttribute } from "./markdown";
 
 test("markdown raw HTML is escaped before parsing", () => {
@@ -11,6 +11,26 @@ test("markdown raw HTML escaping preserves code spans and fenced code", () => {
   expect(escapeMarkdownRawHTML("`<div>&</div>`\n```tsx\n<div>&</div>\n```\n<section>x</section>")).toBe(
     "`<div>&</div>`\n```tsx\n<div>&</div>\n```\n&lt;section>x&lt;/section>",
   );
+});
+
+describe("escaper follows the bundled parser's backtick grammar", () => {
+  test("a backslash-escaped backtick does not open a code span", () => {
+    expect(escapeMarkdownRawHTML("\\`<img src=x onerror=alert(1)>`")).toBe("\\`&lt;img src=x onerror=alert(1)>`");
+  });
+
+  test("a code span closes only on a backtick run of the same length", () => {
+    expect(escapeMarkdownRawHTML("``a```<b>`")).toBe("``a```&lt;b>`");
+    expect(escapeMarkdownRawHTML("`` <b>x</b> ``")).toBe("`` <b>x</b> ``");
+  });
+
+  test("a backtick fence info string cannot contain a backtick", () => {
+    expect(escapeMarkdownRawHTML("```js`x\n<img src=x>\n```")).toBe("```js`x\n&lt;img src=x>\n```");
+  });
+
+  test("a fence closes on the opening marker followed by fence characters", () => {
+    expect(escapeMarkdownRawHTML("```\ncode\n```~\n<img src=x>")).toBe("```\ncode\n```~\n&lt;img src=x>");
+    expect(escapeMarkdownRawHTML("~~~\ncode\n~~~\t\n<b>x</b>")).toBe("~~~\ncode\n~~~\t\n<b>x</b>");
+  });
 });
 
 test("plain text fallback preserves line breaks safely", () => {
@@ -27,6 +47,9 @@ test("markdown URL sanitizer allows only external safe schemes and fragments", (
   expect(isSafeURL("relative.md")).toBe(false);
   expect(isSafeURL("file:///etc/passwd")).toBe(false);
   expect(isSafeURL("javascript:alert(1)")).toBe(false);
+  expect(isSafeURL("java\tscript:alert(1)")).toBe(false);
+  expect(isSafeURL("data:text/html,x")).toBe(false);
+  expect(isSafeURL("vbscript:x")).toBe(false);
 });
 
 test("markdown sanitizer blocks passive media fetch URLs", () => {

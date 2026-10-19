@@ -4,7 +4,7 @@ import Testing
 
 @testable import CmuxBrowser
 
-@Suite struct BrowserURLResolverTests {
+@Suite(.serialized) struct BrowserURLResolverTests {
     private let resolver = BrowserURLResolver()
 
     @Test func resolvesWrappedOAuthURLWithoutRewriting() throws {
@@ -120,9 +120,71 @@ import Testing
         )
     }
 
+    @Test func authorityUserInfoIsRejectedEvenWhenLaterTextLooksLikeAScheme() {
+        #expect(resolver.navigableURL(from: "localhost:80@evil.example/path?u=http://x") == nil)
+        #expect(resolver.navigableURL(from: "localhost:80@evil.example/path#http://x") == nil)
+        #expect(resolver.navigableURL(from: "localhost:80@evil.example") == nil)
+        #expect(resolver.navigableURL(from: "user@evil.example") == nil)
+        #expect(resolver.navigableURL(from: "user@evil.example/?next=https://x") == nil)
+    }
+
+    @Test func pathAndQueryDataDoNotAffectTheResolvedHost() throws {
+        let local = try #require(resolver.navigableURL(from: "localhost:3000/a?next=http://x"))
+        #expect(local.absoluteString == "http://localhost:3000/a?next=http://x")
+        #expect(local.host == "localhost")
+        #expect(local.user == nil)
+
+        let atPath = try #require(resolver.navigableURL(from: "example.com/@user"))
+        #expect(atPath.absoluteString == "https://example.com/@user")
+        #expect(atPath.host == "example.com")
+
+        let atQuery = try #require(resolver.navigableURL(from: "example.com?x=a@b"))
+        #expect(atQuery.absoluteString == "https://example.com?x=a@b")
+        #expect(atQuery.host == "example.com")
+
+        let portQuery = try #require(resolver.navigableURL(from: "example.com:8443/a?x=a@b&u=http://y"))
+        #expect(portQuery.host == "example.com")
+        #expect(portQuery.port == 8443)
+    }
+
     @Test func preservesSupportedAndRejectedSchemes() throws {
         #expect(try #require(resolver.navigableURL(from: "file:///tmp/example.html")).isFileURL)
         #expect(resolver.navigableURL(from: "mailto:test@example.com") == nil)
         #expect(resolver.navigableURL(from: "ftp://example.com/file.html") == nil)
+    }
+
+    @Test func resolvesBareAbsolutePOSIXPathAsFileURL() throws {
+        let resolved = try #require(resolver.navigableURL(from: "/Users/x/y.html"))
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/Users/x/y.html")
+        #expect(resolved.absoluteString == "file:///Users/x/y.html")
+    }
+
+    @Test func resolvesBareAbsolutePathWithSpacesAsFileURL() throws {
+        let resolved = try #require(resolver.navigableURL(from: "/tmp/a b/c.html"))
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/a b/c.html")
+        #expect(resolved.absoluteString == "file:///tmp/a%20b/c.html")
+    }
+
+    @Test func resolvesTildePathAsFileURL() throws {
+        let homeDirectoryURL = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+        let resolver = BrowserURLResolver(homeDirectoryURL: homeDirectoryURL)
+        let resolved = try #require(resolver.navigableURL(from: "~/Desktop/report.html"))
+        let expectedPath = homeDirectoryURL
+            .appending(path: "Desktop/report.html")
+            .path
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == expectedPath)
+    }
+
+    @Test func preservesExplicitFileURLWithSpaces() throws {
+        let resolved = try #require(resolver.navigableURL(from: "file:///tmp/a b/c.html"))
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/a b/c.html")
     }
 }

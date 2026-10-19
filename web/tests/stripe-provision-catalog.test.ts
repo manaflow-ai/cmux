@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test as bunTest } from "bun:test";
+
+// Every run shells out once per catalog Price (ten, including the
+// grandfathered ones) through a mock curl, so the 5s default is too tight
+// on a loaded machine.
+const PROVISION_TEST_TIMEOUT_MS = 30_000;
+const test = (name: string, fn: () => Promise<void>) =>
+  bunTest(name, fn, PROVISION_TEST_TIMEOUT_MS);
 import {
   chmodSync,
   mkdirSync,
@@ -40,6 +47,16 @@ afterEach(() => {
 });
 
 describe("Stripe catalog provisioning", () => {
+  test("offers current monthly and yearly prices in the plan-switch portal", async () => {
+    const result = await runProvision("test", "portal-switch-exists");
+    expect(result.exitCode).toBe(0);
+    const update = result.calls.find((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/billing_portal/configurations/bpc_switch"));
+    expect(update).toBeDefined();
+    expect(update!.args.join("\n")).toContain("price_pro_month_50");
+    expect(update!.args.join("\n")).toContain("price_max_month_200");
+    expect(update!.args.join("\n")).toContain("price_max_year_1920");
+  });
+
   test("sends credentials through stdin instead of process arguments", async () => {
     const result = await runProvision("test", "valid");
 
@@ -71,8 +88,8 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-pro-yearly-288") &&
-          call.args.includes("unit_amount=28800"),
+          call.args.includes("lookup_key=cmux-pro-yearly-480") &&
+          call.args.includes("unit_amount=48000"),
       ),
     ).toBe(true);
     expect(
@@ -80,8 +97,118 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-team-yearly-336") &&
-          call.args.includes("unit_amount=33600"),
+          call.args.includes("lookup_key=cmux-team-yearly-576") &&
+          call.args.includes("unit_amount=57600"),
+      ),
+    ).toBe(true);
+  });
+
+  test("sets the checkout description of each plan to the Cloud VM limits", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const description = (productId: string) => result.calls
+      .find((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
+      ?.args.find((argument) => argument.startsWith("description="));
+    expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
+    expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
+    expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+  });
+
+  test("provisions monthly and yearly Max prices and the Pro/Max plan switch portal", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const maxPriceLookups = result.calls.filter(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/prices") &&
+        call.args.includes("lookup_keys[]=cmux-max-monthly-200"),
+    );
+    expect(maxPriceLookups.length).toBeGreaterThan(0);
+    expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.includes("lookup_keys[]=cmux-max-yearly-1920")))).toBe(true);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    expect(portalCreate).toBeDefined();
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).toContain("metadata[purpose]=personal_plan_switch");
+    expect(portalArgs).toContain("features[subscription_update][default_allowed_updates][]=price");
+    expect(portalArgs).not.toContain("features[subscription_update][products][2]");
+    expect(portalArgs).toContain("features[subscription_update][products][0][product]=prod_pro");
+    expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
+    expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
+    expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_month_200");
+    expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_year_1920");
+    expect(portalArgs).toContain("business_profile[headline]=cmux");
+  });
+
+  // Every listed price is also a choice for any subscriber in the portal.
+  // Yearly subscribers switch in the dashboard (which keeps their interval),
+  // so Pro yearly would only let a monthly subscriber, Max included, move onto
+  // it. The release-gated Go plan and grandfathered prices stay out too.
+  test("never lists Pro yearly, Go or a grandfathered price in the plan-switch portal", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("price_pro_year_480");
+    expect(portalArgs).not.toContain("prod_go");
+    expect(portalArgs).not.toContain("price_go_month_10");
+    // Every listed price is also a choice in the portal; a grandfathered
+    // price must never be offered as a switch target.
+    expect(portalArgs).not.toContain("=price_pro_month\n");
+    expect(portalArgs).not.toContain("price_pro_year_legacy");
+    expect(portalArgs).not.toMatch(/=price_pro_year(\n|$)/);
+  });
+
+  test("keeps the code's portal-switchable price list in sync with the script", async () => {
+    const { PORTAL_SWITCHABLE_LOOKUP_KEYS } = await import("../services/billing/plans");
+    const script = readFileSync(provisionScript, "utf8");
+    const portalStep = script.slice(script.indexOf("ensure_personal_plan_switch_portal() {"));
+    const listed = [...portalStep.matchAll(/price_id_for_lookup_key "([^"]+)"/g)].map((match) => match[1]).sort();
+    expect(listed).toEqual([...PORTAL_SWITCHABLE_LOOKUP_KEYS].sort());
+  });
+
+  test("provisions the plan-switch portal without copied profile fields", async () => {
+    const result = await runProvision("test", "empty-profile");
+
+    expect(result.exitCode).toBe(0);
+    const portalCreate = result.calls.find(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+        call.args.includes("POST"),
+    );
+    expect(portalCreate).toBeDefined();
+    const portalArgs = portalCreate!.args.join("\n");
+    expect(portalArgs).not.toContain("business_profile[headline]");
+    expect(portalArgs).not.toContain("business_profile[privacy_policy_url]");
+    expect(portalArgs).not.toContain("business_profile[terms_of_service_url]");
+  });
+
+  test("updates an existing plan switch portal configuration instead of creating a second", async () => {
+    const result = await runProvision("test", "portal-switch-exists");
+
+    expect(result.exitCode).toBe(0);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
+          call.args.includes("POST"),
+      ),
+    ).toBe(false);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/billing_portal/configurations/bpc_switch") &&
+          call.args.includes("POST"),
       ),
     ).toBe(true);
   });
@@ -286,8 +413,62 @@ const products = {
     active: true,
     metadata: { app: "cmux", plan: "team" },
   },
+  max: {
+    id: "prod_max",
+    name: "cmux Max",
+    active: true,
+    metadata: { app: "cmux", plan: "max" },
+  },
+  go: {
+    id: "prod_go",
+    name: "cmux Go",
+    active: true,
+    metadata: { app: "cmux", plan: "go" },
+  },
 };
 const prices = {
+  "cmux-go-monthly-10": {
+    id: "price_go_month_10",
+    unit_amount: 1000,
+    interval: "month",
+    product: "go",
+  },
+  "cmux-pro-monthly-50": {
+    id: "price_pro_month_50",
+    unit_amount: 5000,
+    interval: "month",
+    product: "pro",
+  },
+  "cmux-pro-yearly-480": {
+    id: "price_pro_year_480",
+    unit_amount: 48000,
+    interval: "year",
+    product: "pro",
+  },
+  "cmux-max-monthly-200": {
+    id: "price_max_month_200",
+    unit_amount: 20000,
+    interval: "month",
+    product: "max",
+  },
+  "cmux-max-yearly-1920": {
+    id: "price_max_year_1920",
+    unit_amount: 192000,
+    interval: "year",
+    product: "max",
+  },
+  "cmux-team-monthly-60": {
+    id: "price_team_month_60",
+    unit_amount: 6000,
+    interval: "month",
+    product: "team",
+  },
+  "cmux-team-yearly-576": {
+    id: "price_team_year_576",
+    unit_amount: 57600,
+    interval: "year",
+    product: "team",
+  },
   "cmux-pro-monthly": {
     id: "price_pro_month",
     unit_amount: 3000,
@@ -327,7 +508,8 @@ if (url.endsWith("/prices") && !isPost) {
       scenario === "unrelated-product" &&
       (
         lookupKey?.startsWith("cmux-pro") ||
-        lookupKey === "cmux-team-yearly-336"
+        lookupKey === "cmux-team-yearly-336" ||
+        lookupKey === "cmux-team-yearly-576"
       )
     ) ||
     (
@@ -387,8 +569,40 @@ if (url.endsWith("/prices") && !isPost) {
   }
 } else if (url.endsWith("/products") && isPost) {
   respond({
-    id: dataValue === "cmux Pro" ? "prod_new_pro" : "prod_new_team",
+    id: dataValue === "cmux Pro"
+      ? "prod_new_pro"
+      : dataValue === "cmux Max"
+        ? "prod_new_max"
+        : dataValue === "cmux Go"
+          ? "prod_new_go"
+          : "prod_new_team",
   });
+} else if (url.includes("/products/prod_") && isPost) {
+  respond({ id: url.split("/").at(-1) });
+} else if (url.endsWith("/billing_portal/configurations") && !isPost) {
+  if (args.includes("is_default=true")) {
+    respond({
+      data: [{
+        id: "bpc_default",
+        is_default: true,
+        business_profile: scenario === "empty-profile"
+          ? {}
+          : { headline: "cmux", privacy_policy_url: "https://cmux.com/privacy" },
+      }],
+      has_more: false,
+    });
+  } else if (scenario === "portal-switch-exists") {
+    respond({
+      data: [{ id: "bpc_switch", metadata: { app: "cmux", purpose: "personal_plan_switch" } }],
+      has_more: false,
+    });
+  } else {
+    respond({ data: [{ id: "bpc_default", is_default: true, metadata: {} }], has_more: false });
+  }
+} else if (url.endsWith("/billing_portal/configurations") && isPost) {
+  respond({ id: "bpc_created" });
+} else if (url.includes("/billing_portal/configurations/") && isPost) {
+  respond({ id: url.split("/").at(-1) });
 } else if (url.endsWith("/prices") && isPost) {
   respond({ id: "price_created" });
 } else if (url.endsWith("/webhook_endpoints") && !isPost) {

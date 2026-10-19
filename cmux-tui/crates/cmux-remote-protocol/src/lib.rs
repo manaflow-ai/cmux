@@ -29,10 +29,17 @@ pub use rpc::{
     ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RemoteCapability, RequestId,
     RouteId, RoutePolicy, RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse,
     SearchMatch, Service, ServiceControl, StructuredDiffHunkV1, StructuredDiffLineKind,
-    StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1, WorkspaceId, WorkspaceRequest,
-    WorkspaceResponse,
+    StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
+    WorkspaceId, WorkspaceRequest, WorkspaceResponse,
 };
 
 /// Maximum serialized server-to-client message accepted by remote session
 /// transports. Render attach and VT replay responses share this budget.
 pub const REMOTE_SESSION_MESSAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
+
+/// Maximum serialized client-to-server JSON message accepted by Unix
+/// JSON-lines and relay mux transports. The line delimiter is not included.
+/// Keep this separate from [`REMOTE_SESSION_MESSAGE_MAX_BYTES`], because
+/// render attach responses need the larger server-to-client budget.
+pub const REMOTE_CLIENT_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import threading
 import weakref
+import os
 from collections import deque
 from dataclasses import fields, is_dataclass
 from enum import Enum
-from typing import Any, Deque, Dict, Iterator, Mapping, Optional
+from typing import Any, Callable, Deque, Dict, Iterator, Mapping, Optional
 
 from ._generated.client import GeneratedClientMixin
 from ._generated.codec import (
@@ -24,7 +25,11 @@ from ..errors import (
     ProtocolError,
     TimeoutError,
 )
-from ..client_defaults import default_socket_path, env_socket_path
+from ..client_defaults import (
+    _legacy_raw_socket_fallback_path,
+    default_socket_path,
+    env_socket_path,
+)
 from ..transport import DEFAULT_MAX_LINE_BYTES, JsonLineConnection
 
 
@@ -66,6 +71,7 @@ class _Stream(Iterator[AnyEvent]):
             client.socket_path,
             client.timeout,
             max_line_bytes=client.max_line_bytes,
+            fallback_path=client._fallback_socket_path,
         )
         self._queue: Deque[AnyEvent] = deque()
         self._closed = False
@@ -115,6 +121,12 @@ class _Stream(Iterator[AnyEvent]):
         return self
 
     def __next__(self) -> AnyEvent:
+        return self._next()
+
+    def _next(
+        self,
+        before_wait: Optional[Callable[[], None]] = None,
+    ) -> AnyEvent:
         if self._closed:
             raise StopIteration
         if self._queue:
@@ -125,7 +137,11 @@ class _Stream(Iterator[AnyEvent]):
         ignored = 0
         while not self._closed:
             try:
-                value = self._conn.recv()
+                value = (
+                    self._conn.recv()
+                    if before_wait is None
+                    else self._conn._recv(before_wait=before_wait)
+                )
             except CmuxConnectionError:
                 if self._closed:
                     raise StopIteration
@@ -201,7 +217,16 @@ class CmuxClient(GeneratedClientMixin):
     ) -> None:
         if max_pre_ack_events < 1 or max_ignored_frames < 1:
             raise ValueError("stream buffer limits must be positive")
-        self.socket_path = socket_path or env_socket_path() or default_socket_path(session)
+        explicit = socket_path or env_socket_path()
+        self.socket_path = explicit or default_socket_path(session)
+        self._fallback_socket_path = (
+            _legacy_raw_socket_fallback_path(session)
+            if not explicit
+            and os.path.basename(os.path.dirname(self.socket_path)).startswith(
+                "cmux-tui-hashed-"
+            )
+            else None
+        )
         self.timeout = timeout
         self.max_line_bytes = max_line_bytes
         self.max_pre_ack_events = max_pre_ack_events
@@ -214,6 +239,7 @@ class CmuxClient(GeneratedClientMixin):
             self.socket_path,
             timeout,
             max_line_bytes=max_line_bytes,
+            fallback_path=self._fallback_socket_path,
         )
         self._next_request_id = 1
         self._id_lock = threading.Lock()

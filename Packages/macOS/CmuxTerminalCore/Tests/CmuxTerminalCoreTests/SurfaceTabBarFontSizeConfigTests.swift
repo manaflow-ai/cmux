@@ -63,7 +63,7 @@ struct SurfaceTabBarFontSizeConfigTests {
         let loaded = GhosttyConfig.load(
             preferredColorScheme: .dark,
             useCache: false,
-            loadFromDisk: { _ in
+            loadFromDisk: { _, _ in
                 var config = GhosttyConfig()
                 config.parse("surface-tab-bar-font-size = 14")
                 return config

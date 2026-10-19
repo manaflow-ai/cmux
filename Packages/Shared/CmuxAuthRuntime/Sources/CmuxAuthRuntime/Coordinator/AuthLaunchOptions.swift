@@ -28,19 +28,32 @@ public struct AuthLaunchOptions: Equatable, Sendable {
     /// still sign in on the same launch.
     public let clearStaleAuthOnLaunch: Bool
 
+    /// Whether deterministic dev tooling selected an explicit login profile
+    /// for this launch. The stored session may belong to a different profile,
+    /// so it is cleared before normal priming and the injected credentials are
+    /// allowed to sign in during this same launch.
+    public let replaceStoredSessionWithAutoLogin: Bool
+
+    /// Whether normal priming must begin from an empty persisted session.
+    public var shouldClearStoredSessionBeforePriming: Bool {
+        clearStaleAuthOnLaunch || replaceStoredSessionWithAutoLogin
+    }
+
     /// Creates launch options.
     public init(
         clearAuthRequested: Bool,
         mockDataEnabled: Bool,
         environment: [String: String],
         includesDevAuth: Bool,
-        clearStaleAuthOnLaunch: Bool = false
+        clearStaleAuthOnLaunch: Bool = false,
+        replaceStoredSessionWithAutoLogin: Bool = false
     ) {
         self.clearAuthRequested = clearAuthRequested
         self.mockDataEnabled = mockDataEnabled
         self.environment = environment
         self.includesDevAuth = includesDevAuth
         self.clearStaleAuthOnLaunch = clearStaleAuthOnLaunch
+        self.replaceStoredSessionWithAutoLogin = replaceStoredSessionWithAutoLogin
     }
 
     /// Whether the coordinator should begin auto-login: credentials present and

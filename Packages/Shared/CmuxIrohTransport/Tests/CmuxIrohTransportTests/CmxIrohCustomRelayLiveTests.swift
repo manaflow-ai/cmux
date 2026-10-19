@@ -140,7 +140,8 @@ struct CmxIrohCustomRelayLiveTests {
                         refreshToken: refreshToken
                     )
                 }
-            )
+            ),
+            clientNamespace: "legacy"
         )
         let runTag = "relay-live-\(UUID().uuidString.lowercased())"
         let firstSecretKey = try randomSecretKey()

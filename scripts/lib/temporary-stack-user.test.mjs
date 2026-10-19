@@ -65,7 +65,7 @@ test("create writes only protected state and credential files", async (t) => {
   assert.doesNotMatch(credentials, /access-token|refresh-token/u);
 });
 
-test("cleanup API failure deletes directly but keeps the gate red", async (t) => {
+test("cleanup API failure deletes directly and passes after absence is verified", async (t) => {
   const directory = fixtureDirectory();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const stateFile = path.join(directory, "account.json");
@@ -94,7 +94,7 @@ test("cleanup API failure deletes directly but keeps the gate red", async (t) =>
     }),
   });
 
-  assert.equal(result.passed, false);
+  assert.equal(result.passed, true);
   assert.equal(result.apiStatus, 500);
   assert.equal(result.apiErrorCode, "account_delete_failed");
   assert.equal(result.accountAbsentAfterAPI, false);
@@ -106,7 +106,7 @@ test("cleanup API failure deletes directly but keeps the gate red", async (t) =>
   assert.throws(() => readFileSync(credentialsFile));
 });
 
-test("cleanup stays red when a successful API response did not delete the account", async (t) => {
+test("cleanup uses direct deletion when a successful API response did not delete the account", async (t) => {
   const directory = fixtureDirectory();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const stateFile = path.join(directory, "account.json");
@@ -134,7 +134,7 @@ test("cleanup stays red when a successful API response did not delete the accoun
   assert.equal(result.accountAbsentAfterAPI, false);
   assert.equal(result.directCleanupSucceeded, true);
   assert.equal(result.accountAbsent, true);
-  assert.equal(result.passed, false);
+  assert.equal(result.passed, true);
 });
 
 test("cleanup report replaces unstructured server errors with a safe code", async (t) => {
@@ -186,7 +186,7 @@ test("failed session creation preserves a direct-cleanup recovery record", async
 
   await assert.rejects(
     createTemporaryStackUser({ stackApp, stateFile, credentialsFile }),
-    /session unavailable/u,
+    /createSession failed/u,
   );
   assert.doesNotThrow(() => assertSecureFile(stateFile));
 

@@ -66,3 +66,6 @@ export function syncStackAnalyticsIdentity(
     storage.removeItem(STACK_IDENTITY_STORAGE_KEY);
   }
 }
+
+/** Dispatched on `window` when the Hexclave session changes without a navigation. */
+export const STACK_AUTH_CHANGED_EVENT = "cmux:stack-auth-changed";

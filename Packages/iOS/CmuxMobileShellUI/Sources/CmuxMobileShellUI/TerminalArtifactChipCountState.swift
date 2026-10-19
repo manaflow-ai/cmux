@@ -55,6 +55,15 @@ struct TerminalArtifactChipCountState: Sendable {
     private var stateGeneration: UInt64 = 0
     private var inFlight: Request?
     private var trailing: Pending?
+    /// A count-only scan is keyed by the visible count that caused it. The
+    /// viewport snapshot can change on every render-grid frame while the
+    /// artifact count stays the same; issuing another session RPC for those
+    /// snapshots needlessly competes with terminal input and output traffic.
+    private var lastRequestedLocalCount: Int?
+    /// Refresh the authoritative count after a bounded run of unchanged
+    /// render-grid generations so an artifact created outside the viewport is
+    /// eventually reflected without reopening a scan for every frame.
+    private var lastRequestedSurfaceGeneration: UInt64?
     private var consecutiveRearmCount = 0
     /// Last successful gallery total (or positive legacy session total), held
     /// across transient scan failures so
@@ -68,11 +77,14 @@ struct TerminalArtifactChipCountState: Sendable {
     private var lastAuthoritativeSessionID: String?
 
     static let maxConsecutiveRearms = 3
+    static let maxDedupeSurfaceGenerationGap: UInt64 = 120
 
     mutating func reset() {
         stateGeneration &+= 1
         inFlight = nil
         trailing = nil
+        lastRequestedLocalCount = nil
+        lastRequestedSurfaceGeneration = nil
         consecutiveRearmCount = 0
         lastAuthoritativeTotal = nil
         lastAuthoritativeSessionID = nil
@@ -92,6 +104,31 @@ struct TerminalArtifactChipCountState: Sendable {
             surfaceGeneration: surfaceGeneration
         )
         let pending = Pending(surfaceGeneration: surfaceGeneration, localCount: localCount)
+        let isWithinDedupeWindow: Bool
+        if let requestedGeneration = lastRequestedSurfaceGeneration,
+           surfaceGeneration >= requestedGeneration {
+            isWithinDedupeWindow =
+                surfaceGeneration - requestedGeneration < Self.maxDedupeSurfaceGenerationGap
+        } else {
+            isWithinDedupeWindow = false
+        }
+        if lastRequestedLocalCount == localCount, isWithinDedupeWindow {
+            if inFlight != nil, trailing?.localCount == localCount {
+                // Keep a queued count tied to the freshest render-grid
+                // generation. The original request may settle after several
+                // frames, and an old generation would otherwise discard the
+                // follow-up as stale.
+                trailing = pending
+            }
+            // Keep the chip's local observation current, but do not re-open
+            // the count RPC until the visible count changes. A matching
+            // trailing request still represents a count that has not been
+            // scanned yet, so repeated render-grid observations must retain
+            // it until the in-flight request completes.
+            return .provisionalReport(provisional)
+        }
+        lastRequestedLocalCount = localCount
+        lastRequestedSurfaceGeneration = surfaceGeneration
         guard inFlight == nil else {
             trailing = pending
             return .provisionalReport(provisional)
@@ -174,11 +211,41 @@ struct TerminalArtifactChipCountState: Sendable {
 
         if let trailing {
             self.trailing = nil
-            if trailing.surfaceGeneration == currentSurfaceGeneration {
-                let nextRequest = makeRequest(trailing)
+            // A queued observation was captured after the completed request,
+            // but the caller's current render-grid snapshot can lag that
+            // observation. Preserve the queued refresh whenever it is still
+            // newer than the completed request, and pin it to the freshest
+            // generation known by either side instead of dropping it on an
+            // exact-generation mismatch.
+            let trailingGenerationIsNewer =
+                trailing.surfaceGeneration > request.surfaceGeneration
+            let trailingCountChanged = trailing.localCount != request.localCount
+            if trailing.surfaceGeneration >= request.surfaceGeneration,
+               trailingGenerationIsNewer || trailingCountChanged {
+                let nextRequest = makeRequest(Pending(
+                    surfaceGeneration: max(
+                        trailing.surfaceGeneration,
+                        currentSurfaceGeneration
+                    ),
+                    localCount: trailing.localCount
+                ))
                 inFlight = nextRequest
+                // The promoted request is now the request that dedupe must
+                // compare against. A trailing observation may have a newer
+                // generation than the last trigger marker, so leaving the
+                // markers behind can reopen or suppress the wrong scan.
+                lastRequestedLocalCount = nextRequest.localCount
+                lastRequestedSurfaceGeneration = nextRequest.surfaceGeneration
                 return Completion(outcome: outcome, nextRequest: nextRequest)
             }
+        }
+
+        if !scanSucceeded {
+            // A failed request must not permanently claim this visible count.
+            // Transient relay or RPC errors commonly leave the viewport
+            // unchanged, including after a queued count briefly changed and
+            // returned to the original value.
+            lastRequestedLocalCount = nil
         }
 
         guard outcome == .droppedForSurfaceGenerationMismatch,
@@ -191,6 +258,8 @@ struct TerminalArtifactChipCountState: Sendable {
             localCount: freshestLocalCount
         ))
         inFlight = nextRequest
+        lastRequestedLocalCount = nextRequest.localCount
+        lastRequestedSurfaceGeneration = nextRequest.surfaceGeneration
         return Completion(outcome: outcome, nextRequest: nextRequest)
     }
 

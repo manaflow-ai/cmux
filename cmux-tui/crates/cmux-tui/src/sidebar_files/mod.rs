@@ -195,8 +195,14 @@ impl FileBrowser {
         changed
     }
 
-    pub fn visible_filter_text_and_cursor(&mut self, width: usize) -> (String, usize) {
+    pub fn visible_filter_text_and_cursor(&self, width: usize) -> (String, usize) {
         self.query.visible_text_and_cursor(width)
+    }
+
+    pub fn sync_filter_viewport(&mut self, width: usize) {
+        if self.filter_mode {
+            self.query.sync_viewport(width);
+        }
     }
 
     pub fn set_filter_cursor_from_visible_column(&mut self, column: usize, width: usize) {
@@ -337,11 +343,22 @@ pub fn shell_single_quote(value: &str) -> String {
 pub fn file_url(path: &Path) -> String {
     let text = path.to_string_lossy();
     let mut url = String::from("file://");
+    #[cfg(windows)]
+    let windows_drive_path = text.as_bytes().first().is_some_and(|b| b.is_ascii_alphabetic())
+        && text.as_bytes().get(1) == Some(&b':');
+    #[cfg(not(windows))]
+    let windows_drive_path = false;
+    if windows_drive_path {
+        url.push('/');
+    }
     for byte in text.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
                 url.push(char::from(byte));
             }
+            #[cfg(windows)]
+            b'\\' => url.push('/'),
+            b':' if windows_drive_path => url.push(':'),
             _ => url.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -472,5 +489,11 @@ mod tests {
     #[test]
     fn creates_percent_encoded_file_url() {
         assert_eq!(file_url(Path::new("/tmp/a file#1.md")), "file:///tmp/a%20file%231.md");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn creates_windows_drive_file_url() {
+        assert_eq!(file_url(Path::new(r"C:\a\b")), "file:///C:/a/b");
     }
 }

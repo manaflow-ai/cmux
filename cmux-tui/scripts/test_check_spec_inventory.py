@@ -263,6 +263,9 @@ fn attached_event_json() {
 fn tree_delta_json() {}
 fn render_state_json() {}
 fn browser_state_json() {}
+fn complete_daemon_shutdown_after_ack() {
+    let _ = json!({"event": "daemon-shutdown"});
+}
 """
             )
             mux.write_text(
@@ -282,6 +285,7 @@ impl TreeDeltaKind {
                             "notification": {
                                 "streams": ["subscribe", "attach-byte"]
                             },
+                            "daemon-shutdown": {"streams": ["control"]},
                         }
                     }
                 )
@@ -296,6 +300,7 @@ impl TreeDeltaKind {
                     {
                         "bell": {"subscribe"},
                         "notification": {"subscribe", "attach-byte"},
+                        "daemon-shutdown": {"control"},
                     },
                 )
 
@@ -618,6 +623,77 @@ class SchemaValidationTests(unittest.TestCase):
 class InventoryContractTests(unittest.TestCase):
     def inventory(self) -> dict:
         return json.loads((CHECKER.SPEC / "inventory.json").read_text())
+
+    def test_private_protocol_domain_ids_match_inventory_version(self) -> None:
+        inventory = self.inventory()
+        private_domains = {
+            domain["id"]
+            for domain in inventory["protocol_domains"]
+            if domain["spec"] in {"commands.md", "events.md"}
+        }
+        expected = {
+            f"mux-control-v{inventory['mux_protocol']}",
+            f"mux-events-v{inventory['mux_protocol']}",
+        }
+        self.assertEqual(private_domains, expected)
+
+    def test_server_stats_uses_local_admin_profile_at_runtime_and_in_schema(self) -> None:
+        inventory = self.inventory()
+        self.assertIn("server-stats", inventory["commands"]["local-admin"])
+        self.assertNotIn("server-stats", inventory["commands"]["control"])
+
+        schema = json.loads((CHECKER.SPEC / "sdk-schema.json").read_text())
+        self.assertEqual(schema["commands"]["server-stats"]["authority"], "local-admin")
+
+        profiles = CHECKER.command_profiles()
+        self.assertIn("server-stats", profiles["local-admin"])
+        self.assertNotIn("server-stats", profiles["control"])
+
+    def test_merged_terminal_shortcuts_head_is_not_pending(self) -> None:
+        inventory = self.inventory()
+        pending_urls = {head["url"] for head in inventory["pending_heads"]}
+        self.assertNotIn(
+            "https://github.com/manaflow-ai/cmux/pull/8698",
+            pending_urls,
+        )
+
+    def test_programmability_prose_uses_current_protocol_and_no_pending_8698(self) -> None:
+        inventory = self.inventory()
+        prose = (CHECKER.SPEC / "programmability.md").read_text()
+        self.assertIn(
+            f"The implemented v{inventory['mux_protocol']} inventory",
+            prose,
+        )
+        pending_8698_lines = [
+            line
+            for line in prose.splitlines()
+            if "8698" in line and "pending" in line
+        ]
+        self.assertEqual(pending_8698_lines, [])
+
+        # The history section is the human-readable status record for the
+        # merged head. Keep the feature names and their implemented status in
+        # the contract so a version-only edit cannot silently erase them.
+        history = " ".join(prose.split("## Protocol head history", 1)[1].split())
+        self.assertIn(
+            "clear-history and structured shortcut work is now represented in "
+            "the implemented command and action inventory",
+            history,
+        )
+
+        commands = set(inventory["commands"]["control"])
+        self.assertIn("clear-history", commands)
+        actions = {action["key"]: action for action in inventory["tui_actions"]}
+        self.assertEqual(actions["clear-history"]["variant"], "ClearHistory")
+        self.assertEqual(actions["clear-history"]["classification"], "direct")
+        self.assertEqual(actions["clear-history"]["route"], "clear-history")
+        self.assertEqual(actions["show-shortcuts"]["variant"], "ShowShortcuts")
+        self.assertEqual(
+            actions["show-shortcuts"]["classification"], "presentation-only"
+        )
+        self.assertEqual(
+            actions["show-shortcuts"]["route"], "frontend shortcut overlay"
+        )
 
     def test_command_profile_drift_is_rejected(self) -> None:
         inventory = copy.deepcopy(self.inventory())

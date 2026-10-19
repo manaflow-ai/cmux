@@ -42,9 +42,16 @@ extension CMUXCLI {
 
     func execRestoreInvocation(
         _ invocation: AgentRestoreInvocation,
-        appliedWorkingDirectory: String?
+        appliedWorkingDirectory: String?,
+        admittedScope: RestoreLaunchAdmissionClaim? = nil
     ) throws {
         var invocationEnvironment = invocation.environment
+        if let admittedScope {
+            invocationEnvironment["CMUX_WORKSPACE_ID"] = admittedScope.workspaceID
+            invocationEnvironment["CMUX_TAB_ID"] = admittedScope.workspaceID
+            invocationEnvironment["CMUX_SURFACE_ID"] = admittedScope.surfaceID
+            invocationEnvironment["CMUX_PANEL_ID"] = admittedScope.surfaceID
+        }
         if let appliedWorkingDirectory {
             invocationEnvironment["PWD"] = appliedWorkingDirectory
         }
@@ -62,11 +69,16 @@ extension CMUXCLI {
                 )
             )
         }
+        try requireCodexWriterAvailable(
+            invocation: invocation,
+            workingDirectory: FileManager.default.currentDirectoryPath
+        )
         let executionError = withCStringArray(invocation.arguments) { argv in
             withEnvironmentCStringArray(invocationEnvironment) { environment in
-                executable.withCString {
-                    _ = execve($0, argv, environment)
-                    return errno
+                executable.withCString { path in
+                    cliExecFailureErrno {
+                        _ = execve(path, argv, environment)
+                    }
                 }
             }
         }
@@ -106,9 +118,10 @@ extension CMUXCLI {
         let arguments = [shell, "-lc", command]
         let executionError = withCStringArray(arguments) { argv in
             withEnvironmentCStringArray(environment) { childEnvironment in
-                shell.withCString {
-                    _ = execve($0, argv, childEnvironment)
-                    return errno
+                shell.withCString { path in
+                    cliExecFailureErrno {
+                        _ = execve(path, argv, childEnvironment)
+                    }
                 }
             }
         }

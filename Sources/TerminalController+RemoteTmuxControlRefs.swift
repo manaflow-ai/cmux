@@ -22,7 +22,10 @@ extension TerminalController {
                     surfaceId: surfaceID
                 )
             }
-            controller?.cleanupSurfaceState(surfaceIds: [surfaceID])
+            controller?.cleanupSurfaceState(
+                surfaceIds: [surfaceID],
+                workspaceID: workspaceID
+            )
         }
     }
 

@@ -5,23 +5,23 @@ public import SwiftUI
 public struct WindowChromeBorder: View {
     private let orientation: WindowChromeBorderOrientation
     private let ignoresSafeAreaValue: Bool
-    private let backgroundColorProvider: @MainActor () -> NSColor
-    private let refreshNotificationName: Notification.Name?
-    @State private var separatorColor: NSColor
+    private let separatorColor: NSColor
 
-    /// Creates a chrome border with an injected background color provider.
+    /// Creates a chrome border from an already-resolved chrome background.
+    ///
+    /// - Parameters:
+    ///   - orientation: The axis along which the one-pixel border extends.
+    ///   - ignoresSafeArea: Whether the border extends through safe-area insets.
+    ///   - backgroundColor: The concrete background resolved by the window appearance snapshot.
     public init(
         orientation: WindowChromeBorderOrientation,
         ignoresSafeArea: Bool = true,
-        refreshNotificationName: Notification.Name? = nil,
-        backgroundColorProvider: @escaping @MainActor () -> NSColor
+        backgroundColor: NSColor
     ) {
         self.orientation = orientation
         self.ignoresSafeAreaValue = ignoresSafeArea
-        self.refreshNotificationName = refreshNotificationName
-        self.backgroundColorProvider = backgroundColorProvider
-        _separatorColor = State(
-            initialValue: WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColorProvider())
+        self.separatorColor = WindowChromeColorResolver().separatorColor(
+            forChromeBackground: backgroundColor
         )
     }
 
@@ -36,18 +36,7 @@ public struct WindowChromeBorder: View {
 
     @ViewBuilder
     private var border: some View {
-        let base = borderShape
-            .onAppear {
-                refreshSeparatorColor()
-            }
-
-        if let refreshNotificationName {
-            base.onReceive(NotificationCenter.default.publisher(for: refreshNotificationName)) { _ in
-                refreshSeparatorColor()
-            }
-        } else {
-            base
-        }
+        borderShape
     }
 
     private var borderShape: some View {
@@ -63,8 +52,4 @@ public struct WindowChromeBorder: View {
             )
     }
 
-    private func refreshSeparatorColor() {
-        separatorColor = WindowChromeColorResolver()
-            .separatorColor(forChromeBackground: backgroundColorProvider())
-    }
 }

@@ -59,8 +59,8 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         let fixture = try OnlineAdmissionFixture()
         let clock = OnlineAdmissionManualClock(now: fixture.now)
         let broker = OnlineAdmissionBroker(responses: [
-            .failure(.connectivity),
-            .failure(.connectivity),
+            .failure(.connectivity(nil)),
+            .failure(.connectivity(nil)),
         ])
         let registry = fixture.registry(broker: broker, clock: clock)
         let pair = try fixture.offlinePair(initiatorLifetime: 90, acceptorLifetime: 31)
@@ -154,7 +154,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
         let pair = try fixture.offlinePair()
 
         #expect(await registry.authorizeOfflinePair(pair) == .denied)
-        await broker.replaceResponses([.failure(.connectivity)])
+        await broker.replaceResponses([.failure(.connectivity(nil))])
         #expect(await registry.authorizeOfflinePair(pair) == .denied)
         #expect(await broker.callCount() == 1)
     }
@@ -314,7 +314,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
     func connectivityAfterPolicyUpdateCannotAdmitStaleAuthority() async throws {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(
-            responses: [.failure(.connectivity)],
+            responses: [.failure(.connectivity(nil))],
             suspended: true
         )
         let registry = fixture.registry(broker: broker)

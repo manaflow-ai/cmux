@@ -340,20 +340,6 @@ struct CmxIrohEndpointServerTests {
         _ = try await supervisor.activate()
         let blocker = EndpointServerHandlerBlocker()
         let recorder = EndpointServerRecorder()
-        let server = CmxIrohEndpointServer(supervisor: supervisor) {
-            connection,
-            generation,
-            admission in
-            await recorder.record(
-                identity: await connection.remoteIdentity(),
-                generation: generation
-            )
-            #expect(await admission())
-            if await recorder.recordedCount() == 2 {
-                #expect(await admission.markUsable())
-            }
-            await blocker.wait()
-        }
         let first = TestIrohConnection(
             remoteIdentity: remoteIdentity,
             bidirectionalStreams: []
@@ -362,6 +348,27 @@ struct CmxIrohEndpointServerTests {
             remoteIdentity: remoteIdentity,
             bidirectionalStreams: []
         )
+        let server = CmxIrohEndpointServer(supervisor: supervisor) {
+            connection,
+            generation,
+            admission in
+            // Admit before recording so the test's `recorder.next()` below
+            // proves `first` is already active when `replacement` arrives,
+            // and promote only the replacement. Keying the promotion off the
+            // recorded count let the first handler observe the second record
+            // before its own check and promote `first` instead, which
+            // superseded the replacement and failed its markUsable (CI run
+            // 34414741413, swift-package-tests).
+            #expect(await admission())
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+            if (connection as? TestIrohConnection) === replacement {
+                #expect(await admission.markUsable())
+            }
+            await blocker.wait()
+        }
         var firstCloses = await first.closeEvents().makeAsyncIterator()
 
         await server.start()

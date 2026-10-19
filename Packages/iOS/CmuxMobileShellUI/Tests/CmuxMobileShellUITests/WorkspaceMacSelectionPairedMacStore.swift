@@ -1,3 +1,4 @@
+import CmuxMobileShellModel
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation

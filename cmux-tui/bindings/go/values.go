@@ -165,6 +165,11 @@ type StreamOpened struct {
 	Cursor   *Cursor  `json:"cursor,omitempty"`
 }
 
+type ViewAttachmentStreamOpened struct {
+	StreamID        StreamID `json:"stream_id"`
+	AttachmentLease string   `json:"attachment_lease"`
+}
+
 type CreationResolutionState string
 
 const (
@@ -321,7 +326,12 @@ type PaneNeighborResult struct {
 }
 
 type TerminalScreenResult struct {
-	Text          string               `json:"text"`
+	Text string `json:"text"`
+	// Revision is the coalesced PTY output counter. Older servers may omit it or send null.
+	Revision *Decimal `json:"revision,omitempty"`
+	// OSCProgress is bounded terminal metadata. The daemon does not assign
+	// agent meaning to this value.
+	OSCProgress   *string              `json:"osc_progress,omitempty"`
 	Cols          uint16               `json:"cols"`
 	Rows          uint16               `json:"rows"`
 	CursorRow     uint16               `json:"cursor_row"`
@@ -613,7 +623,14 @@ type ProcessInfoResult struct {
 	Executable *string  `json:"executable,omitempty"`
 	Argv       []string `json:"argv"`
 	CWD        *string  `json:"cwd,omitempty"`
-	Children   []uint32 `json:"children"`
+	// ForegroundCWD is the working directory of the process group that owns
+	// the PTY, read at request time. It is nil when the lookup fails or
+	// when an older server omits the field.
+	ForegroundCWD *string  `json:"foreground_cwd,omitempty"`
+	Children      []uint32 `json:"children"`
+	// ForegroundExecutable is the path or name of the PTY foreground process-group
+	// leader. It is nil when the lookup fails or an older server omits it.
+	ForegroundExecutable *string `json:"foreground_executable,omitempty"`
 }
 
 type CellPixelsResult struct {
@@ -624,13 +641,27 @@ type CellPixelsResult struct {
 }
 
 type ViewerResizeResult struct {
-	Accepted bool `json:"accepted"`
-	Size     Size `json:"size"`
+	Accepted bool                  `json:"accepted"`
+	Size     Size                  `json:"size"`
+	Outcome  ViewAttachmentOutcome `json:"outcome"`
 }
 
 type BrowserViewerResizeResult struct {
-	Accepted bool      `json:"accepted"`
-	Size     PixelSize `json:"size"`
+	Accepted bool                  `json:"accepted"`
+	Size     PixelSize             `json:"size"`
+	Outcome  ViewAttachmentOutcome `json:"outcome"`
+}
+
+type ViewAttachmentOutcome string
+
+const (
+	ViewAttachmentApplied    ViewAttachmentOutcome = "applied"
+	ViewAttachmentPassive    ViewAttachmentOutcome = "passive"
+	ViewAttachmentSuperseded ViewAttachmentOutcome = "superseded"
+)
+
+type ViewerReleaseResult struct {
+	Outcome ViewAttachmentOutcome `json:"outcome"`
 }
 
 type Document map[string]JSONValue
@@ -754,6 +785,123 @@ type SessionEvent struct {
 	Revision         Decimal
 	Changes          []ResourceChange
 	Raw              Document
+}
+
+type JournalClass string
+
+const (
+	JournalClassState       JournalClass = "state"
+	JournalClassObservation JournalClass = "observation"
+	JournalClassEffect      JournalClass = "effect"
+	JournalClassCheckpoint  JournalClass = "checkpoint"
+)
+
+type JournalReplayPolicy string
+
+const (
+	JournalReplayRequired JournalReplayPolicy = "required"
+	JournalReplayAdvisory JournalReplayPolicy = "advisory"
+	JournalReplayNever    JournalReplayPolicy = "never"
+)
+
+type JournalSensitivity string
+
+const (
+	JournalSensitivityPublic    JournalSensitivity = "public"
+	JournalSensitivityMetadata  JournalSensitivity = "metadata"
+	JournalSensitivitySensitive JournalSensitivity = "sensitive"
+	JournalSensitivitySecret    JournalSensitivity = "secret"
+)
+
+type JournalProducer struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type JournalAuthority struct {
+	PrincipalID string `json:"principal_id"`
+	LeaseID     string `json:"lease_id"`
+	Generation  string `json:"generation"`
+	Role        string `json:"role"`
+}
+
+type JournalSubject struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type SessionJournalRecord struct {
+	Sequence                 Decimal
+	EventID                  string
+	SchemaVersion            uint32
+	Kind                     string
+	Class                    JournalClass
+	Replay                   JournalReplayPolicy
+	OccurredAtMS             Decimal
+	CommittedAtMS            Decimal
+	Producer                 JournalProducer
+	Authority                *JournalAuthority
+	CausationID              *string
+	CorrelationID            *string
+	CausationDepth           uint16
+	Subjects                 []JournalSubject
+	Sensitivity              JournalSensitivity
+	Payload                  JSONValue
+	ResourceRevision         *Decimal
+	PreviousResourceRevision *Decimal
+}
+
+// JournalEventSchema declares one event kind owned by a userland producer.
+type JournalEventSchema struct {
+	Kind          string              `json:"kind"`
+	SchemaVersion uint32              `json:"schema_version"`
+	Class         JournalClass        `json:"class"`
+	Replay        JournalReplayPolicy `json:"replay"`
+	Sensitivity   JournalSensitivity  `json:"sensitivity"`
+	PayloadSchema JSONValue           `json:"payload_schema"`
+}
+
+// JournalProducerManifest is the generic registration contract for a
+// userland journal producer. It is intentionally independent of agent names.
+type JournalProducerManifest struct {
+	ProducerID      string               `json:"producer_id"`
+	Namespace       string               `json:"namespace"`
+	ManifestVersion uint32               `json:"manifest_version"`
+	MaxSensitivity  JournalSensitivity   `json:"max_sensitivity"`
+	Permissions     []string             `json:"permissions"`
+	Events          []JournalEventSchema `json:"events"`
+}
+
+// JournalIngress is one event submitted by a registered producer.
+type JournalIngress struct {
+	ProducerID      string              `json:"producer_id"`
+	ManifestVersion uint32              `json:"manifest_version"`
+	Kind            string              `json:"kind"`
+	SchemaVersion   uint32              `json:"schema_version"`
+	OccurredAtMS    *Decimal            `json:"occurred_at_ms,omitempty"`
+	Subjects        []JournalSubject    `json:"subjects,omitempty"`
+	Sensitivity     *JournalSensitivity `json:"sensitivity,omitempty"`
+	Payload         JSONValue           `json:"payload"`
+	CausationID     *string             `json:"causation_id,omitempty"`
+	CorrelationID   *string             `json:"correlation_id,omitempty"`
+}
+
+type JournalProducerPutResult struct {
+	ProducerID      string  `json:"producer_id"`
+	ManifestVersion uint32  `json:"manifest_version"`
+	Namespace       string  `json:"namespace"`
+	Sequence        Decimal `json:"sequence"`
+	EventID         string  `json:"event_id"`
+}
+
+type JournalProducerListResult struct {
+	Producers []JournalProducerManifest `json:"producers"`
+}
+
+type JournalAppendResult struct {
+	ProducerID string  `json:"producer_id"`
+	Sequence   Decimal `json:"sequence"`
+	EventID    string  `json:"event_id"`
 }
 
 type TerminalAttachmentItem struct {

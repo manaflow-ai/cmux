@@ -1,5 +1,7 @@
+public import CMUXMobileCore
+
 /// Errors thrown by ``PresenceClient`` and ``PresenceUpdate/parse(_:)``.
-public enum PresenceClientError: Error, Equatable, Sendable {
+public enum PresenceClientError: CmxRetryAfterProviding, Equatable, Sendable {
     /// The subscribe stream delivered a message type this client does not
     /// understand (a newer server speaking a newer protocol).
     case unknownMessage(type: String)
@@ -13,4 +15,11 @@ public enum PresenceClientError: Error, Equatable, Sendable {
     /// stream ends with this error instead, and reconnecting delivers a fresh
     /// snapshot first.
     case updatesDropped
+    /// The server rejected the WebSocket handshake and owns the next attempt.
+    case rateLimited(retryAfterSeconds: Int)
+
+    public var retryAfterSeconds: Int? {
+        guard case .rateLimited(let seconds) = self else { return nil }
+        return seconds
+    }
 }

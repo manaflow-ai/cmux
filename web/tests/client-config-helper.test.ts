@@ -109,4 +109,25 @@ describe("getClientConfig", () => {
     expect(getGroups).not.toHaveBeenCalled();
     expect(getProperty).not.toHaveBeenCalled();
   });
+
+  test("deduplicates concurrent requests for the same evaluation", async () => {
+    let resolveResponse: ((response: Response) => void) | undefined;
+    const response = new Promise<Response>((resolve) => {
+      resolveResponse = resolve;
+    });
+    const fetchMock = mock(() => response);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const first = getClientConfig({ distinctId: "in-flight-id", context: {} });
+    const second = getClientConfig({ distinctId: "in-flight-id", context: {} });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveResponse?.(new Response(JSON.stringify({
+      errorsWhileComputingFlags: false,
+      featureFlags: {},
+      featureFlagPayloads: {},
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  });
+
 });

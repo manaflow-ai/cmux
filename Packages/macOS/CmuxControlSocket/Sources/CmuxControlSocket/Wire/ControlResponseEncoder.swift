@@ -68,12 +68,12 @@ public struct ControlResponseEncoder: Sendable {
         }
     }
 
-    /// Encodes the dispatcher error response for a request-envelope parse
-    /// failure, matching the legacy strings exactly. The UTF-8/JSON/object
-    /// defects predate id extraction, so those responses carry no `id` key;
-    /// only `missingMethod` echoes the id.
+    /// Encodes the dispatcher error response for a request-envelope parse or
+    /// validation failure. The UTF-8/JSON/object defects predate id extraction,
+    /// so those responses carry no `id` key; request-level validation failures
+    /// echo the parsed id.
     ///
-    /// - Parameter parseError: The classified parse failure.
+    /// - Parameter parseError: The classified parse or validation failure.
     /// - Returns: The single-line response.
     public func response(for parseError: ControlRequestParseError) -> String {
         switch parseError {
@@ -94,6 +94,12 @@ public struct ControlResponseEncoder: Sendable {
             ]))
         case .missingMethod(let id):
             return error(id: id, code: "invalid_request", message: "Missing method")
+        case .unsupportedTargetAlias(let id, let supplied, let canonical):
+            return error(
+                id: id,
+                code: "invalid_params",
+                message: "Unsupported parameter '\(supplied)'; use '\(canonical)'"
+            )
         }
     }
 

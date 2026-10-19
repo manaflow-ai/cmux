@@ -1,18 +1,18 @@
 extension CMUXCLI {
     static let piExtensionSourcePart1 = #"""
-// cmux-pi-session-extension-marker v2
+// cmux-pi-session-extension-marker v4
 // Bridges Pi session lifecycle, tool telemetry, notifications, and resume bindings into cmux.
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 type HookExtra = Record<string, unknown>;
-
 interface PendingCompletion {
   lastAssistantMessage?: string;
   notificationType: string;
@@ -21,26 +21,27 @@ interface PendingCompletion {
 }
 
 interface SessionState {
-  nextTurn: number;
   activeTurnId?: string;
   pendingCompletion?: PendingCompletion;
   feedDeliveryFailed: boolean;
   stopped: boolean;
+  toolCommands: Map<string, string>;
 }
-
 interface CommandResult {
   ok: boolean;
   status: number | null;
   stdout: string;
   stderr: string;
   error?: unknown;
+  reason?: CommandFailureReason;
+  timeoutMs: number;
+  elapsedMs: number;
   surfaceUnavailable?: boolean;
 }
 
 interface PiExtensionContextSnapshot {
   readonly sessionId: string | null;
   readonly cwd: string;
-  readonly notifyWarning?: () => void;
 }
 
 function firstString(...values: unknown[]): string | null {
@@ -348,6 +349,7 @@ function safeCmuxEnvKey(key: string): boolean {
   if (key.startsWith("CMUX_AGENT_LAUNCH_")) return !secretLikeEnvKey(key);
   if (key === "CMUX_AGENT_HOOK_STATE_DIR") return true;
   if (key === "CMUX_PI_CMUX_BIN" || key === "CMUX_PI_HOOKS_DISABLED") return true;
+  if (key === "CMUX_PI_HOOK_TIMEOUT_MS") return true;
   if (key === "CMUX_SURFACE_ID" || key === "CMUX_WORKSPACE_ID" || key === "CMUX_WINDOW_ID") return true;
   if (key === "CMUX_PANE_ID" || key === "CMUX_TAB_ID" || key === "CMUX_PANEL_ID") return true;
   if (key === "CMUX_SOCKET" || key === "CMUX_SOCKET_PATH") return true;
@@ -460,24 +462,20 @@ function cwdFrom(ctx: ExtensionContext): string {
 }
 
 function snapshotContext(ctx: ExtensionContext): PiExtensionContextSnapshot {
-  let notifyWarning: (() => void) | undefined;
-  try {
-    const ui = (ctx as unknown as { ui?: { notify?: (message: string, type?: string) => void } }).ui;
-    if (typeof ui?.notify === "function") {
-      notifyWarning = () => ui.notify?.("cmux Pi integration warning - check the terminal for details", "warning");
-    }
-  } catch (_) {}
   return {
     sessionId: sessionIdFrom(ctx),
     cwd: cwdFrom(ctx),
-    notifyWarning,
   };
 }
 
 function stateFor(sessionStates: Map<string, SessionState>, sessionId: string): SessionState {
   let state = sessionStates.get(sessionId);
   if (!state) {
-    state = { nextTurn: 0, feedDeliveryFailed: false, stopped: false };
+    state = {
+      feedDeliveryFailed: false,
+      stopped: false,
+      toolCommands: new Map(),
+    };
     sessionStates.set(sessionId, state);
   }
   return state;
@@ -491,25 +489,23 @@ function eventTurnId(event: unknown): string | null {
 
 function beginTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
   const state = stateFor(sessionStates, sessionId);
-  const turnId = eventTurnId(event) || `${sessionId}:turn-${state.nextTurn + 1}`;
-  if (!eventTurnId(event)) state.nextTurn += 1;
-  state.activeTurnId = turnId;
-  state.pendingCompletion = undefined;
+  const turnId = currentTurnId(sessionStates, sessionId, event);
   state.stopped = false;
   return turnId;
 }
 
 function currentTurnId(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
   const state = stateFor(sessionStates, sessionId);
-  const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
-  if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
+  // cmux retains completion receipts across extension reloads. A local counter
+  // reuses receipt keys; allocate once and retain the UUID through continuations.
+  const turnId = eventTurnId(event) || state.activeTurnId || randomUUID();
+  state.activeTurnId = turnId;
   return turnId;
 }
 
 function finishTurn(sessionStates: Map<string, SessionState>, sessionId: string, event: unknown): string {
   const state = stateFor(sessionStates, sessionId);
-  const turnId = eventTurnId(event) || state.activeTurnId || `${sessionId}:turn-${state.nextTurn + 1}`;
-  if (!eventTurnId(event) && !state.activeTurnId) state.nextTurn += 1;
+  const turnId = currentTurnId(sessionStates, sessionId, event);
   state.activeTurnId = undefined;
   state.pendingCompletion = undefined;
   state.stopped = true;
@@ -528,44 +524,24 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
   return completion;
 }
 
-function warn(
-  ctx: PiExtensionContextSnapshot | null,
+async function warn(
+  _ctx: PiExtensionContextSnapshot | null,
   message: string,
   details: Record<string, unknown> = {},
-  notifyUser = false,
-): void {
-  const payload = { source: "cmux-pi-extension", level: "warning", message, ...details };
-  try {
-    console.warn(JSON.stringify(payload));
-  } catch (_) {
-    console.warn(`[cmux-pi-extension] ${message}`);
-  }
-  // Hook transport is best-effort telemetry. Keep routine command failures in
-  // the terminal instead of interrupting Pi with a generic toast; reserve the
-  // UI warning for an unexpected extension-task exception.
-  if (notifyUser) {
-    try {
-      ctx?.notifyWarning?.();
-    } catch (_) {}
-  }
+): Promise<void> {
+  const payload = {
+    source: "cmux-pi-extension",
+    level: "warning",
+    message,
+    hook_name: "extension",
+    reason: "extension-error",
+    ...details,
+  };
+  await runPiHookDiagnosticWrite(() => appendPiHookDiagnostic(payload));
 }
 
 function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
-}
-
-interface PiFeedCommand {
-  readonly args: string[];
-  readonly cwd: string;
-  readonly payload: Record<string, unknown>;
-  readonly context: PiExtensionContextSnapshot;
-  readonly terminal: boolean;
-  readonly onFailure?: () => void;
-}
-
-interface PiCommandCancellation {
-  cancelled: boolean;
-  cancel?: () => void;
 }
 """#
 }

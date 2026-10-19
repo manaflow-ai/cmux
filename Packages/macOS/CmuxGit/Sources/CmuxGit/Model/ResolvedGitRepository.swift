@@ -28,8 +28,11 @@ public struct ResolvedGitRepository: Equatable, Sendable {
 
     /// Creates a resolved repository from its three on-disk locations.
     public init(workTreeRoot: String, gitDirectory: String, commonDirectory: String) {
-        self.workTreeRoot = workTreeRoot
-        self.gitDirectory = gitDirectory
-        self.commonDirectory = commonDirectory
+        // Foundation URL paths can be backed by NSString/NSPathStore. Copying
+        // through UTF-8 once at the boundary keeps hot path comparisons on
+        // Swift's native fast path instead of normalizing foreign strings.
+        self.workTreeRoot = String(decoding: workTreeRoot.utf8, as: UTF8.self)
+        self.gitDirectory = String(decoding: gitDirectory.utf8, as: UTF8.self)
+        self.commonDirectory = String(decoding: commonDirectory.utf8, as: UTF8.self)
     }
 }

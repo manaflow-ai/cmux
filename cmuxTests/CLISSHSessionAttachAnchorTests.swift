@@ -4,11 +4,101 @@ import Testing
 
 /// Regression coverage for issue #7367: `ssh-session-attach --workspace <B> --split`
 /// must not anchor the split to the caller's `CMUX_SURFACE_ID` from workspace A.
-/// Gated by the dedicated non-tolerant focused CI step ("Run ssh-session-attach
-/// anchor regression"): the sharded unit-test run tolerates any failure summary
-/// reporting "(0 unexpected)", so a failing test there cannot red the shard.
+/// Runs in the timed app-host shard. CI aggregates every XCTest/Swift Testing
+/// summary and rejects ordinary assertion failures and incomplete crash/restart
+/// runs, so this regression remains a required failure signal without a duplicate
+/// focused invocation.
 @Suite(.serialized)
 struct CLISSHSessionAttachAnchorTests {
+    @Test func unknownSessionIDFailsBeforeCreatingSurface() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "10",
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionResolution: .notFound
+        )
+
+        #expect(result.status != 0, Comment(rawValue: result.stdout + result.stderr))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("surface.create"), Comment(rawValue: methods.joined(separator: ",")))
+        #expect(!methods.contains("surface.split"), Comment(rawValue: methods.joined(separator: ",")))
+        #expect(result.stderr.contains("ssh-session-list --all-workspaces"), Comment(rawValue: result.stderr))
+    }
+
+    @Test func knownSessionIDCreatesInOwningWorkspace() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "ssh-test",
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionResolution: .owner(Self.targetWorkspaceId)
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let create = try #require(requests.first(where: { $0["method"] as? String == "surface.create" }))
+        let params = try #require(create["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["remote_pty_session_id"] as? String == "ssh-test")
+    }
+
+    @Test func explicitWorkspaceThatDoesNotOwnSessionFailsBeforeCreatingSurface() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "ssh-test",
+                "--workspace", Self.callerWorkspaceId,
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionResolution: .workspaceMismatch
+        )
+
+        #expect(result.status != 0, Comment(rawValue: result.stdout + result.stderr))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("surface.create"), Comment(rawValue: methods.joined(separator: ",")))
+        #expect(!methods.contains("surface.split"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
+    @Test func explicitWorkspaceDisambiguatesDuplicateSessionOwnership() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "ssh-test",
+                "--workspace", Self.targetWorkspaceId,
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionResolution: .duplicate
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stdout + result.stderr))
+        let create = try #require(requests.last(where: { $0["method"] as? String == "surface.create" }))
+        let params = try #require(create["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+    }
+
+    @Test func partialInventoryFailsAsUnavailableWithoutCreatingSurface() throws {
+        let (requests, result) = try runSSHSessionAttach(
+            arguments: [
+                "ssh-session-attach",
+                "--session-id", "ssh-test",
+                "--focus", "false",
+            ],
+            responseWorkspaceId: Self.targetWorkspaceId,
+            sessionResolution: .partialInventory
+        )
+
+        #expect(result.status != 0, Comment(rawValue: result.stdout + result.stderr))
+        #expect(result.stderr.contains("ssh-session-list --all-workspaces"), Comment(rawValue: result.stderr))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("surface.create"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
     @Test func splitWithExplicitWorkspaceOmitsCallerEnvSurfaceAnchor() throws {
         let (requests, result) = try runSSHSessionAttach(
             arguments: [
@@ -23,9 +113,12 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["surface.ssh_session_attach.resolve", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
         #expect(params["direction"] as? String == "right")
         #expect(params["remote_pty_session_id"] as? String == "ssh-test")
@@ -47,9 +140,12 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["surface.ssh_session_attach.resolve", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
         #expect(params["surface_id"] as? String == Self.targetSurfaceId)
     }
@@ -67,9 +163,12 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(
+            methods == ["surface.ssh_session_attach.resolve", "surface.split"],
+            Comment(rawValue: methods.joined(separator: ","))
+        )
 
-        let params = try #require(requests.first?["params"] as? [String: Any])
+        let params = try #require(requests.last?["params"] as? [String: Any])
         #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
         #expect(params["surface_id"] as? String == Self.callerSurfaceId)
     }
@@ -92,7 +191,8 @@ struct CLISSHSessionAttachAnchorTests {
 
     private func runSSHSessionAttach(
         arguments: [String],
-        responseWorkspaceId: String
+        responseWorkspaceId: String,
+        sessionResolution: SessionResolution? = nil
     ) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("ssh-anchor")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -108,8 +208,61 @@ struct CLISSHSessionAttachAnchorTests {
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
+            let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
-            case "surface.split":
+            case "surface.ssh_session_attach.resolve":
+                switch sessionResolution ?? .owner(responseWorkspaceId) {
+                case .owner(let workspaceID):
+                    return Self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: ["workspace_id": workspaceID, "workspace_ref": "workspace:4"]
+                    )
+                case .notFound:
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: [
+                            "code": "not_found",
+                            "message": "ssh-session-attach: no persisted SSH PTY session with id '10'. Run 'cmux ssh-session-list --all-workspaces' to see valid session ids.",
+                        ]
+                    )
+                case .workspaceMismatch:
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: [
+                            "code": "invalid_params",
+                            "message": "ssh-session-attach: session 'ssh-test' belongs to another workspace",
+                        ]
+                    )
+                case .duplicate:
+                    if params["workspace_id"] as? String == Self.targetWorkspaceId {
+                        return Self.v2Response(
+                            id: id,
+                            ok: true,
+                            result: ["workspace_id": Self.targetWorkspaceId, "workspace_ref": "workspace:4"]
+                        )
+                    }
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: [
+                            "code": "invalid_params",
+                            "message": "ssh-session-attach: session 'ssh-test' exists in multiple workspaces; pass --workspace",
+                        ]
+                    )
+                case .partialInventory:
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: [
+                            "code": "unavailable",
+                            "message": "ssh-session-attach: persisted SSH PTY session state is unavailable. Run 'cmux ssh-session-list --all-workspaces' and retry.",
+                        ]
+                    )
+                }
+            case "surface.create", "surface.split":
                 return Self.v2Response(
                     id: id,
                     ok: true,
@@ -142,6 +295,14 @@ struct CLISSHSessionAttachAnchorTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
 
         return (try state.requestObjects(), result)
+    }
+
+    private enum SessionResolution: Sendable {
+        case owner(String)
+        case notFound
+        case workspaceMismatch
+        case duplicate
+        case partialInventory
     }
 
     private func cliEnvironment(socketPath: String) -> [String: String] {
@@ -355,18 +516,13 @@ struct CLISSHSessionAttachAnchorTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if waitForProcessExit(process, timeout: 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
 

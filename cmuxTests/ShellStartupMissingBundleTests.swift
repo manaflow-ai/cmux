@@ -72,6 +72,29 @@ struct ShellStartupMissingBundleTests {
     }
 
     @Test
+    func nushellStartupFallsBackToVanillaStartupWhenBundledBootstrapIsMissing() {
+        let missingIntegrationDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tests-deleted-bundle-\(UUID().uuidString)")
+            .appendingPathComponent("shell-integration")
+            .path
+        let originalEnvironment = ["CUSTOM": "1"]
+        var environment = originalEnvironment
+        var protectedKeys: Set<String> = []
+
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/opt/homebrew/bin/nu",
+            integrationDir: missingIntegrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(command, nil)
+        expectEqual(environment, originalEnvironment)
+        expectTrue(protectedKeys.isEmpty)
+    }
+
+    @Test
     func fishStartupFallsBackToVanillaStartupWhenBundledConfigIsMissing() {
         let missingIntegrationDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-tests-deleted-bundle-\(UUID().uuidString)")

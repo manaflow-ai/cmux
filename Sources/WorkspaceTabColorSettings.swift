@@ -134,12 +134,28 @@ enum WorkspaceTabColorSettings {
         return "#" + body.uppercased()
     }
 
+    /// Compares normalized hex values so persisted formatting cannot hide a match.
+    static func paletteEntryMatches(currentHex: String?, entryHex: String) -> Bool {
+        guard let currentHex,
+              let normalizedCurrent = normalizedHex(currentHex),
+              let normalizedEntry = normalizedHex(entryHex) else {
+            return false
+        }
+        return normalizedCurrent == normalizedEntry
+    }
+
     static func displayColor(
         hex: String,
         colorScheme: ColorScheme,
-        forceBright: Bool = false
+        forceBright: Bool = false,
+        brightenInDarkMode: Bool = true
     ) -> Color? {
-        guard let color = displayNSColor(hex: hex, colorScheme: colorScheme, forceBright: forceBright) else {
+        guard let color = displayNSColor(
+            hex: hex,
+            colorScheme: colorScheme,
+            forceBright: forceBright,
+            brightenInDarkMode: brightenInDarkMode
+        ) else {
             return nil
         }
         return Color(nsColor: color)
@@ -148,14 +164,15 @@ enum WorkspaceTabColorSettings {
     static func displayNSColor(
         hex: String,
         colorScheme: ColorScheme,
-        forceBright: Bool = false
+        forceBright: Bool = false,
+        brightenInDarkMode: Bool = true
     ) -> NSColor? {
         guard let normalized = normalizedHex(hex),
               let baseColor = NSColor(hex: normalized) else {
             return nil
         }
 
-        if forceBright || colorScheme == .dark {
+        if forceBright || (colorScheme == .dark && brightenInDarkMode) {
             return brightenedForDarkAppearance(baseColor)
         }
         return baseColor

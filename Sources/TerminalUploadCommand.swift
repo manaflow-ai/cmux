@@ -10,15 +10,16 @@ import Foundation
 struct TerminalUploadCommand: Sendable, Equatable {
     let rules: [TerminalUploadCommandRule]
 
-    /// The first enabled rule whose `hostPattern` matches `destination`, or nil
-    /// when none matches (the caller then uses the built-in `scp` transport).
-    func command(forDestination destination: String) -> String? {
-        let host = Self.hostForMatching(destination)
+    /// The first enabled rule whose `hostPattern` matches `destination` or the
+    /// `HostName` in `sshOptions`, or nil when none matches (the caller then uses
+    /// the built-in `scp` transport).
+    func command(forDestination destination: String, sshOptions: [String] = []) -> String? {
+        let hosts = Self.hostsForMatching(destination, sshOptions: sshOptions)
         for rule in rules where rule.enabled {
             guard let pattern = rule.hostPattern else {
                 return rule.command
             }
-            if Self.hostMatches(pattern: pattern, host: host) {
+            if hosts.contains(where: { Self.hostMatches(pattern: pattern, host: $0) }) {
                 return rule.command
             }
         }
@@ -31,7 +32,42 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// detected-ssh port is carried separately, so destinations here are bare
     /// hosts in practice.
     static func hostForMatching(_ destination: String) -> String {
-        var value = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized(destination)
+    }
+
+    /// Every host a rule may match for this connection: the destination (the ssh
+    /// alias, or `localhost` for a brokered session) and, when present, the
+    /// first usable `HostName` option. A connection through a ProxyCommand or
+    /// jump host is dialled as a placeholder with the host it actually reaches
+    /// carried in `HostName`, so matching either one lets rules written against
+    /// the real host fire without breaking rules written against the alias.
+    static func hostsForMatching(_ destination: String, sshOptions: [String] = []) -> [String] {
+        let destinationHost = normalized(destination)
+        guard let hostName = hostNameOption(in: sshOptions) else { return [destinationHost] }
+        let resolvedHost = normalized(hostName)
+        return resolvedHost == destinationHost ? [destinationHost] : [destinationHost, resolvedHost]
+    }
+
+    /// The value of the first `HostName` option, or nil when none carries one.
+    /// ssh uses the first value it obtains for a parameter, so the first wins
+    /// here too. Keys are case-insensitive and `-o` accepts `Key value` as well
+    /// as `Key=Value`.
+    static func hostNameOption(in sshOptions: [String]) -> String? {
+        let separators = CharacterSet(charactersIn: "= \t")
+        for option in sshOptions {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let separator = trimmed.rangeOfCharacter(from: separators) else { continue }
+            let key = trimmed[trimmed.startIndex..<separator.lowerBound]
+            guard key.lowercased() == "hostname" else { continue }
+            let value = trimmed[separator.lowerBound...]
+                .trimmingCharacters(in: CharacterSet(charactersIn: "= \t"))
+            if !value.isEmpty { return value }
+        }
+        return nil
+    }
+
+    private static func normalized(_ host: String) -> String {
+        var value = host.trimmingCharacters(in: .whitespacesAndNewlines)
         if let atIndex = value.lastIndex(of: "@") {
             value = String(value[value.index(after: atIndex)...])
         }
@@ -56,6 +92,10 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// Environment handed to the custom command for one file. The full context is
     /// on the environment (not stdin) so a plain shell one-liner can use it; the
     /// standard process environment is inherited by the caller.
+    ///
+    /// `remotePath` is a standalone path under `/tmp` for the custom command. The
+    /// command owns its transport, permissions, and cleanup; the built-in SSH
+    /// transport uses its separate private per-session directory.
     static func environment(
         localPath: String,
         remotePath: String,
@@ -79,6 +119,29 @@ struct TerminalUploadCommand: Sendable, Equatable {
             env["CMUX_UPLOAD_SSH_OPTIONS"] = sshOptions.joined(separator: "\n")
         }
         return env
+    }
+
+    /// The path handed to a custom upload command. It is intentionally independent
+    /// of the built-in SSH transport's private session directory: custom commands
+    /// may use an interactive SSH wrapper, an artifact service, or another
+    /// transport that cannot run cmux's directory-maintenance SSH command.
+    static func customRemotePath(for fileURL: URL, uuid: UUID = UUID()) -> String {
+        // Preserve the path shape used by custom commands before the private
+        // session directory was introduced in #16523.
+        let extensionValue = fileURL.pathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        // Keep the optional extension useful to commands that inspect the
+        // destination, but bound it by UTF-8 bytes so the generated name stays
+        // well below the 255-byte filename-component limit on remote filesystems.
+        var boundedExtension = String()
+        for scalar in extensionValue.unicodeScalars {
+            let scalarText = String(scalar)
+            guard boundedExtension.utf8.count + scalarText.utf8.count <= 16 else { break }
+            boundedExtension.unicodeScalars.append(scalar)
+        }
+        let suffix = boundedExtension.isEmpty ? "" : "." + boundedExtension
+        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(suffix)"
     }
 
     /// The ready-to-type string cmux inserts for one file after the command runs.

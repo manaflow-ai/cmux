@@ -26,6 +26,9 @@ extension TabItemView {
         let context = snapshot.contextMenu
         let targetIds = context.targetWorkspaceIds
         let isMulti = targetIds.count > 1
+        let muteNotificationsLabel = context.allNotificationsMuted
+            ? (isMulti ? NotificationMuteMenuOption.unmuteWorkspaces : .unmuteWorkspace).title
+            : (isMulti ? NotificationMuteMenuOption.muteWorkspaces : .muteWorkspace).title
         let shouldPin = context.pinState?.pinned ?? !workspaceSnapshot.isPinned
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
@@ -81,6 +84,17 @@ extension TabItemView {
         }
         .disabled(context.pinState == nil)
 
+        Button {
+            let requestedMuted = !actions.currentNotificationsMuted(targetIds)
+            actions.setNotificationsMuted(targetIds, requestedMuted)
+        } label: {
+            Label(
+                muteNotificationsLabel,
+                systemImage: context.allNotificationsMuted ? "bell" : "bell.slash"
+            )
+        }
+        .disabled(targetIds.isEmpty)
+
         workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
 
         Divider()
@@ -91,12 +105,12 @@ extension TabItemView {
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
             .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
         } else {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
         }
 
@@ -141,8 +155,16 @@ extension TabItemView {
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             let tabColorPalette = WorkspaceTabColorSettings.palette()
+            // The menu edits persisted manual colors. An origin tint is only a
+            // rendering fallback and must not appear selected or prefill the
+            // custom-color editor as though the user chose it.
+            let currentColorHex = (workspaceSnapshot.hasManualCustomColor ? workspaceSnapshot.customColorHex : nil).flatMap {
+                WorkspaceTabColorSettings.normalizedHex($0)
+            }
 
-            if workspaceSnapshot.customColorHex != nil {
+            // Gate on the MANUAL color, not the effective row color: an
+            // origin-tinted row with no manual color has nothing to clear.
+            if context.hasManualCustomColor {
                 Button {
                     applyTabColor(nil, targetIds: targetIds)
                 } label: {
@@ -161,13 +183,19 @@ extension TabItemView {
             }
 
             ForEach(tabColorPalette, id: \.id) { entry in
+                let isSelected = WorkspaceTabColorSettings.paletteEntryMatches(
+                    currentHex: currentColorHex,
+                    entryHex: entry.hex
+                )
                 Button {
                     applyTabColor(entry.hex, targetIds: targetIds)
                 } label: {
-                    Label {
-                        Text(entry.name)
-                    } icon: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark")
+                            .opacity(isSelected ? 1 : 0)
+                            .frame(width: 12)
                         Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
+                        Text(entry.name)
                     }
                 }
             }
@@ -216,6 +244,10 @@ extension TabItemView {
             }
         }
         .disabled(targetIds.isEmpty)
+
+        if !isMulti {
+            WorkspaceMergeIntoMenu(sourceWorkspaceId: snapshot.workspaceId)
+        }
 
         Divider()
 

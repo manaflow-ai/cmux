@@ -2,15 +2,21 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <cmux-diff-sidecar> [--archs \"arm64 x86_64\"] [--require-signed]" >&2
+  echo "usage: $0 <cmux-diff-sidecar> [--archs \"arm64 x86_64\"] [--require-signed] [--static-only]" >&2
   exit 2
 }
+
+# --static-only skips the one check that runs the sidecar (its handshake).
+# Signing uses it while the CI signing keychain exists; the signing job runs
+# the full check again after the keychain is deleted.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [[ $# -ge 1 ]] || usage
 BINARY="$1"
 shift
 ARCHS="arm64 x86_64"
 REQUIRE_SIGNED=0
+STATIC_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --archs)
@@ -20,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --require-signed)
       REQUIRE_SIGNED=1
+      shift
+      ;;
+    --static-only)
+      STATIC_ONLY=1
       shift
       ;;
     *) usage ;;
@@ -36,8 +46,13 @@ if (( SIZE_BYTES > MAX_BYTES )); then
   exit 1
 fi
 
+ACTUAL_ARCHS="$(lipo -archs "$BINARY" | tr ' ' '\n' | sort | xargs)"
+EXPECTED_ARCHS="$(printf '%s\n' $ARCHS | sort | xargs)"
+if [ "$ACTUAL_ARCHS" != "$EXPECTED_ARCHS" ]; then
+  echo "error: diff sidecar slices are '$ACTUAL_ARCHS', expected exactly '$EXPECTED_ARCHS'" >&2
+  exit 1
+fi
 for arch in $ARCHS; do
-  lipo "$BINARY" -verify_arch "$arch"
   MINOS="$(otool -arch "$arch" -l "$BINARY" | awk '/LC_BUILD_VERSION/{found=1; next} found && /minos / && !printed {print $2; printed=1}')"
   if [[ "$MINOS" != "14.0" ]]; then
     echo "error: $arch diff sidecar has macOS minimum $MINOS, expected 14.0" >&2
@@ -71,6 +86,14 @@ else
   SIGNING_STATE="unsigned"
 fi
 
+if (( STATIC_ONLY )); then
+  echo "diff sidecar: ${SIZE_BYTES} bytes, architectures: ${ARCHS}, minimum macOS: 14.0, ${SIGNING_STATE}; handshake deferred (static checks only)"
+  exit 0
+fi
+
+# shellcheck source=ci/lib/signing-runtime-guard.sh
+source "$SCRIPT_DIR/ci/lib/signing-runtime-guard.sh"
+cmux_signing_runtime_guard
 HANDSHAKE="$("$BINARY" handshake)"
 python3 - "$HANDSHAKE" <<'PY'
 import json

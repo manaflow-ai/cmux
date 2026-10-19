@@ -103,6 +103,13 @@ extension SimulatorPaneCoordinator {
         enqueue(.button(button))
     }
 
+    /// Forwards one USB HID keyboard event (usage page 0x07) as an ordered
+    /// worker message. Remote viewers use this for special keys; committed
+    /// text goes through `typeText` for validation and pacing.
+    public func sendKey(usage: UInt32, isDown: Bool) {
+        enqueue(.key(SimulatorKeyEvent(usage: usage, phase: isDown ? .down : .up)))
+    }
+
     /// Rotates the active device counter-clockwise.
     public func rotateLeft() {
         let orientation = (display?.orientation ?? .portrait).rotatedLeft

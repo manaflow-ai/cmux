@@ -92,7 +92,7 @@ struct VerifiedReplayViewportAnchorTests {
         #expect(anchor.targetTopRow(postReplayTotalRows: 115, postReplayVisibleRows: 20) == 50)
     }
 
-    @Test("a capped row space preserves distance from bottom")
+    @Test("a capped row space without push accounting preserves distance from bottom")
     func cappedHistoryDegradesToDistanceFromBottom() {
         let anchor = VerifiedReplayViewportAnchor(
             topRowDistanceFromBottom: 55,
@@ -100,6 +100,100 @@ struct VerifiedReplayViewportAnchorTests {
         )
 
         #expect(anchor.targetTopRow(postReplayTotalRows: 200, postReplayVisibleRows: 25) == 145)
+    }
+
+    @Test("pushes at the scrollback cap follow the evicted content upward")
+    func cappedEvictionFollowsContent() {
+        // Pegged at a 4,000-row cap: 250 rows pushed through the grid while
+        // the total stayed flat means 250 retained rows were evicted from the
+        // top, so the captured content now lives 250 rows higher.
+        let anchor = VerifiedReplayViewportAnchor(
+            topRowDistanceFromBottom: 3_000,
+            totalRows: 4_000,
+            rowsPushedAtCapture: 1_000
+        )
+
+        #expect(
+            anchor.targetTopRow(
+                postReplayTotalRows: 4_000,
+                postReplayVisibleRows: 54,
+                rowsPushedSinceCapture: 250
+            ) == 750
+        )
+    }
+
+    @Test("below the cap, pushes equal growth and the target is unchanged")
+    func belowCapPushesMatchGrowth() {
+        let anchor = VerifiedReplayViewportAnchor(
+            topRowDistanceFromBottom: 50,
+            totalRows: 100,
+            rowsPushedAtCapture: 500
+        )
+
+        #expect(
+            anchor.targetTopRow(
+                postReplayTotalRows: 115,
+                postReplayVisibleRows: 20,
+                rowsPushedSinceCapture: 15
+            ) == 50
+        )
+    }
+
+    @Test("reaching the cap mid-window follows content by the evicted remainder")
+    func reachingCapMidWindowFollowsContent() {
+        // 400 rows pushed while the total only grew by 100: the last 300
+        // pushes evicted retained rows, so the content sits 300 rows higher
+        // than the pure growth-canceled target.
+        let anchor = VerifiedReplayViewportAnchor(
+            topRowDistanceFromBottom: 3_000,
+            totalRows: 3_900,
+            rowsPushedAtCapture: 0
+        )
+
+        #expect(
+            anchor.targetTopRow(
+                postReplayTotalRows: 4_000,
+                postReplayVisibleRows: 54,
+                rowsPushedSinceCapture: 400
+            ) == 600
+        )
+    }
+
+    @Test("evicting past the captured content clamps to the scrollback top")
+    func evictionPastCapturedContentClampsToTop() {
+        let anchor = VerifiedReplayViewportAnchor(
+            topRowDistanceFromBottom: 3_900,
+            totalRows: 4_000,
+            rowsPushedAtCapture: 0
+        )
+
+        #expect(
+            anchor.targetTopRow(
+                postReplayTotalRows: 4_000,
+                postReplayVisibleRows: 54,
+                rowsPushedSinceCapture: 500
+            ) == 0
+        )
+    }
+
+    @Test("a rebuilt shorter row space keeps the growth-canceled fallback")
+    func rebuiltRowSpaceKeepsFallback() {
+        // Hydration collapsed the row space below the captured total; the
+        // pushed-rows correction cannot place content in a rebuilt space, so
+        // the target degrades to the growth-canceled distance from bottom.
+        let anchor = VerifiedReplayViewportAnchor(
+            topRowDistanceFromBottom: 55,
+            totalRows: 4_000,
+            rowsPushedAtCapture: 100
+        )
+
+        #expect(
+            anchor.targetTopRow(
+                postReplayTotalRows: 200,
+                postReplayVisibleRows: 25,
+                rowsPushedSinceCapture: 40
+            ) == 145
+        )
     }
 
     @Test("a distance beyond available history clamps to the top")

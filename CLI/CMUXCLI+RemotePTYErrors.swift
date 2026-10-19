@@ -1,8 +1,50 @@
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    /// Classifies a failed `workspace.remote.pty_bridge` request. Prefers the
+    /// structured v2 error code over description matching so a message-format
+    /// change cannot silently turn a retryable failure fatal, or a terminal
+    /// one retryable.
+    func sshPTYBridgeEstablishmentExitCode(_ error: any Error) -> SSHPTYAttachExitCode {
+        if let cliError = error as? CLIError, let code = cliError.v2Code {
+            return SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
+                code: code,
+                message: cliError.message
+            )
+        }
+        return SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
+    }
+
+    /// Whether the app answered that the remote session is parked: it gave
+    /// up, only an explicit Reconnect resumes it, and the attach must stop
+    /// (https://github.com/manaflow-ai/cmux/issues/12813).
+    func sshPTYBridgeErrorIsParkedSession(_ error: any Error) -> Bool {
+        sshPTYParkedSessionDetail(error) != nil
+    }
+
+    /// The app-localized reason and next step carried by a parked-session
+    /// reply. It is already user-facing, so it is shown verbatim rather than
+    /// mapped through the phrase matching below, which would turn a detail
+    /// that mentions a timeout into "remote daemon did not respond in time".
+    func sshPTYParkedSessionDetail(_ error: any Error) -> String? {
+        guard let cliError = error as? CLIError,
+              cliError.isStructuredProtocolResponse,
+              let code = cliError.v2Code,
+              code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                == SSHPTYAttachExitCode.sessionParkedErrorCode else {
+            return nil
+        }
+        // `CLIError.message` is the formatted "<code>: <message>" header.
+        var detail = cliError.message
+        if detail.hasPrefix("\(code):") { detail.removeFirst(code.count + 1) }
+        detail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return detail.isEmpty ? nil : detail
+    }
+
     func userFacingRemotePTYErrorMessage(_ value: Any?) -> String {
         if let error = value as? Error {
+            if let parkedDetail = sshPTYParkedSessionDetail(error) { return parkedDetail }
             return userFacingRemotePTYErrorMessage(String(describing: error))
         }
         return userFacingRemotePTYErrorMessage(debugString(value) ?? "unknown error")

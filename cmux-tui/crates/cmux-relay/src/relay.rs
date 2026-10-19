@@ -366,7 +366,10 @@ impl Relay {
         }
 
         if tokio::time::timeout(WRITER_SHUTDOWN_TIMEOUT, &mut writer).await.is_err() {
+            // `abort` only schedules cancellation. Await the handle so the
+            // writer task is not detached while it still owns the socket.
             writer.abort();
+            let _ = tokio::time::timeout(WRITER_SHUTDOWN_TIMEOUT, writer).await;
         }
     }
 
@@ -857,6 +860,13 @@ impl Relay {
                         "relay could not mint daemon join capability",
                     )
                 })?;
+            let Some(usage) = state.slot_usage.get_mut(&slot) else {
+                return Err(RelayError::internal(
+                    "slot-usage-missing",
+                    "relay slot usage disappeared during circuit allocation",
+                ));
+            };
+            usage.pending_circuits += 1;
             state.circuits.insert(
                 circuit.clone(),
                 Circuit {
@@ -872,11 +882,6 @@ impl Relay {
                     ready: false,
                 },
             );
-            state
-                .slot_usage
-                .get_mut(&slot)
-                .expect("allocated slot usage exists")
-                .pending_circuits += 1;
             (circuit, daemon, client_join_ticket, daemon_join_ticket)
         };
 
@@ -987,7 +992,28 @@ impl Relay {
                     "relay active circuit limit for this slot was reached",
                 ));
             }
-            let circuit = state.circuits.get_mut(&circuit_id).unwrap();
+            let pending_before_ready = if becomes_ready {
+                let Some(usage) = state.slot_usage.get(&slot) else {
+                    return Err(RelayError::internal(
+                        "slot-usage-missing",
+                        "relay slot usage disappeared during circuit join",
+                    ));
+                };
+                usage.pending_circuits.checked_sub(1).ok_or_else(|| {
+                    RelayError::internal(
+                        "slot-usage-inconsistent",
+                        "ready circuit was not counted as pending",
+                    )
+                })?
+            } else {
+                0
+            };
+            let Some(circuit) = state.circuits.get_mut(&circuit_id) else {
+                return Err(RelayError::internal(
+                    "circuit-state-missing",
+                    "relay circuit disappeared during join",
+                ));
+            };
             match role {
                 RelayRole::Daemon => circuit.daemon = Some(peer.clone()),
                 RelayRole::Client => circuit.client = Some(peer.clone()),
@@ -999,14 +1025,21 @@ impl Relay {
                 .attachments
                 .insert(peer.id, Attachment::Circuit { circuit: circuit_id.clone(), role });
             if becomes_ready {
-                let usage = state.slot_usage.get_mut(&slot).expect("joined slot usage exists");
-                usage.pending_circuits = usage
-                    .pending_circuits
-                    .checked_sub(1)
-                    .expect("ready circuit was counted as pending");
+                let Some(usage) = state.slot_usage.get_mut(&slot) else {
+                    return Err(RelayError::internal(
+                        "slot-usage-missing",
+                        "relay slot usage disappeared during circuit join",
+                    ));
+                };
+                usage.pending_circuits = pending_before_ready;
                 usage.active_circuits += 1;
             }
-            let circuit = state.circuits.get(&circuit_id).unwrap();
+            let Some(circuit) = state.circuits.get(&circuit_id) else {
+                return Err(RelayError::internal(
+                    "circuit-state-missing",
+                    "relay circuit disappeared after join",
+                ));
+            };
             if let (Some(client), Some(daemon)) = (&circuit.client, &circuit.daemon) {
                 Some((client.clone(), daemon.clone(), circuit.lane.clone(), circuit.generation))
             } else {

@@ -22,12 +22,14 @@ public final class ResourceApiTest {
 
     public static void main(String[] args) {
         decimalAndIdentifiers();
+        journalRegexDefaultsAreErgonomic();
         sensitiveValuesAreRedacted();
         defaultIdempotencyKeysUseFixedWidthLowercaseHex();
         idempotencyKeysMatchDurableIdentifierContract();
         exactCommandAndRouting();
         creationCorrelationIsFirstClass();
         nullableMetadata();
+        journalBoundaryAndNullableTerminalMetadata();
         notificationTargetingIsOptionalAndTyped();
         strictTypedModels();
         layoutUndoUsesTypedConfirmation();
@@ -76,6 +78,26 @@ public final class ResourceApiTest {
         overflowBlockedCancelHonorsTotalDeadline();
         structuredErrorsAreNotRetried();
         transportFailureReportsUncertainMutation();
+        explicitSocketFailureDoesNotUseLegacyFallback();
+    }
+
+    private static void explicitSocketFailureDoesNotUseLegacyFallback() {
+        expect(
+            TransportError.class,
+            () -> Client.builder()
+                .socket(java.nio.file.Path.of("/tmp/cmux-java-no-such.sock"))
+                .timeout(Duration.ofMillis(50))
+                .build()
+        );
+    }
+
+    private static void journalRegexDefaultsAreErgonomic() {
+        Options.JournalRegexFilter filter = new Options.JournalRegexFilter("agent\\.");
+        require(
+            filter.field() == Options.JournalRegexField.RECORD,
+            "journal regex defaults to the complete record"
+        );
+        require(filter.caseSensitive(), "journal regex defaults to case-sensitive matching");
     }
 
     private static void decimalAndIdentifiers() {
@@ -244,6 +266,49 @@ public final class ResourceApiTest {
         }
     }
 
+    private static void journalBoundaryAndNullableTerminalMetadata() {
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("text", "unavailable");
+        screen.put("revision", null);
+        screen.put("osc_progress", null);
+        screen.put("cols", 80);
+        screen.put("rows", 24);
+        screen.put("cursor_row", 0);
+        screen.put("cursor_col", 0);
+        screen.put("cursor_visible", true);
+        Results.TerminalScreenResult decoded = Client.decodeTerminalScreen(screen);
+        require(decoded.revision().isEmpty(), "null terminal revision is unavailable");
+        require(decoded.oscProgress().isEmpty(), "null terminal progress is unavailable");
+
+        Map<String, Object> malformedPut = new LinkedHashMap<>();
+        malformedPut.put("producer_id", "screen!detector");
+        malformedPut.put("manifest_version", 1);
+        malformedPut.put("namespace", "plugin.screen!detector");
+        malformedPut.put("sequence", "1");
+        malformedPut.put("event_id", "event-1");
+        expect(IllegalArgumentException.class, () -> JournalWire.decodePut(malformedPut));
+
+        Map<String, Object> malformedAppend = new LinkedHashMap<>();
+        malformedAppend.put("producer_id", "screen!detector");
+        malformedAppend.put("sequence", "1");
+        malformedAppend.put("event_id", "event-1");
+        expect(IllegalArgumentException.class, () -> JournalWire.decodeAppend(malformedAppend));
+
+        JournalIngress invalidIngress = new JournalIngress(
+            "screen-detector",
+            1,
+            "agent.state.changed",
+            1,
+            Optional.empty(),
+            List.of(),
+            Optional.empty(),
+            JsonValue.of(Map.of("state", "working")),
+            Optional.empty(),
+            Optional.empty()
+        );
+        expect(IllegalArgumentException.class, invalidIngress::toWire);
+    }
+
     private static void notificationTargetingIsOptionalAndTyped() {
         FakeTransport transport = new FakeTransport();
         try (Client client = client(transport)) {
@@ -313,6 +378,7 @@ public final class ResourceApiTest {
 
             session.createWorkspace(
                 Options.WorkspaceCreate.builder()
+                    .mutation(Options.Mutation.defaults().expecting(Decimal.parse("7")))
                     .correlationKey("workspace-create")
                     .build()
             );
@@ -320,6 +386,12 @@ public final class ResourceApiTest {
                 transport,
                 "workspace.create",
                 "workspace-create"
+            );
+            require(
+                object(transport.lastSent().get("params"))
+                    .get("expected_revision")
+                    .equals("7"),
+                "workspace.create expected_revision"
             );
 
             workspace.run(
@@ -371,9 +443,16 @@ public final class ResourceApiTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(0.5),
                 Optional.of("pane-split")
             ));
             requireLastCorrelation(transport, "pane.split", "pane-split");
+            require(
+                object(transport.lastSent().get("params"))
+                    .get("viewport_width")
+                    .equals(0.5),
+                "pane.split viewport_width"
+            );
 
             pane.createTerminalTab(new Options.TabCreateTerminal(
                 Options.Mutation.defaults(),
@@ -507,7 +586,7 @@ public final class ResourceApiTest {
             "lifecycle", "running"
         ));
         require(
-            legacyTerminal.tabIds().equals(List.of(legacyTerminal.tabId().orElseThrow())),
+            legacyTerminal.tabIds().equals(List.of(new Ids.TabId("tab_" + HEX))),
             "protocol-one terminal tab_id expands to tabIds"
         );
         Map<String, Object> legacyDetachedFields = new LinkedHashMap<>();
@@ -521,14 +600,74 @@ public final class ResourceApiTest {
         Snapshots.TerminalSnapshot legacyDetached =
             Client.decodeTerminal(legacyDetachedFields);
         require(
-            legacyDetached.tabId().isEmpty() && legacyDetached.tabIds().isEmpty(),
+            legacyDetached.tabIds().isEmpty(),
             "protocol-one detached terminal expands to empty tabIds"
+        );
+        expect(
+            ProtocolError.class,
+            () -> Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "title", "missing views",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            ))
+        );
+        Map<String, Object> missingDetachedViews = new LinkedHashMap<>();
+        missingDetachedViews.put("id", "term_" + HEX);
+        missingDetachedViews.put("tab_id", null);
+        missingDetachedViews.put("title", "missing detached views");
+        missingDetachedViews.put("cols", 80);
+        missingDetachedViews.put("rows", 24);
+        missingDetachedViews.put("running", true);
+        missingDetachedViews.put("lifecycle", "running");
+        require(
+            Client.decodeTerminal(missingDetachedViews).tabIds().isEmpty(),
+            "legacy detached terminal synthesizes empty tab_ids"
+        );
+        require(
+            Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "title", "legacy attached",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            )).tabIds().equals(List.of(new Ids.TabId("tab_" + HEX))),
+            "legacy attached terminal synthesizes tab_ids"
+        );
+        require(
+            Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "tab_ids", List.of("tab_" + HEX),
+                "title", "dual placement",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            )).tabIds().size() == 1,
+            "consistent dual terminal placement is accepted"
+        );
+        expect(
+            ProtocolError.class,
+            () -> Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "tab_ids", List.of(),
+                "title", "inconsistent",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            ))
         );
         expect(
             IllegalArgumentException.class,
             () -> Client.decodeTerminal(Map.of(
                 "id", "term_" + HEX,
-                "tab_id", "tab_" + HEX,
                 "tab_ids", List.of("tab_" + HEX),
                 "title", "bad",
                 "cols", 80,

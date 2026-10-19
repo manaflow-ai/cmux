@@ -37,6 +37,10 @@ final class StubGroupHost: WorkspaceGroupHosting {
     var localizedAutoGroupNameFormat: String { "Group %lld" }
     var defaultNewWorkspacePlacementInGroup: WorkspaceGroupNewPlacement { .end }
     private(set) var groupNameChangeCount = 0
+    var shouldFailGroupAnchorCreation = false
+    var shouldFailWorkspaceCreation = false
+    var untouchedGeneratedAnchorIds: Set<UUID> = []
+    var onWorkspaceClosed: ((CoordinatorStubTab) -> Void)?
 
     init(model: WorkspacesModel<CoordinatorStubTab>) {
         self.model = model
@@ -52,8 +56,10 @@ final class StubGroupHost: WorkspaceGroupHosting {
         workingDirectory: String?,
         inheritWorkingDirectory: Bool,
         select: Bool
-    ) -> CoordinatorStubTab {
+    ) -> CoordinatorStubTab? {
+        guard !shouldFailGroupAnchorCreation else { return nil }
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
+        untouchedGeneratedAnchorIds.insert(tab.id)
         let pinnedCount = model.tabs.prefix(while: \.isPinned).count
         model.tabs.insert(tab, at: pinnedCount)
         if select { model.selectedTabId = tab.id }
@@ -70,7 +76,8 @@ final class StubGroupHost: WorkspaceGroupHosting {
         inheritWorkingDirectory: Bool,
         select: Bool,
         applyCreationTitleAsCustomTitle: Bool
-    ) -> CoordinatorStubTab {
+    ) -> CoordinatorStubTab? {
+        guard !shouldFailWorkspaceCreation else { return nil }
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
         model.tabs.append(tab)
         if select { model.selectedTabId = tab.id }
@@ -82,11 +89,16 @@ final class StubGroupHost: WorkspaceGroupHosting {
               let index = model.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         model.tabs.remove(at: index)
         model.dissolveGroupsAnchoredBy(closedWorkspaceId: tab.id)
+        onWorkspaceClosed?(tab)
     }
 
     func selectWorkspace(_ tab: CoordinatorStubTab) {
         selectedWorkspaceIds.append(tab.id)
         model.selectedTabId = tab.id
+    }
+
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: CoordinatorStubTab) -> Bool {
+        untouchedGeneratedAnchorIds.contains(anchor.id)
     }
 
     func collapseSidebarSelectionForGroupCreation(hiddenWorkspaceIds: Set<UUID>, anchorId: UUID) {
@@ -135,6 +147,45 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.map(\.id) == [pinnedB.id, pinnedA.id, plain2.id, plain1.id])
         #expect(host.orderChanges.last?.sorted(by: { $0.uuidString < $1.uuidString })
             == [pinnedB.id, plain2.id].sorted(by: { $0.uuidString < $1.uuidString }))
+    }
+
+    @Test
+    func isAtTopOfUnpinnedTierMatchesTheNotificationBumpBoundary() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let pinned = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinned, plain1, plain2]
+
+        #expect(!reorder.isAtTopOfUnpinnedTier(pinned.id))
+        #expect(reorder.isAtTopOfUnpinnedTier(plain1.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(plain2.id))
+        reorder.moveTabToTopForNotification(plain2.id)
+        #expect(reorder.isAtTopOfUnpinnedTier(plain2.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(UUID()))
+    }
+
+    @Test
+    func isAtTopOfUnpinnedTierRequiresAGroupMemberToLeadItsGroup() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        #expect(reorder.isAtTopOfUnpinnedTier(group.anchorWorkspaceId))
+        #expect(reorder.isAtTopOfUnpinnedTier(child1.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(child2.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(outside.id))
+        reorder.moveTabToTopForNotification(child2.id)
+        #expect(reorder.isAtTopOfUnpinnedTier(child2.id))
+        #expect(!reorder.isAtTopOfUnpinnedTier(child1.id))
     }
 
     @Test
@@ -224,8 +275,6 @@ struct WorkspaceCoordinatorTests {
             child1.id,
             child2.id,
         ]))
-        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
-
         let moved = reorder.reorderSidebarWorkspace(
             tabId: dragged.id,
             toIndex: 3,
@@ -235,7 +284,6 @@ struct WorkspaceCoordinatorTests {
         #expect(moved)
         #expect(dragged.groupId == groupId)
         #expect(model.tabs.map(\.id) == [
-            group.anchorWorkspaceId,
             child1.id,
             child2.id,
             dragged.id,
@@ -332,14 +380,13 @@ struct WorkspaceCoordinatorTests {
         let targetChild2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, sourcePeer, targetChild1, targetChild2, outside]
-        _ = try #require(groups.createWorkspaceGroup(name: "Source", childWorkspaceIds: [
-            dragged.id,
-            sourcePeer.id,
-        ]))
-        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target", childWorkspaceIds: [
-            targetChild1.id,
-            targetChild2.id,
-        ]))
+        let sourceGroupId = try #require(groups.createWorkspaceGroup(name: "Source"))
+        groups.addWorkspaceToGroup(workspaceId: dragged.id, groupId: sourceGroupId)
+        groups.addWorkspaceToGroup(workspaceId: sourcePeer.id, groupId: sourceGroupId)
+        let targetGroupId = try #require(groups.createWorkspaceGroup(
+            name: "Target",
+            childWorkspaceIds: [targetChild1.id, targetChild2.id]
+        ))
         let targetGroup = try #require(model.workspaceGroups.first { $0.id == targetGroupId })
         let targetLastIndex = try #require(model.tabs.indices.last { model.tabs[$0].groupId == targetGroupId })
 
@@ -353,7 +400,6 @@ struct WorkspaceCoordinatorTests {
         #expect(dragged.groupId == targetGroupId)
         #expect(model.tabs.filter { $0.groupId == targetGroupId }.map(\.id) == [
             targetGroup.anchorWorkspaceId,
-            targetChild1.id,
             targetChild2.id,
             dragged.id,
         ])
@@ -368,12 +414,10 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
-            child1.id,
-            child2.id,
-        ]))
-        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
-
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
+        let anchorId = try #require(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
         let moved = reorder.reorderSidebarWorkspace(
             tabId: dragged.id,
             toIndex: 3,
@@ -382,7 +426,7 @@ struct WorkspaceCoordinatorTests {
         #expect(moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == [
-            group.anchorWorkspaceId,
+            anchorId,
             child1.id,
             child2.id,
             dragged.id,
@@ -399,11 +443,10 @@ struct WorkspaceCoordinatorTests {
         let child2 = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [dragged, child1, child2, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
-            child1.id,
-            child2.id,
-        ]))
-        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [child1.id, child2.id]
+        ))
 
         let moved = reorder.reorderSidebarWorkspace(
             tabId: dragged.id,
@@ -414,7 +457,6 @@ struct WorkspaceCoordinatorTests {
         #expect(moved)
         #expect(dragged.groupId == nil)
         #expect(model.tabs.map(\.id) == [
-            group.anchorWorkspaceId,
             child1.id,
             child2.id,
             dragged.id,
@@ -524,6 +566,30 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func sidebarNoncontiguousBlockCoalescesAtDraggedRowsOwnGap() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let d = CoordinatorStubTab()
+        let e = CoordinatorStubTab()
+        model.tabs = [a, b, c, d, e]
+
+        // Grabbed b with {b, d} selected and dropped at b's own lower gap
+        // (index 1 in [a, c, d, e]): b stays put and d coalesces up to it.
+        // This gap paints an indicator only for noncontiguous blocks
+        // (SidebarWorkspaceDragBlockResolver.blockOccupiesNoncontiguousRows).
+        #expect(reorder.reorderSidebarWorkspaces(
+            tabIds: [b.id, d.id],
+            draggedTabId: b.id,
+            toIndex: 1,
+            isDragOperation: true
+        ))
+        #expect(model.tabs.map(\.id) == [a.id, b.id, d.id, c.id, e.id])
+    }
+
+    @Test
     func sidebarBlockClampsMixedPinTiersAndKeepsEachContiguous() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
@@ -586,7 +652,6 @@ struct WorkspaceCoordinatorTests {
         #expect(moving1.groupId == groupId)
         #expect(moving2.groupId == groupId)
         #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
-            group.anchorWorkspaceId,
             target1.id,
             moving1.id,
             moving2.id,
@@ -635,7 +700,6 @@ struct WorkspaceCoordinatorTests {
             name: "G",
             childWorkspaceIds: [member1.id, member2.id]
         ))
-        let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
         // Grabbed loose; the gap between member2 and outside has one grouped
         // and one ungrouped neighbor. Single-drag preserves membership there,
         // so the block must too — stripping member2 out of its group here was
@@ -653,7 +717,6 @@ struct WorkspaceCoordinatorTests {
         #expect(loose.groupId == nil)
         #expect(member2.groupId == groupId)
         #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
-            anchorId,
             member1.id,
             member2.id,
         ])
@@ -668,12 +731,10 @@ struct WorkspaceCoordinatorTests {
         let outside1 = CoordinatorStubTab()
         let outside2 = CoordinatorStubTab()
         model.tabs = [child1, child2, outside1, outside2]
-        _ = try #require(groups.createWorkspaceGroup(
-            name: "G",
-            childWorkspaceIds: [child1.id, child2.id]
-        ))
-        let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
-
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: child1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: child2.id, groupId: groupId)
+        let anchorId = try #require(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
         // Grabbed child1; index 2 in the top-level rows without it
         // ([anchor, outside1, outside2]) is the gap above outside2.
         #expect(reorder.reorderSidebarWorkspaces(
@@ -766,6 +827,65 @@ struct WorkspaceCoordinatorTests {
     // MARK: Groups
 
     @Test
+    func createWorkspaceGroupLeavesModelUntouchedWhenAnchorCreationFails() {
+        let (model, host, groups, _) = makeWorld()
+        let first = CoordinatorStubTab()
+        let second = CoordinatorStubTab()
+        model.tabs = [first, second]
+        model.selectedTabId = second.id
+        host.sidebarSelectedWorkspaceIds = [first.id, second.id]
+        host.shouldFailGroupAnchorCreation = true
+        let originalOrder = model.tabs.map(\.id)
+        let originalSelection = model.selectedTabId
+
+        let groupId = groups.createWorkspaceGroup(
+            name: "Unavailable",
+            childWorkspaceIds: []
+        )
+
+        #expect(groupId == nil)
+        #expect(model.tabs.map(\.id) == originalOrder)
+        #expect(model.tabs.allSatisfy { $0.groupId == nil })
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(model.selectedTabId == originalSelection)
+        #expect(host.sidebarSelectedWorkspaceIds == [first.id, second.id])
+        #expect(host.collapsedForCreation.isEmpty)
+        #expect(host.orderChanges.isEmpty)
+    }
+
+    @Test
+    func createWorkspaceInGroupLeavesModelUntouchedWhenHostCreationFails() throws {
+        let (model, host, groups, _) = makeWorld()
+        let member = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [member, outside]
+        let groupId = try #require(
+            groups.createWorkspaceGroup(
+                name: "Existing",
+                childWorkspaceIds: [member.id]
+            )
+        )
+        let originalOrder = model.tabs.map(\.id)
+        let originalMembership = model.tabs.map(\.groupId)
+        let originalGroups = model.workspaceGroups
+        let originalSelection = model.selectedTabId
+        let originalOrderChangeCount = host.orderChanges.count
+        host.shouldFailWorkspaceCreation = true
+
+        let workspace = groups.createWorkspaceInGroup(
+            groupId: groupId,
+            placement: .top
+        )
+
+        #expect(workspace == nil)
+        #expect(model.tabs.map(\.id) == originalOrder)
+        #expect(model.tabs.map(\.groupId) == originalMembership)
+        #expect(model.workspaceGroups == originalGroups)
+        #expect(model.selectedTabId == originalSelection)
+        #expect(host.orderChanges.count == originalOrderChangeCount)
+    }
+
+    @Test
     func createWorkspaceGroupAdoptsChildrenAndKeepsSectionContiguous() throws {
         let (model, host, groups, _) = makeWorld()
         let child1 = CoordinatorStubTab()
@@ -784,8 +904,9 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.first(where: { $0.id == child1.id })?.groupId == groupId)
         #expect(model.tabs.first(where: { $0.id == child2.id })?.groupId == groupId)
         // Section is contiguous and anchor-first at the first child's slot.
-        #expect(model.tabs.map(\.id) == [anchorId, child1.id, child2.id, other.id])
-        #expect(host.orderChanges.last == [anchorId, child1.id, child2.id])
+        #expect(anchorId == child1.id)
+        #expect(model.tabs.map(\.id) == [child1.id, child2.id, other.id])
+        #expect(host.orderChanges.last == [child1.id, child2.id])
     }
 
     @Test
@@ -803,16 +924,114 @@ struct WorkspaceCoordinatorTests {
 
         #expect(pinnedChild.groupId == groupId)
         #expect(unpinnedChild.groupId == groupId)
+        #expect(group.anchorWorkspaceId == pinnedChild.id)
         #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
-            group.anchorWorkspaceId,
             pinnedChild.id,
             unpinnedChild.id,
         ])
         #expect(host.orderChanges.last == [
-            group.anchorWorkspaceId,
             pinnedChild.id,
             unpinnedChild.id,
         ])
+    }
+
+    @Test
+    func createWorkspaceGroupWithExternalIDReturnsOneAtomicGroup() {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        model.tabs = [CoordinatorStubTab()]
+        guard let first = groups.createWorkspaceGroup(
+            name: "Ops",
+            selectAnchor: false,
+            collapseSidebarSelection: false,
+            externalID: "repo:cmux"
+        ) else {
+            Issue.record("first idempotent group create failed")
+            return
+        }
+        let tabCountAfterFirstCreate = model.tabs.count
+
+        guard let second = groups.createWorkspaceGroup(
+            name: "A different display name",
+            selectAnchor: false,
+            collapseSidebarSelection: false,
+            externalID: " repo:cmux "
+        ) else {
+            Issue.record("idempotent retry did not return the existing group")
+            return
+        }
+
+        // The coordinator receives normalized identities from the control
+        // boundary; direct callers should pass the same canonical value. The
+        // second call must not mint another anchor or group.
+        #expect(second == first)
+        #expect(model.workspaceGroups.count == 1)
+        #expect(model.tabs.count == tabCountAfterFirstCreate)
+        #expect(model.workspaceGroups.first?.idempotencyKey == "repo:cmux")
+    }
+
+    @Test
+    func ungroupCanRemoveOnlyAGeneratedAnchor() {
+        let (model, host, groups, _) = makeWorld()
+        model.tabs = [CoordinatorStubTab(), CoordinatorStubTab()]
+        guard let groupID = groups.createWorkspaceGroup(
+            name: "Orphan",
+            selectAnchor: false,
+            collapseSidebarSelection: false,
+            externalID: "repo:orphan"
+        ) else {
+            Issue.record("generated-anchor group create failed")
+            return
+        }
+        guard let anchorID = model.workspaceGroups.first?.anchorWorkspaceId else {
+            Issue.record("generated-anchor group has no anchor")
+            return
+        }
+
+        let result = groups.ungroupWorkspaceGroup(
+            groupId: groupID,
+            removeGeneratedAnchor: true
+        )
+
+        #expect(result == .removedGeneratedAnchor(workspaceID: anchorID))
+        #expect(host.closedWorkspaceIds == [anchorID])
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(!model.tabs.contains { $0.id == anchorID })
+    }
+
+    @Test
+    func generatedAnchorCleanupRejectsChildrenAndUserSelectedAnchors() {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let child = CoordinatorStubTab()
+        let other = CoordinatorStubTab()
+        model.tabs = [child, other]
+        guard let groupID = groups.createWorkspaceGroup(
+            name: "Guarded",
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ) else {
+            Issue.record("guarded group create failed")
+            return
+        }
+        groups.addWorkspaceToGroup(workspaceId: child.id, groupId: groupID)
+
+        #expect(groups.ungroupWorkspaceGroup(
+            groupId: groupID,
+            removeGeneratedAnchor: true
+        ) == .generatedAnchorRequiresAnchorOnly(memberWorkspaceCount: 1))
+        #expect(model.workspaceGroups.contains { $0.id == groupID })
+
+        guard let memberID = model.tabs.first(where: { $0.id == child.id })?.id else {
+            Issue.record("group member disappeared")
+            return
+        }
+        groups.setWorkspaceGroupAnchor(groupId: groupID, workspaceId: memberID)
+        #expect(groups.ungroupWorkspaceGroup(
+            groupId: groupID,
+            removeGeneratedAnchor: true
+        ) == .generatedAnchorNotOwned)
+        #expect(model.workspaceGroups.contains { $0.id == groupID })
     }
 
     @Test
@@ -836,7 +1055,9 @@ struct WorkspaceCoordinatorTests {
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: b.id, groupId: groupId)
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
@@ -855,7 +1076,8 @@ struct WorkspaceCoordinatorTests {
         _ = host
         let a = CoordinatorStubTab()
         model.tabs = [a]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
         let orderBefore = model.tabs.map(\.id)
 
         groups.ungroupWorkspaceGroup(groupId: groupId)
@@ -869,7 +1091,8 @@ struct WorkspaceCoordinatorTests {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         model.tabs = [a]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
         model.selectedTabId = a.id
         host.sidebarSelectedWorkspaceIds = [a.id]
@@ -924,12 +1147,12 @@ struct WorkspaceCoordinatorTests {
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: b.id, groupId: groupId)
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
-        // createWorkspaceGroup mints a fresh synthetic anchor; `a`/`b` are members.
-        #expect(anchorId != a.id)
-        #expect(anchorId != b.id)
-        // `a` precedes `b` in tabs order, so `a` is the deterministic promotion
+        // The generated anchor is followed by the real members; `a` precedes `b`
+        // in tabs order, so `a` is the deterministic promotion
         // target once the anchor is removed.
         let aIndex = try #require(model.tabs.firstIndex(where: { $0.id == a.id }))
         let bIndex = try #require(model.tabs.firstIndex(where: { $0.id == b.id }))
@@ -972,6 +1195,53 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.map(\.id) == [outside.id])
     }
 
+    /// Closing the final workspace of a pinned group must leave the group
+    /// metadata available for a later explicit Delete Group action.
+    @Test
+    func pinnedAnchorClosePreservesEmptyGroup() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "Pinned", childWorkspaceIds: []))
+        groups.setWorkspaceGroupPinned(groupId: groupId, isPinned: true)
+        let original = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let anchorId = original.anchorWorkspaceId
+
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        let surviving = try #require(model.workspaceGroups.first { $0.id == groupId })
+        #expect(surviving.name == original.name)
+        #expect(surviving.isPinned)
+        #expect(model.tabs.map(\.id) == [outside.id])
+    }
+
+    @Test
+    func addingWorkspaceToEmptyPinnedGroupPromotesItToAnchor() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "Pinned", childWorkspaceIds: []))
+        groups.setWorkspaceGroupPinned(groupId: groupId, isPinned: true)
+        let emptyGroup = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let anchorId = emptyGroup.anchorWorkspaceId
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        let newWorkspace = CoordinatorStubTab()
+        model.tabs.append(newWorkspace)
+        groups.addWorkspaceToGroup(workspaceId: newWorkspace.id, groupId: groupId)
+
+        #expect(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId == newWorkspace.id)
+        #expect(newWorkspace.groupId == groupId)
+    }
+
     /// If the snapshot anchor is closed while the Delete Group confirmation is
     /// open, the group promotes its next member to anchor. On acceptance the
     /// batch close must drain that *live* anchor last, not the stale snapshot
@@ -985,7 +1255,9 @@ struct WorkspaceCoordinatorTests {
         let b = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [a, b, outside]
-        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: a.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: b.id, groupId: groupId)
 
         // Snapshot the confirmation while the original synthetic anchor is live.
         let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))

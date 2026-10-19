@@ -96,4 +96,39 @@ struct ChatArtifactTemporaryFileStoreTests {
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
     }
+
+    @Test("rejects a stream that ends before the stat size")
+    func rejectsTruncatedStream() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-truncated-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let partial = Data("partial".utf8)
+        let expectedSize = Int64(partial.count + 4)
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: partial,
+                    offset: 0,
+                    totalSize: expectedSize,
+                    eof: false
+                ))
+            }
+        )
+
+        do {
+            _ = try await ChatArtifactTemporaryFileStore(directory: directory).fetch(
+                path: "/remote/truncated.pdf",
+                expectedSize: expectedSize,
+                limit: 1_024,
+                loader: loader,
+                progress: { _ in }
+            )
+            Issue.record("a truncated stream must not produce a preview file")
+        } catch let error as ChatArtifactError {
+            #expect(error == .transferInterrupted)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
 }

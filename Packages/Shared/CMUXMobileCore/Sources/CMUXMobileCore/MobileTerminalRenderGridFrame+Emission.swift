@@ -18,6 +18,7 @@ extension MobileTerminalRenderGridFrame {
     public var emissionState: MobileTerminalRenderGridEmissionState {
         MobileTerminalRenderGridEmissionState(
             renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
@@ -83,6 +84,7 @@ extension MobileTerminalRenderGridFrame {
         let nextSignatures = rowSignatures()
         let nextState = MobileTerminalRenderGridEmissionState(
             renderEpoch: renderEpoch,
+            renderRevision: renderRevision,
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
@@ -151,7 +153,8 @@ extension MobileTerminalRenderGridFrame {
                 full: false,
                 scrolledRows: rows + carried,
                 carryScrollbackSpans: true,
-                deltaBaseHistoryRows: previous.historyRows
+                deltaBaseHistoryRows: previous.historyRows,
+                deltaBaseRenderRevision: previous.renderRevision
             )
             return .emit(frame: deltaFrame, state: nextState)
         }
@@ -194,7 +197,8 @@ extension MobileTerminalRenderGridFrame {
             changedRows,
             full: false,
             scrolledRows: scrolled,
-            deltaBaseHistoryRows: anchor == .screen ? previous.historyRows : nil
+            deltaBaseHistoryRows: anchor == .screen ? previous.historyRows : nil,
+            deltaBaseRenderRevision: previous.renderRevision
         )
         return .emit(frame: deltaFrame, state: nextState)
     }

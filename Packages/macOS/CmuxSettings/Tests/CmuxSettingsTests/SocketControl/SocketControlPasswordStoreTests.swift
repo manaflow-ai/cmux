@@ -57,6 +57,26 @@ import Testing
         #expect(!store.verify(password: "hunter22"))
     }
 
+    /// The password file is written by the installer / another process, not by
+    /// `savePassword`, so the store must read a plain externally-authored file.
+    @Test func loadsPasswordFromAnExternallyWrittenFile() throws {
+        let url = tempFileURL()
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try "hunter2".write(to: url, atomically: true, encoding: .utf8)
+
+        let store = SocketControlPasswordStore(environment: [:], fileURL: url)
+        #expect(try store.loadPassword() == "hunter2")
+    }
+
+    @Test func verifyFailsWhenNoPasswordIsConfigured() {
+        let store = SocketControlPasswordStore(environment: [:], fileURL: tempFileURL())
+        #expect(!store.verify(password: "swordfish"))
+    }
+
     @Test func keychainFallbackOnlyConsultedWhenAllowed() {
         let counter = Counter()
         let store = SocketControlPasswordStore(

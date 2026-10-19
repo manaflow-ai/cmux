@@ -197,6 +197,7 @@ public actor CmxIrohHostPolicyCache {
         let binding = policy.binding
         guard binding.deviceID == expectation.deviceID,
               binding.appInstanceID == expectation.appInstanceID,
+              binding.clientNamespace == expectation.clientNamespace,
               binding.tag == expectation.tag,
               binding.platform == .mac,
               binding.endpointID == expectation.endpointID,
@@ -235,7 +236,7 @@ public actor CmxIrohHostPolicyCache {
         for expectation: CmxIrohHostPolicyExpectation
     ) -> String {
         let transcript = Data(
-            "cmux/iroh/offline-host-policy-scope/v1\0\(expectation.accountID)\0\(expectation.appInstanceID)".utf8
+            "cmux/iroh/offline-host-policy-scope/v2\0\(expectation.accountID)\0\(expectation.clientNamespace)\0\(expectation.appInstanceID)".utf8
         )
         return SHA256.hash(data: transcript)
             .map { String(format: "%02x", $0) }

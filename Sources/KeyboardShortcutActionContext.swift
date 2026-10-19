@@ -15,6 +15,9 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerOpenFileSearch,
              .diffViewerNextFile,
              .diffViewerPreviousFile,
+             .diffViewerNextHunk,
+             .diffViewerPreviousHunk,
+             .diffViewerToggleViewed,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return true
@@ -35,7 +38,10 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollToTop,
              .diffViewerOpenFileSearch,
              .diffViewerNextFile,
-             .diffViewerPreviousFile:
+             .diffViewerPreviousFile,
+             .diffViewerNextHunk,
+             .diffViewerPreviousHunk,
+             .diffViewerToggleViewed:
             return true
         default:
             return false
@@ -50,6 +56,7 @@ extension KeyboardShortcutSettings.Action {
         case browserPanel
         case viewerPanel
         case browserOrFilePreviewTextEditor
+        case filePreviewTextEditor
         case markdownPanel
         case simulatorPanel
         case rightSidebarFocus
@@ -67,6 +74,7 @@ extension KeyboardShortcutSettings.Action {
             }
         }
 
+        /// Evaluates this built-in scope against the current focused content.
         func isAvailable(
             focusedBrowserPanel: Bool,
             focusedMarkdownPanel: Bool,
@@ -83,6 +91,7 @@ extension KeyboardShortcutSettings.Action {
             case .browserPanel: return focusedBrowserPanel
             case .viewerPanel: return focusedBrowserPanel || focusedMarkdownPanel
             case .browserOrFilePreviewTextEditor: return focusedBrowserPanel || focusedFilePreviewTextEditor
+            case .filePreviewTextEditor: return focusedFilePreviewTextEditor
             case .markdownPanel: return focusedMarkdownPanel
             case .simulatorPanel: return focusedSimulatorPanel
             case .rightSidebarFocus: return rightSidebarFocused
@@ -96,17 +105,21 @@ extension KeyboardShortcutSettings.Action {
             }
         }
 
+        /// Projects the event’s responder snapshot into this shortcut scope.
         func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
             return isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 focusedSimulatorPanel: context.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
-                focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
+                focusedFilePreviewTextEditor: self == .filePreviewTextEditor
+                    ? context.fileEditorFocused
+                    : context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
         }
 
+        /// Evaluates command availability against the palette’s captured panel context.
         func isAvailable(commandPaletteContext context: CommandPaletteContextSnapshot) -> Bool {
             if self == .commandPaletteVisible {
                 return true
@@ -121,6 +134,7 @@ extension KeyboardShortcutSettings.Action {
             )
         }
 
+        /// The settings predicate equivalent to this built-in focus scope.
         var defaultWhenClause: ShortcutWhenClause {
             switch self {
             case .application: return .always
@@ -131,6 +145,8 @@ extension KeyboardShortcutSettings.Action {
             case .viewerPanel: return .or(.atom(.browserFocus), .atom(.markdownFocus))
             case .browserOrFilePreviewTextEditor:
                 return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
+            case .filePreviewTextEditor:
+                return .atom(.filePreviewTextEditorFocus)
             case .markdownPanel: return .atom(.markdownFocus)
             case .simulatorPanel: return .atom(.simulatorFocus)
             case .rightSidebarFocus: return .atom(.sidebarFocus)
@@ -152,6 +168,7 @@ extension KeyboardShortcutSettings.Action {
             }
         }
 
+        /// Reports whether two built-in shortcut scopes can be active together.
         func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application || self == other {
                 return true
@@ -176,7 +193,16 @@ extension KeyboardShortcutSettings.Action {
             if self == .browserOrFilePreviewTextEditor || other == .browserOrFilePreviewTextEditor {
                 let paired = self == .browserOrFilePreviewTextEditor ? other : self
                 switch paired {
-                case .browserPanel, .nonBrowserPanel, .canvasLayout:
+                case .browserPanel, .nonBrowserPanel, .filePreviewTextEditor, .canvasLayout:
+                    return true
+                default:
+                    return false
+                }
+            }
+            if self == .filePreviewTextEditor || other == .filePreviewTextEditor {
+                let paired = self == .filePreviewTextEditor ? other : self
+                switch paired {
+                case .nonBrowserPanel, .filePreviewTextEditor, .canvasLayout:
                     return true
                 default:
                     return false
@@ -190,6 +216,8 @@ extension KeyboardShortcutSettings.Action {
                     && other != .browserPanel
                     && self != .browserOrFilePreviewTextEditor
                     && other != .browserOrFilePreviewTextEditor
+                    && self != .filePreviewTextEditor
+                    && other != .filePreviewTextEditor
                     && self != .markdownPanel
                     && other != .markdownPanel
                     && self != .viewerPanel
@@ -207,6 +235,7 @@ extension KeyboardShortcutSettings.Action {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToMachines,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard,
              .commandPaletteNext, .commandPalettePrevious:
@@ -216,6 +245,7 @@ extension KeyboardShortcutSettings.Action {
         }
     }
 
+    /// The built-in focus scope used when no configured when clause overrides it.
     var shortcutContext: ShortcutContext {
         switch self {
         case .diffViewerScrollDown, .diffViewerScrollUp,
@@ -223,15 +253,16 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
              .diffViewerScrollToTop:
             return .viewerPanel
-        case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+        case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             return .browserPanel
         case .commandPaletteNext, .commandPalettePrevious:
             return .commandPaletteVisible
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
-             .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
+             .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
             return .nonBrowserPanel
         case .focusHistoryBack, .focusHistoryForward:
             return .outsideBrowserPanel
@@ -241,6 +272,8 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .browserZoomIn, .browserZoomOut, .browserZoomReset:
             return .browserOrFilePreviewTextEditor
+        case .toggleFileEditorWordWrap:
+            return .filePreviewTextEditor
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
         case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,

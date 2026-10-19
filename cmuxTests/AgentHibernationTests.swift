@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Testing
@@ -153,13 +154,13 @@ struct AgentHibernationTests {
 
         let selected = AgentHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: idleOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: idleNew, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
-                .init(key: runningOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: unknownOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
-                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleNew, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
+                .init(key: runningOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unknownOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
+                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
             ],
             settings: settings,
             now: now
@@ -180,7 +181,7 @@ struct AgentHibernationTests {
 
         let selected = AgentHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: key, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
+                .init(key: key, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
             ],
             settings: settings,
             now: 1_000
@@ -1214,7 +1215,7 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
-    func testResumePreparationWithoutStartupInputStillLeavesHibernation() throws {
+    func testResumePreparationWithoutCapturedLaunchQueuesRestoreSelector() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
@@ -1233,9 +1234,9 @@ struct AgentHibernationTests {
 
         let preparation = panel.prepareAgentHibernationResume()
 
-        expectEqual(preparation, .resumed(queuedStartupInput: false))
+        expectEqual(preparation, .resumed(queuedStartupInput: true))
         expectFalse(panel.isAgentHibernated)
-        expectFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
+        expectTrue(snapshot.resumeStartupInput()?.contains("restore manual-agent manual-agent-session") == true)
     }
 
 }

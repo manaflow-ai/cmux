@@ -71,7 +71,8 @@ extension AppDelegate {
     /// Consumes the current display-change notification state: first restores
     /// each window's remembered frame for the now-connected configuration
     /// (issue #2135), then re-clamps any window whose titlebar is still
-    /// unreachable (#6913 safety net).
+    /// unreachable (#6913 safety net) and re-fits native-fullscreen frames
+    /// restored by AppKit after the topology transaction.
     ///
     /// CoreGraphics/AppKit display-change callbacks advance the display
     /// generation. CoreGraphics callbacks only invalidate any previously
@@ -166,25 +167,35 @@ extension AppDelegate {
             didObserveUnknownDisplayConfiguration = true
             requeueScreenChangeReconcileIfPossible()
         }
-        if let visibleFrameFitTopologySignature {
-            lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
-            didObserveUnknownVisibleFrameFitTopology = false
-            visibleFrameFitTopologyRetryBudget = 0
-        } else {
+        // A trusted signature becomes the new baseline only after the frame
+        // fit below succeeds. Keeping the pending marker set across a late
+        // AppKit fullscreen geometry event lets that event schedule another
+        // pass instead of declaring a stale frame settled.
+        if visibleFrameFitTopologySignature == nil {
             didObserveUnknownVisibleFrameFitTopology = true
             requeueVisibleFrameFitTopologyIfPossible()
         }
 
-        // Reachability safety net: any window still stranded is clamped back.
+        // Reachability safety net: any non-fullscreen window still stranded is
+        // clamped back. Native-fullscreen windows use the display-fit rescue
+        // below because their frame is owned by AppKit's Space machinery.
         let mainWindows = mainWindowsForVisibilityController()
         for window in mainWindows {
+            guard let window = window as? CmuxMainWindow else { continue }
+            // AppKit owns inactive-Space placement while it restores a display
+            // topology. Setting a frame on those windows moves them onto the
+            // currently visible Space instead of letting macOS restore them.
+            guard Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            ) else { continue }
             // Native-fullscreen windows are owned by AppKit's Space machinery;
             // clamping them mid-transition fights the fullscreen teardown.
             guard !window.styleMask.contains(.fullScreen) else { continue }
             let currentFrame = window.frame
             guard let corrected = Self.reconciledFrameAfterScreenChange(
                 frame: currentFrame,
-                availableDisplays: displays.available
+                availableDisplays: displays.available,
+                topologyTrusted: visibleFrameFitTopologySignature != nil
             ) else { continue }
 #if DEBUG
             cmuxDebugLog(
@@ -193,13 +204,30 @@ extension AppDelegate {
                     "to={\(nsRectLogDescription(corrected))}"
             )
 #endif
-            window.setFrame(corrected, display: true)
+            window.setFrameForManagedPlacement(corrected, display: true)
         }
-        if visibleFrameFitTopologyChanged {
-            fitRestoredMainWindowFramesIfNeeded(
-                windows: mainWindows,
-                displays: displays.available
+        // Keep inactive-Space windows out of the fit pass for the same reason:
+        // the reconciler applies frames even when reachability needed no fix.
+        let activeSpaceWindows = mainWindows.filter { window in
+            guard let window = window as? CmuxMainWindow else { return false }
+            return Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
             )
+        }
+        let fitCompleted = MainWindowFrameReconciler().repair(
+            displays: displays.available,
+            windows: activeSpaceWindows,
+            trigger: .displayTopology(changed: visibleFrameFitTopologyChanged)
+        )
+        if visibleFrameFitTopologyChanged {
+            if fitCompleted, let visibleFrameFitTopologySignature {
+                lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
+                didObserveUnknownVisibleFrameFitTopology = false
+                visibleFrameFitTopologyRetryBudget = 0
+            } else {
+                didObserveUnknownVisibleFrameFitTopology = true
+                requeueVisibleFrameFitTopologyIfPossible()
+            }
         }
     }
 
@@ -211,7 +239,11 @@ extension AppDelegate {
         displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)
     ) {
         for window in mainWindowsForVisibilityController() {
+            guard let window = window as? CmuxMainWindow else { continue }
             guard !window.styleMask.contains(.fullScreen) else { continue }
+            guard Self.shouldReconcileWindowAfterScreenChange(
+                isOnActiveSpace: window.isOnActiveSpace
+            ) else { continue }
             guard let context = contextForMainTerminalWindow(window) else { continue }
             let windowTag = context.windowId.uuidString.prefix(8)
             guard let entry = windowConfigFrames[context.windowId]?.entry(for: signature) else {
@@ -238,7 +270,7 @@ extension AppDelegate {
                     "applied={\(nsRectLogDescription(restored))}"
             )
 #endif
-            window.setFrame(restored, display: true)
+            window.setFrameForRestoredPlacement(restored, display: true)
         }
     }
 

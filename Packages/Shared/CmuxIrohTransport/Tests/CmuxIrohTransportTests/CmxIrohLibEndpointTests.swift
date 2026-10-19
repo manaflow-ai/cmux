@@ -276,9 +276,10 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
-    func relayOnlyIgnoresDirectAddressHintsAndAdvertisement() async throws {
+    func relayOnlyKeepsManagedRelayAndIgnoresDirectHintsAndAdvertisement() async throws {
+        let relayURL = "https://use1-1.relay.lawrence.cmux.iroh.link/"
         let endpoint = try await makeEndpoint(
-            managedRelayURLs: [],
+            managedRelayURLs: [relayURL],
             transportVerificationMode: .relayOnly
         )
         let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
@@ -291,12 +292,24 @@ struct CmxIrohLibEndpointTests {
             observedAt: Date(),
             expiresAt: Date().addingTimeInterval(60)
         )
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: relayURL,
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: Date(),
+            expiresAt: Date().addingTimeInterval(60)
+        )
 
         let attempts = try await concrete.endpointAddresses(
-            CmxIrohEndpointAddress(identity: identity, pathHints: [directHint])
+            CmxIrohEndpointAddress(
+                identity: identity,
+                pathHints: [directHint, relayHint]
+            )
         )
 
         #expect(attempts.count == 1)
+        #expect(attempts.first?.relayUrl() == relayURL)
         #expect(attempts.first?.directAddresses().isEmpty == true)
         #expect(await endpoint.localDirectAddresses().isEmpty)
         #expect(await endpoint.address().pathHints.allSatisfy { $0.kind != .directAddress })

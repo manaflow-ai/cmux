@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct NotificationFeedHistoryOversizedSnapshotRecovery: Sendable {
+struct NotificationFeedHistoryOversizedSnapshotRecovery: Sendable {
     let snapshot: NotificationFeedHistorySnapshot
     let shouldRetainQuarantineBackup: Bool
 }

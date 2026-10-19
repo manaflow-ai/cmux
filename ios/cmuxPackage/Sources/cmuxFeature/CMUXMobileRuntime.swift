@@ -8,8 +8,11 @@ import OSLog
 
 public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
-    public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
-    public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
+    // Iroh may spend more than eight seconds establishing a relay path before
+    // the first authenticated RPC can be written. Keep one hard end-to-end
+    // pairing deadline, but size it to leave room for both phases.
+    public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
@@ -31,8 +34,14 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     /// 750ms poll only when a connected Mac does not support events.
     public var supportsServerPushEvents: Bool
     public var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
+    /// Set when the provider merges per-surface event lanes (the irx hub).
+    public var independentEventsMergeSurfaceLanes: Bool
     public var terminalLaneProvider: MobileTerminalLaneProvider?
+    public var terminalInputLaneProvider: MobileTerminalLaneProvider?
+    public var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider?
     public var artifactLaneProvider: MobileArtifactLaneProvider?
+    public var tunnelConnectProvider: MobileTunnelConnectProvider?
+    public var tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider?
 
     /// Builds the production access-token provider over an injected
     /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG
@@ -142,7 +151,12 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        terminalInputLaneProvider: MobileTerminalLaneProvider? = nil,
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
+        independentEventsMergeSurfaceLanes: Bool = false,
+        tunnelConnectProvider: MobileTunnelConnectProvider? = nil,
+        tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? = nil
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -156,7 +170,12 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.supportsServerPushEvents = supportsServerPushEvents
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
+        self.terminalInputLaneProvider = terminalInputLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
+        self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
+        self.tunnelConnectProvider = tunnelConnectProvider
+        self.tunnelListeningPortsProvider = tunnelListeningPortsProvider
     }
 
     public init(
@@ -171,7 +190,12 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        terminalInputLaneProvider: MobileTerminalLaneProvider? = nil,
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
+        independentEventsMergeSurfaceLanes: Bool = false,
+        tunnelConnectProvider: MobileTunnelConnectProvider? = nil,
+        tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? = nil
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
@@ -184,7 +208,12 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.supportsServerPushEvents = supportsServerPushEvents
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
+        self.terminalInputLaneProvider = terminalInputLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
+        self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
+        self.tunnelConnectProvider = tunnelConnectProvider
+        self.tunnelListeningPortsProvider = tunnelListeningPortsProvider
         self.now = now
     }
 }

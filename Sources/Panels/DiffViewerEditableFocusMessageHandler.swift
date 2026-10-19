@@ -1,4 +1,5 @@
 import WebKit
+import CmuxBrowser
 
 @MainActor
 final class DiffViewerEditableFocusMessageHandler: NSObject, WKScriptMessageHandler {

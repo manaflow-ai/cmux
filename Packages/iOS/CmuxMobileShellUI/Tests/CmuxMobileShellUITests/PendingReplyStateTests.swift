@@ -68,15 +68,34 @@ import Testing
         #expect(state.pending == nil)
     }
 
+    @Test func discardIfMatchingConsumesOnlyTheSameReply() {
+        var state = PendingReplyState()
+        state.park(reply(text: "first", replyId: "reply-first"))
+        state.discardIfMatching(replyId: "reply-other")
+        #expect(state.pending?.text == "first")
+
+        // A newer reply parked while the first's relay POST was in flight
+        // must survive the first's consume.
+        state.park(reply(text: "second", replyId: "reply-second"))
+        state.discardIfMatching(replyId: "reply-first")
+        #expect(state.pending?.text == "second")
+
+        state.discardIfMatching(replyId: "reply-second")
+        #expect(state.pending == nil)
+    }
+
     private func reply(
         text: String,
-        createdAt: Date? = nil
+        createdAt: Date? = nil,
+        replyId: String = "reply-1"
     ) -> PendingReply {
         PendingReply(
+            replyId: replyId,
             text: text,
             workspaceId: "workspace-1",
             surfaceId: "surface-1",
             macDeviceId: "mac-1",
+            macInstanceTag: "nightly",
             retargetsToLiveSurfaceOwner: true,
             createdAt: createdAt ?? now
         )

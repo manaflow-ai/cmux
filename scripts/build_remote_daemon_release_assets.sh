@@ -163,4 +163,7 @@ python3 "$SCRIPT_DIR/generate_remote_daemon_release_manifest.py" \
   "$MANIFEST_PATH" \
   "$ENTRIES_FILE"
 
+python3 "$SCRIPT_DIR/verify_remote_daemon_release.py" \
+  --manifest "$MANIFEST_PATH" --assets-dir "$OUTPUT_DIR"
+
 echo "Built cmuxd-remote assets in ${OUTPUT_DIR}"

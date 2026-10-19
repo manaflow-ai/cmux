@@ -22,8 +22,13 @@ extension MobileShellComposite {
             return (workspace, terminalID)
         }
         let canonicalForegroundID = cmxCanonicalDeviceID(foregroundMacDeviceID)
+        let foregroundTag = activeMacInstanceTag
         guard let workspace = eligible.first(where: {
             $0.macDeviceID.map(cmxCanonicalDeviceID) == canonicalForegroundID
+                && macInstanceTagAuthority.sameStoredAuthority(
+                    $0.macInstanceTag,
+                    foregroundTag
+                )
         }), let terminalID = Self.releaseGateTerminal(in: workspace)?.id else {
             return nil
         }
@@ -38,6 +43,7 @@ extension MobileShellComposite {
     ) -> MobileWorkspacePreview? {
         let remoteWorkspaceID = captured.rpcWorkspaceID
         let expectedMacDeviceID = captured.macDeviceID ?? foregroundMacDeviceID
+        let expectedInstanceTag = captured.macInstanceTag ?? activeMacInstanceTag
         let candidates = workspaces.filter {
             $0.rpcWorkspaceID == remoteWorkspaceID
                 && $0.actionCapabilities.supportsWorkspaceActions
@@ -48,6 +54,10 @@ extension MobileShellComposite {
         let canonicalExpectedMacDeviceID = cmxCanonicalDeviceID(expectedMacDeviceID)
         return candidates.first {
             $0.macDeviceID.map(cmxCanonicalDeviceID) == canonicalExpectedMacDeviceID
+                && macInstanceTagAuthority.sameStoredAuthority(
+                    $0.macInstanceTag,
+                    expectedInstanceTag
+                )
         }
     }
 

@@ -4,6 +4,8 @@ Dock is the cmux right sidebar rendered as a full panel container. It uses the *
 
 Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages. Feed can be added as one optional terminal with `cmux feed tui --opentui`, but Dock is not limited to Feed.
 
+Dock is enabled by default for every installation, including existing users who never enabled its former beta toggle. The old toggle is ignored after upgrading; to keep Dock out of the mode bar, use Settings > Sidebar > Right Sidebar Tabs (or the mode bar's tab customization menu) to hide it. This visibility choice does not delete Dock layouts or persisted Dock state.
+
 Every cmux window has its own independent Dock. Multiple windows can show their Docks side by side, and closing a window closes its Dock terminals and browsers with it. Dock state is part of the normal cmux session snapshot, so quitting or installing an update preserves each workspace Dock and each window Dock.
 
 Each terminal command starts inside the terminal's non-interactive login shell. That keeps the user's normal PATH and toolchain setup without running prompt code before the TUI starts. When the command exits, Dock drops into an interactive login shell in the same section so the user can inspect, rerun, or exit.
@@ -81,7 +83,8 @@ Dock is configured with JSON:
       "id": "docs",
       "title": "Docs",
       "type": "browser",
-      "url": "https://example.com"
+      "url": "http://127.0.0.1:8877/sidebar",
+      "chrome": false
     }
   ]
 }
@@ -94,11 +97,14 @@ Fields:
 - `type`: optional, `terminal` (default) or `browser`.
 - `command`: command to run in the Dock terminal. Required for `terminal` controls.
 - `url`: page to open. Required for `browser` controls.
+- `chrome`: optional browser chrome visibility. Defaults to `true`; set it to `false` for a chromeless browser pane without an address bar or toolbar.
 - `cwd`: optional working directory (terminal controls).
-- `height`: optional requested terminal height in points. Controls without a height share remaining space.
+- `height`: optional requested control height in points. Controls without a height share remaining space.
 - `env`: optional non-secret environment variables passed only to that control (terminal controls).
 
 Existing terminal-only configs (no `type`) keep loading unchanged. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
+
+For a browser control with `chrome: false`, **Focus Address Bar** is intentionally a no-op. Navigation remains available through the page and through commands such as `cmux browser <surface> goto <url>` and `cmux browser <surface> reload`.
 
 ## Config Precedence
 

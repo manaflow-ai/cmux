@@ -136,6 +136,58 @@ struct SimulatorPaneCoordinatorTests {
         }
     }
 
+    @Test("Mobile frame demand repairs missing publication while the pane remains visible")
+    func mobileFrameDemandRepairsMissingVisibleTransport() async {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let consumerID = UUID()
+        coordinator.setPaneVisibility(true)
+        await coordinator.start()
+        await eventually { coordinator.status == .streaming }
+
+        let enablesBeforeDemand = await client.messages().filter {
+            $0 == .setFramebufferPublishing(true)
+        }.count
+        #expect(coordinator.frameIsVisible)
+        #expect(coordinator.frameTransport == nil)
+
+        coordinator.setMobileFrameDemand(true, consumerID: consumerID)
+
+        await eventually {
+            await client.messages().filter {
+                $0 == .setFramebufferPublishing(true)
+            }.count == enablesBeforeDemand + 1
+        }
+    }
+
+    @Test("Mobile frame demand publishes while the Mac pane is hidden")
+    func mobileFrameDemandPublishesWhilePaneHidden() async {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let consumerID = UUID()
+        await coordinator.start()
+        await eventually { coordinator.status == .streaming }
+        #expect(!coordinator.frameIsVisible)
+
+        coordinator.setMobileFrameDemand(true, consumerID: consumerID)
+
+        #expect(coordinator.frameIsVisible)
+        await eventually {
+            await client.messages().contains(.setFramebufferPublishing(true))
+        }
+
+        coordinator.setMobileFrameDemand(false, consumerID: consumerID)
+
+        #expect(!coordinator.frameIsVisible)
+        await eventually {
+            await client.messages().contains(.setFramebufferPublishing(false))
+        }
+    }
+
     @Test("Host visibility controls every occlusion-sensitive resource")
     func paneVisibility() {
         let coordinator = SimulatorPaneCoordinator(client: SimulatorPaneClientSpy(devices: []))

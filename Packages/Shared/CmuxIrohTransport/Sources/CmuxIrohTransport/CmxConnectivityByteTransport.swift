@@ -5,15 +5,20 @@ import Foundation
 actor CmxConnectivityByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
+    CmxByteTransportClosureObservationReadiness,
+    CmxByteTransportLivenessObserving,
     CmxByteTransportContinuityIdentifying,
+    CmxByteTransportDiagnosticSessionIdentifying,
     CmxByteTransportSessionPurposeUpdating
 {
     private var request: CmxByteTransportRequest
     private let engine: CmxConnectivityEngine
     private let ownerID = UUID()
     private var session: (any CmxConnectivitySession)?
+    private var lastSession: (any CmxConnectivitySession)?
     private var ownsControlSession = false
     private var closed = false
+    private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
         self.request = request
@@ -33,6 +38,8 @@ actor CmxConnectivityByteTransport:
         }
         ownsControlSession = true
         session = connected
+        lastSession = connected
+        resumeClosureObservationReadyWaiters()
     }
 
     func receive() async throws -> Data? {
@@ -68,6 +75,7 @@ actor CmxConnectivityByteTransport:
     func close() async {
         guard !closed else { return }
         closed = true
+        resumeClosureObservationReadyWaiters()
         session = nil
         await releaseOwnedControlSession(
             reason: .controlOwnerReleased,
@@ -79,11 +87,39 @@ actor CmxConnectivityByteTransport:
         await session?.connectionContinuityID()
     }
 
-    func transportClosureObservation() -> CmxTransportClosureObservation? {
+    func transportDiagnosticSessionID() async -> Int? {
+        await engine.diagnosticSessionID(for: request)
+    }
+
+    func transportClosureObservation() async -> CmxTransportClosureObservation? {
         guard let session else { return nil }
-        return CmxTransportClosureObservation {
-            await session.waitUntilClosed()
+        guard let observationID = await session.makeClosureObservationID() else { return nil }
+        return CmxTransportClosureObservation(waitUntilClosed: {
+            await session.waitForClosure(observationID: observationID)
+        }, cancel: {
+            Task { await session.cancelClosureObservation(observationID: observationID) }
+        })
+    }
+
+    func waitUntilTransportClosureObservationIsReady() async -> Bool {
+        guard !closed else { return false }
+        if let session {
+            return !(await session.isClosed())
         }
+        await withCheckedContinuation { continuation in
+            if session != nil || closed {
+                continuation.resume()
+            } else {
+                closureObservationReadyWaiters.append(continuation)
+            }
+        }
+        guard !closed, let session else { return false }
+        return !(await session.isClosed())
+    }
+
+    func isTransportClosed() async -> Bool {
+        guard let session = session ?? lastSession else { return false }
+        return await session.isClosed()
     }
 
     func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) async {
@@ -109,5 +145,13 @@ actor CmxConnectivityByteTransport:
             reason: reason,
             failure: failure
         )
+    }
+
+    private func resumeClosureObservationReadyWaiters() {
+        let waiters = closureObservationReadyWaiters
+        closureObservationReadyWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }

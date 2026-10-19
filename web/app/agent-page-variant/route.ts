@@ -8,7 +8,9 @@ import {
   headersForCanonicalFetch,
 } from "../lib/agent-page-canonical-fetch";
 import { sameOriginRedirectUrl } from "../lib/agent-page-redirects";
+import { requestOrigin } from "../lib/request-origin";
 import {
+  canonicalUrlFromHtml,
   headersForAgentPage,
   headersForLlmsTxt,
   localeFromCanonicalPath,
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Not found\n", { status: 404 });
   }
 
-  const origin = request.nextUrl.origin;
+  const origin = requestOrigin(request);
 
   if (variant.kind === "llms") {
     return new NextResponse(buildLlmsText(origin), {
@@ -36,7 +38,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const htmlUrl = new URL(request.url);
+  const htmlUrl = new URL(request.nextUrl.pathname, origin);
   htmlUrl.pathname = variant.canonicalPath;
   htmlUrl.search = "";
 
@@ -53,11 +55,10 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Not found\n", { status: 404 });
   }
 
-  const sourceUrl = canonicalUrlFromResponse(htmlResponse, htmlUrl);
-  const markdown = markdownFromHtml({
-    html: await htmlResponse.text(),
-    sourceUrl,
-  });
+  const html = await htmlResponse.text();
+  const sourceUrl =
+    canonicalUrlFromHtml(html) ?? canonicalUrlFromResponse(htmlResponse, htmlUrl);
+  const markdown = markdownFromHtml({ html, sourceUrl });
   const body =
     variant.format === "txt" ? plainTextFromMarkdown(markdown) : markdown;
   return new NextResponse(body, {

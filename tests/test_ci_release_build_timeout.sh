@@ -7,7 +7,7 @@ timeout="$(
     /^  release-build:/ { in_release_build = 1; next }
     in_release_build && /^  [A-Za-z0-9_-]+:/ { exit }
     in_release_build && /timeout-minutes:/ { print $2; exit }
-  ' "$ROOT_DIR/.github/workflows/ci.yml"
+  ' "$ROOT_DIR/.github/workflows/ci-macos.yml"
 )"
 
 if [ -z "$timeout" ]; then

@@ -1,11 +1,69 @@
 import Foundation
+import CmuxWorkspaces
 
 extension AgentHibernationRecord {
+    /// Whether the indexed process set is complete enough to terminate safely.
     var hasPressureSafeProcessEvidence: Bool {
-        hasLiveProcess &&
+        processLiveness == .running &&
+            hasLiveProcess &&
             !containsUnrelatedProcess &&
             !processIDs.isEmpty &&
-            processIdentities.count == processIDs.count
+            processIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
+            Set(processIdentities.keys) == processIDs
+    }
+
+    /// Background work the transcript records before this belongs to an earlier
+    /// agent process: the start of the oldest process in the agent's scope. With
+    /// no live process left, every recorded launch died with it.
+    var backgroundWorkNotBefore: Date? {
+        guard processLiveness == .running else { return .distantFuture }
+        guard let earliest = processIdentities.values.min(by: {
+            ($0.startSeconds, $0.startMicroseconds) < ($1.startSeconds, $1.startMicroseconds)
+        }) else {
+            return nil
+        }
+        return Date(
+            timeIntervalSince1970: TimeInterval(earliest.startSeconds) +
+                TimeInterval(earliest.startMicroseconds) / 1_000_000
+        )
+    }
+
+    /// Reclaim may terminate a live process only with complete scope evidence.
+    var processSafetyAllowsHibernation: Bool {
+        switch processLiveness {
+        case .exited:
+            return !containsUnrelatedProcess &&
+                !hasLiveProcess &&
+                panelProcessIDs.isEmpty &&
+                processIDs.isEmpty &&
+                processIdentities.isEmpty
+        case .running:
+            return hasPressureSafeProcessEvidence
+        case .unknown:
+            return false
+        }
+    }
+}
+
+extension RestorableAgentSessionIndex.Entry {
+    /// Whether a fresh index still proves a safe scheduled process scope.
+    var processSafetyAllowsScheduledHibernation: Bool {
+        switch processLiveness {
+        case .exited:
+            return !containsUnrelatedProcess &&
+                processIDs.isEmpty &&
+                hibernationPanelProcessIDs.isEmpty &&
+                terminationProcessIDs.isEmpty &&
+                terminationProcessIdentities.isEmpty
+        case .running:
+            return !processIDs.isEmpty &&
+                !containsUnrelatedProcess &&
+                !terminationProcessIDs.isEmpty &&
+                terminationProcessIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
+                Set(terminationProcessIdentities.keys) == terminationProcessIDs
+        case .unknown:
+            return false
+        }
     }
 }
 
@@ -58,7 +116,7 @@ extension AppDelegate {
                         panelId: panelId,
                         fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
                     )
-                    let processEntry = index.entry(
+                    let processEntry = index.exactEntry(
                         workspaceId: workspace.id,
                         panelId: panelId
                     )
@@ -77,7 +135,8 @@ extension AppDelegate {
                             containsUnrelatedProcess: processEntry?.containsUnrelatedProcess ?? false,
                             panelProcessIDs: processEntry?.hibernationPanelProcessIDs ?? [],
                             processIDs: processEntry?.terminationProcessIDs ?? [],
-                            processIdentities: processEntry?.terminationProcessIdentities ?? [:]
+                            processIdentities: processEntry?.terminationProcessIdentities ?? [:],
+                            processLiveness: processEntry?.processLiveness ?? .unknown
                         )
                     )
                 }

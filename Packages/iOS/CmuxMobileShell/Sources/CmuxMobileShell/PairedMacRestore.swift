@@ -65,6 +65,7 @@ public struct PairedMacRestore: Sendable {
         guard let snapshot = await backup.fetchSnapshot(teamID: teamID, expectedUserID: accountID) else {
             return RestoreOutcome(completed: false, restored: 0)
         }
+        let restoreCompleted = !snapshot.requiresMigrationRetry
         // Sign-out (or any wipe) can race this restore: if the owning task was
         // cancelled while the network fetch was suspended, do NOT write the
         // previous account's Macs back into the just-emptied local store. Report
@@ -106,7 +107,7 @@ public struct PairedMacRestore: Sendable {
             }
         }
         guard !liveRecords.isEmpty || !pendingDeleteIDs.isEmpty else {
-            return RestoreOutcome(completed: true, restored: 0)
+            return RestoreOutcome(completed: restoreCompleted, restored: 0)
         }
 
         let localBeforePendingDeletes = (try? await store.loadAll(
@@ -262,7 +263,7 @@ public struct PairedMacRestore: Sendable {
             }
             await onResolvedBackupTeam(echoes, resolvedTeamID)
         }
-        return RestoreOutcome(completed: true, restored: restored)
+        return RestoreOutcome(completed: restoreCompleted, restored: restored)
     }
 }
 

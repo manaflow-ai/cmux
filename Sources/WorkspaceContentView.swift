@@ -18,10 +18,32 @@ enum WorkspacePanelVisibilityPolicy {
         isWorkspaceVisible: Bool,
         paneHasSelectedTab: Bool,
         isSelectedInPane: Bool,
-        isFocused: Bool
+        isFocused: Bool,
+        isFallbackInPane: Bool = false
     ) -> Bool {
         guard isWorkspaceVisible else { return false }
-        return isSelectedInPane || (isFocused && !paneHasSelectedTab)
+        return isSelectedInPane
+            || (isFocused && !paneHasSelectedTab)
+            || (isFallbackInPane && !paneHasSelectedTab)
+    }
+
+    /// Returns the first tab Bonsplit keeps visible while a pane has no selection.
+    nonisolated static func fallbackTabId(
+        selectedTabId: UUID?,
+        tabIds: [UUID]
+    ) -> UUID? {
+        guard selectedTabId == nil else { return nil }
+        return tabIds.first
+    }
+
+    /// Bonsplit can briefly retain a selected ID for a tab that is being moved
+    /// or closed. Treat that ID as a selection gap until the split state settles.
+    nonisolated static func effectiveSelectedTabId(
+        selectedTabId: UUID?,
+        tabIds: [UUID]
+    ) -> UUID? {
+        guard let selectedTabId, tabIds.contains(selectedTabId) else { return nil }
+        return selectedTabId
     }
 
     nonisolated static func visiblePanelIdForRenderedPane(
@@ -86,14 +108,36 @@ private struct WorkspacePanelContentHostView: View {
                       let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
                     return false
                 }
-                return workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+                // selectedTabId, not selectedTab: building a Tab reads every
+                // TabItem property, which subscribes this update to the tab's
+                // title. Portal ownership only needs identity.
+                return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
-            onTriggerFlash: onTriggerFlash
+            onTriggerFlash: onTriggerFlash,
+            onRequestDeferredBrowserMaterialization: {
+                workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
+            }
         )
+        .onAppear {
+            if isVisibleInUI {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if visible {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
     }
 }
 
@@ -153,15 +197,6 @@ final class TmuxWorkspacePaneOverlayModel {
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    private struct DeferredThemeRefresh {
-        let reason: String
-        let backgroundOverride: NSColor?
-        let backgroundEventId: UInt64?
-        let backgroundSource: String?
-        let notificationPayloadHex: String?
-        let forceInitialApply: Bool
-    }
-
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
@@ -182,58 +217,35 @@ struct WorkspaceContentView: View {
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-    @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.tmuxOverlayExperimentTarget) private var overlayTarget
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
 
-    static func panelVisibleInUI(
-        isWorkspaceVisible: Bool,
-        paneHasSelectedTab: Bool,
-        isSelectedInPane: Bool,
-        isFocused: Bool
-    ) -> Bool {
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible only when
-        // the pane has no selected tab to report; if another tab is selected, a
-        // stale focused terminal must not keep its portal view visible.
-        return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
-            isWorkspaceVisible: isWorkspaceVisible,
-            paneHasSelectedTab: paneHasSelectedTab,
-            isSelectedInPane: isSelectedInPane,
-            isFocused: isFocused
-        )
+    private struct BonsplitPaneRenderSnapshot {
+        let tabIds: [UUID]
+        let selectedTabId: UUID?
     }
 
     var body: some View {
 #if DEBUG
-        let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
+        let _ = {
+            if minimalModeInvalidationProbe.shouldTraceBodyChanges?() == true {
+                Self._printChanges()
+            }
+            minimalModeInvalidationProbe.workspaceContentBody?()
+        }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
-        let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let isSplit = workspace.hasMultipleSplitSurfaces
+        let isCanvas = workspace.layoutMode == .canvas
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-
-        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
-        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-
-        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
-        // Finder file drops to the correct terminal panel.
-        let _ = {
-            workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
-                guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
-                return panel.hostedView.handleDroppedURLs(urls)
-            }
-        }()
+        let bonsplitPaneRenderSnapshots: [UUID: BonsplitPaneRenderSnapshot] = isCanvas
+            ? [:]
+            : Self.bonsplitPaneRenderSnapshots(for: workspace.bonsplitController)
 
         let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
@@ -248,13 +260,23 @@ struct WorkspaceContentView: View {
                 // Gated focus for the ring/active state only: the main pane yields
                 // its focus ring while the right sidebar (Dock) owns focus.
                 let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
-                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-                let isSelectedInPane = selectedTab?.id == tab.id
+                // This content builder only needs selection identity. Building a
+                // full Tab snapshot also reads its title and icon metadata, which
+                // subscribes pane content to unrelated tab-bar changes.
+                let paneSnapshot = bonsplitPaneRenderSnapshots[paneId.id]
+                    ?? BonsplitPaneRenderSnapshot(tabIds: [], selectedTabId: nil)
+                let selectedTabId = paneSnapshot.selectedTabId
+                let isSelectedInPane = selectedTabId == tab.id.uuid
+                let isFallbackInPane = WorkspacePanelVisibilityPolicy.fallbackTabId(
+                    selectedTabId: selectedTabId,
+                    tabIds: paneSnapshot.tabIds
+                ) == tab.id.uuid
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
-                    paneHasSelectedTab: selectedTab != nil,
+                    paneHasSelectedTab: selectedTabId != nil,
                     isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocusedPanel
+                    isFocused: isFocusedPanel,
+                    isFallbackInPane: isFallbackInPane
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
@@ -302,8 +324,10 @@ struct WorkspaceContentView: View {
                             && isSelectedInPane,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
-                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        appearance: appearance,
+                        windowAppearance: windowAppearance,
+                        customSidebarTabManager: workspace.owningTabManager,
+                        hasUnreadNotification: showsNotificationRing && !overlayTarget.usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
@@ -342,8 +366,9 @@ struct WorkspaceContentView: View {
                         workspace.bonsplitController.focusPane(paneId)
                     }
                 }
+            } else if workspace.cloudVMID != nil {
+                TerminalPanelUnavailableView(appearance: appearance)
             } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
             }
         } emptyPane: { paneId in
@@ -360,6 +385,8 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            syncBonsplitInteractivity()
+            installBonsplitFileDropHandler()
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
@@ -367,10 +394,22 @@ struct WorkspaceContentView: View {
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
+            refreshGhosttyAppearanceConfig(
+                reason: "workspaceBecameVisible",
+                forceInitialApply: true
+            )
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
+            syncBonsplitInteractivity()
             updateAgentHibernationPresentationVisibility()
+        }
+        .onChange(of: ObjectIdentifier(workspace)) { _, _ in
+            // A restored tab can replace its Workspace instance without changing
+            // the ForEach identity. Rebind handlers to the live controller when
+            // that happens instead of leaving the old instance captured by the
+            // drop callback.
+            syncBonsplitInteractivity()
+            installBonsplitFileDropHandler()
         }
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
@@ -390,11 +429,12 @@ struct WorkspaceContentView: View {
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
-        }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
+        }
+        .onDisplayAccessibilityOptionsChange { _ in
+            // Increase Contrast changes the separator color the chrome resolves.
+            workspace.applyGhosttyChrome(from: config, reason: "displayAccessibilityOptionsDidChange")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
@@ -416,9 +456,14 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyChromeConfigurationDidChange"
+            )
+        }
 
         Group {
-            if workspace.layoutMode == .canvas {
+            if isCanvas {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
                     isWorkspaceVisible: isWorkspaceVisible,
@@ -430,10 +475,71 @@ struct WorkspaceContentView: View {
                 bonsplitView
             }
         }
+        .overlay {
+            if workspace.isManagedCloudVMWorkspace {
+                CloudSurfaceDropGate(workspaceID: workspace.id, isActive: isWorkspaceInputActive)
+            }
+        }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
         // A workspace is a page: accept the parent proposal instead of
         // contributing a hidden child's content-derived ideal to its ZStack.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(CloudPaneCreationFailurePresentation(
+            failureStore: workspace.cloudPaneCreationFailureStore,
+            isWorkspaceVisible: isWorkspaceVisible,
+            sourceView: workspace.cloudPaneCreationFailureSourceView
+        ))
+    }
+
+    /// Captures the selection identity needed by each pane before Bonsplit
+    /// invokes its content closure once for every tab.
+    private static func bonsplitPaneRenderSnapshots(
+        for controller: BonsplitController
+    ) -> [UUID: BonsplitPaneRenderSnapshot] {
+        var snapshots: [UUID: BonsplitPaneRenderSnapshot] = [:]
+        for paneId in controller.allPaneIds {
+            let tabIds = controller.tabIds(inPane: paneId).map(\.uuid)
+            let selectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
+                selectedTabId: controller.selectedTabId(inPane: paneId)?.uuid,
+                tabIds: tabIds
+            )
+            snapshots[paneId.id] = BonsplitPaneRenderSnapshot(
+                tabIds: tabIds,
+                selectedTabId: selectedTabId
+            )
+        }
+        return snapshots
+    }
+
+    /// Keeps inactive workspaces from accepting AppKit drops without mutating
+    /// Bonsplit's observable state while SwiftUI is evaluating `body`.
+    private func syncBonsplitInteractivity() {
+        Self.syncBonsplitInteractivity(
+            workspace.bonsplitController,
+            isInputActive: isWorkspaceInputActive
+        )
+    }
+
+    /// Applies the active workspace input state only when Bonsplit needs a new value.
+    static func syncBonsplitInteractivity(
+        _ controller: BonsplitController,
+        isInputActive: Bool
+    ) {
+        guard controller.isInteractive != isInputActive else { return }
+        controller.isInteractive = isInputActive
+    }
+
+    /// Routes Finder drops to the focused terminal without rebuilding the
+    /// closure during every Bonsplit body evaluation.
+    private func installBonsplitFileDropHandler() {
+        workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
+            guard let workspace else { return false }
+            // Find the focused panel in this pane and drop the files into it.
+            guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
+                  let panelId = workspace.panelIdFromSurfaceId(tabId),
+                  let panel = workspace.terminalInputTarget(forPanelID: panelId)?.panel else { return false }
+            return panel.hostedView.handleDroppedURLs(urls)
+        }
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -478,7 +584,7 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
+    static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
         topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
     )
 
@@ -585,20 +691,6 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func flushDeferredThemeRefreshIfNeeded() {
-        guard isWorkspaceVisible,
-              let deferredRefresh = deferredThemeRefresh else { return }
-        deferredThemeRefresh = nil
-        refreshGhosttyAppearanceConfig(
-            reason: deferredRefresh.reason,
-            backgroundOverride: deferredRefresh.backgroundOverride,
-            backgroundEventId: deferredRefresh.backgroundEventId,
-            backgroundSource: deferredRefresh.backgroundSource,
-            notificationPayloadHex: deferredRefresh.notificationPayloadHex,
-            forceInitialApply: deferredRefresh.forceInitialApply
-        )
-    }
-
     private func updateAgentHibernationPresentationVisibility() {
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
@@ -611,21 +703,7 @@ struct WorkspaceContentView: View {
         notificationPayloadHex: String? = nil,
         forceInitialApply: Bool = false
     ) {
-        guard isWorkspaceVisible else {
-            let existing = deferredThemeRefresh
-            deferredThemeRefresh = DeferredThemeRefresh(
-                reason: reason,
-                backgroundOverride: backgroundOverride,
-                backgroundEventId: backgroundEventId,
-                backgroundSource: backgroundSource,
-                notificationPayloadHex: notificationPayloadHex,
-                forceInitialApply: forceInitialApply
-                    || reason == "onAppear"
-                    || existing?.forceInitialApply == true
-            )
-            return
-        }
-        deferredThemeRefresh = nil
+        guard isWorkspaceVisible else { return }
 
         let previousSignature = Self.ghosttyAppearanceSignature(
             config,
@@ -750,13 +828,9 @@ extension WorkspaceContentView {
             let ts = ISO8601DateFormatter().string(from: Date())
             let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
             let logPath = "/tmp/cmux-panel-debug.log"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: Data(line.utf8))
-            } else {
-                FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
-            }
+            guard let handle = OwnedLogFile(path: logPath).openForAppending() else { return }
+            defer { try? handle.close() }
+            try? handle.write(contentsOf: Data(line.utf8))
         }
     }
     #else
@@ -767,11 +841,41 @@ extension WorkspaceContentView {
     #endif
 }
 
+/// Keeps `isAvailable` in step with the browser availability gate for views
+/// that offer a browser affordance.
+///
+/// `BrowserAvailabilityMonitor` owns watching the gate's entrypoints, so this
+/// follows that one signal instead of subscribing to the underlying sources
+/// again.
+struct BrowserAffordanceAvailabilityTracking: ViewModifier {
+    @Binding var isAvailable: Bool
+
+    func body(content: Content) -> some View {
+        content.task { @MainActor in
+            isAvailable = BrowserAvailabilitySettings.isEnabled()
+            let changes = NotificationCenter.default.notifications(
+                named: BrowserAvailabilityMonitor.didChangeNotification
+            )
+            for await _ in changes {
+                isAvailable = BrowserAvailabilitySettings.isEnabled()
+            }
+        }
+    }
+}
+
+extension View {
+    /// Tracks browser availability for a view that offers a browser affordance.
+    func trackingBrowserAffordanceAvailability(_ isAvailable: Binding<Bool>) -> some View {
+        modifier(BrowserAffordanceAvailabilityTracking(isAvailable: isAvailable))
+    }
+}
+
 /// View shown for empty panes
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     private struct ShortcutHint: View {
         let text: String
@@ -826,7 +930,14 @@ struct EmptyPanelView: View {
         let button = Button(action: action) {
             HStack(spacing: 10) {
                 HStack(spacing: 6) {
-                    CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
+                    // `.borderedProminent` paints its label in the system's
+                    // on-accent text color, so bake that semantic color rather
+                    // than a literal white.
+                    CmuxSystemSymbolImage(
+                        systemName: systemImage,
+                        pointSize: 13,
+                        tint: Color(nsColor: .alternateSelectedControlTextColor)
+                    )
                     Text(title)
                 }
                 ShortcutHint(text: shortcut.displayString)
@@ -843,8 +954,7 @@ struct EmptyPanelView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
-                .foregroundStyle(.tertiary)
+            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48, tint: Color(nsColor: .tertiaryLabelColor))
 
             Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
                 .cmuxFont(.headline)
@@ -852,22 +962,25 @@ struct EmptyPanelView: View {
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                if BrowserAvailabilitySettings.offersBrowserAffordance(isEnabled: browserAvailable) {
+                    emptyPaneActionButton(
+                        title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+        .trackingBrowserAffordanceAvailability($browserAvailable)
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

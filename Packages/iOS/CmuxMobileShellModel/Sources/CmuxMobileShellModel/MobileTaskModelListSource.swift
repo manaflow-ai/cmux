@@ -1,9 +1,11 @@
 /// How the Mac produced a task provider's model list.
-public enum MobileTaskModelListSource: String, Equatable, Sendable {
+public nonisolated enum MobileTaskModelListSource: String, Equatable, Sendable {
     /// A provider command returned an authoritative dynamic list.
     case discovered
-    /// A configured default was prepended to the curated list.
+    /// The over-the-air cmux catalog supplied the list.
+    case backend
+    /// A legacy host prepended its configured default to its built-in list.
     case augmented
-    /// Discovery was unavailable, so the curated list was returned.
+    /// Agent discovery was unavailable and returned no values.
     case fallback
 }

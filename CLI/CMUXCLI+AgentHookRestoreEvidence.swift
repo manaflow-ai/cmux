@@ -50,11 +50,38 @@ extension CMUXCLI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return key == "approval_policy" || key == "sandbox_mode"
     }
+
+    /// Whether an OMP hook has no launch candidate to publish or invalidate.
+    ///
+    /// PID-only diagnostics describe the hook's dispatch context, not a
+    /// replacement executable. Preserve an existing binding in that case, but
+    /// never synthesize a bare `omp` command from the missing capture.
+    func ompLaunchCaptureIsUnavailable(
+        _ launchCommand: AgentHookLaunchCommandRecord?
+    ) -> Bool {
+        guard let launchCommand,
+              launchCommand.arguments.isEmpty,
+              normalizedHookValue(launchCommand.executablePath) == nil else {
+            return false
+        }
+        switch launchCommand.rejectionReason {
+        case .some(.argvUnavailable),
+             .some(.nativeProcessDoesNotDescribeKind),
+             .some(.argvLooksLikeShellWrapper):
+            return true
+        default:
+            return false
+        }
+    }
+
     func agentHookSessionHasDurableResumeEvidence(
         kind: String,
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> Bool {
-        guard normalizedHookValue(launchCommand?.source)?.lowercased() != "rejected" else { return false }
+        guard launchCommand?.isRejectedCapture != true else { return false }
+        if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp" {
+            return AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(launchCommand)
+        }
         guard kind == "codex" else { return true }
         guard let launchCommand else { return true }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
@@ -74,6 +101,14 @@ extension CMUXCLI {
         }
     }
 
+    /// The launch record a hook should publish for resume, with the session's external launcher
+    /// preserved.
+    ///
+    /// Selection has several early exits (a rejected capture, the codex permission-evidence branch),
+    /// and the external launcher is a property of the session rather than of whichever record wins,
+    /// so preservation wraps the whole selection instead of sitting on one path. Ancestor detection
+    /// can miss on a later hook once the launcher process is gone; a record that lost the id must
+    /// never erase it. #10494
     func preferredAgentHookResumeLaunchCommand(
         kind: String,
         current: AgentHookLaunchCommandRecord?,
@@ -81,7 +116,33 @@ extension CMUXCLI {
         transcriptPath: String? = nil,
         currentPID: Int? = nil
     ) -> AgentHookLaunchCommandRecord? {
-        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+        guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
+            return nil
+        }
+        return selectedAgentHookResumeLaunchCommand(
+            kind: kind,
+            current: current,
+            mapped: mapped,
+            transcriptPath: transcriptPath,
+            currentPID: currentPID
+        )?.preservingExternalLauncher(from: [current, mapped?.launchCommand])
+    }
+
+    private func selectedAgentHookResumeLaunchCommand(
+        kind: String,
+        current: AgentHookLaunchCommandRecord?,
+        mapped: ClaudeHookSessionRecord?,
+        transcriptPath: String?,
+        currentPID: Int?
+    ) -> AgentHookLaunchCommandRecord? {
+        let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
+            && ompLaunchCaptureIsUnavailable(current)
+        if current?.isRejectedCapture == true || ompCaptureUnavailable {
+            if let preserved = mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) {
+                return kind == "codex"
+                    ? repairedCodexLaunchCommand(preserved, transcriptPath: transcriptPath)
+                    : preserved
+            }
             return current
         }
         if kind == "codex",
@@ -126,13 +187,23 @@ extension CMUXCLI {
         )
     }
 
+
+
     func preferredAgentHookResumeWorkingDirectory(
         kind: String,
         current: AgentHookLaunchCommandRecord?,
         currentCwd: String?,
         mapped: ClaudeHookSessionRecord?
     ) -> String? {
-        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+        guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
+            return nil
+        }
+        let ompCaptureUnavailable = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp"
+            && ompLaunchCaptureIsUnavailable(current)
+        if current?.isRejectedCapture == true || ompCaptureUnavailable {
+            if mappedLaunchAfterRejectedCapture(kind: kind, current: current, mapped: mapped) != nil {
+                return mapped?.cwd ?? currentCwd
+            }
             return currentCwd ?? mapped?.cwd
         }
         let currentSource = normalizedHookValue(current?.source)?.lowercased()
@@ -149,12 +220,39 @@ extension CMUXCLI {
         return currentCwd ?? mapped?.cwd
     }
 
+    private func mappedLaunchAfterRejectedCapture(
+        kind: String,
+        current: AgentHookLaunchCommandRecord?,
+        mapped: ClaudeHookSessionRecord?
+    ) -> AgentHookLaunchCommandRecord? {
+        guard let rejectionReason = current?.rejectionReason,
+              mappedLaunchFallbackIsSafe(for: rejectionReason),
+              let mappedLaunch = mapped?.launchCommand,
+              !mappedLaunch.isRejectedCapture,
+              AgentLaunchCaptureTrust.launcherDescribesKind(mappedLaunch.launcher, kind: kind),
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(mappedLaunch.arguments),
+              agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: mappedLaunch) else {
+            return nil
+        }
+        return mappedLaunch
+    }
+
+    private func mappedLaunchFallbackIsSafe(
+        for rejectionReason: AgentLaunchCaptureRejectionReason
+    ) -> Bool {
+        rejectionReason == .launcherDoesNotDescribeKind
+            || rejectionReason == .nativeProcessDoesNotDescribeKind
+            || rejectionReason == .argvLooksLikeShellWrapper
+            || rejectionReason == .argvUnavailable
+            || rejectionReason == .argvDecodeFailed
+    }
+
     func agentHookMappedSessionHasDurableTargetEvidence(
         kind: String,
         mapped: ClaudeHookSessionRecord?
     ) -> Bool {
         guard let mapped else { return false }
-        guard normalizedHookValue(mapped.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+        guard mapped.launchCommand?.isRejectedCapture != true else { return false }
         guard kind == "codex" else { return true }
         if mapped.isRestorable == true { return true }
         if let transcriptPath = normalizedHookValue(mapped.transcriptPath),
@@ -211,6 +309,7 @@ extension CMUXCLI {
         transcriptPath: String?
     ) -> AgentHookLaunchCommandRecord? {
         guard var launchCommand else { return nil }
+        guard !launchCommand.arguments.isEmpty else { return launchCommand }
         guard !codexLaunchHasExplicitPermissions(launchCommand),
               let capturedAt = launchCommand.capturedAt,
               let transcriptPath = normalizedHookValue(transcriptPath) else {

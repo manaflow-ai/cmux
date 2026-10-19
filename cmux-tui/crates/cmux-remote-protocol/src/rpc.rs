@@ -5,6 +5,14 @@ use serde::{Deserialize, Serialize};
 
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
+/// Optional `terminal-bytes-v1` open metadata key. With the value
+/// [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED`], the stream's renderer
+/// negotiates terminal-host viewer-size priority when the host supports it.
+/// Daemons without [`RemoteCapability::TerminalViewerSizePriorityV1`] reject
+/// the key as `invalid-argument`.
+pub const TERMINAL_BYTES_VIEWER_SIZE_PRIORITY: &str = "viewer_size_priority";
+pub const TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED: &str = "preferred";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ByteString(String);
@@ -37,6 +45,11 @@ impl RequestId {
 
     pub const fn from_u128(value: u128) -> Self {
         Self(uuid::Uuid::from_u128(value))
+    }
+
+    /// Returns the opaque UUID bits for local request routing.
+    pub const fn as_u128(self) -> u128 {
+        self.0.as_u128()
     }
 }
 
@@ -128,7 +141,7 @@ pub enum ServiceControl {
     Rejected { code: String, message: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RemoteCapability {
     MuxControlV9,
@@ -151,6 +164,15 @@ pub enum RemoteCapability {
     ProcessTerminalSnapshotV1,
     RequestControlV1,
     ComputerUseV1,
+    /// `terminal-bytes-v1` accepts [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY`].
+    TerminalViewerSizePriorityV1,
+    /// A capability introduced by a newer peer.
+    ///
+    /// Capabilities are versioned wire strings, so clients must be able to
+    /// retain values they do not understand yet instead of rejecting the
+    /// complete capabilities response.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1200,6 +1222,45 @@ mod tests {
             serde_json::to_value(RemoteCapability::ProcessTerminalSnapshotV1).unwrap(),
             "process-terminal-snapshot-v1"
         );
+    }
+
+    #[test]
+    fn terminal_viewer_size_priority_capability_uses_its_wire_name() {
+        assert_eq!(
+            serde_json::to_value(RemoteCapability::TerminalViewerSizePriorityV1).unwrap(),
+            "terminal-viewer-size-priority-v1"
+        );
+        let decoded: RemoteCapability =
+            serde_json::from_value(serde_json::json!("terminal-viewer-size-priority-v1")).unwrap();
+        assert_eq!(decoded, RemoteCapability::TerminalViewerSizePriorityV1);
+    }
+
+    #[test]
+    fn remote_capabilities_round_trip_known_and_unknown_wire_values() {
+        let known: RemoteCapability =
+            serde_json::from_value(serde_json::json!("process-catalog-v1")).unwrap();
+        assert_eq!(known, RemoteCapability::ProcessCatalogV1);
+        assert_eq!(serde_json::to_value(known).unwrap(), "process-catalog-v1");
+
+        let unknown_wire_value = "workspace-files-v99";
+        let unknown: RemoteCapability =
+            serde_json::from_value(serde_json::json!(unknown_wire_value)).unwrap();
+        assert_eq!(unknown, RemoteCapability::Unknown(unknown_wire_value.to_owned()));
+        assert_eq!(serde_json::to_value(unknown).unwrap(), unknown_wire_value);
+
+        let response: WorkspaceResponse = serde_json::from_value(serde_json::json!({
+            "type": "capabilities",
+            "capabilities": ["process-catalog-v1", unknown_wire_value]
+        }))
+        .unwrap();
+        assert!(matches!(
+            response,
+            WorkspaceResponse::Capabilities { capabilities }
+                if capabilities == vec![
+                    RemoteCapability::ProcessCatalogV1,
+                    RemoteCapability::Unknown(unknown_wire_value.to_owned())
+                ]
+        ));
     }
 
     #[test]

@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code>로 원격 머신용 워크스페이스를 생성해요. 브라우저 패널은 원격 네트워크를 통해 라우팅되어 localhost가 그대로 작동해요. 원격 세션에 이미지를 드래그하면 scp로 업로드돼요.
+<code>cmux ssh user@remote</code>로 원격 머신용 워크스페이스를 생성해요. <code>--command 'omp "investigate auth"'</code>를 전달하면 첫 원격 터미널에서 초기 명령을 한 번 실행해요. 브라우저 패널은 원격 네트워크를 통해 라우팅되어 localhost가 그대로 작동해요. 원격 세션에 이미지를 드래그하면 scp로 업로드돼요.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 처음 실행할 때 macOS에서 개발자 확인 팝업이 뜰 수 있어요. **열기**를 클릭하면 돼요.
 
+### 셸 자동완성
+
+Homebrew cask가 zsh, bash, fish용 자동완성을 설치해요. 설치 후 새 셸을 열면 돼요. 로드되지 않으면 Homebrew의 자동완성 디렉터리가 셸에 연결되어 있는지 확인해 주세요([Homebrew의 셸 자동완성 문서](https://docs.brew.sh/Shell-Completion) 참고).
+
+다른 방법으로 cmux를 설치했다면, 해당하는 줄을 셸 시작 파일에 추가하고 새 셸을 열어 주세요:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## 왜 cmux를 만들었나요?
 
 저는 Claude Code와 Codex 세션을 여러 개 동시에 돌려요. 예전에는 Ghostty에서 분할 패널을 여러 개 열어놓고, 에이전트가 입력을 기다릴 때 macOS 기본 알림에 의존했어요. 그런데 Claude Code 알림은 항상 "Claude is waiting for your input"이라는 아무 맥락 없이 똑같은 메시지뿐이었고, 탭이 많아지면 제목조차 읽을 수가 없었어요.
@@ -152,7 +171,9 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 
 | 단축키 | 동작 |
 |----------|--------|
-| ⌘ N | 새 워크스페이스 |
+| ⌘ N | 새 로컬 워크스페이스 |
+| ⌘ Y | 가장 최근에 사용할 수 있었던 Cloud 컨텍스트에 새 Cloud 워크스페이스를 만들고, 없으면 New Cloud Machine을 엽니다 |
+| ⌘ ⇧ Y | 새 Cloud 머신 |
 | ⌘ 1–8 | 워크스페이스 1–8로 이동 |
 | ⌘ 9 | 마지막 워크스페이스로 이동 |
 | ⌃ ⌘ ] | 다음 워크스페이스 |
@@ -367,7 +388,7 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 
 ### 기능 요청이 있거나 버그를 발견했어요?
 
-꼭 듣고 싶어요. GitHub에서 [issue](https://github.com/manaflow-ai/cmux/issues)나 [pull request](https://github.com/manaflow-ai/cmux/pulls)를 열거나, [이메일을 보내주세요](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+꼭 듣고 싶어요. GitHub에서 [issue](https://github.com/manaflow-ai/cmux/issues)나 [pull request](https://github.com/manaflow-ai/cmux/pulls)를 열거나, [이메일을 보내주세요](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star History
 
@@ -418,6 +439,6 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 
 ## 라이선스
 
-cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요.
+cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요. cmux 서버 소프트웨어(`web/`, Cloudflare 워커, [LICENSE](LICENSE)에 나열된 릴레이 서비스)는 대신 [Business Source License 1.1](web/LICENSE)을 따라요. 비프로덕션 용도로 읽고, 수정하고, 실행할 수 있지만 프로덕션 사용이나 셀프 호스팅에는 상용 라이선스가 필요해요.
 
-GPL을 준수할 수 없는 조직을 위해 상용 라이선스도 제공돼요. 자세한 내용은 [founders@manaflow.com](mailto:founders@manaflow.com)으로 문의해주세요.
+GPL을 준수할 수 없는 조직을 위해 상용 라이선스도 제공돼요. 자세한 내용은 [founders@cmux.com](mailto:founders@cmux.com)으로 문의해주세요.

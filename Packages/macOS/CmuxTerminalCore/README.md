@@ -8,6 +8,7 @@ The terminal domain's core leaf: pure and Sendable terminal logic with no view d
 - `KeyEvents/` — `ghostty_input_action_e.modifierActionForFlagsChanged` (flagsChanged press/release resolution) and the `NSEvent.ModifierFlags` adapter for `CmuxTerminalCopyMode`.
 - `PathResolution/` — `TerminalPathResolver`, the path heuristics behind cmd-click QuickLook and terminal file-link opening.
 - `LinkRouting/` — `TerminalLinkRouter` and `TerminalOpenURLTarget`, routing terminal links to the embedded browser or the system through the `BrowserHostNormalizing` seam.
+- `Focus/` — `TerminalPointerFocusActivationPolicy`, the pure ownership decision that keeps captured Ghostty mouse sequences intact across pane focus changes.
 - `SurfaceCallbacks/` — `GhosttySurfaceCallbackContext`, the retained userdata for libghostty callbacks, behind the `TerminalSurfaceControlling`/`TerminalSurfaceHosting` seams.
 - `SurfaceValues/` — the Sendable surface value DTOs (`PendingKeyEvent`, `PendingSocketInput`, `ParsedSocketInput`, `NamedKeySendResult`, `InputSendResult`, `PortalLifecycleState`, `PortalHostLease`).
 - `TitleChurn/` — `TerminalTitleChurnFilter`, the value normalizer that collapses known standalone Braille spinner tokens before ingress deduplication.

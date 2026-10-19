@@ -1,3 +1,4 @@
+import CmuxMobileHost
 import Foundation
 
 extension TerminalController {
@@ -7,6 +8,9 @@ extension TerminalController {
         params: [String: Any],
         filesystemJobQuota: MobileTaskFilesystemJobQuota
     ) async -> V2CallResult {
+        guard Self.mobileTaskComposerFeatureEnabled else {
+            return Self.mobileTaskComposerDisabledResult
+        }
         guard let rawQuery = params["query"] as? String else {
             return .err(code: "invalid_params", message: "Missing query", data: nil)
         }

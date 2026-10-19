@@ -284,7 +284,7 @@ extension TerminalController {
     ) -> V2CallResult {
         let isRemote = resolution == .remote
         return .err(
-            code: isRemote ? "not_a_repo" : "not_found",
+            code: isRemote ? "not_a_repo" : "workspace_not_found",
             message: isRemote
                 ? Self.mobileWorkspaceChangesNotARepository
                 : Self.mobileWorkspaceChangesUnavailable,

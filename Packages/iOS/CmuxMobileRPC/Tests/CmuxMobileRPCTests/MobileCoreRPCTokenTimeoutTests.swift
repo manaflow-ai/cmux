@@ -183,6 +183,44 @@ import Testing
         await tokenProvider.release()
     }
 
+    @Test func resetTimedOutSuppressionAllowsAFreshProviderImmediately() async throws {
+        let tokenProvider = CancellationIgnoringTokenProvider()
+        // A long window: without the explicit reset, every request inside it
+        // fails fast without starting a provider.
+        let gate = RPCStackTokenGate(timedOutResetNanoseconds: 3_600_000_000_000)
+
+        do {
+            _ = try await gate.token(timeoutNanoseconds: 1) {
+                try await tokenProvider.token()
+            }
+            Issue.record("Expected first token request to time out")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+        #expect(await tokenProvider.startCount == 1)
+
+        // Poisoned: fails fast, no new provider.
+        do {
+            _ = try await gate.token(timeoutNanoseconds: 1) {
+                try await tokenProvider.token()
+            }
+            Issue.record("Expected suppressed token request to fail fast")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+        #expect(await tokenProvider.startCount == 1)
+
+        // A completed sign-in (or explicit pairing attempt) clears the window:
+        // the very next request starts a fresh provider.
+        await gate.resetTimedOutSuppression()
+        await tokenProvider.release()
+        let token = try await waitForReleasedToken(gate: gate, tokenProvider: tokenProvider)
+        #expect(token == "released-token")
+        #expect(await tokenProvider.startCount == 2)
+    }
+
     @Test func timedOutStackTokenGateRetriesAfterBoundedReset() async throws {
         let tokenProvider = CancellationIgnoringTokenProvider()
         let gate = RPCStackTokenGate(timedOutResetNanoseconds: 0)

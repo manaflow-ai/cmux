@@ -1026,6 +1026,28 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         #expect(await backup.fetches() == 2) // not memoized after the failure
     }
 
+    @Test func incompleteMigrationRestoresCurrentRecordsAndRetries() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup(
+            records: [try backupRecord(
+                "mac-a",
+                host: "10.0.0.1",
+                lastSeenMs: 2_000_000,
+                active: true
+            )],
+            requiresMigrationRetry: true
+        )
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        let firstRead = try await store.loadAll(stackUserID: "user-1")
+        let secondRead = try await store.loadAll(stackUserID: "user-1")
+
+        #expect(firstRead.map(\.macDeviceID) == ["mac-a"])
+        #expect(secondRead.map(\.macDeviceID) == ["mac-a"])
+        #expect(await backup.fetches() == 2)
+    }
+
     @Test func signOutThenSameAccountSignInReRestores() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }

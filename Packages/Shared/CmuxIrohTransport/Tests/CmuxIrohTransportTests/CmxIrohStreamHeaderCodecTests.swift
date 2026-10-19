@@ -38,12 +38,14 @@ struct CmxIrohStreamHeaderCodecTests {
         let codec = try CmxIrohStreamHeaderCodec()
         let terminalID = try CmxIrohResourceID("terminal:1")
         let artifactID = try CmxIrohResourceID("artifact.preview:2")
+        let simulatorPanelID = try CmxIrohResourceID("panel:sim:3")
         let lanes: [CmxIrohLane] = [
             .serverEvents(cursor: nil),
             .serverEvents(cursor: 91),
             .terminal(resourceID: terminalID, cursor: nil),
             .terminal(resourceID: terminalID, cursor: 4_096),
             .artifact(resourceID: artifactID, offset: 8_192),
+            .simulatorStream(resourceID: simulatorPanelID),
         ]
 
         for lane in lanes {

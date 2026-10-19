@@ -4,8 +4,14 @@ import os
 
 extension SimulatorWorkerCoordinator {
     func setFramebufferPublishing(_ enabled: Bool) async {
+        let previousTransport = currentFrameTransport
         do {
             try await framebuffer?.setPublishingEnabled(enabled)
+            if enabled,
+               currentFrameTransport == previousTransport,
+               let currentFrameTransport {
+                send(.frameTransport(currentFrameTransport))
+            }
             if enabled, framebuffer != nil {
                 send(.status(.streaming))
             }

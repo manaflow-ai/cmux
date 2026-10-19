@@ -1,6 +1,7 @@
 mod client;
 mod handles;
 mod id;
+mod journal_plugin;
 mod model;
 mod ops;
 mod options;
@@ -18,6 +19,11 @@ pub use id::{
     OpaqueId, PairingRequestId, PaneId, ScreenId, Selector, SessionId, SidebarViewId, SplitId,
     StreamId, TabId, TerminalId, WorkspaceId,
 };
+pub use journal_plugin::{
+    AgentPluginEventSchema, AgentPluginIngress, AgentPluginListResult, AgentPluginManifest,
+    AgentPluginSubject, JournalAppendResult, JournalEventSchema, JournalEventSubject,
+    JournalIngress, JournalProducerListResult, JournalProducerManifest, JournalProducerPutResult,
+};
 pub use model::{
     AgentSnapshot, AgentSnapshotSource, BrowserSnapshot, BrowserSource, BrowserStatus,
     BrowserViewerResizeResult, CellPixelsResult, ClientSnapshot, ClientTerminalSize,
@@ -34,7 +40,8 @@ pub use model::{
     TerminalExitOutcome, TerminalExitedLifecycle, TerminalHistoryResult, TerminalLifecycle,
     TerminalPendingLifecycle, TerminalScreenResult, TerminalSnapshot, TerminalStateResult,
     TerminalWaitExitExited, TerminalWaitExitPending, TerminalWaitExitResult, TerminalWaitResult,
-    TypedStreamItem, ViewerResizeResult, WorkspaceSnapshot,
+    TypedStreamItem, ViewAttachmentOutcome, ViewerReleaseResult, ViewerResizeResult,
+    WorkspaceSnapshot,
 };
 pub use options::{
     AgentListOptions, AgentReportOptions, AgentSource, AgentState, BrowserAttachOptions,
@@ -42,21 +49,24 @@ pub use options::{
     BrowserMouseOptions, CancellationToken, CellPixelsOptions, ClientMetadataOptions,
     ClientSizingOptions, CopyMode, CopyOptions, CreatePaneOptions, CreateScreenOptions,
     CreateWorkspaceOptions, CursorStyle, Direction, EventStreamOptions, FocusInputOptions,
-    InitialContent, InputModifier, LabelOptions, LayoutOptions, MouseButton, MoveDestination,
-    MutationOptions, NavigateOptions, NotificationLevel, NotificationListOptions,
-    NotificationOptions, PairingDecision, PairingResolveOptions, PaneSwapOptions, PixelSize,
-    ProjectionOptions, ReadHistoryOptions, ReadScreenOptions, RendererGrantOptions, RequestOptions,
-    RunCommand, RunOptions, ScrollOptions, SessionOpenOptions, ShutdownOptions,
-    SidebarEnsureOptions, SidebarInputOptions, Size, SplitOptions, SplitRatioOptions,
-    TerminalAttachOptions, TerminalCreateOptions, TerminalDefaultsOptions, TerminalKeysOptions,
-    TerminalMouseKind, TerminalMouseOptions, TerminalProjectOptions, TextInputOptions,
-    UndoLayoutOptions, Update, ViewportWidthOptions, WaitOptions, WheelOptions, ZoomOptions,
+    InitialContent, InputModifier, JournalStart, JournalSubjectFilter, LabelOptions, LayoutOptions,
+    MouseButton, MoveDestination, MutationOptions, NavigateOptions, NotificationLevel,
+    NotificationListOptions, NotificationOptions, PairingDecision, PairingResolveOptions,
+    PaneSwapOptions, PixelSize, ProjectionOptions, ReadHistoryOptions, ReadScreenOptions,
+    RendererGrantOptions, RequestOptions, RunCommand, RunOptions, ScrollOptions,
+    SessionJournalOptions, SessionOpenOptions, ShutdownOptions, SidebarEnsureOptions,
+    SidebarInputOptions, Size, SplitOptions, SplitRatioOptions, TerminalAttachOptions,
+    TerminalCreateOptions, TerminalDefaultsOptions, TerminalKeysOptions, TerminalMouseKind,
+    TerminalMouseOptions, TerminalProjectOptions, TextInputOptions, UndoLayoutOptions, Update,
+    ViewportWidthOptions, WaitOptions, WheelOptions, ZoomOptions,
 };
 pub use stream::StreamCancellation;
 pub use typed_stream::{
-    BrowserAttachment, BrowserAttachmentItem, BrowserFrameMime, ColorHex, RenderCursor,
-    RenderCursorStyle, RenderPatch, RenderRow, RenderRun, RenderScroll, RenderSnapshot,
-    RenderUnderline, ResetReason, ResourceChange, ResourceKind, ResourceReference,
-    SessionDeltaEvent, SessionEvent, SessionEventStream, SessionSnapshotEvent, SidebarViewItem,
-    SidebarViewStream, TerminalAttachment, TerminalAttachmentItem,
+    BrowserAttachment, BrowserAttachmentItem, BrowserFrameMime, ColorHex, JournalAuthority,
+    JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
+    RenderCursor, RenderCursorStyle, RenderPatch, RenderRow, RenderRun, RenderScroll,
+    RenderSnapshot, RenderUnderline, ResetReason, ResourceChange, ResourceKind, ResourceReference,
+    SessionDeltaEvent, SessionEvent, SessionEventStream, SessionJournalRecord,
+    SessionJournalStream, SessionSnapshotEvent, SidebarViewItem, SidebarViewStream,
+    TerminalAttachment, TerminalAttachmentItem,
 };

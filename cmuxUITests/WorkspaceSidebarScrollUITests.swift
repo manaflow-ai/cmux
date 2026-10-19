@@ -301,9 +301,9 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         let row = app.descendants(matching: .any)
             .matching(
                 NSPredicate(
-                    format: "identifier BEGINSWITH %@ AND value == %@",
+                    format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
                     "CommandPaletteResultRow.",
-                    "palette.moveWorkspaceToTop"
+                    ".palette.moveWorkspaceToTop"
                 )
             )
             .firstMatch

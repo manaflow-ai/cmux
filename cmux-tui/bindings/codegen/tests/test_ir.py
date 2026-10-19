@@ -66,9 +66,9 @@ class IrTests(unittest.TestCase):
         copy["types"]["Id"]["kind"] = "opaque_json"
         self.assertEqual(ir.type("Id")["kind"], "alias")
 
-    def test_live_raw_v11_layout_and_history_contracts_are_exact(self) -> None:
+    def test_live_raw_v12_layout_and_history_contracts_are_exact(self) -> None:
         ir = load_ir(LIVE_SCHEMA)
-        self.assertEqual(ir.mux_protocol, 11)
+        self.assertEqual(ir.mux_protocol, 12)
 
         def assert_field(
             type_name: str,

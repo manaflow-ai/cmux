@@ -1,5 +1,9 @@
+public import CMUXMobileCore
+
 /// A user-actionable failure returned by task-composer directory browsing.
-public enum MobileTaskDirectoryListFailure: Error, Equatable, Sendable {
+public enum MobileTaskDirectoryListFailure: Error, Equatable, Sendable,
+    DiagnosticFailureProviding
+{
     /// The requested path or pagination values are not valid for the browse RPC.
     case invalidPath
     /// The selected Mac could not be reached.
@@ -22,4 +26,23 @@ public enum MobileTaskDirectoryListFailure: Error, Equatable, Sendable {
     case rejected
     /// The caller superseded or cancelled this listing.
     case cancelled
+
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .invalidPath, .notFound, .notDirectory, .unreadable, .rejected:
+            .protocolViolation
+        case .unavailable:
+            .connectionClosed
+        case .timedOut:
+            .timedOut
+        case .authorizationRequired:
+            .authorizationFailed
+        case .unsupported:
+            .policyUnavailable
+        case .permissionDenied:
+            .permissionDenied
+        case .cancelled:
+            .cancelled
+        }
+    }
 }

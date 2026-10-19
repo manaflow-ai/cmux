@@ -512,7 +512,7 @@ public final class Adapter {
                 }
 
                 LinkedHashMap<String, Object> result = new LinkedHashMap<>();
-                result.put("identified", identity.protocol() == 11);
+                result.put("identified", identity.protocol() == 12);
                 result.put("workspace_created", workspace.compareTo(UInt64.ZERO) > 0);
                 result.put("terminal_created", terminalCreated);
                 result.put("marker_sent", true);

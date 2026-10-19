@@ -37,7 +37,7 @@ public struct RemoteControlMasterCleanup: Sendable {
         ) {
             arguments += ["-o", option]
         }
-        arguments += ["-O", "exit", configuration.destination]
+        arguments += ["-O", "exit", "--", configuration.destination]
         return arguments
     }
 

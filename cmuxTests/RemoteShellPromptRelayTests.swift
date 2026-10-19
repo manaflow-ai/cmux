@@ -16,6 +16,57 @@ private let remoteShellPromptFishExecutablePath = [
 ].first { FileManager.default.isExecutableFile(atPath: $0) }
 
 struct RemoteShellPromptRelayTests {
+    @Test("remote session resource loader owns a dedicated source file")
+    func remoteSessionResourceLoaderOwnsDedicatedSourceFile() throws {
+        let repositoryRoot = SwiftTestingAssertions.sourceURL()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let loaderSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("Sources/RemoteSessionBundledResourceLoader.swift"),
+            encoding: .utf8
+        )
+        let bootstrapSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("Sources/RemoteInteractiveShellBootstrapBuilder.swift"),
+            encoding: .utf8
+        )
+
+        #expect(loaderSource.contains("struct RemoteSessionBundledResourceLoader"))
+        #expect(!bootstrapSource.contains("struct RemoteSessionBundledResourceLoader"))
+    }
+
+    @Test("remote session resource loader reads the bundled Codex wrapper")
+    func remoteSessionResourceLoaderReadsBundledCodexWrapper() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-resource-\(UUID().uuidString)", isDirectory: true)
+        let binDirectory = directory.appendingPathComponent("bin", isDirectory: true)
+        let wrapperURL = binDirectory.appendingPathComponent("cmux-codex-wrapper", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try "#!/usr/bin/env bash\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+
+        let loader = RemoteSessionBundledResourceLoader(
+            resourceURL: directory,
+            fileManager: .default
+        )
+
+        #expect(loader.codexWrapperScript() == "#!/usr/bin/env bash\nexit 0\n")
+    }
+
+    @Test("remote shell re-exports the provisioned Codex wrapper shim")
+    func remoteShellExportsCodexWrapperShim() {
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_044,
+            shellFeatures: "ssh-env,ssh-terminfo"
+        )
+
+        #expect(script.contains(
+            "unset CMUX_CODEX_WRAPPER_SHIM; if [ -x \"$HOME/.cmux/bin/cmux-codex-wrapper\" ]"
+        ))
+        #expect(script.contains("command -v bash"))
+    }
+
     @Test("remote zsh prompt reports Git metadata through the relay")
     func remoteZshPromptReportsGitMetadataThroughRelay() throws {
         let output = try runPrompt(
@@ -60,7 +111,7 @@ struct RemoteShellPromptRelayTests {
         )
 
         #expect(output.contains(
-            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
         ), Comment(rawValue: output))
     }
 
@@ -76,8 +127,102 @@ struct RemoteShellPromptRelayTests {
         )
 
         #expect(output.contains(
-            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
         ), Comment(rawValue: output))
+    }
+
+    @Test("remote zsh surface shell state carries terminal lifecycle identity")
+    func remoteZshSurfaceShellStateCarriesTerminalLifecycleIdentity() throws {
+        let output = try runPrompt(
+            shell: "/bin/zsh",
+            integrationName: "cmux-zsh-integration.zsh",
+            shellArguments: ["-f", "-c"],
+            promptFunction: "_cmux_precmd",
+            mode: "shell-state",
+            surfaceID: "22222222-2222-2222-2222-222222222222"
+        )
+
+        #expect(output.contains(
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","surface_id":"22222222-2222-2222-2222-222222222222","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
+        ), Comment(rawValue: output))
+    }
+
+    @Test("remote bash surface shell state carries terminal lifecycle identity")
+    func remoteBashSurfaceShellStateCarriesTerminalLifecycleIdentity() throws {
+        let output = try runPrompt(
+            shell: "/bin/bash",
+            integrationName: "cmux-bash-integration.bash",
+            shellArguments: ["--noprofile", "--norc", "-c"],
+            promptFunction: "_cmux_prompt_command",
+            mode: "shell-state",
+            surfaceID: "22222222-2222-2222-2222-222222222222"
+        )
+
+        #expect(output.contains(
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","surface_id":"22222222-2222-2222-2222-222222222222","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
+        ), Comment(rawValue: output))
+    }
+
+    @Test("workspace shell-state relay authenticates its source without pinning the focused target")
+    @MainActor
+    func workspaceShellStateRelayAuthenticatesSourceWithoutPinningFocusedTarget() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared
+            .activeTabManagerForCallerNotification()
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(
+                windowId: windowID
+            )
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(previousManager)
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let reportingTerminal = try #require(workspace.focusedTerminalPanel)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let focusedTarget = try #require(workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true
+        ))
+        let reportingLifecycleID = reportingTerminal.surface.terminalLifecycleId
+        #expect(workspace.focusedPanelId == focusedTarget.id)
+        #expect(reportingTerminal.id != focusedTarget.id)
+        #expect(GhosttyApp.terminalSurfaceRegistry.isCurrentSurface(
+            id: reportingTerminal.id,
+            terminalLifecycleID: reportingLifecycleID
+        ))
+
+        try reportWorkspaceShellState(
+            workspaceID: workspace.id,
+            terminalLifecycleID: reportingLifecycleID,
+            state: "running"
+        )
+        #expect(focusedTarget.shellActivity.state == .commandRunning)
+
+        _ = GhosttyApp.terminalSurfaceRegistry.advanceTerminalLifecycle(
+            for: reportingTerminal.surface
+        )
+        #expect(!GhosttyApp.terminalSurfaceRegistry.isCurrentSurface(
+            id: reportingTerminal.id,
+            terminalLifecycleID: reportingLifecycleID
+        ))
+
+        try reportWorkspaceShellState(
+            workspaceID: workspace.id,
+            terminalLifecycleID: reportingLifecycleID,
+            state: "prompt"
+        )
+        #expect(focusedTarget.shellActivity.state == .commandRunning)
     }
 
     @Test(
@@ -202,7 +347,7 @@ struct RemoteShellPromptRelayTests {
             source '\(integrationFile.path)'
             _CMUX_TTY_REPORTED=1
             _CMUX_PWD_LAST_PWD="$PWD"
-            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PORTS_LAST_RUN="${EPOCHSECONDS:-$SECONDS}"
             \(modeSetup)
             exec 9<> "$CMUX_TEST_LOG"
             \(promptFunction)
@@ -217,6 +362,7 @@ struct RemoteShellPromptRelayTests {
             "CMUX_BUNDLED_CLI_PATH": cmuxFile.path,
             "CMUX_SOCKET_PATH": "127.0.0.1:64011",
             "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
             "CMUX_TEST_LOG": logFile.path,
             "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
             "HOME": directory.path,
@@ -236,6 +382,35 @@ struct RemoteShellPromptRelayTests {
         let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
+        #expect(!error.contains("command not found"), Comment(rawValue: error))
         return output
+    }
+
+    @MainActor
+    private func reportWorkspaceShellState(
+        workspaceID: UUID,
+        terminalLifecycleID: UUID,
+        state: String
+    ) throws {
+        let request: [String: Any] = [
+            "id": state,
+            "method": "surface.report_shell_state",
+            "params": [
+                "workspace_id": workspaceID.uuidString,
+                "terminal_lifecycle_id": terminalLifecycleID.uuidString,
+                "state": state,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(
+            String(data: requestData, encoding: .utf8)
+        )
+        let rawResponse = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(rawResponse.data(using: .utf8))
+        let response = try #require(
+            JSONSerialization.jsonObject(with: responseData)
+                as? [String: Any]
+        )
+        #expect(response["ok"] as? Bool == true, Comment(rawValue: rawResponse))
     }
 }

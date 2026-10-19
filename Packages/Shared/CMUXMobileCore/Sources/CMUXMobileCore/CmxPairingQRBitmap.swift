@@ -25,11 +25,13 @@ public struct CmxPairingQRBitmap: Sendable {
     /// zone included, or `nil` when Core Image produces no code (empty or
     /// over-capacity payload).
     ///
-    /// ECC M rather than L: the routes-only payload is small enough that M
-    /// still keeps the code at QR version 6 or lower (asserted by tests), and
-    /// the extra redundancy tolerates the glare, moire, and off-angle blur of
-    /// photographing a glossy Mac screen. L would maximize module size, but
-    /// module size is not the binding constraint at these payload sizes.
+    /// ECC M rather than L: the minimal payloads are small enough that M
+    /// still keeps the code at QR version 6 or lower for routes-only and
+    /// Iroh codes, and version 8 or lower for the account-bound Tailscale
+    /// compatibility code (both asserted by tests), and the extra redundancy
+    /// tolerates the glare, moire, and off-angle blur of photographing a
+    /// glossy Mac screen. L would maximize module size, but module size is
+    /// not the binding constraint at these payload sizes.
     public func makeImage(payload: String) -> CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)

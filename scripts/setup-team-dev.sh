@@ -1,180 +1,297 @@
 #!/usr/bin/env bash
-# One-time, idempotent team dogfood onboarding.
-#
-# Each developer runs this ONCE to store their own Stack account in
-# ~/.secrets/cmuxterm-dev.env. Thereafter every DEBUG build they make with
-# scripts/dev-setup.sh --tag <x> auto-signs-in as THEM and auto-attaches to
-# THEIR Mac, with zero manual steps. DEBUG-only and per-user: the file lives
-# outside the repo and is never committed.
-#
-# This script:
-#   1. If ~/.secrets/cmuxterm-dev.env already has a complete dogfood pair, prints
-#      who it is configured as and exits 0 (re-running is safe).
-#   2. Otherwise prompts for the developer's Stack email + password (the password
-#      is read with `read -s` and never echoed), writes the file with chmod 600.
-#   3. Verifies the credentials with a real Stack sign-in (the same project,
-#      endpoint, and keys the DEBUG app uses) and reports success or failure.
-#   4. Prints the exact next command to build a signed-in, auto-attached build.
-#
-# Reuses scripts/lib/dev-secrets.sh for all parsing; it does not duplicate it.
-
+# Configure named development profiles and optional production verification.
+# All credentials stay outside the repository, are verified before saving, and
+# are read with the same parser used by the development launchers.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 
-HOME_DIR="${HOME:-}"
-if [[ -z "$HOME_DIR" ]]; then
-  echo "error: \$HOME is not set; cannot locate ~/.secrets." >&2
-  exit 1
-fi
-SECRETS_DIR="$HOME_DIR/.secrets"
+REFRESH_PERSONAL=0
+REFRESH_AGENT=0
+REFRESH_PRODUCTION=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --refresh) REFRESH_PERSONAL=1; shift ;;
+    --refresh-agent) REFRESH_AGENT=1; shift ;;
+    --refresh-production) REFRESH_PRODUCTION=1; shift ;;
+    -h|--help)
+      cat <<'HELP'
+Usage: scripts/setup-team-dev.sh [--refresh] [--refresh-agent] [--refresh-production]
+
+Prompts separately for missing development dogfood and simulator/test accounts.
+Offers optional production credentials for developers who may want to verify
+against the production environment. Decline or press Enter to skip production.
+All profiles require an account password. If you normally use email codes, first
+set your own password in the Hexclave account portal for the matching environment.
+Complete profiles are kept unless their refresh option is selected:
+  --refresh             Replace the development personal dogfood account.
+  --refresh-agent       Replace the development simulator/test account.
+  --refresh-production  Configure or replace the optional production account.
+
+Development: ~/.secrets/cmuxterm-dev.env (CMUX_DOGFOOD_STACK_* / CMUX_UITEST_STACK_*)
+Production:  ~/.secrets/cmuxterm-prod.env (CMUX_DOGFOOD_STACK_*)
+An existing complete cmux-beta-production.env is copied to the production path
+only if that path is absent; the legacy file stays available to explicit callers.
+Production requires an explicit --credentials-file selection on a launcher
+configured for production; normal development launches never select this file.
+Passwords are hidden, verified with the matching sign-in environment, and saved
+with mode 600. Requires python3 to verify or adopt credentials and curl for sign-in.
+HELP
+      exit 0 ;;
+    *) echo "error: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+SECRETS_DIR="${HOME:?HOME must be set}/.secrets"
 DEV_ENV_FILE="$SECRETS_DIR/cmuxterm-dev.env"
+PRODUCTION_ENV_FILE="$SECRETS_DIR/cmuxterm-prod.env"
 
-# The DEBUG (development) Stack project the macOS/iOS dev builds sign in against.
-# Mirrors AuthConfig.swift development defaults so this verify path matches what
-# the app actually does. (DEBUG => CMUXAuthEnvironment.development.)
-STACK_BASE_URL="https://api.stack-auth.com"
-STACK_PROJECT_ID="454ecd03-1db2-4050-845e-4ce5b0cd9895"
-STACK_PUBLISHABLE_CLIENT_KEY="pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
-
-next_steps() {
-  local email="$1"
-  cat <<EOF
-
-==> Configured. Next, build a signed-in + auto-attached dev build:
-
-      scripts/dev-setup.sh --tag <your-initials>
-
-    That builds the tagged macOS DEBUG app, auto-signs-in as
-    ${email}, enables the iOS pairing host, mints an attach
-    ticket, and launches the iOS dev build auto-attached to your Mac.
-    Mac-only: scripts/dev-setup.sh --tag <x> --surface mac
-EOF
+validate_existing_file() {
+  local file="$1"
+  if [[ -e "$file" || -L "$file" ]]; then
+    cmux_dev_secrets_validate_file "$file"
+  fi
 }
 
-# --- idempotent: already configured? ----------------------------------------
-# cmux_dev_secrets_load resolves a COMPLETE pair from the same precedence chain
-# the app uses. If the dogfood pair already resolves from the dev file (or env),
-# we are done. Run it in a subshell so the exported password never enters this
-# process environment.
-existing_email="$(
-  cmux_dev_secrets_load >/dev/null 2>&1 && printf '%s' "${CMUX_UITEST_STACK_EMAIL:-}" || true
-)"
-if [[ -n "$existing_email" ]]; then
-  echo "==> already configured as ${existing_email}"
-  echo "    (creds resolve via scripts/lib/dev-secrets.sh; delete $DEV_ENV_FILE to reset)"
-  next_steps "$existing_email"
-  exit 0
-fi
+profile_configured() {
+  # A subshell keeps the loader's exported variables out of subsequent profiles.
+  (cmux_dev_secrets_load --profile "$2" --credentials-file "$1" >/dev/null 2>&1)
+}
 
-# --- prompt for the developer's own Stack account ----------------------------
-echo "==> cmux team dogfood setup (one-time, per developer)"
-echo "    Stores YOUR Stack account in $DEV_ENV_FILE so DEBUG builds sign in as you."
-echo
+adopt_legacy_production() (
+  local legacy_file="$SECRETS_DIR/cmux-beta-production.env" temporary_file=""
+  # Never replace even an incomplete canonical profile or combine its values
+  # with legacy credentials. Existing explicit callers retain their old file.
+  [[ ! -e "$PRODUCTION_ENV_FILE" && ! -L "$PRODUCTION_ENV_FILE" ]] || return 0
+  [[ -e "$legacy_file" || -L "$legacy_file" ]] || return 0
+  cmux_dev_secrets_validate_file "$legacy_file"
+  profile_configured "$legacy_file" personal || return 0
 
-email=""
-while [[ -z "$email" ]]; do
-  read -r -p "Stack email: " email
-  email="${email#"${email%%[![:space:]]*}"}"
-  email="${email%"${email##*[![:space:]]}"}"
-  if [[ -z "$email" ]]; then
+  umask 077
+  temporary_file="$(mktemp "$SECRETS_DIR/.cmux-credentials.XXXXXX")"
+  trap 'rm -f "$temporary_file"' EXIT
+  cat "$legacy_file" > "$temporary_file"
+  chmod 600 "$temporary_file"
+  # Publish a complete copy atomically. An exclusive link also protects a
+  # canonical path created by another setup process while this copy was made.
+  update_credentials_file adopt "$PRODUCTION_ENV_FILE" "$temporary_file"
+)
+
+prompt_credentials() {
+  local label="$1" optional="$2"
+  email=""
+  password=""
+  while [[ -z "$email" ]]; do
+    if ! IFS= read -r -p "$label email: " email; then
+      return 2
+    fi
+    email="${email#"${email%%[![:space:]]*}"}"
+    email="${email%"${email##*[![:space:]]}"}"
+    [[ -n "$email" ]] && break
+    [[ "$optional" -eq 1 ]] && return 2
     echo "  email cannot be empty." >&2
-  fi
-done
-
-password=""
-while [[ -z "$password" ]]; do
-  # -s: never echo the password to the terminal.
-  read -r -s -p "Stack password: " password
-  echo
-  if [[ -z "$password" ]]; then
-    echo "  password cannot be empty." >&2
-  fi
-done
-
-# Emit a JSON string literal for a value, escaping backslash and double quote so
-# the request body stays valid even for unusual passwords. No external deps.
-json_string() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  printf '"%s"' "$s"
+  done
+  while [[ -z "$password" ]]; do
+    if ! IFS= read -r -s -p "$label password: " password; then
+      echo
+      return 2
+    fi
+    echo
+    if [[ -z "$password" ]]; then
+      echo "  password cannot be empty." >&2
+    fi
+  done
 }
 
-# --- verify against Stack BEFORE writing -------------------------------------
-# Hits the exact endpoint/project/keys the DEBUG app's StackClientApp uses.
-# A successful sign-in returns an access_token; a wrong pair returns a known
-# error code (e.g. EMAIL_PASSWORD_MISMATCH). x-stack-override-error-status keeps
-# the HTTP status at 200 so we read the JSON body for the verdict.
 verify_credentials() {
-  local resp
-  if ! command -v curl >/dev/null 2>&1; then
-    echo "warning: curl not found; skipping credential verification." >&2
-    return 2
+  local environment="$1" project_id client_key response
+  # Mirrors the development and production defaults in AuthConfig.swift.
+  case "$environment" in
+    development)
+      project_id="454ecd03-1db2-4050-845e-4ce5b0cd9895"
+      client_key="pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" ;;
+    production)
+      project_id="9790718f-14cd-4f7e-824d-eaf527a82b82"
+      client_key="pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr" ;;
+    *) return 1 ;;
+  esac
+  if ! command -v curl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+    echo "error: curl and python3 are required to verify credentials." >&2
+    return 1
   fi
-  resp="$(
-    curl -fsS -X POST "$STACK_BASE_URL/api/v1/auth/password/sign-in" \
+  # Credentials travel on stdin, never in subprocess arguments or logs. JSON
+  # encoding preserves quotes, backslashes, whitespace, and control characters.
+  if ! response="$(
+    printf '%s\n%s\n' "$email" "$password" | python3 -c '
+import json, sys
+email, password = sys.stdin.read().split("\n", 2)[:2]
+json.dump({"email": email, "password": password}, sys.stdout)
+' | curl -fsS --connect-timeout 10 --max-time 30 \
+      -X POST "https://api.stack-auth.com/api/v1/auth/password/sign-in" \
       -H "content-type: application/json" \
-      -H "x-stack-project-id: $STACK_PROJECT_ID" \
-      -H "x-stack-publishable-client-key: $STACK_PUBLISHABLE_CLIENT_KEY" \
+      -H "x-stack-project-id: $project_id" \
+      -H "x-stack-publishable-client-key: $client_key" \
       -H "x-stack-access-type: client" \
       -H "x-stack-override-error-status: true" \
-      --data-binary @- <<JSON 2>/dev/null || true
-{"email": $(json_string "$email"), "password": $(json_string "$password")}
-JSON
-  )"
-  if [[ -z "$resp" ]]; then
-    echo "warning: no response from Stack (network issue?); could not verify." >&2
-    return 2
+      --data-binary @- 2>/dev/null
+  )"; then
+    echo "error: sign-in service unavailable; credentials were not saved." >&2
+    return 1
   fi
-  if printf '%s' "$resp" | grep -q '"access_token"'; then
-    return 0
+  if ! printf '%s' "$response" | python3 -c '
+import json, sys
+try:
+    value = json.load(sys.stdin)
+    token = value.get("access_token") if isinstance(value, dict) else None
+except (ValueError, TypeError):
+    token = None
+sys.exit(0 if isinstance(token, str) and token else 1)
+'; then
+    echo "error: sign-in failed; credentials were not saved. Check the account and environment." >&2
+    return 1
   fi
-  # Surface the error code (e.g. EMAIL_PASSWORD_MISMATCH) without dumping tokens.
-  local code
-  code="$(printf '%s' "$resp" | sed -n 's/.*"code"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-  if [[ -n "$code" ]]; then
-    echo "  Stack rejected the credentials: $code" >&2
-  fi
-  return 1
 }
 
+update_credentials_file() {
+  # Lock a stable sidecar, since atomically replacing the credentials changes
+  # its inode. The advisory lock is released by the OS even after a crash.
+  python3 -c '
+import fcntl, os, stat, sys, tempfile
+
+action, file, argument = sys.argv[1:]
+values = sys.stdin.buffer.read().split(b"\0") if action == "save" else None
+
+def validate(fd):
+    metadata = os.fstat(fd)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+        sys.exit("error: credential and lock files must be owned by the current user, regular, and private (mode 600).")
+
+try:
+    descriptor = os.open(file + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(descriptor, "rb") as lock:
+        validate(lock.fileno())
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if action == "adopt":
+            try:
+                os.link(argument, file)
+            except FileExistsError:
+                pass
+        else:
+            try:
+                descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            except FileNotFoundError:
+                previous = b"# Local cmux sign-in credentials. Never commit or source this file.\n"
+            else:
+                with os.fdopen(descriptor, "rb") as source:
+                    validate(source.fileno())
+                    previous = source.read()
+            prefix = argument.encode("ascii")
+            lines = previous.split(b"\n")
+            if lines[-1] == b"":
+                lines.pop()
+            retained = [line for line in lines if line.partition(b"=")[0].strip() not in (prefix + b"_EMAIL", prefix + b"_PASSWORD")]
+            # Match the shared parser: strip one outer quote layer only, and
+            # preserve literal quotes, CRs, and other password bytes inside.
+            retained.extend((prefix + b"_EMAIL=\"" + values[0] + b"\"", prefix + b"_PASSWORD=\"" + values[1] + b"\""))
+            descriptor, temporary = tempfile.mkstemp(prefix=".cmux-credentials.", dir=os.path.dirname(file))
+            try:
+                with os.fdopen(descriptor, "wb") as output:
+                    output.write(b"\n".join(retained) + b"\n")
+                os.replace(temporary, file)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+except OSError as error:
+    sys.exit("error: could not update protected credentials: " + error.strerror)
+' "$@"
+}
+
+save_profile() (
+  local file="$1" prefix="$2"
+  umask 077
+  mkdir -p "$SECRETS_DIR"
+  chmod 700 "$SECRETS_DIR"
+  # Pass values through stdin before taking the read/modify/replace lock.
+  # User input and sign-in have already completed; no secret enters argv.
+  printf '%s\0%s\0' "$email" "$password" | update_credentials_file save "$file" "$prefix"
+)
+
+configure_profile() {
+  local label="$1" environment="$2" profile="$3" prefix="$4" file="$5" refresh="$6" optional="$7"
+  local email="" password=""
+  validate_existing_file "$file"
+  echo "==> $label"
+  if [[ "$refresh" -eq 0 ]] && profile_configured "$file" "$profile"; then
+    echo "    Already configured; keeping this profile."
+    return 0
+  fi
+  if ! prompt_credentials "$label" "$optional"; then
+    if [[ "$optional" -eq 1 ]]; then
+      echo "    Production setup skipped; existing credentials were kept."
+      return 0
+    fi
+    echo "error: input ended before the $label account was complete; rerun setup to continue." >&2
+    return 1
+  fi
+  echo "    Verifying with the $environment sign-in service..."
+  verify_credentials "$environment"
+  save_profile "$file" "$prefix"
+  echo "    Verified and saved in $file (mode 600)."
+}
+
+configure_production() {
+  local choice=""
+  echo
+  echo "==> Optional production verification"
+  echo "    Add this only if you may want to verify against the production environment."
+  echo "    This requires your production account password, even if you normally use email codes."
+  echo "    First set your own password in the Hexclave account portal for cmux production."
+  echo "    These credentials are separate from development and require explicit selection."
+  adopt_legacy_production
+  validate_existing_file "$PRODUCTION_ENV_FILE"
+  if [[ "$REFRESH_PRODUCTION" -eq 0 ]]; then
+    if profile_configured "$PRODUCTION_ENV_FILE" personal; then
+      echo "    Already configured; use --refresh-production to replace this profile."
+      return 0
+    fi
+    while true; do
+      if ! IFS= read -r -p "Configure production credentials now? [y/N]: " choice; then
+        choice=""
+      fi
+      case "$choice" in
+        y|Y|yes|YES|Yes) break ;;
+        ""|n|N|no|NO|No) echo "    Production setup skipped."; return 0 ;;
+        *) echo "    Enter yes to configure production or no to skip." ;;
+      esac
+    done
+  fi
+  echo "    Leave the email empty to skip."
+  configure_profile "Production verification" production personal CMUX_DOGFOOD_STACK \
+    "$PRODUCTION_ENV_FILE" "$REFRESH_PRODUCTION" 1
+}
+
+echo "==> cmux developer account setup"
+echo "    Use development accounts for both dogfood and simulator/test profiles."
+echo "    Both accounts may belong to you; existing complete profiles are preserved."
+echo "    Each account needs a password; an email code cannot be used here."
+echo "    First set your own password in the Hexclave account portal for cmux development."
 echo
-echo "==> verifying with Stack..."
-verify_rc=0
-verify_credentials || verify_rc=$?
+configure_profile "Development personal dogfood" development personal CMUX_DOGFOOD_STACK \
+  "$DEV_ENV_FILE" "$REFRESH_PERSONAL" 0
+configure_profile "Development simulator/test" development agent CMUX_UITEST_STACK \
+  "$DEV_ENV_FILE" "$REFRESH_AGENT" 0
+configure_production
 
-case "$verify_rc" in
-  0)
-    echo "==> credentials verified."
-    ;;
-  1)
-    echo "error: sign-in failed; not writing $DEV_ENV_FILE." >&2
-    echo "       Re-run scripts/setup-team-dev.sh with the correct Stack account." >&2
-    exit 1
-    ;;
-  *)
-    echo "==> could not verify non-interactively; writing the file as a best effort."
-    echo "    Confirm by running scripts/dev-setup.sh --tag <x> and checking the build signs in."
-    ;;
-esac
+cat <<EOF
 
-# --- write the per-user creds file (chmod 600) -------------------------------
-mkdir -p "$SECRETS_DIR"
-chmod 700 "$SECRETS_DIR" 2>/dev/null || true
+==> Development profiles are configured in $DEV_ENV_FILE.
+    Personal dogfood: scripts/dev-setup.sh --tag <your-initials>
+    Simulator testing: scripts/dev-setup.sh --tag <test-tag> --agent
+    Refresh one profile: --refresh (personal), --refresh-agent, or --refresh-production.
 
-umask_old="$(umask)"
-umask 077
-{
-  echo "# cmux per-developer dogfood credentials. Written by scripts/setup-team-dev.sh."
-  echo "# DEBUG-only, per-user; never commit. See scripts/cmuxterm-dev.env.example."
-  printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\n' "$email"
-  printf 'CMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$password"
-} > "$DEV_ENV_FILE"
-umask "$umask_old"
-chmod 600 "$DEV_ENV_FILE"
-
-echo "==> wrote $DEV_ENV_FILE (chmod 600) for ${email}"
-next_steps "$email"
+    Production verification requires a launcher configured for production and
+    an explicit --credentials-file "$PRODUCTION_ENV_FILE".
+    Normal development launches do not read the production file.
+EOF

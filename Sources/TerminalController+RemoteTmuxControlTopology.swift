@@ -89,6 +89,9 @@ extension TerminalController {
               let windowID = v2ResolveWindowId(tabManager: tabManager) else {
             return .surfaceNotFound(surfaceID)
         }
+        if let message = browserReplTabRefusalMessage(sourcePanelID) {
+            return .denied(sourcePanelID, message: message)
+        }
 
         let targetIndex: Int
         if let index = inputs.index {
@@ -348,7 +351,8 @@ extension TerminalController {
                         initialCommand: v2NonEmptyString(remotePane.panel.surface.debugInitialCommand()),
                         tmuxStartCommand: v2NonEmptyString(remotePane.panel.surface.debugTmuxStartCommand()),
                         isTerminal: true,
-                        resumeBinding: nil
+                        resumeBinding: nil,
+                        renderHealthRawValue: remotePane.panel.surface.renderHealth.rawValue
                     )
                 }
             }
@@ -376,6 +380,7 @@ extension TerminalController {
                 resumeBinding: terminalPanel != nil
                     ? controlResumeBinding(from: workspace.surfaceResumeBinding(panelId: panel.id))
                     : nil,
+                renderHealthRawValue: terminalPanel?.surface.renderHealth.rawValue,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,

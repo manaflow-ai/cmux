@@ -7,6 +7,7 @@ from cmux import Client, MachineId, SessionId, WorkspaceId
 
 from fake_cmux_server import (
     MACHINE_B,
+    SESSION_A,
     SESSION_B,
     FakeCmuxServer,
 )
@@ -26,6 +27,40 @@ from orchestrator import (
 
 
 class PythonDevOrchestratorTests(unittest.TestCase):
+    def test_fake_server_emits_canonical_terminal_snapshot(self) -> None:
+        with FakeCmuxServer() as server:
+            workspace_id = server.seed_workspace("canonical")
+            screen_id = "screen_" + "1" * 32
+            pane_id = "pane_" + "2" * 32
+            tab_id = "tab_" + "3" * 32
+            terminal_id = "term_" + "4" * 32
+            server.screens[screen_id] = {
+                "id": screen_id,
+                "workspace_id": workspace_id,
+                "name": None,
+                "index": 0,
+                "focused": True,
+                "layout": {
+                    "kind": "leaf",
+                    "pane_id": pane_id,
+                    "tab_ids": [tab_id],
+                    "active_tab_id": tab_id,
+                },
+            }
+            server.panes[pane_id] = {
+                "id": pane_id,
+                "screen_id": screen_id,
+                "name": None,
+                "focused": True,
+                "zoomed": False,
+            }
+            server._add_terminal(tab_id, terminal_id, pane_id, None, None)
+
+            snapshot = server._full_snapshot(SESSION_A)
+
+        self.assertEqual(snapshot["terminals"][0]["tab_ids"], [tab_id])
+        self.assertNotIn("tab_id", snapshot["terminals"][0])
+
     def test_duplicate_session_names_require_a_typed_id(self) -> None:
         with FakeCmuxServer(duplicate_session_name=True) as server:
             with Client(server.path, timeout=1.0) as client:

@@ -158,6 +158,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before arming the held non-cold replay"
     )
@@ -165,7 +166,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -222,6 +223,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before arming the held non-cold replay"
     )
@@ -229,7 +231,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -290,6 +292,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before arming the held non-cold replay"
     )
@@ -297,7 +300,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -358,6 +361,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before arming the held non-cold replay"
     )
@@ -365,7 +369,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -427,6 +431,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before arming the held non-cold replay"
     )
@@ -434,7 +439,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
 
     await router.holdNextReplayResponses()
     let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: "live-terminal")
+    store.requestTerminalReplay(surfaceID: "live-terminal", trigger: .coldAttach)
     let heldReplayRequested = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
     }
@@ -497,6 +502,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing advisory primary render-grid"
     )
@@ -534,6 +540,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing input recovery"
     )

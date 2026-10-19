@@ -5,7 +5,15 @@ final class TitlebarAccessoryContainerView: NSView {
         eventType == nil || eventType == .leftMouseDown
     }
 
+    /// Called with the new window (or nil) whenever AppKit moves this view.
+    var onWindowChange: ((NSWindow?) -> Void)?
+
     override var mouseDownCanMoveWindow: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?(window)
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point) else { return nil }

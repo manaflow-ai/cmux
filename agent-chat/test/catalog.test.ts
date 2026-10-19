@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AgentModelCatalogStore, mergeCatalogModels, selectEnabledModel, validateAgentModelCatalog } from "../catalog";
+import { AgentModelCatalogStore, mergeCatalogModels, selectEnabledModel, validateAgentModelCatalog, type AgentModelCatalogPayload } from "../catalog";
 import { mergeAcpModelOption } from "../adapters/acp";
 import { mergeCodexModels } from "../adapters/codex";
 import { mergeRemoteModelOptionsForTest } from "../server";
@@ -80,6 +80,8 @@ test("catalog validation, provider merges, persistence, and ETag", async () => {
   const catchModel = catchOptions.find((option) => option.id === "model");
   expect(catchModel?.value).toBe("gpt-new");
   expect(catchModel?.choices?.map((choice) => choice.value)).toContain("gpt-new");
+  expect(catchModel?.choices?.find((choice) => choice.value === "gpt-new")?.efforts?.map((effort) => effort.value)).toEqual(["xhigh"]);
+  expect(catchModel?.choices?.find((choice) => choice.value === "gpt-new")?.defaultEffort).toBe("xhigh");
 
   expect(selectEnabledModel("gated", [
     { id: "gated", disabled: true },
@@ -125,6 +127,22 @@ test("catalog validation, provider merges, persistence, and ETag", async () => {
     now += 200;
     expect(await store.refreshIfStale()).toBe(false);
     expect(sawEtag).toBe(true);
+
+    // Cache persistence is an offline optimization. A valid network response
+    // must still reach open model pickers when the cache destination fails.
+    const cacheDirectory = join(root, "cache-is-a-directory");
+    await mkdir(cacheDirectory, { recursive: true });
+    mode = "payload";
+    const updates: AgentModelCatalogPayload[] = [];
+    const uncached = new AgentModelCatalogStore({
+      url: `http://127.0.0.1:${fixture.port}`,
+      cacheFile: cacheDirectory,
+      now: () => now,
+    });
+    uncached.subscribe((next) => updates.push(next));
+    expect(await uncached.refresh()).toBe(true);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.providers.codex?.models[0]?.id).toBe("gpt-new");
   } finally {
     fixture.stop(true);
   }

@@ -31,70 +31,18 @@ extension AppSection {
         }
     }
 
-    func workspacePlacementSubtitle(_ placement: WorkspacePlacement) -> String {
-        // Mirrors legacy NewWorkspacePlacement.description verbatim
-        // (Sources/TabManager.swift, "workspace.placement.*.description").
-        switch placement {
-        case .top:
-            return String(
-                localized: "workspace.placement.top.description",
-                defaultValue: "Insert new workspaces at the top of the list."
-            )
-        case .afterCurrent:
-            return String(
-                localized: "workspace.placement.afterCurrent.description",
-                defaultValue: "Insert new workspaces directly after the active workspace."
-            )
-        case .end:
-            return String(
-                localized: "workspace.placement.end.description",
-                defaultValue: "Append new workspaces to the bottom of the list."
-            )
-        }
-    }
-
-    func fileDropSubtitle(_ behavior: FileDropDefaultBehavior) -> String {
-        switch behavior {
-        case .text:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.text.subtitle",
-                defaultValue: "Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."
-            )
-        case .preview:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.preview.subtitle",
-                defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
-            )
-        }
-    }
-
-    func confirmQuitSubtitle(_ mode: ConfirmQuitMode) -> String {
-        // Mirrors legacy confirmQuitModeSubtitle keys/text.
-        switch mode {
-        case .always: return String(localized: "settings.app.warnBeforeQuit.subtitleOn", defaultValue: "Show a confirmation before quitting with Cmd+Q.")
-        case .dirtyOnly: return String(localized: "settings.app.confirmQuit.subtitleDirtyOnly", defaultValue: "Show a confirmation only when a workspace needs close confirmation.")
-        case .never: return String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
-        }
-    }
-
-    func warnCloseXSubtitle(hideCloseButton: Bool, warnEnabled: Bool) -> String {
-        // Mirrors legacy warnBeforeClosingTabXButtonSubtitle: hidden override
-        // takes priority, then on/off wording.
+    func warnCloseXSubtitle(hideCloseButton: Bool) -> String {
+        // The hidden-button status replaces the description. The warning
+        // cannot apply while close buttons are hidden.
         if hideCloseButton {
             return String(
                 localized: "settings.app.warnBeforeClosingTabXButton.subtitleHidden",
-                defaultValue: "Tab close buttons are hidden, so this warning is inactive."
-            )
-        }
-        if warnEnabled {
-            return String(
-                localized: "settings.app.warnBeforeClosingTabXButton.subtitleOn",
-                defaultValue: "The tab close button asks for confirmation before closing."
+                defaultValue: "Unavailable while tab close buttons are hidden."
             )
         }
         return String(
-            localized: "settings.app.warnBeforeClosingTabXButton.subtitleOff",
-            defaultValue: "The tab close button closes tabs immediately."
+            localized: "settings.app.warnBeforeClosingTabXButton.subtitle",
+            defaultValue: "Clicking a tab's close button asks for confirmation first."
         )
     }
 }

@@ -1,0 +1,109 @@
+name: "CLA Assistant"
+
+# Contributor License Agreement check. The action lives in our fork,
+# manaflow-ai/cla-github-action, and is pinned to a commit. Signers are the
+# pull request opener plus every primary commit author GitHub maps to an
+# account. Co-authored-by trailers (pairing partners, AI agents) and the git
+# committer field never need to sign, and a signature is reused in every
+# later pull request. Maintainer accounts in allowlist-ids never sign. A merge
+# commit that pr-catch-up.yml verified and marked with a cmux/catch-up-merge
+# status from github-actions[bot] in this repository needs no signature.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    branches: [main]
+    types: [opened, closed, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  CLAAssistant:
+    name: "CLA Assistant"
+    # Comment admission is a coarse filter: GitHub appends CRLF to plain
+    # comments, so equality would drop real declarations. The action does the
+    # exact match itself and ignores anything else.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (
+        github.event.issue.pull_request &&
+        github.event.comment.user.type == 'User' &&
+        (
+          contains(github.event.comment.body, 'recheck') ||
+          contains(github.event.comment.body, 'I have read the CLA Document v2.2 and I hereby sign the CLA')
+        )
+      )
+    # A fork pull request, or a comment on one, runs this job with a write
+    # token. Neither event says whether the head is a fork, so the job must
+    # run on a VM that is destroyed after one job. CI_TRUSTED_RUNNER can pick
+    # only GitHub-hosted ubuntu-24.04 or a Blacksmith Ubuntu VM, never an
+    # owned host, so either provider can carry this check while the other is
+    # down. validate-cla-policy.rb pins these exact bytes.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token on fork pull requests
+    timeout-minutes: 10
+    # One run at a time per pull request so two signature events cannot write
+    # the ledger from different snapshots. Independent pull requests proceed.
+    concurrency:
+      group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      # Signature ledger commits on the cla-signatures branch.
+      contents: write
+      # Bot comment on the pull request. issues:write is needed for reactions
+      # and comments on fork pull requests.
+      issues: write
+      pull-requests: write
+      # Re-run the pull_request_target check after a signature comment.
+      actions: write
+      # Read the trusted merge status on catch-up merge commits.
+      statuses: read
+    steps:
+      # Blacksmith reports itself as self-hosted. Refuse any runner that is
+      # neither GitHub-hosted nor a Blacksmith VM for the labels above.
+      - name: Require GitHub-hosted or Blacksmith runner
+        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')
+        run: |
+          set -euo pipefail
+          echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
+          exit 1
+      - name: "CLA Assistant"
+        id: cla
+        uses: manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: 'signatures/version2/cla.json'
+          path-to-document: 'https://github.com/manaflow-ai/cmux/blob/main/CLA.md'
+          # Signatures live on an unprotected branch so main's checks never
+          # block the bot's ledger commits.
+          branch: 'cla-signatures'
+          required-base-ref: 'main'
+          custom-pr-sign-comment: 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+          lock-pullrequest-aftermerge: 'false'
+          # Numeric GitHub IDs of maintainers who never sign, as opener or as
+          # commit author: @lawrencecchen, @austinywang, @azooz2003-bit.
+          allowlist-ids: '54008264,38676809,67667005'
+          # pr-catch-up.yml's merge commits, vouched for by a status that
+          # only a token with statuses write in this repository can post.
+          # 41898282 is github-actions[bot], the Actions token that posts it.
+          trusted-merge-status-context: 'cmux/catch-up-merge'
+          trusted-merge-status-creator-ids: '41898282'
+
+      # A signature comment runs this workflow from main, so its check run
+      # attaches to main, not to the pull request head. Re-run the failed
+      # pull_request_target run for the head so the pull request turns green
+      # without another push.
+      - name: "Refresh the pull request check after a new signature"
+        if: github.event_name == 'issue_comment' && steps.cla.outputs.signature_recorded == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          head="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)"
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cla.yml --event pull_request_target --commit "$head" --status failure --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [[ -z "$run_id" ]]; then
+            echo "No failed CLA run for $head; nothing to refresh."
+            exit 0
+          fi
+          gh run rerun "$run_id" --failed --repo "$GITHUB_REPOSITORY"

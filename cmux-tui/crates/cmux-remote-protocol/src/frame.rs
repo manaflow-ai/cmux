@@ -130,7 +130,13 @@ impl SessionId {
     }
 
     pub fn to_hex(self) -> String {
-        format!("{self:?}")
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut output = String::with_capacity(self.0.len() * 2);
+        for byte in self.0 {
+            output.push(HEX[(byte >> 4) as usize] as char);
+            output.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+        output
     }
 }
 
@@ -392,6 +398,15 @@ mod tests {
         assert!(SessionId::from_hex("5a").is_err());
         assert!(SessionId::from_hex("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz").is_err());
         assert!(SessionId::from_hex("éééééééééééééééé").is_err());
+    }
+
+    #[test]
+    fn session_id_hex_is_independent_of_debug_formatting() {
+        let session = SessionId([
+            0x00, 0x01, 0x0f, 0x10, 0x2a, 0x7f, 0x80, 0xa5, 0xb0, 0xc3, 0xde, 0xef, 0xf0, 0xf1,
+            0xfe, 0xff,
+        ]);
+        assert_eq!(session.to_hex(), "00010f102a7f80a5b0c3deeff0f1feff");
     }
 
     #[test]

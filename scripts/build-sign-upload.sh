@@ -80,6 +80,15 @@ if [ ! -x "$HELPER_PATH" ]; then
   exit 1
 fi
 
+# Submit the independently signed Computer Use helper now. Apple can process
+# its first ticket while this script finishes bundle metadata and signing.
+COMPUTER_USE_NOTARY_STATE="build/computer-use-notarization.state"
+./scripts/ci/notarize-computer-use-helper.sh \
+  --start "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
+
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
 SPARKLE_PUBLIC_KEY_DERIVED=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
@@ -96,11 +105,17 @@ echo "Sparkle keys injected"
 
 # --- Codesign ---
 echo "Codesigning..."
-./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
+CMUX_SIGN_MODE=all-except-computer-use \
+  ./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
 echo "Codesign verified"
 
 # --- Notarize app ---
 echo "Notarizing app..."
+./scripts/ci/notarize-computer-use-helper.sh \
+  --finish "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
 xcrun notarytool submit cmux-notary.zip \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
@@ -124,13 +139,19 @@ echo "DMG notarized"
 # --- Generate Sparkle appcast ---
 echo "Generating appcast..."
 ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$TAG" appcast.xml
+# Stable installs from CI releases are thin and read appcast-<arch>.xml. This
+# script builds only the universal DMG, so both per-arch feeds carry the
+# universal item: thin installs update to it, and the next CI release moves
+# them back onto their architecture.
+cp appcast.xml appcast-arm64.xml
+cp appcast.xml appcast-x86_64.xml
 
 # --- Create GitHub release (if needed) and upload ---
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists"
   EXISTING_ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name' || true)"
   HAS_CONFLICTING_ASSET="false"
-  for asset in cmux-macos.dmg appcast.xml; do
+  for asset in cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
     if printf '%s\n' "$EXISTING_ASSETS" | grep -Fxq "$asset"; then
       HAS_CONFLICTING_ASSET="true"
       break
@@ -145,14 +166,14 @@ if gh release view "$TAG" >/dev/null 2>&1; then
 
   if [[ "$ALLOW_OVERWRITE" == "true" ]]; then
     echo "Uploading with overwrite enabled for existing release $TAG..."
-    gh release upload "$TAG" cmux-macos.dmg appcast.xml --clobber
+    gh release upload "$TAG" cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml --clobber
   else
     echo "Uploading to existing release $TAG..."
-    gh release upload "$TAG" cmux-macos.dmg appcast.xml
+    gh release upload "$TAG" cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml
   fi
 else
   echo "Creating release $TAG and uploading..."
-  gh release create "$TAG" cmux-macos.dmg appcast.xml --title "$TAG" --notes "See CHANGELOG.md for details"
+  gh release create "$TAG" cmux-macos.dmg appcast.xml appcast-arm64.xml appcast-x86_64.xml --title "$TAG" --notes "See CHANGELOG.md for details"
 fi
 
 # --- Verify ---
@@ -173,17 +194,18 @@ cask "cmux" do
   url "https://github.com/manaflow-ai/cmux/releases/download/v#{version}/cmux-macos.dmg"
   name "cmux"
   desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
-  homepage "https://github.com/manaflow-ai/cmux"
+  homepage "https://cmux.com/"
 
   livecheck do
     url :url
     strategy :github_latest
   end
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :sonoma
 
   app "cmux.app"
   binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
+  generate_completions_from_executable "#{HOMEBREW_PREFIX}/bin/cmux", "completion"
 
   zap trash: [
     "~/Library/Application Support/cmux",

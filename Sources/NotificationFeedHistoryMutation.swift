@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum NotificationFeedHistoryMutation: Sendable {
+enum NotificationFeedHistoryMutation: Sendable {
     case record(NotificationFeedHistoryRecord, supersededIDs: Set<UUID>)
     case reconcileActive([NotificationFeedHistoryRecord])
     case markReadIDs(Set<UUID>)

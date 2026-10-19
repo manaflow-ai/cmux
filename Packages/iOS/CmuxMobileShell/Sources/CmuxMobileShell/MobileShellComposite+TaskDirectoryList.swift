@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import CmuxMobileRPC
 internal import Foundation
 
@@ -24,24 +25,50 @@ extension MobileShellComposite {
         offset: Int = 0,
         limit: Int = MobileTaskDirectoryListRequest.defaultPageSize
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        let diagnosticStartedAt = appDiagnosticNow()
+        recordAppEvent(
+            .taskDirectorySearchStarted,
+            correlationID: macDeviceID
+        )
+        func finish(
+            _ result: Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>
+        ) -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+            switch result {
+            case .success(let response):
+                recordAppEvent(
+                    .taskDirectorySearchSucceeded,
+                    correlationID: macDeviceID,
+                    startedAt: diagnosticStartedAt,
+                    count: response.entries.count
+                )
+            case .failure(let failure):
+                recordAppEvent(
+                    .taskDirectorySearchFailed,
+                    correlationID: macDeviceID,
+                    startedAt: diagnosticStartedAt,
+                    failure: failure.diagnosticFailureKind
+                )
+            }
+            return result
+        }
         guard let listRequest = MobileTaskDirectoryListRequest(
             path: path,
             offset: offset,
             limit: limit
         ) else {
-            return .failure(.invalidPath)
+            return finish(.failure(.invalidPath))
         }
 
         if !matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag)
             || remoteClient == nil {
             guard await switchToMac(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
-                return .failure(Task.isCancelled ? .cancelled : .unavailable)
+                return finish(.failure(Task.isCancelled ? .cancelled : .unavailable))
             }
         }
         guard !Task.isCancelled,
               matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag),
               let client = remoteClient else {
-            return .failure(.cancelled)
+            return finish(.failure(.cancelled))
         }
         let generation = connectionGeneration
 
@@ -60,9 +87,9 @@ extension MobileShellComposite {
             )
             guard !Task.isCancelled,
                   matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag) else {
-                return .failure(.cancelled)
+                return finish(.failure(.cancelled))
             }
-            return .success(try MobileTaskDirectoryListResponse.decode(data))
+            return finish(.success(try MobileTaskDirectoryListResponse.decode(data)))
         } catch let error as MobileShellConnectionError {
             handleMacAvailabilityFailureIfCurrent(
                 after: error,
@@ -75,43 +102,43 @@ extension MobileShellComposite {
                 "unknown_method",
                 "unsupported_method",
             ].contains(code?.lowercased() ?? ""):
-                return .failure(.unsupported)
+                return finish(.failure(.unsupported))
             case .requestTimedOut,
                  .connectAttemptGated,
                  .rpcError("request_timeout", _):
-                return .failure(.timedOut)
+                return finish(.failure(.timedOut))
             case .authorizationFailed,
                  .accountMismatch,
                  .rpcError("unauthorized", _),
                  .rpcError("account_mismatch", _),
                  .rpcError("forbidden", _):
-                return .failure(.authorizationRequired)
+                return finish(.failure(.authorizationRequired))
             case .rpcError("invalid_params", _):
-                return .failure(.invalidPath)
+                return finish(.failure(.invalidPath))
             case .rpcError("directory_not_found", _):
-                return .failure(.notFound)
+                return finish(.failure(.notFound))
             case .rpcError("not_a_directory", _):
-                return .failure(.notDirectory)
+                return finish(.failure(.notDirectory))
             case .rpcError("permission_denied", _):
-                return .failure(.permissionDenied)
+                return finish(.failure(.permissionDenied))
             case .rpcError("directory_unreadable", _):
-                return .failure(.unreadable)
+                return finish(.failure(.unreadable))
             case .rpcError("cancelled", _):
-                return .failure(.cancelled)
+                return finish(.failure(.cancelled))
             case .connectionClosed,
                  .transportWriteTimedOut,
                  .routeCleanupBlocked,
                  .insecureManualRoute,
                  .attachTicketExpired:
-                return .failure(.unavailable)
+                return finish(.failure(.unavailable))
             case .invalidResponse,
                  .rpcError:
-                return .failure(.rejected)
+                return finish(.failure(.rejected))
             }
         } catch is CancellationError {
-            return .failure(.cancelled)
+            return finish(.failure(.cancelled))
         } catch {
-            return .failure(.rejected)
+            return finish(.failure(.rejected))
         }
     }
 }

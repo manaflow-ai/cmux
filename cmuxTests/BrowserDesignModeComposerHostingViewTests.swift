@@ -101,7 +101,7 @@ struct BrowserDesignModeComposerHostingViewTests {
         #expect(
             cell.accessibilityLabel() == String(
                 localized: "browser.designMode.context.remove",
-                defaultValue: "Remove h1 context"
+                defaultValue: "Remove \(selection.tagName) context"
             )
         )
         #expect(cell.accessibilityPerformPress())

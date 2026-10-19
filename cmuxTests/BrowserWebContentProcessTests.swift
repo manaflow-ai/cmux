@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxBrowser
+import CmuxCloud
 import Foundation
 import Testing
 import WebKit
@@ -15,6 +16,20 @@ import WebKit
 @Suite(.serialized)
 struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
+
+    /// Polls a main-actor predicate until it holds or the deadline passes, so a
+    /// missing exchange fails the test instead of hanging the run.
+    private func eventually(
+        timeout: Duration = .seconds(5),
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !predicate() {
+            guard ContinuousClock.now < deadline else { return false }
+            await Task.yield()
+        }
+        return true
+    }
 
     @Test
     func authCallbackNavigationPolicyIsPureAndFailClosed() {
@@ -84,8 +99,8 @@ struct BrowserWebContentProcessTests {
         let sourcePageURL = URL(
             string: "https://cmux.test/handler/after-sign-in?web_return_to=%2Fapp-pricing%3Fcmux_app%3D1"
         )!
-        var cancelled = false
-        var reportedTerminalCancellation = false
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
 
         let completion = await withCheckedContinuation {
             (continuation: CheckedContinuation<(Bool, URL?), Never>) in
@@ -93,16 +108,16 @@ struct BrowserWebContentProcessTests {
                 disposition: .deliverInApp,
                 callbackURL: callbackURL,
                 sourcePageURL: sourcePageURL,
-                cancelNavigation: { cancelled = true },
-                reportTerminalCancellation: { reportedTerminalCancellation = true },
+                cancelNavigation: { cancellationCount += 1 },
+                reportTerminalCancellation: { terminalCancellationReportCount += 1 },
                 deliver: { _ in false },
                 completion: { delivered, returnURL in
                     continuation.resume(returning: (delivered, returnURL))
                 }
             )
             #expect(consumed)
-            #expect(cancelled)
-            #expect(reportedTerminalCancellation)
+            #expect(cancellationCount == 1)
+            #expect(terminalCancellationReportCount == 1)
         }
 
         #expect(!completion.0)
@@ -129,22 +144,22 @@ struct BrowserWebContentProcessTests {
         #expect(loadedReturnURL == completion.1)
     }
 
-    @Test
-    func blockedAuthCallbackConsumptionStillTerminatesNavigation() {
+    @Test(arguments: ["cmux-nightly://auth-callback?refresh_token=secret", "cmux-rc://auth-callback?refresh_token=secret"])
+    func blockedAuthCallbackConsumptionStillTerminatesNavigation(callbackURLString: String) {
         let policy = BrowserAuthCallbackNavigationPolicy(
             trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
             callbackScheme: "cmux-dev-test"
         )
-        let callbackURL = URL(string: "cmux-nightly://auth-callback?refresh_token=secret")!
-        var cancelled = false
-        var reportedTerminalCancellation = false
+        let callbackURL = URL(string: callbackURLString)!
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
 
         let consumed = policy.consume(
             disposition: .block,
             callbackURL: callbackURL,
             sourcePageURL: nil,
-            cancelNavigation: { cancelled = true },
-            reportTerminalCancellation: { reportedTerminalCancellation = true },
+            cancelNavigation: { cancellationCount += 1 },
+            reportTerminalCancellation: { terminalCancellationReportCount += 1 },
             deliver: { _ in
                 Issue.record("Blocked callbacks must never be delivered")
                 return false
@@ -155,8 +170,8 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(consumed)
-        #expect(cancelled)
-        #expect(reportedTerminalCancellation)
+        #expect(cancellationCount == 1)
+        #expect(terminalCancellationReportCount == 1)
     }
 
     @Test
@@ -312,6 +327,206 @@ struct BrowserWebContentProcessTests {
 
         #expect(cleanupAttemptCount == 3)
         #expect(registry.hasOwnership)
+    }
+
+    @Test
+    func directAppPricingNavigationLoadsInTheNativeSessionStore() async {
+        let sessionStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var requestedURLs: [URL] = []
+        panel.appSessionRequestProvider = { url in
+            requestedURLs.append(url)
+            return .navigation(BrowserAppSessionNavigation(
+                request: URLRequest(url: url),
+                websiteDataStore: sessionStore,
+                generation: 1,
+                authSessionGeneration: 1
+            ))
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+
+        panel.navigate(to: pricingURL)
+        await panel.appSessionBootstrapTask?.value
+
+        #expect(requestedURLs == [pricingURL])
+        #expect(panel.websiteDataStore === sessionStore)
+        #expect(panel.webView.configuration.websiteDataStore === sessionStore)
+        #expect(panel.websiteDataStore !== profileStore)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func failedAppPricingSessionExchangeStillLoadsThePage() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var requestCount = 0
+        panel.appSessionRequestProvider = { _ in
+            requestCount += 1
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        var startedNavigations: [WKNavigation?] = []
+
+        panel.navigate(to: pricingURL) { startedNavigations.append($0) }
+        #expect(startedNavigations.isEmpty)
+        await panel.appSessionBootstrapTask?.value
+
+        #expect(requestCount == 1)
+        #expect(panel.websiteDataStore === profileStore)
+        #expect(startedNavigations.count == 1)
+        #expect(startedNavigations.first.flatMap { $0 } != nil)
+    }
+
+    @Test
+    func newerNavigationCancelsAPendingAppSessionExchange() async {
+        let sessionStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var releaseExchange: CheckedContinuation<Void, Never>?
+        panel.appSessionRequestProvider = { url in
+            await withCheckedContinuation { releaseExchange = $0 }
+            return .navigation(BrowserAppSessionNavigation(
+                request: URLRequest(url: url),
+                websiteDataStore: sessionStore,
+                generation: 1,
+                authSessionGeneration: 1
+            ))
+        }
+        var startedNavigations: [WKNavigation?] = []
+        panel.navigate(
+            to: AuthEnvironment.appSessionHandoffOrigin.appendingPathComponent("app-pricing")
+        ) { startedNavigations.append($0) }
+        let exchange = panel.appSessionBootstrapTask
+        guard await eventually({ releaseExchange != nil }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
+
+        // Heal, restore and automation see the exchange as a pending navigation.
+        #expect(panel.hasPendingRemoteNavigation)
+
+        panel.navigate(to: recoveryURL)
+        releaseExchange?.resume()
+        await exchange?.value
+
+        #expect(startedNavigations.count == 1)
+        #expect(startedNavigations.first.flatMap { $0 } == nil)
+        #expect(!panel.hasPendingRemoteNavigation)
+        #expect(panel.websiteDataStore === profileStore)
+        #expect(panel.webView.configuration.websiteDataStore === profileStore)
+    }
+
+    @Test
+    func workspaceReattachRestartsAPendingAppSessionExchange() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        var pendingExchanges: [CheckedContinuation<Void, Never>] = []
+        panel.appSessionRequestProvider = { _ in
+            await withCheckedContinuation { pendingExchanges.append($0) }
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        panel.navigate(to: pricingURL)
+        let firstExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count == 1 }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
+
+        panel.reattachToWorkspace(
+            UUID(),
+            isRemoteWorkspace: false,
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+        let secondExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count >= 2 }) else {
+            pendingExchanges.forEach { $0.resume() }
+            Issue.record("Reattach did not restart the app-session exchange")
+            return
+        }
+        pendingExchanges.forEach { $0.resume() }
+        await firstExchange?.value
+        await secondExchange?.value
+
+        #expect(pendingExchanges.count == 2)
+
+        #expect(firstExchange?.isCancelled == true)
+        #expect(secondExchange != nil)
+        #expect(secondExchange?.isCancelled == false)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func profileSwitchRestartsAPendingAppSessionExchange() async throws {
+        let profile = try #require(
+            BrowserProfileStore.shared.createProfile(
+                named: "App Session Switch \(UUID().uuidString)"
+            )
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
+        defer { panel.close() }
+        var pendingExchanges: [CheckedContinuation<Void, Never>] = []
+        panel.appSessionRequestProvider = { _ in
+            await withCheckedContinuation { pendingExchanges.append($0) }
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        panel.navigate(to: pricingURL)
+        let firstExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count == 1 }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
+
+        // Re-selecting the current profile is rejected and keeps the exchange.
+        #expect(!panel.switchToProfile(panel.profileID))
+        #expect(panel.appSessionBootstrapTask != nil)
+        #expect(firstExchange?.isCancelled == false)
+
+        #expect(panel.switchToProfile(profile.id))
+        let secondExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count >= 2 }) else {
+            pendingExchanges.forEach { $0.resume() }
+            Issue.record("The profile switch dropped the pending app page")
+            return
+        }
+        pendingExchanges.forEach { $0.resume() }
+        await firstExchange?.value
+        await secondExchange?.value
+
+        // The switch requests the page once, not once per restore path.
+        #expect(pendingExchanges.count == 2)
+        #expect(firstExchange?.isCancelled == true)
+        #expect(secondExchange?.isCancelled == false)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func ordinaryNavigationSkipsTheNativeSessionExchange() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        var requestCount = 0
+        panel.appSessionRequestProvider = { _ in
+            requestCount += 1
+            return .notAuthenticated
+        }
+
+        panel.navigate(to: AuthEnvironment.appSessionHandoffOrigin.appendingPathComponent("pricing"))
+
+        #expect(panel.appSessionBootstrapTask == nil)
+        #expect(requestCount == 0)
     }
 
     @Test
@@ -1033,6 +1248,66 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func webAuthnCapabilityQueriesDoNotCrash() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let webView = panel.webView
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>passkey capability probe</body></html>
+            """,
+            in: webView,
+            baseURL: URL(string: "https://example.com/")!
+        )
+
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const platform =
+              await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+            const conditionalMethodAvailable =
+              typeof PublicKeyCredential.isConditionalMediationAvailable === "function";
+            const conditional = conditionalMethodAvailable
+              ? await PublicKeyCredential.isConditionalMediationAvailable()
+              : null;
+            return {
+              platformType: typeof platform,
+              conditionalType: conditionalMethodAvailable ? typeof conditional : "unsupported"
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: String]
+
+        #expect(result?["platformType"] == "boolean")
+        #expect(result?["conditionalType"] == "boolean" || result?["conditionalType"] == "unsupported")
+    }
+
+    @Test(arguments: [nil, Data()] as [Data?])
+    func webAuthnAssertionReplyOmitsAbsentUserHandle(userHandle: Data?) throws {
+        let coordinator = BrowserWebAuthnCoordinator()
+        let credential = coordinator.assertionReply(
+            credentialID: Data([1, 2, 3]),
+            clientDataJSON: Data([4, 5]),
+            authenticatorData: Data([6, 7]),
+            signature: Data([8, 9]),
+            userHandle: userHandle,
+            attachment: "cross-platform",
+            clientExtensionResults: [:]
+        )
+        let response = try #require(credential["response"] as? [String: Any])
+
+        #expect(credential["id"] as? String == "AQID")
+        #expect(response["signature"] as? String == "CAk")
+        #expect(response["userHandle"] == nil)
+    }
+
+    @Test
     func webAuthnNativeBridgeScopesParentDomainRelyingPartyIDs() throws {
         let googleOrigin = try #require(
             BrowserWebAuthnSecurityOrigin(url: URL(string: "https://accounts.google.com")!)
@@ -1073,7 +1348,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
+    func webContentProcessTerminationDefersReplacementUntilExplicitRecovery() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: recoveryURL
@@ -1086,57 +1361,26 @@ struct BrowserWebContentProcessTests {
         #expect(oldWebView.superview == nil)
         #expect(oldWebView.cmuxBrowserViewportHostView === viewportHost)
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(oldWebView.navigationDelegate == nil)
+        #expect(oldWebView.uiDelegate == nil)
+
+        #expect(panel.recoverTerminatedWebContent(reason: "test"))
         #expect(!(panel.webView === oldWebView))
         #expect(panel.webViewInstanceID != oldInstanceID)
-        #expect(panel.hasRecoverableWebContentTermination)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
         #expect(panel.webView.superview == nil)
         #expect(panel.webView.cmuxBrowserViewportHostView === viewportHost)
         #expect(oldWebView.cmuxBrowserViewportHostView == nil)
-    }
-
-    @Test
-    func webViewReplacementPreservesActiveEmulatedViewportHost() throws {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: recoveryURL
-        )
-        defer { panel.close() }
-        let oldWebView = panel.webView
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 610))
-        container.addSubview(oldWebView)
-        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
-        _ = try panel.setAutomationViewport(viewport).get()
-
-        #expect(oldWebView.superview === panel.viewportHostView)
-
-        panel.debugSimulateWebContentProcessTermination()
-
-        #expect(!(panel.webView === oldWebView))
-        #expect(panel.webView.superview === panel.viewportHostView)
-        #expect(panel.webView.cmuxBrowserViewportPresentationView === panel.viewportHostView)
-        #expect(panel.webView.cmuxBrowserViewportHostView === panel.viewportHostView)
-        #expect(oldWebView.cmuxBrowserViewportHostView == nil)
-    }
-
-    @Test
-    func remoteWorkspaceWebsiteDataStoreSurvivesWebViewReplacement() {
-        let storeIdentifier = UUID()
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: recoveryURL,
-            isRemoteWorkspace: true,
-            remoteWebsiteDataStoreIdentifier: storeIdentifier
-        )
-        defer { panel.close() }
-        let originalStore = panel.webView.configuration.websiteDataStore
-
-        panel.debugSimulateWebContentProcessTermination()
-
-        #expect(panel.webView.configuration.websiteDataStore === originalStore)
     }
 
     @Test
@@ -1147,7 +1391,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.reload()
@@ -1164,7 +1412,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.resetForWorkspaceContextChange(reason: "test")
@@ -1188,7 +1440,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         #expect(panel.switchToProfile(profile.id))
@@ -1202,10 +1458,15 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         #expect(!panel.shouldRenderWebView)
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(!panel.shouldRenderWebView)
-        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.webContentState == .terminated(recoveryURL: nil))
     }
 
     @Test

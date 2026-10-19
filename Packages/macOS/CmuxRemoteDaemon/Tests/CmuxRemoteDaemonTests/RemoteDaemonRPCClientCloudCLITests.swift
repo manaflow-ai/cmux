@@ -24,7 +24,10 @@ struct RemoteDaemonRPCClientCloudCLITests {
             remotePath: "/usr/local/bin/cmuxd-remote",
             strings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "missing persistent PTY",
-                missingRequiredFunctionality: "missing required functionality"
+                missingRequiredFunctionality: "missing required functionality",
+                cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+                cloudNotificationClearWorkspaceDenied: "workspace denied",
+                cloudNotificationClearSurfaceInvalid: "invalid surface"
             ),
             cliRequestHandler: { _ in
                 handlerCalls.increment()

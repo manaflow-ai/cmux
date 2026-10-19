@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 import UniformTypeIdentifiers
 
 extension BrowserDownloadDelegate {

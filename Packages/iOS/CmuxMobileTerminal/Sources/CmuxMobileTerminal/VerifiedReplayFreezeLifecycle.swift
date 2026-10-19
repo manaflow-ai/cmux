@@ -1,7 +1,7 @@
 #if canImport(UIKit)
 /// Surface ownership captured before an off-main frozen-frame copy. Installation
 /// is valid only while the same attached surface still suppresses rendering.
-nonisolated struct VerifiedReplayFreezeLifecycle: Equatable, Sendable {
+struct VerifiedReplayFreezeLifecycle: Equatable, Sendable {
     let surfaceGeneration: UInt64
 
     func canInstall(

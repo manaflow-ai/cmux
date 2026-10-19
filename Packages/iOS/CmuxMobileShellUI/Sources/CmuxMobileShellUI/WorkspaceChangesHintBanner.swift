@@ -38,7 +38,12 @@ struct WorkspaceChangesHintBanner: View {
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.semibold))
-                    .padding(5)
+                    // HIG default control size (44x44 pt). The icon alone is
+                    // ~12 pt; without this frame, taps aimed at the X land in
+                    // the full-width openChanges content shape next to it and
+                    // open the viewer instead of dismissing.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(

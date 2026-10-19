@@ -47,6 +47,14 @@ public final class DiagnosticLog: Sendable {
     /// The optional live observer, delivered retained events on the drain task.
     private let tap: TapBox
 
+    /// Stateless hashing seam used to reduce opaque model identifiers before
+    /// they enter the event ring. Swift supplies its process-randomized seed.
+    private let correlation = DiagnosticCorrelation()
+
+    /// Terminal traces are breadcrumbs, so cap admission before they reach
+    /// either durable log while retaining ordinary diagnostics.
+    private let terminalTraceLimiter = TerminalTraceRateLimiter()
+
     /// The drain task. Its closure captures only local stream/store values, so
     /// deinitialization can finish ingress and let accepted clear commands drain
     /// to their acknowledgements without retaining this log.
@@ -159,12 +167,148 @@ public final class DiagnosticLog: Sendable {
     /// past the consumer's pace drops the oldest pending events (per
     /// `.bufferingNewest`), never the caller. Repeated
     /// ``DiagnosticEventCode/selectedPathChanged`` values for the same redacted
-    /// path class are consumed but not retained, so observer wakeups cannot be
-    /// mistaken for transport changes.
+    /// peer, session, and path class are consumed but not retained while their
+    /// previous snapshot remains in the ring. Individual
+    /// ``DiagnosticEventCode/transportPathEvent`` lifecycle edges are retained,
+    /// including opened and selected events for the same path class.
     ///
     /// - Parameter event: The event to record.
     public nonisolated func record(_ event: DiagnosticEvent) {
         ingress.record(event)
+    }
+
+    /// Records one privacy-safe iOS product event into the same ordered ring
+    /// and durable app-log tap as transport diagnostics.
+    ///
+    /// Callers select only fixed enum values and bounded integers. Never add a
+    /// free-text overload: the absence of strings is what makes this API safe
+    /// to leave enabled in Release builds for every user.
+    ///
+    /// - Parameters:
+    ///   - kind: Stable feature action or outcome.
+    ///   - surface: Optional process-local correlation handle.
+    ///   - elapsedMilliseconds: Optional elapsed time for the operation.
+    ///   - failure: Optional privacy-safe failure category.
+    ///   - count: Optional bounded item/byte/attempt count documented by `kind`.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        let boundedCount = count.map { min(max(0, $0), Int(UInt32.max)) }
+        record(DiagnosticEvent(
+            .appFeatureAction,
+            surface: surface,
+            ms: elapsedMilliseconds,
+            a: kind.rawValue,
+            b: failure?.rawValue,
+            c: boundedCount
+        ))
+    }
+
+    /// Records the source and effort metadata of one visible task model result.
+    ///
+    /// The fixed integer slots avoid exporting provider names, model IDs, or
+    /// command output. The event's `b` slot is the provider, `c` is the source,
+    /// and `ms` is the total number of efforts exposed by the result.
+    public nonisolated func recordTaskModelResult(
+        correlationID: String?,
+        provider: DiagnosticTaskModelProvider,
+        source: DiagnosticTaskModelSource,
+        effortCount: Int
+    ) {
+        record(DiagnosticEvent(
+            .appFeatureAction,
+            surface: correlation.handle(for: correlationID),
+            ms: UInt32(clamping: max(0, effortCount)),
+            a: DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+            b: provider.rawValue,
+            c: source.rawValue
+        ))
+    }
+
+    /// Records one terminal-operation phase with a per-minute admission cap.
+    /// The ring and AppLog still provide their existing bounded retention.
+    public nonisolated func recordTerminalTrace(
+        operation: DiagnosticTerminalTraceOperation,
+        phase: DiagnosticTerminalTracePhase,
+        traceID: DiagnosticTerminalTraceID,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        detail: Int? = nil
+    ) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard terminalTraceLimiter.admit(at: now) else { return }
+        record(DiagnosticEvent(
+            .terminalTrace,
+            surface: surface,
+            ms: elapsedMilliseconds,
+            a: operation.rawValue,
+            b: phase.rawValue,
+            c: detail.map { min(max(0, $0), Int(UInt32.max)) },
+            traceID: traceID.rawValue
+        ))
+    }
+
+    /// Records one app event correlated to an opaque model identifier.
+    ///
+    /// The identifier is immediately reduced to a process-local handle by
+    /// ``DiagnosticCorrelation`` and is never retained or written to disk.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String?,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        recordAppEvent(
+            kind,
+            surface: correlation.handle(for: correlationID),
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            count: count
+        )
+    }
+
+    /// Records a categorical app-event value through a typed payload instead
+    /// of conflating its raw discriminator with an item or byte count.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        detail: DiagnosticAppEventDetail
+    ) {
+        guard detail.supports(kind) else {
+            assertionFailure("Unsupported diagnostic detail for \(kind)")
+            return
+        }
+        recordAppEvent(
+            kind,
+            surface: surface,
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            count: detail.rawValue
+        )
+    }
+
+    /// Records a typed categorical value correlated to an opaque model ID.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String?,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        detail: DiagnosticAppEventDetail
+    ) {
+        recordAppEvent(
+            kind,
+            surface: correlation.handle(for: correlationID),
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            detail: detail
+        )
     }
 
     /// Snapshot the currently-drained ring and format a plain-language report.
@@ -407,11 +551,19 @@ public final class DiagnosticLog: Sendable {
     }
 
     private actor Store {
+        private struct SelectedPathKey: Hashable {
+            let surface: UInt32?
+            let session: Int?
+        }
+
         private var slots: [DiagnosticEvent?]
         private var head = 0
         private var filled = 0
         private var totalProcessed = 0
-        private var selectedPathKind: DiagnosticPathKind?
+        // Each entry points to its newest retained snapshot. Eviction removes
+        // that entry, bounding deduplication by ring capacity without requiring
+        // every transport to emit a separate session-end event.
+        private var selectedPaths: [SelectedPathKey: (kind: DiagnosticPathKind, slot: Int)] = [:]
         private let capacity: Int
         private let buildStamp: String
         private let role: DiagnosticRuntimeRole
@@ -442,9 +594,19 @@ public final class DiagnosticLog: Sendable {
         @discardableResult
         func append(_ event: DiagnosticEvent) -> Bool {
             totalProcessed += 1
-            if let nextPathKind = event.diagnosticPathKind {
-                guard nextPathKind != selectedPathKind else { return false }
-                selectedPathKind = nextPathKind
+            let key = SelectedPathKey(surface: event.surface, session: event.c)
+            if event.code == .selectedPathChanged,
+               let nextPathKind = event.diagnosticPathKind {
+                guard selectedPaths[key]?.kind != nextPathKind else { return false }
+            }
+            if let previous = slots[head], previous.code == .selectedPathChanged {
+                let previousKey = SelectedPathKey(surface: previous.surface, session: previous.c)
+                if selectedPaths[previousKey]?.slot == head {
+                    selectedPaths.removeValue(forKey: previousKey)
+                }
+            }
+            if event.code == .selectedPathChanged, let pathKind = event.diagnosticPathKind {
+                selectedPaths[key] = (pathKind, head)
             }
             slots[head] = event
             head = (head + 1) % capacity
@@ -467,7 +629,7 @@ public final class DiagnosticLog: Sendable {
             head = 0
             filled = 0
             totalProcessed = 0
-            selectedPathKind = nil
+            selectedPaths.removeAll(keepingCapacity: false)
             self.anchorWallNanos = anchorWallNanos
             self.anchorMonotonicNanos = anchorMonotonicNanos
         }
@@ -503,5 +665,25 @@ public final class DiagnosticLog: Sendable {
         func export() -> Data {
             snapshot(generatedAt: Date()).humanReadableExport()
         }
+    }
+}
+
+private final class TerminalTraceRateLimiter: @unchecked Sendable {
+    // Carve-out: the synchronous terminal event tap must admit/drop before queuing diagnostic work.
+    private let lock = NSLock()
+    private var windowStart: UInt64 = 0
+    private var admitted = 0
+    private let maximumPerMinute = 120
+
+    func admit(at now: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if windowStart == 0 || now < windowStart || now - windowStart >= 60 * 1_000_000_000 {
+            windowStart = now
+            admitted = 0
+        }
+        guard admitted < maximumPerMinute else { return false }
+        admitted += 1
+        return true
     }
 }

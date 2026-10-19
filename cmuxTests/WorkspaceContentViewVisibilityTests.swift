@@ -1,11 +1,12 @@
 import Testing
 import AppKit
+import Combine
 import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
 import Observation
 import SwiftUI
-import Bonsplit
+@testable import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -16,6 +17,7 @@ import Bonsplit
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
     private final class MinimalModeBodyProbeCounts {
+        var isMeasuringInvalidations = false
         var contentViewBody = 0
         var workspaceContentBody = 0
         var verticalTabsSidebarBody = 0
@@ -111,28 +113,28 @@ final class WorkspaceContentViewVisibilityTests {
         let secondTarget = Self.restoreFocusTarget()
 
         coordinator.request(target: firstTarget)
-        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == firstTarget.host)
 
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: nil,
+                currentHost: nil,
                 focusedPanelId: nil,
                 targetPanelExists: true
             )
         )
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: true
             )
         )
-        #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == firstTarget.host)
 
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: secondTarget.workspaceId,
+                currentHost: secondTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: true
             )
@@ -142,7 +144,7 @@ final class WorkspaceContentViewVisibilityTests {
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: secondTarget.panelId,
                 targetPanelExists: true
             )
@@ -152,7 +154,7 @@ final class WorkspaceContentViewVisibilityTests {
         coordinator.request(target: firstTarget)
         #expect(
             coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
-                selectedWorkspaceId: firstTarget.workspaceId,
+                currentHost: firstTarget.host,
                 focusedPanelId: firstTarget.panelId,
                 targetPanelExists: false
             )
@@ -160,7 +162,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(coordinator.pendingTarget == nil)
 
         coordinator.request(target: secondTarget)
-        #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+        #expect(coordinator.pendingTarget?.host == secondTarget.host)
 
         #expect(coordinator.claimRestoreAttempt())
         #expect(!coordinator.claimRestoreAttempt())
@@ -168,20 +170,44 @@ final class WorkspaceContentViewVisibilityTests {
 
         for _ in 0..<4 {
             #expect(coordinator.claimRestoreAttempt())
-            #expect(coordinator.pendingTarget?.workspaceId == secondTarget.workspaceId)
+            #expect(coordinator.pendingTarget?.host == secondTarget.host)
             coordinator.finishRestoreAttempt()
         }
         #expect(!coordinator.claimRestoreAttempt())
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
+        #expect(coordinator.pendingTarget?.host == nil)
 
         coordinator.request(target: secondTarget)
         #expect(coordinator.claimRestoreAttempt())
 
         coordinator.clear()
-        #expect(coordinator.pendingTarget?.workspaceId == nil)
+        #expect(coordinator.pendingTarget?.host == nil)
+
+        let dockTarget = CommandPaletteRestoreFocusTarget(
+            host: .windowDock(UUID()),
+            panelId: UUID(),
+            intent: .browser(.webView)
+        )
+        coordinator.request(target: dockTarget)
+        #expect(
+            !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                currentHost: dockTarget.host,
+                focusedPanelId: dockTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget?.host == dockTarget.host)
+        #expect(
+            coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
+                currentHost: firstTarget.host,
+                focusedPanelId: dockTarget.panelId,
+                targetPanelExists: true
+            )
+        )
+        #expect(coordinator.pendingTarget == nil)
     }
 
-    @Test
+    /// Confirms minimal-mode changes do not trigger a sustained Bonsplit render storm.
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
         _ = NSApplication.shared
@@ -197,10 +223,45 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: WorkspacePresentationModeSettings.modeKey
         )
 
-        let tabManager = TabManager()
-        for _ in 0..<6 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        // Workspace initialization discovers its project root asynchronously,
+        // even for loading cards. A few quiet runloop turns do not prove that
+        // discovery finished: its @Published result can arrive during the
+        // measured toggle and invalidate WorkspaceContentView independently.
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(
+            at: projectRoot.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { tabManager.finalizeAllWorkspacesForWindowClose() }
+        for _ in 0..<7 {
+            tabManager.addWorkspace(
+                workingDirectory: projectRoot.path,
+                initialSurface: .cloudVMLoading,
+                select: tabManager.tabs.isEmpty,
+                autoWelcomeIfNeeded: false
+            )
         }
+        for workspace in tabManager.tabs {
+            for await root in workspace.$extensionSidebarProjectRootPath.values {
+                if root == projectRoot.path { break }
+            }
+            try #require(workspace.extensionSidebarProjectRootPath == projectRoot.path)
+        }
+        var sustainedTabBarRenderWindows = 0
+        for workspace in tabManager.tabs {
+            workspace.bonsplitController.onTabBarRenderDiagnostic = { _ in
+                sustainedTabBarRenderWindows += 1
+            }
+        }
+        // The right-side file explorer is outside this test's minimal-mode
+        // scope. Keep it hidden so delayed workspace-root discovery cannot
+        // invalidate the chrome bodies during the toggle measurement.
+        let fileExplorerState = FileExplorerState(defaults: defaults)
+        fileExplorerState.setVisible(false)
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
@@ -208,11 +269,12 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
+            .environmentObject(fileExplorerState)
             .environmentObject(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
@@ -226,24 +288,45 @@ final class WorkspaceContentViewVisibilityTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
             window.close()
         }
-
         await Self.drainMainRunLoop(for: window)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
-
+        // Setup work keeps publishing after the first render: the selected
+        // workspace's directory reaches the file explorer a few runloop turns
+        // later, and that store change re-evaluates ContentView. On a loaded
+        // runner it landed inside the toggle's window (PR run 36016958288 logged
+        // "ContentView: _fileExplorerStore changed."), so measure only once the
+        // window has gone quiet.
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies before the toggle is measured")
+        #expect(
+            sustainedTabBarRenderWindows == 0,
+            "Initial pane rendering must not sustain a tab-bar render storm."
+        )
         counts.reset()
+        sustainedTabBarRenderWindows = 0
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
         defaults.set(
             WorkspacePresentationModeSettings.Mode.minimal.rawValue,
             forKey: WorkspacePresentationModeSettings.modeKey
         )
         await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
 
+        #expect(
+            sustainedTabBarRenderWindows == 0,
+            "Minimal-mode toggles must not sustain a tab-bar render storm."
+        )
         #expect(
             counts.contentViewBody == 0,
             "Minimal-mode toggles must not re-evaluate the whole ContentView body."
@@ -274,9 +357,20 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
 
-        let tabManager = TabManager()
-        let workspaceId = try #require(tabManager.selectedTabId)
+        // Loading-card workspaces, as in the minimal-mode test above. A terminal
+        // workspace starts a login shell and schedules a git metadata probe, and
+        // either can publish a workspace change after `counts.reset()`. That
+        // re-evaluates VerticalTabsSidebar for a reason unrelated to unread
+        // state, so the count below depended on how fast the runner was.
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let selectedWorkspace = tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        let workspaceId = selectedWorkspace.id
         let unaffectedWorkspace = tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
             select: false,
             autoWelcomeIfNeeded: false
         )
@@ -296,6 +390,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
@@ -313,10 +408,18 @@ final class WorkspaceContentViewVisibilityTests {
         window.contentView = MainWindowHostingView(rootView: root)
         defer {
             window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
             window.close()
         }
 
         await Self.drainMainRunLoop(for: window)
+        // Same settling as the minimal-mode test: the selected workspace's
+        // directory reaches the file explorer a few runloop turns after the
+        // first render, and that store change re-evaluates ContentView and
+        // WorkspaceContentView. Main runs 36106360658 and 36114055694 logged
+        // "ContentView: _fileExplorerStore changed." inside the unread window.
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies before the unread change is measured")
         let workspaceCell = try #require(
             window.contentView.flatMap { root in
                 Self.descendants(of: root)
@@ -342,6 +445,16 @@ final class WorkspaceContentViewVisibilityTests {
             unaffectedApplyCount += 1
         }
         counts.reset()
+        // SidebarUnreadModel cannot publish a Workspace, so a Workspace publish
+        // in this window is unrelated settling (main run 38492427482 logged
+        // "WorkspaceContentView: _workspace changed." here).
+        var unrelatedWorkspacePublishes = 0
+        let workspacePublishes = selectedWorkspace.objectWillChange.sink { _ in
+            unrelatedWorkspacePublishes += 1
+        }
+        defer { workspacePublishes.cancel() }
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
 
         unread.apply(
             totalUnreadCount: 1,
@@ -358,13 +471,14 @@ final class WorkspaceContentViewVisibilityTests {
             manualUnreadWorkspaceIds: []
         )
         await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
 
         #expect(
             counts.contentViewBody == 0,
             "Unread changes must update their leaf consumers without rebuilding ContentView."
         )
         #expect(
-            counts.workspaceContentBody == 0,
+            counts.workspaceContentBody <= unrelatedWorkspacePublishes,
             "Unread changes must not rebuild terminal or browser content."
         )
         #expect(
@@ -447,6 +561,28 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func upgradeVisibilityRequiresKnownFreeEntitlement() {
+        #expect(
+            SidebarFooterPresentationPolicy.isUpgradeVisible(
+                isProActive: false,
+                isProStatusKnown: true
+            )
+        )
+        #expect(
+            !SidebarFooterPresentationPolicy.isUpgradeVisible(
+                isProActive: true,
+                isProStatusKnown: true
+            )
+        )
+        #expect(
+            !SidebarFooterPresentationPolicy.isUpgradeVisible(
+                isProActive: false,
+                isProStatusKnown: false
+            )
+        )
+    }
+
+    @Test
     func sidebarAccountPictureAndIconPresentationsStayDistinct() {
         let picture = SidebarAccountButtonPresentation.resolve(
             isSignedIn: true,
@@ -503,6 +639,25 @@ final class WorkspaceContentViewVisibilityTests {
 #endif
     }
 
+    /// Drains until three consecutive drains re-evaluate no chrome body, so a
+    /// measurement only counts what the change under test invalidates.
+    @MainActor
+    private static func waitForQuietChromeBodies(
+        counts: MinimalModeBodyProbeCounts,
+        window: NSWindow
+    ) async -> Bool {
+        var quietRounds = 0
+        for _ in 0..<100 where quietRounds < 3 {
+            counts.reset()
+            await drainMainRunLoop(for: window)
+            let settled = counts.contentViewBody == 0
+                && counts.workspaceContentBody == 0
+                && counts.verticalTabsSidebarBody == 0
+            quietRounds = settled ? quietRounds + 1 : 0
+        }
+        return quietRounds >= 3
+    }
+
     @MainActor
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
@@ -517,36 +672,6 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: false
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: false,
-                isPanelVisible: false,
-                renderOpacity: 0
-            )
-        )
-    }
-
-    @Test
-    func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: true
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: true,
-                isPanelVisible: true,
-                renderOpacity: 1
-            )
-        )
-    }
-
-    @Test
     func testPanelVisibleInUIReturnsFalseWhenWorkspaceHidden() {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(
@@ -556,6 +681,35 @@ final class WorkspaceContentViewVisibilityTests {
                 isFocused: true
             )
         )
+    }
+
+    /// Confirms duplicate interactivity callbacks stay silent while real changes publish once.
+    @Test
+    @MainActor
+    func bonsplitInteractivitySyncChangesOnlyWhenInputActivityChanges() {
+        let controller = BonsplitController()
+        #expect(controller.isInteractive)
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+
+        // SwiftUI can deliver duplicate lifecycle and change callbacks while a
+        // hosted pane is being mounted. Repeating the same value must not write
+        // Bonsplit's observable controller state again.
+        let internalController = controller.internalController
+        var publicationCount = 0
+        withObservationTracking {
+            _ = internalController.isInteractive
+        } onChange: {
+            publicationCount += 1
+        }
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: false)
+        #expect(!controller.isInteractive)
+        #expect(publicationCount == 0, "Duplicate interactivity synchronization must not publish.")
+
+        WorkspaceContentView.syncBonsplitInteractivity(controller, isInputActive: true)
+        #expect(controller.isInteractive)
+        #expect(publicationCount == 1, "A real interactivity change must publish once.")
     }
 
     @Test
@@ -579,6 +733,70 @@ final class WorkspaceContentViewVisibilityTests {
                 isSelectedInPane: false,
                 isFocused: true
             )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIReturnsTrueForBonsplitFallbackDuringTransientSelectionGap() {
+        #expect(
+            WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: true
+            )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIKeepsNonFallbackPanelHiddenDuringTransientSelectionGap() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: false
+            )
+        )
+    }
+
+    @Test
+    func testFallbackTabIdKeepsFirstOfTwoAgentTabsDuringReparentingGap() {
+        let firstTabId = UUID()
+        let secondTabId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: nil,
+                tabIds: [firstTabId, secondTabId]
+            ) == firstTabId
+        )
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: secondTabId,
+                tabIds: [firstTabId, secondTabId]
+            ) == nil
+        )
+    }
+
+    /// Confirms a stale Bonsplit selection keeps the pane's first tab visible.
+    @Test
+    func testEffectiveSelectedTabIdTreatsMovedTabAsSelectionGap() {
+        let firstTabId = UUID()
+        let movedTabId = UUID()
+
+        let effectiveSelectedTabId = WorkspacePanelVisibilityPolicy.effectiveSelectedTabId(
+            selectedTabId: movedTabId,
+            tabIds: [firstTabId]
+        )
+        #expect(effectiveSelectedTabId == nil)
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: effectiveSelectedTabId,
+                tabIds: [firstTabId]
+            ) == firstTabId
         )
     }
 

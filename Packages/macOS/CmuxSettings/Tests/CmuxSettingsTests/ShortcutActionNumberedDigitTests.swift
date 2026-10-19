@@ -5,12 +5,19 @@ import Testing
 struct ShortcutActionNumberedDigitTests {
     @Test func onlyNumberedSelectionActionsUseDigitMatching() {
         for action in ShortcutAction.allCases {
-            let expected = action == .selectSurfaceByNumber || action == .selectWorkspaceByNumber
+            let expected = [.selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber].contains(action)
             #expect(
                 action.usesNumberedDigitMatching == expected,
                 "\(action) usesNumberedDigitMatching should be \(expected)"
             )
         }
+    }
+
+    /// Classic keys added without a call (#19324, #19263) are unbound by
+    /// default; people bind them in Settings > Shortcuts.
+    @Test func focusSidebarAndFocusPaneByNumberAreUnboundByDefault() {
+        #expect(ShortcutAction.focusSidebar.defaultShortcut == nil)
+        #expect(ShortcutAction.focusPaneByNumber.defaultShortcut == nil)
     }
 
     @Test func diffViewerScrollToTopDefaultIsChord() {
@@ -63,6 +70,9 @@ struct ShortcutActionNumberedDigitTests {
             .diffViewerOpenFileSearch,
             .diffViewerNextFile,
             .diffViewerPreviousFile,
+            .diffViewerNextHunk,
+            .diffViewerPreviousHunk,
+            .diffViewerToggleViewed,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
         ]
@@ -78,5 +88,45 @@ struct ShortcutActionNumberedDigitTests {
     @Test func fileExplorerOpenSelectionShortcutsAreSingleStrokeOnly() {
         #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
         #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
+    }
+
+    @Test func hostDefaultResolversDoNotShareState() {
+        let first = ShortcutDefaultResolver { action in
+            action == .switchRightSidebarToFiles
+                ? .stroke(ShortcutStroke(key: "7", control: true))
+                : .useBuiltIn
+        }
+        let second = ShortcutDefaultResolver { action in
+            action == .switchRightSidebarToFiles
+                ? .stroke(ShortcutStroke(key: "2", control: true))
+                : .useBuiltIn
+        }
+
+        #expect(
+            ShortcutAction.switchRightSidebarToFiles.defaultStroke(using: first)
+                == ShortcutStroke(key: "7", control: true)
+        )
+        #expect(
+            ShortcutAction.switchRightSidebarToFiles.defaultStroke(using: second)
+                == ShortcutStroke(key: "2", control: true)
+        )
+        #expect(
+            ShortcutAction.switchRightSidebarToFiles.defaultStroke(using: first)
+                == ShortcutStroke(key: "7", control: true)
+        )
+        #expect(
+            ShortcutAction.openSettings.defaultStroke(using: first)
+                == ShortcutAction.openSettings.defaultStroke
+        )
+    }
+
+    @Test func explicitHostUnboundDefaultDoesNotFallBackToBuiltIn() {
+        let hostDefault = StoredShortcut.unbound
+        let resolved = ShortcutAction.switchRightSidebarToFiles.effectivePersistedShortcut(
+            nil,
+            defaultShortcut: hostDefault
+        )
+
+        #expect(resolved == nil)
     }
 }

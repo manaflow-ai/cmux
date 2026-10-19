@@ -108,11 +108,15 @@ struct KimiAgentResumeTests {
         #expect(
             AgentLaunchEnvironmentPolicy().selectedEnvironment(
                 from: [
+                    "KIMI_CODE_HOME": "/Users/example/.local/share/kimi-code-custom",
                     "KIMI_SHARE_DIR": "/Users/example/.local/share/kimi-custom",
                     "MOONSHOT_API_KEY": "secret",
                 ],
                 kind: "kimi"
-            ) == ["KIMI_SHARE_DIR": "/Users/example/.local/share/kimi-custom"]
+            ) == [
+                "KIMI_CODE_HOME": "/Users/example/.local/share/kimi-code-custom",
+                "KIMI_SHARE_DIR": "/Users/example/.local/share/kimi-custom",
+            ]
         )
     }
 }

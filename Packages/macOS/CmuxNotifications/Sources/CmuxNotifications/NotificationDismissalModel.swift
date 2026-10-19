@@ -55,8 +55,32 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        if let surfaceId = host?.focusedSurfaceId(in: workspaceId) {
+            dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        }
+        dismissWorkspaceLevelNotificationsOnVisit(workspaceId: workspaceId, context: context)
+    }
+
+    /// Workspace-level notifications (no surface, no panel; cmux's own
+    /// memory-pressure alert is one) have no pane to focus: the workspace
+    /// becoming the visible, active one is how they are seen
+    /// (manaflow-ai/cmux#12387). This reads only those records. It does not go
+    /// through `dismissNotification(surfaceId: nil)`, whose whole-workspace
+    /// mark-read also clears every pane's manual and restored unread markers,
+    /// bypassing the context's indicator policy. Unread indicators are left to
+    /// the focused surface's own dismissal above, and focused-read indicators
+    /// are surface-scoped, so a workspace-level read has none to clear.
+    private func dismissWorkspaceLevelNotificationsOnVisit(
+        workspaceId: UUID,
+        context: NotificationDismissalContext
+    ) {
+        guard let host, host.hasNotificationStore else { return }
+        guard host.isNotificationTargetSelected(workspaceId: workspaceId, surfaceId: nil) else { return }
+        if context.requiresActiveApp {
+            guard host.isAppActive else { return }
+        }
+        guard host.storeHasUnreadNotification(workspaceId: workspaceId, surfaceId: nil) else { return }
+        host.storeMarkWorkspaceLevelNotificationsRead(workspaceId: workspaceId)
     }
 
     public func dismissPanelNotificationOnFocus(
@@ -101,6 +125,9 @@ public final class NotificationDismissalModel: NotificationDismissing {
         context: NotificationDismissalContext
     ) -> Bool {
         guard let host else { return false }
+        guard host.hasNotificationStore else { return false }
+        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
+            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         guard host.isNotificationTargetSelected(
             workspaceId: workspaceId,
             surfaceId: surfaceId
@@ -124,9 +151,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 return false
             }
         }
-        guard host.hasNotificationStore else { return false }
-        guard host.storeHasDismissibleState(workspaceId: workspaceId) ||
-            host.workspaceHasDismissiblePanelState(workspaceId: workspaceId) else { return false }
         let targetPanelId = surfaceId.flatMap {
             host.panelId(forSurfaceOrPanelId: $0, in: workspaceId)
         }
@@ -145,11 +169,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
         } ?? false
         let hasManualWorkspaceUnread = host.storeHasManualUnread(workspaceId: workspaceId)
         let hasRestoredWorkspaceUnread = host.storeHasRestoredUnreadIndicator(workspaceId: workspaceId)
-        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
-            (hasManualPanelUnread || hasManualWorkspaceUnread)
-        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
-            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
-        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         let hasUnreadNotification: Bool
         let hasPendingNotification: Bool
         let hasFocusedIndicator: Bool
@@ -168,6 +187,14 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 host.storeHasVisibleNotificationIndicator(workspaceId: workspaceId, surfaceId: $0)
             }
         }
+        let manualStoreSurfaceIds = notificationSurfaceIds.filter {
+            host.storeHasManualUnread(workspaceId: workspaceId, surfaceId: $0)
+        }
+        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
+            (hasManualPanelUnread || hasManualWorkspaceUnread || !manualStoreSurfaceIds.isEmpty)
+        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
+            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
+        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         guard hasUnreadNotification || hasPendingNotification || hasFocusedIndicator || canDismissUnreadIndicator else {
             return false
         }
@@ -189,6 +216,12 @@ public final class NotificationDismissalModel: NotificationDismissing {
             if hasManualWorkspaceUnread {
                 didDismissUnreadIndicator = host.storeClearManualUnread(workspaceId: workspaceId) || didDismissUnreadIndicator
             }
+            for surfaceId in manualStoreSurfaceIds {
+                didDismissUnreadIndicator = host.storeClearManualUnread(
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                ) || didDismissUnreadIndicator
+            }
         }
         if context.canDismissRestoredUnreadIndicator {
             if let targetPanelId, hasRestoredPanelUnread {
@@ -207,7 +240,7 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 host.storeClearFocusedReadIndicator(workspaceId: workspaceId, surfaceId: surfaceId)
             }
         }
-        if let targetPanelId {
+        if let targetPanelId, context.flashesOnDismiss(flashOnTyping: host.paneFlashOnTyping) {
             if hasUnreadNotification || hasFocusedIndicator {
                 host.workspaceTriggerNotificationDismissFlash(workspaceId: workspaceId, panelId: targetPanelId)
             } else if didDismissUnreadIndicator {

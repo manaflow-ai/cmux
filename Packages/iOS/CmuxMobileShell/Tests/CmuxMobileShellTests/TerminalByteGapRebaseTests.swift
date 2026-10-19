@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -15,6 +16,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing byte-gap delivery"
     )
@@ -57,6 +59,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing byte-gap replay replacement"
     )
@@ -68,7 +71,7 @@ import Testing
     #expect(firstDelivered)
 
     await router.holdNextReplayResponses()
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
     #expect(store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
 

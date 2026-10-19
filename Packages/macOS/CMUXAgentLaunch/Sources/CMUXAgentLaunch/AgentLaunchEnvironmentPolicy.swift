@@ -55,6 +55,23 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "PI_PACKAGE_DIR",
     ]
 
+    /// Where OpenCode finds its config, sessions database and state, beyond
+    /// `OPENCODE_CONFIG_DIR`. OpenCode reads `OPENCODE_CONFIG_DIR`, then
+    /// `XDG_CONFIG_HOME/opencode`; `OPENCODE_DB`, then
+    /// `XDG_DATA_HOME/opencode/opencode.db`; `OPENCODE_CONFIG` as one more
+    /// config file; and `XDG_STATE_HOME/opencode`. A resumed session needs the
+    /// same roots or its session is not found. The XDG roots apply to every
+    /// program, so they replay only for OpenCode launches, and every one of
+    /// these replays only as an absolute path: a relative root would resolve
+    /// against whatever directory the restored pane starts in.
+    private static let openCodeLocationEnvironmentKeys: Set<String> = [
+        "OPENCODE_CONFIG",
+        "OPENCODE_DB",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+    ]
+
     private static let safeEnvironmentKeys: Set<String> = [
         // AMP_API_KEY is intentionally NOT allowlisted: it's a secret.
         // Amp resolves auth from ~/.config/amp/settings.json on resume.
@@ -68,10 +85,15 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
+        // Selects the directory holding Cursor's cli-config.json and approval policy.
+        "CURSOR_CONFIG_DIR",
         // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_CUSTOM_AMP_PATH",
+        "CMUX_CUSTOM_CODEX_PATH",
+        "CMUX_CUSTOM_ANTIGRAVITY_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -101,12 +123,18 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_HOME",
         "KIRO_LOG_LEVEL",
         "KIRO_LOG_NO_COLOR",
+        "KIMI_CODE_HOME",
         "KIMI_SHARE_DIR",
+        "MUSE_AUTH_PATH",
+        "MUSE_CHANNEL",
         "NODE_OPTIONS",
+        "OPENCODE_CONFIG",
         "OPENCODE_CONFIG_DIR",
+        "OPENCODE_DB",
         "OLLAMA_EDITOR",
         "OLLAMA_HOST",
         "OLLAMA_NOHISTORY",
+        "OMP_AGENT_DIR",
         "PI_CACHE_RETENTION",
         "PI_CONFIG_DIR",
         "PI_CODING_AGENT_DIR",
@@ -115,10 +143,24 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "PI_PACKAGE_DIR",
         "PI_SKIP_VERSION_CHECK",
         "QODER_CONFIG_DIR",
-        "USE_BUILTIN_RIPGREP"
+        "USE_BUILTIN_RIPGREP",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
     ]
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
+
+    /// Every environment key ``selectedEnvironment(from:kind:)`` reads.
+    ///
+    /// Out-of-process hook producers capture exactly these values so the
+    /// consumer's selection matches what it would read from its own process.
+    public var inputEnvironmentKeys: [String] {
+        Self.sortedSafeEnvironmentKeys + [
+            "CMUX_ORIGINAL_NODE_OPTIONS",
+            "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT",
+        ]
+    }
 
     /// Returns the subset of captured environment variables that should be replayed for an agent.
     ///
@@ -138,6 +180,20 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         }
         if normalizedKind != "hermes-agent" {
             for key in Self.hermesAgentEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
+        }
+        if normalizedKind != "cursor" {
+            result.removeValue(forKey: "CURSOR_CONFIG_DIR")
+        }
+        if normalizedKind != "codex" {
+            result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
+        if normalizedKind != "antigravity" {
+            result.removeValue(forKey: "CMUX_CUSTOM_ANTIGRAVITY_PATH")
+        }
+        if !Self.isOpenCodeLaunch(normalizedKind) {
+            for key in Self.openCodeLocationEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
         }
@@ -170,6 +226,76 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
            let path = normalizedValue(env["PATH"]) {
             selected["PATH"] = path
         }
+        if normalizedKind == "claude" {
+            // Subrouter's resume marker and the wrapper's launch-bound copy are
+            // exact command text, never a URL or credential. They cross into
+            // the durable restore record only as an agreeing pair, so a marker
+            // inherited from an ancestor `sr claude` session proves nothing.
+            let router = SubrouterClaudeResumeRouting()
+            selected.merge(router.capturedEnvironment(in: env)) { _, marker in
+                marker
+            }
+            // The account a routed launch was pinned to, recorded by the
+            // wrapper. It only picks the launcher's `--account` on restore.
+            selected.merge(router.capturedAccountEnvironment(in: env)) { _, account in
+                account
+            }
+        }
+        return selected
+    }
+
+    /// Returns the bounded environment metadata that may cross the structured
+    /// restore-record boundary. Subrouter's Codex resume marker is retained
+    /// only when the captured argv independently proves routed execution; the
+    /// ordinary restore policy still removes it before process replay.
+    public func selectedRestoreRecordEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreEnvironment(from: env, kind: kind)
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedKind == "codex" else { return selected }
+
+        let router = SubrouterCodexResumeRouting()
+        guard router.resumeArguments(
+            launcher: launcher,
+            sessionID: "restore-record-validation",
+            launchArguments: arguments,
+            environment: env
+        ) != nil,
+        let marker = router.capturedMarker(in: env) else {
+            return selected
+        }
+        selected.merge(router.capturedRoutingEnvironment(in: env)) { _, routingValue in
+            routingValue
+        }
+        selected[SubrouterCodexResumeRouting.environmentKey] = marker
+        selected[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] = marker
+        return selected
+    }
+
+    /// Returns replay-safe environment values for a rendered resume command.
+    /// Routed Codex resumes retain their bounded account/server inputs after
+    /// the metadata-only launcher marker has selected the explicit `sr` argv.
+    public func selectedReplayEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreRecordEnvironment(
+            from: env,
+            kind: kind,
+            launcher: launcher,
+            arguments: arguments
+        )
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
+        selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
         return selected
     }
 
@@ -181,9 +307,18 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
         case "NODE_OPTIONS":
             return sanitizedNodeOptions(value)
+        case _ where Self.openCodeLocationEnvironmentKeys.contains(key):
+            return value.flatMap { $0.hasPrefix("/") ? $0 : nil }
         default:
             return value
         }
+    }
+
+    /// Whether `kind` (a hook kind or a launcher such as `omo`) is an OpenCode
+    /// launch, by the same launcher mapping that decides capture trust.
+    private static func isOpenCodeLaunch(_ normalizedKind: String?) -> Bool {
+        guard let normalizedKind, !normalizedKind.isEmpty else { return false }
+        return AgentLaunchCaptureTrust.launcherDescribesKind(normalizedKind, kind: "opencode")
     }
 
     private func selectedNodeOptions(from env: [String: String]) -> String? {
@@ -197,11 +332,62 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         }
     }
 
+    /// One NODE_OPTIONS argument: `value` is what Node sees after unquoting,
+    /// `raw` is the original text, kept so re-serialization preserves quoting.
+    private struct NodeOptionsToken {
+        var value: String
+        var raw: String
+    }
+
+    /// Tokenizes NODE_OPTIONS the way Node does (ParseNodeOptionsEnvVar):
+    /// whitespace separates arguments, double quotes group text containing
+    /// whitespace and are stripped from the value, and inside quotes a
+    /// backslash makes the next character literal. Unterminated quotes and a
+    /// trailing backslash are handled leniently rather than rejected.
+    private func nodeOptionsTokens(_ rawValue: String) -> [NodeOptionsToken] {
+        var tokens: [NodeOptionsToken] = []
+        var current: NodeOptionsToken?
+        var isInString = false
+        var isEscaped = false
+        for character in rawValue {
+            if isEscaped {
+                current?.value.append(character)
+                current?.raw.append(character)
+                isEscaped = false
+                continue
+            }
+            if !isInString, character.isWhitespace {
+                if let token = current {
+                    tokens.append(token)
+                    current = nil
+                }
+                continue
+            }
+            if current == nil {
+                current = NodeOptionsToken(value: "", raw: "")
+            }
+            current?.raw.append(character)
+            if isInString, character == "\\" {
+                isEscaped = true
+            } else if character == "\"" {
+                isInString.toggle()
+            } else {
+                current?.value.append(character)
+            }
+        }
+        if isEscaped {
+            current?.value.append("\\")
+        }
+        if let token = current {
+            tokens.append(token)
+        }
+        return tokens
+    }
+
     private func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue?
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init) ?? []
-        guard !tokens.isEmpty else { return nil }
+        let parsed = nodeOptionsTokens(rawValue ?? "")
+        guard !parsed.isEmpty else { return nil }
+        let tokens = parsed.map(\.value)
 
         var sanitized: [String] = []
         var index = 0
@@ -229,12 +415,11 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
                 continue
             }
 
-            sanitized.append(token)
+            sanitized.append(parsed[index].raw)
             index += 1
         }
 
         let joined = sanitized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         return joined.isEmpty ? nil : joined
     }
 

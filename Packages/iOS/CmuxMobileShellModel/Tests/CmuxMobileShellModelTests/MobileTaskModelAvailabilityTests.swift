@@ -25,17 +25,14 @@ struct MobileTaskModelAvailabilityTests {
         #expect(availability.validatedModelID("gpt-5.6-sol") == nil)
     }
 
-    @Test func missingDiscoveryFallsBackToCuratedModels() {
+    @Test func missingDiscoveryDoesNotInventModelsOnDevice() {
         let availability = MobileTaskModelAvailability(
             template: template,
             discoveredModels: nil
         )
 
-        #expect(availability.models == MobileTaskAgentProvider.codex.models)
-        #expect(
-            availability.validatedModelID("gpt-5.6-sol")
-                == "gpt-5.6-sol"
-        )
+        #expect(availability.models.isEmpty)
+        #expect(availability.validatedModelID("gpt-5.6-sol") == nil)
         #expect(availability.validatedModelID("unknown") == nil)
     }
 
@@ -59,5 +56,36 @@ struct MobileTaskModelAvailabilityTests {
                     displayName: "delisted-model"
                 )
         )
+    }
+
+    @Test func previouslyValidDraftSelectionSurvivesColdCatalog() {
+        let coldAvailability = MobileTaskModelAvailability(
+            template: template,
+            discoveredModels: nil
+        )
+
+        let restored = coldAvailability.validatedModelID(
+            "persisted-agent-model",
+            previouslyValidModelID: "persisted-agent-model"
+        )
+
+        #expect(restored == "persisted-agent-model")
+        #expect(
+            coldAvailability.selectedModel(id: restored)
+                == MobileTaskAgentModel(
+                    id: "persisted-agent-model",
+                    displayName: "persisted-agent-model"
+                )
+        )
+    }
+
+    @Test func decodingDropsDefaultEffortThatIsNotInTheModelEfforts() throws {
+        let model = try JSONDecoder().decode(
+            MobileTaskAgentModel.self,
+            from: Data(#"{"id":"gpt","displayName":"GPT","efforts":[{"id":"high","displayName":"High"}],"defaultEffortID":"missing"}"#.utf8)
+        )
+
+        #expect(model.defaultEffortID == nil)
+        #expect(model.efforts.map(\.id) == ["high"])
     }
 }

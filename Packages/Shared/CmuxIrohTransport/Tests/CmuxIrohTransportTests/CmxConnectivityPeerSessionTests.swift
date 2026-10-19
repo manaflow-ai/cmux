@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
+@Suite(.serialized)
 struct CmxConnectivityPeerSessionTests {
     @Test
     func concurrentCallersShareOneDialAndOneAdmittedSession() async throws {
@@ -29,6 +30,68 @@ struct CmxConnectivityPeerSessionTests {
         #expect(await builder.callCount() == 1)
         #expect(await peer.snapshot().phase == .connected)
         #expect(await peer.snapshot().connectionGeneration == 1)
+    }
+
+    @Test
+    func onePeerTraceUsesOneAliasAndOneEstablishedSessionEvent() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let admitted = TestConnectivitySession(continuityID: 17)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [admitted])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) },
+            diagnosticLog: log
+        )
+
+        _ = try await peer.connectedSession(for: request)
+        await peer.releaseControl(ownerID: UUID())
+        await peer.invalidate()
+        #expect(await waitForDiagnosticProcessedCount(log, atLeast: 3))
+        let events = await log.snapshot().events
+        let lifecycle = events.filter { $0.code == .transportSessionLifecycle }
+        #expect(lifecycle.filter {
+            $0.a == DiagnosticSessionLifecycleKind.established.rawValue
+        }.count == 1)
+        #expect(lifecycle.compactMap(\.surface).count == lifecycle.count)
+        #expect(Set(lifecycle.compactMap(\.surface)).count == 1)
+    }
+
+    @Test
+    func selectedPathSnapshotsRecordInitialAndMigratedRouteClasses() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let session = TestConnectivitySession(
+            continuityID: 18,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) },
+            diagnosticLog: log
+        )
+
+        _ = try await peer.connectedSession(for: request)
+        try await Self.waitUntil { await session.hasSelectedPathObserver() }
+        // The selected-path stream buffers only the newest value, so publish
+        // each change only after the observer recorded the previous one.
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 1))
+        await session.publishSelectedPath(.relay(url: "https://relay.example"))
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 2))
+        await session.publishSelectedPath(.privateNetwork)
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 3))
+
+        let report = await log.snapshot()
+        let pathEvents = report.events.filter { $0.code == .selectedPathChanged }
+        #expect(pathEvents.compactMap(\.diagnosticPathKind) == [
+            .direct,
+            .relay,
+            .privateNetwork,
+        ])
+        #expect(pathEvents.allSatisfy { $0.diagnosticSessionID != nil })
     }
 
     @Test
@@ -72,6 +135,79 @@ struct CmxConnectivityPeerSessionTests {
         await peer.releaseControl(ownerID: firstOwner)
         #expect(await secondSession.closeCount() == 0)
         await peer.releaseControl(ownerID: secondOwner)
+    }
+
+    @Test
+    func releaseDoesNotWaitForPathEventObserverToFinish() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let firstSession = TestConnectivitySession(
+            continuityID: 15,
+            keepsPathEventStreamOpen: true
+        )
+        let secondSession = TestConnectivitySession(continuityID: 16)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [firstSession, secondSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            diagnosticLog: DiagnosticLog(capacity: 16, role: .mobileClient)
+        )
+        let firstOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
+        try await Self.waitUntil { await firstSession.hasPathEventObserver() }
+
+        let release = Task {
+            await peer.releaseControl(ownerID: firstOwner)
+        }
+        try await Self.waitUntil { await firstSession.closeCount() == 1 }
+
+        let nextOwner = UUID()
+        let next = Task {
+            try await peer.acquireControl(for: request, ownerID: nextOwner)
+        }
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        _ = try await next.value
+        await release.value
+        await peer.releaseControl(ownerID: nextOwner)
+    }
+
+    @Test
+    func remoteCloseDoesNotWaitForPathEventObserverToFinish() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let firstSession = TestConnectivitySession(
+            continuityID: 17,
+            keepsPathEventStreamOpen: true
+        )
+        let secondSession = TestConnectivitySession(continuityID: 18)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [firstSession, secondSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            diagnosticLog: DiagnosticLog(capacity: 16, role: .mobileClient)
+        )
+        let firstOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
+        try await Self.waitUntil { await firstSession.hasPathEventObserver() }
+        await firstSession.finishRemotely(failure: .connectionClosed)
+
+        let nextOwner = UUID()
+        let next = Task {
+            try await peer.acquireControl(for: request, ownerID: nextOwner)
+        }
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        _ = try await next.value
+        await peer.releaseControl(ownerID: nextOwner)
     }
 
     @Test
@@ -152,6 +288,9 @@ struct CmxConnectivityPeerSessionTests {
     func unavailableSelectedPathEvictsTheSessionAndTheNextOperationRedials() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
+        let clock = OnlineAdmissionManualClock(
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
         let stranded = TestConnectivitySession(
             continuityID: 23,
             keepsSelectedPathStreamOpen: true
@@ -164,12 +303,17 @@ struct CmxConnectivityPeerSessionTests {
             peerID: peerID,
             buildSession: { request in
                 try await builder.build(request)
-            }
+            },
+            clock: clock
         )
 
         _ = try await peer.acquireControl(for: request, ownerID: UUID())
         try await Self.waitUntil { await stranded.hasSelectedPathObserver() }
         await stranded.publishSelectedPath(.unavailable)
+        await clock.waitUntilSleeping()
+        clock.advance(
+            by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds
+        )
         try await Self.waitUntil { await peer.snapshot().phase == .failed }
 
         let failed = await peer.snapshot()
@@ -180,6 +324,85 @@ struct CmxConnectivityPeerSessionTests {
         _ = try await peer.acquireControl(for: request, ownerID: UUID())
         #expect(await builder.callCount() == 2)
         #expect(await peer.connectionContinuityID() == 24)
+    }
+
+    @Test
+    func usablePathReturningWithinGraceDisarmsTheEviction() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let clock = OnlineAdmissionManualClock(
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let recovered = TestConnectivitySession(
+            continuityID: 32,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [recovered])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            clock: clock
+        )
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        try await Self.waitUntil { await recovered.hasSelectedPathObserver() }
+        await recovered.publishSelectedPath(.unavailable)
+        await clock.waitUntilSleeping()
+        await recovered.publishSelectedPath(.direct)
+        try await Self.waitUntil { clock.sleepingDeadlines().isEmpty }
+        clock.advance(
+            by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds + 1
+        )
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        let snapshot = await peer.snapshot()
+        #expect(snapshot.phase == .connected)
+        #expect(await recovered.closeCount() == 0)
+        #expect(await peer.connectionContinuityID() == 32)
+    }
+
+    @Test
+    func evictionDeadlineReChecksLivePathStateBeforeEvicting() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let clock = OnlineAdmissionManualClock(
+            now: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        let quietlyRecovered = TestConnectivitySession(
+            continuityID: 33,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [quietlyRecovered]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            clock: clock
+        )
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        try await Self.waitUntil {
+            await quietlyRecovered.hasSelectedPathObserver()
+        }
+        await quietlyRecovered.publishSelectedPath(.unavailable)
+        await clock.waitUntilSleeping()
+        // The path recovered but the observation stream never delivered the
+        // usable value (a dropped event). The deadline must trust the live
+        // state it re-reads, not the stale event that armed it.
+        await quietlyRecovered.setSelectedPathQuietly(.direct)
+        clock.advance(
+            by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds
+        )
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        let snapshot = await peer.snapshot()
+        #expect(snapshot.phase == .connected)
+        #expect(await quietlyRecovered.closeCount() == 0)
     }
 
     @Test
@@ -545,6 +768,25 @@ struct CmxConnectivityPeerSessionTests {
         )
     }
 
+    /// Deadline-bounded poll of the retained selected-path events. The log
+    /// drains on its own task, so a fixed yield budget can expire before it runs.
+    private static func waitForSelectedPathEvents(
+        _ log: DiagnosticLog,
+        atLeast expectedCount: Int,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        func count() async -> Int {
+            await log.snapshot().events.filter { $0.code == .selectedPathChanged }.count
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if await count() >= expectedCount { return true }
+            await Task.yield()
+        }
+        return await count() >= expectedCount
+    }
+
     private static func waitUntil(
         _ condition: @escaping @Sendable () async -> Bool
     ) async throws {
@@ -659,10 +901,13 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
     private let gatesCloseAttribution: Bool
     private let keepsSelectedPathStreamOpen: Bool
+    private let keepsPathEventStreamOpen: Bool
     private var closed = false
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
     private var closureWaiters: [CheckedContinuation<Void, Never>] = []
+    private var cancellableClosureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var cancelledClosureObservationIDs = Set<UUID>()
     private var closeAttributionWaiter: CheckedContinuation<Void, Never>?
     private var closeAttributionWaiting = false
     private var isClosedGatePending: Bool
@@ -675,17 +920,21 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var selectedPath = CmxIrohObservedConnectionPath.direct
     private var selectedPathContinuation:
         AsyncStream<CmxIrohObservedConnectionPath>.Continuation?
+    private var pathEventContinuation:
+        AsyncStream<CmxIrohConnectionPathEvent>.Continuation?
 
     init(
         continuityID: UInt64,
         gatesCloseAttribution: Bool = false,
         keepsSelectedPathStreamOpen: Bool = false,
+        keepsPathEventStreamOpen: Bool = false,
         gatesFirstIsClosedCheck: Bool = false,
         gatesFirstClose: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
+        self.keepsPathEventStreamOpen = keepsPathEventStreamOpen
         isClosedGatePending = gatesFirstIsClosedCheck
         closeGatePending = gatesFirstClose
     }
@@ -716,6 +965,36 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         if closed { return }
         await withCheckedContinuation { continuation in
             closureWaiters.append(continuation)
+        }
+    }
+
+    func makeClosureObservationID() async -> UUID? {
+        guard !closed else { return nil }
+        return UUID()
+    }
+
+    func waitForClosure(observationID: UUID) async {
+        if closed || cancelledClosureObservationIDs.remove(observationID) != nil {
+            return
+        }
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                if closed || cancelledClosureObservationIDs.remove(observationID) != nil {
+                    continuation.resume()
+                } else {
+                    cancellableClosureWaiters[observationID] = continuation
+                }
+            }
+        }, onCancel: {
+            Task { await self.cancelClosureObservation(observationID: observationID) }
+        })
+    }
+
+    func cancelClosureObservation(observationID: UUID) {
+        if let continuation = cancellableClosureWaiters.removeValue(forKey: observationID) {
+            continuation.resume()
+        } else {
+            cancelledClosureObservationIDs.insert(observationID)
         }
     }
 
@@ -785,10 +1064,22 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         selectedPathContinuation?.yield(path)
     }
 
+    func setSelectedPathQuietly(_ path: CmxIrohObservedConnectionPath) {
+        selectedPath = path
+    }
+
     func observedPathEvents() -> AsyncStream<CmxIrohConnectionPathEvent> {
-        AsyncStream { continuation in
-            continuation.finish()
+        let pair = AsyncStream<CmxIrohConnectionPathEvent>.makeStream()
+        guard keepsPathEventStreamOpen else {
+            pair.continuation.finish()
+            return pair.stream
         }
+        pathEventContinuation = pair.continuation
+        return pair.stream
+    }
+
+    func hasPathEventObserver() -> Bool {
+        pathEventContinuation != nil
     }
 
     func close() async {
@@ -838,6 +1129,12 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         let waiters = closureWaiters
         closureWaiters.removeAll()
         for waiter in waiters {
+            waiter.resume()
+        }
+        let cancellableWaiters = cancellableClosureWaiters
+        cancellableClosureWaiters.removeAll()
+        cancelledClosureObservationIDs.removeAll()
+        for waiter in cancellableWaiters.values {
             waiter.resume()
         }
     }

@@ -28,6 +28,11 @@ extension RemoteSessionCoordinator {
         guard reverseRelayControlMasterForwardSpec == nil else { return }
         guard controlMasterReapState.startupPhase
             .allowsRelayLaunch else { return }
+        // A new relay attempt owns readiness from this point forward.  The
+        // daemon hello may already be valid, but the local proxy cannot use
+        // the remote listener until the forward and metadata transaction
+        // complete.
+        reverseRelayReady = false
 
         cancelReverseRelayRestartLocked()
         launchReverseRelayLocked(
@@ -87,8 +92,13 @@ extension RemoteSessionCoordinator {
                     scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
                     return
                 }
+                reverseRelayReady = true
                 restoreReadyDaemonStatusLocked()
                 recordHeartbeatActivityLocked()
+                // A relay restart can happen after the original bootstrap
+                // caller has returned; reacquire the proxy/PTY bridge now
+                // that the forward and metadata invariant is restored.
+                startProxyLocked()
                 debugLog(
                     "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
                     "target=\(configuration.displayTarget) controlMaster=1"
@@ -192,8 +202,12 @@ extension RemoteSessionCoordinator {
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
             return
         }
+        reverseRelayReady = true
         restoreReadyDaemonStatusLocked()
         recordHeartbeatActivityLocked()
+        // The relay is now a usable transport.  This is the first point at
+        // which a proxy/PTY bridge may be acquired for a standalone fallback.
+        startProxyLocked()
         debugLog(
             "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
             "target=\(configuration.displayTarget) controlMaster=0"
@@ -206,13 +220,41 @@ extension RemoteSessionCoordinator {
     ) {
         guard reverseRelayProcess === process else { return }
         reverseRelayProcess = nil
+        reverseRelayReady = false
 
         guard !isStopping else { return }
         guard let remotePath = daemonRemotePath,
               !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let detail = stderrDetail ?? "status=\(process.terminationStatus)"
-        debugLog("remote.relay.exit \(detail)")
+        if let authenticationFailure = stderrDetail.flatMap(
+            RemoteRelayAuthenticationFailure.detect(in:)
+        ) {
+            debugLog(
+                "remote.relay.authFailed kind=\(authenticationFailure.logLabel) " +
+                    "status=\(process.terminationStatus)"
+            )
+            let detail = String(
+                localized: "remoteSession.parked.sshAuthenticationFailed",
+                defaultValue: "SSH authentication failed. Automatic reconnect paused; use Reconnect to try again."
+            )
+            resetTransportForReconnectLocked(
+                preservePersistentRelayMetadata: true
+            )
+            parkSessionLocked(
+                cause: .sshAuthenticationFailed,
+                daemonState: .error,
+                detail: detail
+            )
+            return
+        }
+
+        // Stderr can contain ProxyCommand output, hostnames, usernames, or
+        // other caller-controlled secrets. Keep it out of logs and publish
+        // only the existing retry state for failures we do not classify.
+        debugLog(
+            "remote.relay.exit status=\(process.terminationStatus) " +
+                "detailAvailable=\(stderrDetail == nil ? 0 : 1)"
+        )
         publishReverseRelayFailureLocked(remotePath: remotePath)
     }
 
@@ -220,10 +262,11 @@ extension RemoteSessionCoordinator {
         remotePath: String
     ) {
         let retryDelay = 2.0
-        publishDaemonStatus(
-            .error,
-            detail: strings.reverseRelayUnavailableRetrying
-        )
+        // Relay startup is itself retryable.  Keep the sidebar in the
+        // reconnecting phase until the bounded supervisor gives up; otherwise
+        // a short ControlMaster handoff paints a false daemon error.
+        publishDaemonStatus(.bootstrapping, detail: nil)
+        publishState(.reconnecting, detail: nil)
         scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
     }
 
@@ -272,6 +315,7 @@ extension RemoteSessionCoordinator {
             reverseRelayProcess.terminate()
         }
         reverseRelayProcess = nil
+        reverseRelayReady = false
         stopReverseRelayViaControlMasterLocked()
         cliRelayServer?.stop()
         cliRelayServer = nil
@@ -289,6 +333,7 @@ extension RemoteSessionCoordinator {
         }
         reverseRelayProcess = nil
         reverseRelayControlMasterForwardSpec = nil
+        reverseRelayReady = false
         cliRelayServer?.stop()
         cliRelayServer = nil
     }
@@ -297,12 +342,16 @@ extension RemoteSessionCoordinator {
         // Fallback only: `-S none` prevents accidental adoption of a shared
         // transport after `-O forward` proved unavailable.
         var args: [String] = ["-N", "-T", "-S", "none", "-v"]
-        args += sshCommonArguments(batchMode: true, dropControlPath: true)
+        args += sshCommonArguments(
+            batchMode: true,
+            dropControlPath: true,
+            batchForwarding: .agentAndX11Off
+        )
         args += [
             "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
             "-R", "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)",
-            configuration.destination,
+            "--", configuration.destination,
         ]
         return args
     }
@@ -344,16 +393,26 @@ extension RemoteSessionCoordinator {
             relayPort: relayPort,
             relayID: relayID,
             relayToken: relayToken,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
+            persistentDaemonSlot: configuration.persistentDaemonSlot,
+            codexWrapperScript: codexWrapperScript
         )
-        let command = "sh -c \(script.shellSingleQuoted)"
-        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+        // Relay credentials are deliberately stored on the remote host, so
+        // never place the token-bearing script in SSH argv (argv is visible to
+        // other users and is retained in debug command logs). Feed it to
+        // `sh -s` over stdin instead.
+        let arguments = sshCommonArguments(batchMode: true) + ["--", configuration.destination, "sh -s"]
+        let result = try sshExec(
+            arguments: arguments,
+            stdin: Data(script.utf8),
+            timeout: 8
+        )
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.relay", code: 70, userInfo: [
                 NSLocalizedDescriptionKey: "failed to install remote relay metadata: \(detail)",
             ])
         }
+        didInstallRelayMetadata = true
     }
 
     private func removeRemoteRelayMetadataLocked(cleanupScope: RemoteRelayCleanupScope) -> Bool {
@@ -410,10 +469,10 @@ extension RemoteSessionCoordinator {
         relayPort: Int?,
         status64FallbackScript: String? = nil
     ) -> Bool {
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         do {
             let result = try sshExec(
-                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
                 timeout: 8
             )
             if result.status == 64, let status64FallbackScript {
@@ -426,6 +485,19 @@ extension RemoteSessionCoordinator {
                     cleanupScope: cleanupScope,
                     relayPort: nil
                 )
+            }
+            if result.status == 64, case .transport = cleanupScope, !didInstallRelayMetadata {
+                // 64 is the script's "no relay metadata owned by this relay
+                // namespace" answer. A coordinator that never installed any
+                // (its daemon never bootstrapped) has nothing to remove, so
+                // this is a completed cleanup. Reporting it as failed blocked
+                // every later Reconnect of the workspace behind a cleanup
+                // that could never succeed.
+                debugLog(
+                    "remote.relay.cleanup.vacuous reason=never-provisioned " +
+                        "relayPort=\(relayPort.map(String.init) ?? "nil") \(debugConfigSummary())"
+                )
+                return true
             }
             guard result.status == 0 else {
                 let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
@@ -445,29 +517,5 @@ extension RemoteSessionCoordinator {
             remoteRelayLogger.error("cleanup error: \(error.localizedDescription, privacy: .private(mask: .hash))")
             return false
         }
-    }
-
-    /// Returns whether OpenSSH reported that this relay's remote listener is
-    /// already bound.
-    static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
-        reverseRelayPortBindingFailureLine(in: detail, relayPort: relayPort) != nil
-    }
-
-    /// Extracts the exact bind diagnostic from standalone or multiplexed
-    /// OpenSSH stderr. Multiplexing adds a prefix and may append a later
-    /// summary line, so classification must inspect every line.
-    static func reverseRelayPortBindingFailureLine(
-        in detail: String,
-        relayPort: Int
-    ) -> String? {
-        let expected = "remote port forwarding failed for listen port \(relayPort)"
-        return detail
-            .split(whereSeparator: \.isNewline)
-            .map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            .first(where: {
-                $0 == expected || $0.hasSuffix(": \(expected)")
-            })
     }
 }

@@ -1,0 +1,109 @@
+{
+  "receipt": {
+    "schema_version": "cmux-verification/v1",
+    "authority": "evidence_only",
+    "recipe": {
+      "id": "tests/test_docs_deploy_auth_guard.py",
+      "revision": null,
+      "claim_class": "python-workflow-guard-tests",
+      "argv": [
+        "python3",
+        "tests/test_docs_deploy_auth_guard.py"
+      ]
+    },
+    "source": {
+      "semantics": "latest_checkout_at_execution",
+      "repository": null,
+      "base_sha": null,
+      "head_sha": null,
+      "merge_sha": null,
+      "tree": null,
+      "before": {
+        "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "clean": false
+      },
+      "after": {
+        "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "clean": false
+      },
+      "exact_snapshot": null,
+      "checkout_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "environment": {
+      "platform": null,
+      "architecture": null,
+      "toolchain": null,
+      "configuration": "workflow guard",
+      "build_input_identity": null
+    },
+    "checks": [
+      {
+        "phase": "preparation",
+        "status": "skipped",
+        "executed": false,
+        "evidence": null
+      },
+      {
+        "phase": "parsing",
+        "status": "skipped",
+        "executed": false,
+        "evidence": null
+      },
+      {
+        "phase": "typechecking",
+        "status": "skipped",
+        "executed": false,
+        "evidence": null
+      },
+      {
+        "phase": "tests",
+        "status": "passed",
+        "executed": true,
+        "evidence": "evidence"
+      },
+      {
+        "phase": "packaging",
+        "status": "skipped",
+        "executed": false,
+        "evidence": null
+      },
+      {
+        "phase": "live",
+        "status": "skipped",
+        "executed": false,
+        "evidence": null
+      }
+    ],
+    "tests": {
+      "selection": [
+        "tests/test_docs_deploy_auth_guard.py"
+      ],
+      "selected": null,
+      "discovered": null,
+      "executed": 3,
+      "runner_reported": null,
+      "skipped": null,
+      "accepted_baselines": []
+    },
+    "artifacts": {
+      "produced": null,
+      "launched": null
+    },
+    "review": {
+      "status": "unsupported",
+      "reviewed_head": null,
+      "current_head": null,
+      "evidence": null
+    },
+    "evidence": {
+      "kind": "synthetic_fixture"
+    },
+    "integrations": {
+      "glaeda_request_id": null,
+      "glaeda_run_id": null,
+      "stensibly_run_id": null,
+      "stensibly_settlement_id": null
+    }
+  },
+  "expected_qualification": "source_drift_observed"
+}

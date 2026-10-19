@@ -51,7 +51,7 @@ struct CanvasPaneContentMountTests {
             mount.unmount()
             window.contentView = nil
             window.close()
-            panel.surface.teardownSurface()
+            panel.surface.teardownHostedSurfaceForTesting()
         }
 
         window.displayIfNeeded()

@@ -2,59 +2,26 @@
 import CmuxMobileTerminalKit
 import CoreGraphics
 
-struct TerminalViewportSnapshot {
+struct TerminalViewportSnapshot: Equatable, Sendable {
     let bounds: CGSize
     let containerSize: CGSize
+    /// Points the dock's bottom edge sits above the screen bottom (keyboard
+    /// when up, else the bottom safe-area fallback). Host/screen coordinate
+    /// concern only; never part of the grid or render math.
     let keyboardOccupancy: CGFloat
     let composerFrame: CGRect
     let toolbarFrame: CGRect
     let layoutViewportRect: CGRect
-    let liveViewportRect: CGRect
-    /// See `TerminalViewportInputs.viewportNegotiationUnsettled`.
-    let viewportNegotiationUnsettled: Bool
+    let renderTopInset: CGFloat
 
-    func renderViewportRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
-        let targetHeight = layoutViewportRect.height
-        let liveHeight = liveViewportRect.height
-        let height = clampsStaleLiveViewport ? min(liveHeight, targetHeight) : liveHeight
-        return CGRect(
-            x: layoutViewportRect.minX,
-            y: layoutViewportRect.minY,
-            width: layoutViewportRect.width,
-            height: max(1, height)
-        )
-    }
-
-    func renderRect(
-        forRenderSize renderSize: CGSize,
-        clampsStaleLiveViewport: Bool,
-        cursorBottomInRender: CGFloat? = nil
-    ) -> CGRect {
-        let viewport = renderViewportRect(
-            forRenderSize: renderSize,
-            clampsStaleLiveViewport: clampsStaleLiveViewport
-        )
-        // Bottom-pin against the live viewport, but never clip content that
-        // will be visible at settle: while the viewport grows (keyboard
-        // dismissal) a target-sized render keeps its top row in place and the
-        // keyboard reveals the lower rows, and while it shrinks (keyboard
-        // rise) the old render slides only enough to keep the cursor row
-        // visible instead of shoving every content row up by the keyboard
-        // height (see `TerminalLetterboxGeometry.renderPinnedBottomEdge`).
-        let bottomEdge = TerminalLetterboxGeometry.renderPinnedBottomEdge(
-            liveViewportMaxY: viewport.maxY,
-            targetViewportMaxY: layoutViewportRect.maxY,
-            viewportMinY: viewport.minY,
-            renderHeight: renderSize.height,
-            holdsProvisionalPin: viewportNegotiationUnsettled,
-            cursorBottomInRender: cursorBottomInRender
-        )
-        return CGRect(
-            x: viewport.minX,
-            y: bottomEdge - renderSize.height,
-            width: renderSize.width,
-            height: renderSize.height
-        )
+    /// The render rect in surface coordinates
+    /// (`TerminalLetterboxGeometry.renderRect`): a grid at least one row
+    /// shorter than the viewport (a daemon pin) is top-pinned with its slack
+    /// below; the natural grid stays bottom-pinned to the viewport's bottom
+    /// edge, which the host keeps glued to the dock top, with its sub-row
+    /// remainder at the top.
+    func renderRect(forRenderSize renderSize: CGSize, cellHeight: CGFloat) -> CGRect {
+        TerminalLetterboxGeometry.renderRect(renderSize: renderSize, in: layoutViewportRect, cellHeight: cellHeight)
     }
 
     func isLetterboxed(renderSize: CGSize) -> Bool {
@@ -63,4 +30,3 @@ struct TerminalViewportSnapshot {
     }
 }
 #endif
-

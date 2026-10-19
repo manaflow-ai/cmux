@@ -38,6 +38,55 @@ struct RemoteSessionCleanupLifecycleTests {
     }
 
     @Test
+    func manualReconnectWaitsForControllerBeforeReattachingPersistentPanel() async throws {
+        let runner = CleanupLifecycleRecordingRunner()
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        workspace.configureRemoteConnection(Self.configuration(), autoConnect: true)
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let disconnectedSurface = panel.surface
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini",
+            target: "cmux-macmini"
+        )
+        workspace.disconnectRemoteConnection(clearConfiguration: false)
+        _ = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        #expect(workspace.terminalPanel(for: panel.id)?.surface === disconnectedSurface)
+
+        runner.blockNextCleanup()
+        let reattachedBeforeControllerReady = workspace.reconnectRemoteConnection(surfaceId: panel.id)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini",
+            target: "cmux-macmini"
+        )
+        _ = try #require(await Self.nextCleanupCommand(runner))
+
+        #expect(!reattachedBeforeControllerReady)
+        #expect(workspace.remoteSessionController == nil)
+        #expect(workspace.terminalPanel(for: panel.id)?.surface === disconnectedSurface)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+
+        runner.releaseBlockedCleanup()
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(workspace.remoteSessionController != nil)
+
+        #expect(workspace.terminalPanel(for: panel.id)?.surface !== disconnectedSurface)
+        #expect(!workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        _ = try #require(await Self.nextCleanupCommand(runner))
+        _ = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        workspace.teardownAllPanels()
+    }
+    @Test
     func replacementStartsOnlyAfterPriorTransportCleanupFinishes() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()

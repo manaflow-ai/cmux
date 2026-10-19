@@ -70,7 +70,11 @@ struct CmxIrohBackpressuredHostBrokerTests {
             operation: .relayCredential
         ) == 600)
 
-        await #expect(throws: relayLimit) {
+        // The gate's local fail-fast is marked "cooldown:"; only genuine
+        // server responses carry the bare code.
+        await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+            code: "cooldown:relay_rate_limited", retryAfterSeconds: 600)
+        ) {
             _ = try await relayPolicy.issueRelayBootstrap(endpointID: endpointID)
         }
         #expect(await probe.calls() == BackpressuredHostBrokerProbeCalls(
@@ -132,6 +136,10 @@ private actor BackpressuredHostBrokerProbe:
     }
 
     func revoke(bindingID _: String) async throws {
+        throw BackpressuredHostBrokerProbeError.unexpectedCall
+    }
+
+    func revokeStale(bindingID _: String) async throws {
         throw BackpressuredHostBrokerProbeError.unexpectedCall
     }
 

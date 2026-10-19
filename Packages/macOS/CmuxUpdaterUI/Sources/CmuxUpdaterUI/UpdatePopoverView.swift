@@ -64,7 +64,12 @@ public struct UpdatePopoverView: View {
                 NotFoundView(notFound: notFound, dismiss: dismiss)
 
             case .error(let error):
-                UpdateErrorView(error: error, logPath: actions.updateLogPath, dismiss: dismiss)
+                UpdateErrorView(
+                    error: error,
+                    logPath: actions.updateLogPath,
+                    actions: actions,
+                    dismiss: dismiss
+                )
             }
         }
         .frame(width: 300)
@@ -164,7 +169,7 @@ private struct DetectedBackgroundUpdateView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .updatePrimaryButtonStyle()
                     .controlSize(.small)
                 }
             }
@@ -243,7 +248,7 @@ private struct PermissionRequestView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .updatePrimaryButtonStyle()
             }
         }
         .padding(16)
@@ -318,7 +323,7 @@ private struct UpdateAvailableView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .updatePrimaryButtonStyle()
                     .controlSize(.small)
                 }
             }
@@ -420,7 +425,7 @@ private struct InstallingView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .updatePrimaryButtonStyle()
                 .controlSize(.small)
             }
         }

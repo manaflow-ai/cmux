@@ -20,11 +20,14 @@ struct PairingView: View {
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
-    let connectPairingCode: () async -> Void
-    let acceptVersionWarning: () async -> Void
-    let connectManualHost: (String, String, Int) async -> Void
+    let connectPairingCode: () async -> MobilePairingURLConnectionResult
+    let acceptVersionWarning: () async -> MobilePairingURLConnectionResult
+    let connectManualHost: (String, String, Int) async -> MobilePairingURLConnectionResult
     let cancelPairing: () -> Void
     let cancel: () -> Void
+    let onPairingResult: ((MobilePairingURLConnectionResult) -> Void)?
+    /// Switches this sheet to the SSH computer form (PRD D6). `nil` hides it.
+    let connectWithSSH: (() -> Void)?
 
     @State private var isShowingScanner: Bool
     @State private var deviceName = UITestConfig.addDeviceName
@@ -45,11 +48,13 @@ struct PairingView: View {
         connectionError: String?,
         connectionErrorGuidance: String?,
         versionWarning: String?,
-        connectPairingCode: @escaping () async -> Void,
-        acceptVersionWarning: @escaping () async -> Void,
-        connectManualHost: @escaping (String, String, Int) async -> Void,
+        connectPairingCode: @escaping () async -> MobilePairingURLConnectionResult,
+        acceptVersionWarning: @escaping () async -> MobilePairingURLConnectionResult,
+        connectManualHost: @escaping (String, String, Int) async -> MobilePairingURLConnectionResult,
         cancelPairing: @escaping () -> Void,
-        cancel: @escaping () -> Void
+        cancel: @escaping () -> Void,
+        onPairingResult: ((MobilePairingURLConnectionResult) -> Void)? = nil,
+        connectWithSSH: (() -> Void)? = nil
     ) {
         _pairingCode = pairingCode
         self.initialPresentation = initialPresentation
@@ -61,191 +66,230 @@ struct PairingView: View {
         self.connectManualHost = connectManualHost
         self.cancelPairing = cancelPairing
         self.cancel = cancel
+        self.onPairingResult = onPairingResult
+        self.connectWithSSH = connectWithSSH
         _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField(
-                        L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
-                        text: $deviceName
-                    )
-                    .focused($focusedField, equals: .name)
-                    .submitLabel(.next)
-                    .addDeviceInputBehavior(.text)
-                    .accessibilityIdentifier("MobileAddDeviceNameField")
+            ScrollViewReader { proxy in
+                Form {
+                    if initialPresentation.showsManualPairingControls {
+                        Section {
+                            TextField(
+                                L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
+                                text: $deviceName
+                            )
+                            .focused($focusedField, equals: .name)
+                            .submitLabel(.next)
+                            .addDeviceInputBehavior(.text)
+                            .accessibilityIdentifier("MobileAddDeviceNameField")
 
-                    TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
-                        text: $host
-                    )
-                    .focused($focusedField, equals: .host)
-                    .submitLabel(.next)
-                    .addDeviceInputBehavior(.url)
-                    .accessibilityIdentifier("MobileAddDeviceHostField")
+                            TextField(
+                                L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.x.x (Tailscale IP; 127.0.0.1 in Simulator)"),
+                                text: $host
+                            )
+                            .focused($focusedField, equals: .host)
+                            .submitLabel(.next)
+                            .addDeviceInputBehavior(.url)
+                            .accessibilityIdentifier("MobileAddDeviceHostField")
 
-                    TextField(
-                        L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "58465"),
-                        text: $port
-                    )
-                    .focused($focusedField, equals: .port)
-                    .submitLabel(.done)
-                    .addDeviceInputBehavior(.number)
-                    .accessibilityIdentifier("MobileAddDevicePortField")
-                } header: {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.addDevice.help",
-                        defaultValue: """
-                        Install Tailscale on both devices and connect them to the same Tailscale network. \
-                        On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here. \
-                        Manual host and port entry is an advanced fallback for reconnecting an already paired Mac.
-                        """
-                    ))
-                }
-                .overlay(alignment: .topLeading) {
-                    #if DEBUG
-                    if UITestConfig.mockDataEnabled {
-                        Color.clear
-                            .frame(width: 1, height: 1)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add Computer form"))
-                            .accessibilityIdentifier("MobileAddDeviceForm")
-                    }
-                    #endif
-                }
-
-                Section {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: authManager.isAuthenticated ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
-                            .font(.title3)
-                            .foregroundStyle(authManager.isAuthenticated ? .green : .orange)
-                            .frame(width: 28)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L10n.string("mobile.addDevice.accountTitle", defaultValue: "This device"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            Text(signedInAccountText)
-                                .font(.body)
-                                .foregroundStyle(.primary)
-                                .textSelection(.enabled)
-                                .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
-
-                            Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."))
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityElement(children: .contain)
-                }
-
-                #if os(iOS)
-                Section {
-                    Button {
-                        isShowingScanner = true
-                    } label: {
-                        Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .accessibilityIdentifier("MobileScanQRCodeButton")
-                }
-                #endif
-
-                if let manualRouteWarningText {
-                    Section {
-                        Label {
-                            Text(manualRouteWarningText)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle")
-                        }
-                        .foregroundStyle(.orange)
-                        .accessibilityIdentifier("MobileManualRouteWarning")
-                    }
-                }
-
-                if let versionWarning {
-                    Section {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label {
-                                Text(L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Compatibility mismatch"))
-                            } icon: {
-                                Image(systemName: "exclamationmark.triangle.fill")
+                            TextField(
+                                L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "58465"),
+                                text: $port
+                            )
+                            .focused($focusedField, equals: .port)
+                            .submitLabel(.done)
+                            .addDeviceInputBehavior(.number)
+                            .accessibilityIdentifier("MobileAddDevicePortField")
+                        } header: {
+                            Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
+                        } footer: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(MobilePairingScannerSheet.guidanceText)
+                                Text(L10n.string(
+                                    "mobile.addDevice.help",
+                                    defaultValue: "Scan the Mac's pairing QR, or enter its numeric Tailscale IP and port. In the Simulator, 127.0.0.1 can connect to a local Mac. MagicDNS names and local or LAN hosts aren't supported for account-authenticated pairing."
+                                ))
                             }
-                            .font(.headline)
-                            .foregroundStyle(.orange)
+                        }
+                        .overlay(alignment: .topLeading) {
+                            #if DEBUG
+                            if UITestConfig.mockDataEnabled {
+                                Color.clear
+                                    .frame(width: 1, height: 1)
+                                    .accessibilityElement(children: .ignore)
+                                    .accessibilityLabel(L10n.string("mobile.connections.addFormAccessibilityLabel", defaultValue: "Add Computer form"))
+                                    .accessibilityIdentifier("MobileAddDeviceForm")
+                            }
+                            #endif
+                        }
 
-                            Text(versionWarning)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .accessibilityIdentifier("MobilePairingVersionWarning")
+                        Section {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: authManager.isAuthenticated ? "person.crop.circle.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
+                                    .font(.title3)
+                                    .foregroundStyle(authManager.isAuthenticated ? .green : .orange)
+                                    .frame(width: 28)
 
-                            Button(role: .destructive) {
-                                startPairingTask {
-                                    await acceptVersionWarning()
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(L10n.string("mobile.addDevice.accountTitle", defaultValue: "This device"))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    Text(signedInAccountText)
+                                        .font(.body)
+                                        .foregroundStyle(.primary)
+                                        .textSelection(.enabled)
+                                        .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
+
+                                    Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Pairing uses this account. If it does not match the Mac, sign in to the same account, then scan the Mac QR or enter its numeric Tailscale IP."))
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
                                 }
-                            } label: {
-                                Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
                             }
-                            .disabled(isPairing)
-                            .accessibilityIdentifier("MobilePairingVersionWarningContinueButton")
+                            .accessibilityElement(children: .contain)
+                        }
+
+                        #if os(iOS)
+                        Section {
+                            Button {
+                                isShowingScanner = true
+                            } label: {
+                                Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .accessibilityIdentifier("MobileScanQRCodeButton")
+                        }
+                        #endif
+
+                        #if os(iOS)
+                        if let connectWithSSH {
+                            Section {
+                                Button(action: connectWithSSH) {
+                                    Label(
+                                        L10n.string("mobile.ssh.pairing.connectWithSSH", defaultValue: "Connect with SSH Instead"),
+                                        systemImage: "terminal"
+                                    )
+                                    .frame(maxWidth: .infinity)
+                                }
+                                .accessibilityIdentifier("ssh.pairing.connectWithSSH")
+                            } footer: {
+                                Text(L10n.string(
+                                    "mobile.ssh.pairing.connectWithSSH.footer",
+                                    defaultValue: "For any computer with an SSH server, including Linux servers. It doesn't need the cmux app."
+                                ))
+                            }
+                        }
+                        #endif
+
+                        if let manualRouteWarningText {
+                            Section {
+                                Label {
+                                    Text(manualRouteWarningText)
+                                } icon: {
+                                    Image(systemName: "exclamationmark.triangle")
+                                }
+                                .foregroundStyle(.orange)
+                                .accessibilityIdentifier("MobileManualRouteWarning")
+                            }
                         }
                     }
-                }
 
-                if let errorText {
-                    Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(errorText)
-                                .foregroundStyle(.red)
-                                .accessibilityIdentifier("MobilePairingError")
-                            if let guidanceText = errorGuidanceText {
-                                Text(guidanceText)
+                    if let versionWarning {
+                        Section {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label {
+                                    Text(L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Compatibility mismatch"))
+                                } icon: {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                }
+                                .font(.headline)
+                                .foregroundStyle(.orange)
+
+                                Text(versionWarning)
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
-                                    .accessibilityIdentifier("MobilePairingErrorGuidance")
+                                    .accessibilityIdentifier("MobilePairingVersionWarning")
+
+                                Button(role: .destructive) {
+                                    startPairingTask {
+                                        let result = await acceptVersionWarning()
+                                        onPairingResult?(result)
+                                    }
+                                } label: {
+                                    Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
+                                }
+                                .disabled(isPairing)
+                                .accessibilityIdentifier("MobilePairingVersionWarningContinueButton")
                             }
-                            Text(signedInAccountText)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .accessibilityIdentifier("MobilePairingErrorSignedInAccount")
+                        }
+                    }
+
+                    if let errorText {
+                        Section {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(errorText)
+                                    .foregroundStyle(.red)
+                                    .accessibilityIdentifier("MobilePairingError")
+                                if let guidanceText = errorGuidanceText {
+                                    Text(guidanceText)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityIdentifier("MobilePairingErrorGuidance")
+                                }
+                                Text(signedInAccountText)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                    .accessibilityIdentifier("MobilePairingErrorSignedInAccount")
+                            }
+                            .id(Self.errorAnchorID)
                         }
                     }
                 }
+                #if os(iOS)
+                // The error row sits below the pinned Pair button, so a failed
+                // attempt would otherwise look like nothing happened.
+                .onChange(of: errorText) { _, newValue in
+                    guard newValue != nil else { return }
+                    withAnimation {
+                        proxy.scrollTo(Self.errorAnchorID, anchor: .bottom)
+                    }
+                }
+                #endif
             }
             #if os(iOS)
             .scrollDismissesKeyboard(.interactively)
             #endif
             .safeAreaInset(edge: .bottom) {
-                Button {
-                    pair()
-                } label: {
-                    HStack {
-                        Spacer(minLength: 0)
-                        Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
-                            .mobileButtonLoading(isPairing, tint: .white)
-                        Spacer(minLength: 0)
+                if initialPresentation.showsManualPairingControls {
+                    Button {
+                        pair()
+                    } label: {
+                        HStack {
+                            Spacer(minLength: 0)
+                            Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
+                                .mobileButtonLoading(isPairing, tint: .white)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.blue)
+                    .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("MobilePairButton")
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                    .padding(.top, 24)
+                    .background {
+                        PlatformPalette.systemBackground
+                            .ignoresSafeArea(edges: .bottom)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.blue)
-                .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("MobilePairButton")
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-                .padding(.top, 24)
-                .background {
-                    PlatformPalette.systemBackground
-                        .ignoresSafeArea(edges: .bottom)
-                }
             }
-            .navigationTitle(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+            .navigationTitle(navigationTitle)
             .mobileInlineNavigationTitle()
             .toolbar {
                 #if os(iOS)
@@ -284,6 +328,28 @@ struct PairingView: View {
         #endif
     }
 
+    private var navigationTitle: String {
+        if initialPresentation == .tailscaleSetup {
+            return L10n.string(
+                "mobile.connections.tailscale.add",
+                defaultValue: "Add Tailscale Connection"
+            )
+        }
+        if initialPresentation == .tailscaleReplacement {
+            return L10n.string(
+                "mobile.connections.tailscale.replace",
+                defaultValue: "Replace Tailscale Connection"
+            )
+        }
+        if initialPresentation.showsManualPairingControls {
+            return L10n.string("mobile.connections.add", defaultValue: "Add Computer")
+        }
+        return L10n.string(
+            "mobile.pairing.versionWarningTitle",
+            defaultValue: "Compatibility mismatch"
+        )
+    }
+
     private var cancelButton: some View {
         Button {
             cancelActivePairingTask()
@@ -292,6 +358,7 @@ struct PairingView: View {
         } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
+        .accessibilityIdentifier("MobilePairingCancelButton")
     }
 
     private func cancelActivePairingTask() {
@@ -311,7 +378,8 @@ struct PairingView: View {
             pairingCode = scannedCode
             isShowingScanner = false
             startPairingTask {
-                await connectPairingCode()
+                let result = await connectPairingCode()
+                onPairingResult?(result)
             }
         }
     }
@@ -335,6 +403,8 @@ struct PairingView: View {
     }
     #endif
 
+    private static let errorAnchorID = "MobilePairingErrorAnchor"
+
     private var errorText: String? {
         validationError ?? connectionError
     }
@@ -350,13 +420,13 @@ struct PairingView: View {
     private var manualRouteWarningText: String? {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
+              CmxPairingURLScheme(urlString: trimmedHost) == nil,
               MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
             return nil
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
+            defaultValue: "For account-authenticated pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
         )
     }
 
@@ -388,10 +458,11 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedHost) {
+        if CmxPairingURLScheme(urlString: trimmedHost) != nil {
             pairingCode = trimmedHost
             startPairingTask {
-                await connectPairingCode()
+                let result = await connectPairingCode()
+                onPairingResult?(result)
             }
             return
         }
@@ -406,7 +477,8 @@ struct PairingView: View {
         }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort)
+            let result = await connectManualHost(deviceName, trimmedHost, parsedPort)
+            onPairingResult?(result)
         }
     }
 
@@ -429,7 +501,10 @@ struct PairingView: View {
     }
 
     private func cancelDirectScanner() {
-        cancel()
+        // The camera is a nested sheet over PairingView. Cancelling it should
+        // return to the pairing form so the user can enter a code manually or
+        // try the scanner again, without losing the setup context.
+        isShowingScanner = false
     }
 }
 

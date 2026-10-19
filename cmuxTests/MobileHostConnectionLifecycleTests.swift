@@ -1,6 +1,8 @@
+import AppKit
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
+import CmuxTerminal
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -13,6 +15,113 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test("Combined startup status preserves the v2 installation identity", .timeLimit(.minutes(1)))
+    func combinedWorkspaceStatusPreservesV2InstallationIdentity() async throws {
+        let fixture = TerminalPortalTestWorkspace()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        fixture.bind(to: window)
+        defer {
+            fixture.tearDown()
+            window.close()
+            MobileHostPublicStatusCache.removeAll()
+        }
+        let v2DeviceID = "v2-team-installation"
+        MobileHostPublicStatusCache.updateV2DeviceID(v2DeviceID)
+        let transport = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let task = Task {
+            await MobileHostService.acceptTransport(
+                transport, authorization: authorization,
+                isCurrent: { true }
+            )
+        }
+        defer { task.cancel() }
+        let request = try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: [
+            "id": "combined", "method": "workspace.list",
+            "params": ["include_host_status": true, "mac_device_id": "untrusted-input"],
+        ]))
+        await transport.enqueue(request)
+        let combinedBuffers = await transport.waitForSentBufferCount(1)
+        // Close before assertions so a failed expectation cannot leak a live reader.
+        #expect(await transport.observedCloseCount() == 0)
+        await transport.finishReceiving()
+        await task.value
+
+        func payload(_ data: Data) throws -> [String: Any] {
+            var buffer = data
+            let frame = try #require(MobileSyncFrameCodec.decodeFrames(from: &buffer).first)
+            let envelope = try #require(JSONSerialization.jsonObject(with: frame) as? [String: Any])
+            #expect(envelope["ok"] as? Bool == true)
+            return try #require(envelope["result"] as? [String: Any])
+        }
+        let combined = try payload(#require(combinedBuffers.first))
+        let host = try #require(combined["host_status"] as? [String: Any])
+        #expect(host["mac_device_id"] as? String == v2DeviceID)
+        let workspaces = try #require(combined["workspaces"] as? [[String: Any]])
+        #expect(workspaces.contains { $0["id"] as? String == fixture.id.uuidString })
+    }
+
+    @Test("A Mac mirror receives a resized grid even when a render tick is coalesced globally", .timeLimit(.minutes(1)))
+    func macGridResizeSurvivesGlobalRenderUpdate() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        observer.start()
+        let fixture = TerminalPortalGeometryFixture()
+        defer {
+            observer.stop()
+            service.debugResetMobileLifecycleStateForTesting()
+            fixture.close()
+        }
+        fixture.bind()
+        try await fixture.requireCommit()
+        let before = try #require(fixture.surface.rawSizingSample())
+        let transport = RecordingMobileHostByteTransport()
+        let connectionID = UUID()
+        let session = MobileHostConnection(id: connectionID, transport: transport,
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) }, onClose: { _ in })
+        let registry = MobileHostConnectionRegistry.shared
+        try #require(registry.insert(session, id: connectionID, authorization: .stackBearer, limit: 4))
+        await session.subscribe(streamID: "mac-resize", topics: ["terminal.updated", "device.terminal.grid"])
+        await drainMobileHostMainQueue()
+
+        fixture.anchor.setFrameSize(NSSize(width: 320, height: 200))
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor)
+        try await fixture.requireCommit()
+        let after = try #require(fixture.surface.rawSizingSample())
+        try #require(after.columns != before.columns || after.rows != before.rows)
+        // A global post-parser tick suppresses named terminal.updated frames.
+        // The Mac geometry channel must still deliver the settled dimensions.
+        NotificationCenter.default.post(name: .ghosttyDidTick, object: nil)
+        await drainMobileHostMainQueue()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        var found = false
+        repeat {
+            let buffers = await transport.waitForSentBufferCount(1)
+            for var buffer in buffers {
+                for data in try MobileSyncFrameCodec.decodeFrames(from: &buffer) {
+                    guard let message = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          message["topic"] as? String == "device.terminal.grid",
+                          let payload = message["payload"] as? [String: Any],
+                          payload["surface_id"] as? String == fixture.surface.id.uuidString,
+                          payload["columns"] as? Int == after.columns,
+                          payload["rows"] as? Int == after.rows else { continue }
+                    found = true
+                }
+            }
+            if !found { await Task.yield() }
+        } while !found && ContinuousClock.now < deadline
+        await session.close(reason: "Mac resize regression complete")
+        registry.remove(id: connectionID)
+        #expect(found, "The live Mac mirror must receive its new grid without reopening or requesting phone render grids")
+    }
+
     @Test func testMobileHostConnectionRunOwnsTransportUntilRemoteClose() async {
         let connectionID = UUID()
         let transport = GatedMobileHostByteTransport()
@@ -126,12 +235,27 @@ extension MobileHostAuthorizationTests {
     }
 
     @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
+        // Readiness requires a nonempty workspace list. Own that workspace
+        // instead of depending on windows left behind by an earlier test.
+        let workspaceFixture = TerminalPortalTestWorkspace()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        workspaceFixture.bind(to: window)
+        defer {
+            workspaceFixture.tearDown()
+            window.close()
+        }
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
+        defer { service.debugResetMobileLifecycleStateForTesting() }
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
 
         let first = ScriptedMobileHostByteTransport()
         let second = ScriptedMobileHostByteTransport()
@@ -140,10 +264,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 first,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(1)
+        defer { firstTask.cancel() }
+        await waitForMobileHostConnectionCount(1, in: registry)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first"))
         _ = await first.waitForSentBufferCount(1)
 
@@ -151,10 +277,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 second,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(2)
+        defer { secondTask.cancel() }
+        await waitForMobileHostConnectionCount(2, in: registry)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first-delayed"))
         _ = await first.waitForSentBufferCount(2)
         #expect(registry.count == 2)
@@ -166,13 +294,24 @@ extension MobileHostAuthorizationTests {
         #expect(await first.observedCloseCount() == 0)
 
         try await second.enqueue(Self.mobileHostWorkspaceListFrame(id: "second-workspaces"))
-        _ = await second.waitForSentBufferCount(2)
+        let workspaceResponses = await second.waitForSentBufferCount(2)
+        let workspaceResponse = try #require(workspaceResponses.last)
+        var workspaceResponseBuffer = workspaceResponse
+        let workspaceResponseFrames = try MobileSyncFrameCodec.decodeFrames(from: &workspaceResponseBuffer)
+        let workspaceResponseFrame = try #require(workspaceResponseFrames.first)
+        let workspaceResponseObject = try #require(
+            JSONSerialization.jsonObject(with: workspaceResponseFrame) as? [String: Any]
+        )
+        let workspaceResponsePayload = try #require(workspaceResponseObject["result"] as? [String: Any])
+        let listedWorkspaces = try #require(workspaceResponsePayload["workspaces"] as? [[String: Any]])
+        try #require(listedWorkspaces.contains { $0["id"] as? String == workspaceFixture.id.uuidString })
         #expect(registry.count == 2)
         #expect(await first.observedCloseCount() == 0)
 
         try await second.enqueue(Self.mobileHostTerminalSubscribeFrame(id: "second-events"))
         _ = await second.waitForSentBufferCount(3)
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
+        try #require(registry.count == 1)
         await first.waitForCloseCount(1)
 
         #expect(registry.count == 1)
@@ -186,7 +325,99 @@ extension MobileHostAuthorizationTests {
         for connection in registry.removeAll() {
             await connection.close(reason: "test cleanup")
         }
+    }
+
+    @Test func testMobileHostTransportStaysOpenWhenIdleAfterAdmission() async throws {
+        let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let authorization = try irohAdmissionContext()
+        let persistentTransport = ScriptedMobileHostByteTransport()
+        let persistentTask = Task {
+            await MobileHostService.acceptTransport(
+                persistentTransport,
+                authorization: authorization,
+                registry: registry,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1, in: registry)
+        try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent"))
+        let sentAfterFirstStatus = await persistentTransport.waitForSentBufferCount(1).count
+        // Exercise a subsequent request without a wall-clock sleep. If the
+        // transport closes before replying, the waiter records a test failure.
+        try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent-again"))
+        _ = await persistentTransport.waitForSentBufferCount(sentAfterFirstStatus + 1)
+
+        #expect(await persistentTransport.observedCloseCount() == 0)
+        #expect(registry.count == 1)
+
+        await persistentTransport.finishReceiving()
+        _ = await persistentTask.value
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
+    @Test func testIrohAdmissionCanWaitForFirstRPCAfterTransportHandshake() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let transport = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let sessionTask = Task {
+            await MobileHostService.acceptTransport(
+                transport,
+                authorization: authorization,
+                registry: registry,
+                firstFrameTimeoutNanoseconds: 0,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1, in: registry)
+
+        // An unadmitted legacy connection still expires while the admitted
+        // Iroh peer waits for the client to create its first RPC owner.
+        let expiringTransport = ScriptedMobileHostByteTransport()
+        let expiringTask = Task {
+            await MobileHostService.acceptTransport(
+                expiringTransport,
+                authorization: .stackBearer,
+                registry: registry,
+                firstFrameTimeoutNanoseconds: 1_000_000,
+                isCurrent: { true }
+            )
+        }
+        await expiringTransport.waitForCloseCount(1)
+        #expect(
+            await expiringTask.value == CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
+        #expect(await transport.observedCloseCount() == 0)
+
+        try await transport.enqueue(Self.mobileHostStatusFrame(id: "delayed-first-rpc"))
+        _ = await transport.waitForSentBufferCount(1)
+        #expect(await transport.observedCloseCount() == 0)
+
+        await transport.finishReceiving()
+        _ = await sessionTask.value
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
     }
 
     @Test func testMobileHostPublishesUsableSessionOnlyAfterWorkspaceAndEventReadiness() async throws {
@@ -224,6 +455,9 @@ extension MobileHostAuthorizationTests {
         await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
         _ = await transport.waitForSentBufferCount(3)
 
+        // Readiness is recorded after the response write; a send-count waiter
+        // may resume before that actor continuation publishes the event.
+        await waitForRetainedUsableSessionEvent()
         let readyEvents = Self.retainedUsableSessionEvents()
         #expect(readyEvents.count == 1)
         let payload = readyEvents.first?["payload"] as? [String: Any]
@@ -371,36 +605,27 @@ extension MobileHostAuthorizationTests {
         }
     }
 
-    private func waitForMobileHostConnectionCount(_ expected: Int) async {
+    private func waitForRetainedUsableSessionEvent() async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
-            if MobileHostConnectionRegistry.shared.count == expected { return }
+            if !Self.retainedUsableSessionEvents().isEmpty { return }
+            await Task.yield()
+        }
+    }
+
+    private func waitForMobileHostConnectionCount(_ expected: Int, in registry: MobileHostConnectionRegistry) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if registry.count == expected { return }
             await Task.yield()
         }
         Issue.record(
-            "Timed out waiting for \(expected) mobile host connections; observed \(MobileHostConnectionRegistry.shared.count)"
+            "Timed out waiting for \(expected) mobile host connections; observed \(registry.count)"
         )
     }
 
-    @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
-        let stream = BlockingMobileHostIrohSendStream()
-        let writer = MobileHostIrohServerEventWriter(
-            openStream: { stream },
-            clock: ImmediateMobileHostIrohClock(),
-            sendTimeout: 3
-        )
-
-        do {
-            try await writer.send(Data("framed-event".utf8))
-            Issue.record("Expected independent event backpressure to time out")
-        } catch {}
-
-        let resetCodes = await stream.observedResetCodes()
-        #expect(!resetCodes.isEmpty)
-        #expect(resetCodes.allSatisfy { $0 == 1 })
-        await writer.close()
-    }
     @Test func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
@@ -461,12 +686,10 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let socket = try MobileHostStartedTestSocket()
-        defer { socket.close() }
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: socket.connection,
-            idleTimeoutNanoseconds: 1_000_000,
+            transport: transport,
             authorizeRequest: { _ in
                 .failure(MobileHostRPCError(code: "unauthorized", message: "no"))
             },
@@ -480,17 +703,15 @@ extension MobileHostAuthorizationTests {
             Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
         )
         await session.debugHandleReceiveDataForTesting(frame)
-        try await Task.sleep(nanoseconds: 25_000_000)
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
+        let sent = await transport.waitForSentBufferCount(1)
+        var buffer = try #require(sent.first)
+        let responseData = try #require(MobileSyncFrameCodec.decodeFrames(from: &buffer).first)
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "unauthorized")
+        #expect(await session.isSubscribed(to: "terminal.updated") == false)
+        #expect(await recorder.recordedIDs().isEmpty)
+        await session.close(reason: "test cleanup")
     }
     @Test func testMobileHostConnectionStopsBatchedFrameProcessingAfterClose() async throws {
         let connectionID = UUID()
@@ -522,6 +743,11 @@ extension MobileHostAuthorizationTests {
                 return nil
             },
             onAuthorizedRequest: { request in
+                guard request.id as? String == "first" else { return }
+                // Ensure the second request has entered authorization before
+                // closing, otherwise task scheduling can close the actor before
+                // the second authorization publishes its start signal.
+                try? await secondAuthorizeStarted.wait()
                 await requestRecorder.record(request)
                 await sessionBox.close(reason: "test close after first batched frame")
                 firstRecorded.fulfill()
@@ -554,7 +780,7 @@ extension MobileHostAuthorizationTests {
         let recordedMethods = await requestRecorder.recordedMethods()
         #expect(recordedMethods == ["workspace.list"])
     }
-    @Test func testMobileHostConnectionClosesBeforeStartingAnUnboundedRPCBatch() async throws {
+    @Test func testMobileHostConnectionProcessesLargeBatchWithoutDisconnecting() async throws {
         let transport = RecordingMobileHostByteTransport()
         let invocationRecorder = MobileHostAuthorizationInvocationRecorder()
         let session = MobileHostConnection(
@@ -578,9 +804,36 @@ extension MobileHostAuthorizationTests {
 
         await session.debugHandleReceiveDataForTesting(batch)
 
-        #expect(await transport.observedCloseCount() == 1)
-        #expect(await invocationRecorder.count() == 0)
+        let responses = await transport.waitForSentBufferCount(
+            MobileHostRPCWorkQuota.recommendedMaximumConcurrentRequestCount + 1
+        )
+        #expect(responses.count == MobileHostRPCWorkQuota.recommendedMaximumConcurrentRequestCount + 1)
+        #expect(await transport.observedCloseCount() == 0)
+        await session.close(reason: "test complete")
     }
+    @Test func testMobileHostAcceptsCoalescedTailOfMaximumSizeFrame() async throws {
+        let transport = RecordingMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(), transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        var payload = Data(#"{"id":"large","method":"workspace.list","params":{}}"#.utf8)
+        payload.append(Data(repeating: 0x20, count: MobileSyncFrameCodec.defaultMaximumFrameByteCount - payload.count))
+        let frame = try MobileSyncFrameCodec.encodeFrame(payload)
+        await session.debugHandleReceiveDataForTesting(Data(frame.dropLast()))
+        var tail = Data(frame.suffix(1))
+        tail.append(try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"following","method":"workspace.list","params":{}}"#.utf8)
+        ))
+        await session.debugHandleReceiveDataForTesting(tail)
+        try #require(await transport.observedCloseCount() == 0)
+        #expect(await transport.waitForSentBufferCount(2).count == 2)
+        await session.close(reason: "test complete")
+    }
+
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
@@ -590,9 +843,13 @@ extension MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.close.v1"))
         #expect(capabilities.contains("workspace.move.v1"))
         #expect(capabilities.contains("workspace.group_actions.v1"))
+        #expect(capabilities.contains("workspace.surfaces.v1"))
+        #expect(capabilities.contains("surface.focus.v1"))
+        #expect(capabilities.contains("panel.artifact.v1"))
         #expect(Set(capabilities).isSuperset(of: [
             "workspace.task_create.v1",
             MobileHostService.terminalInputOrderedCapability,
+            MobileHostService.caffeineControlCapability,
             "terminal.render_grid.v1",
             "notification.feed.v1",
         ]))
@@ -607,6 +864,29 @@ extension MobileHostAuthorizationTests {
         #expect(
             enabled.filter { $0 != MobileHostService.workspaceChangesCapability } == disabled
         )
+    }
+
+    @Test func testTaskComposerCapabilitiesFollowFeatureFlag() {
+        let enabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingTaskComposer: true
+        )
+        let disabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingTaskComposer: false
+        )
+        let taskCapabilities: Set<String> = [
+            MobileHostService.taskCreateCapability,
+            MobileHostService.taskAttachmentCapability,
+            MobileHostService.taskModelsCapability,
+            MobileHostService.taskDirectoryBrowseCapability,
+            MobileHostService.taskDirectorySearchCapability,
+            MobileHostService.taskDirectorySearchV2Capability,
+        ]
+
+        #expect(taskCapabilities.isSubset(of: Set(enabled)))
+        #expect(Set(disabled).isDisjoint(with: taskCapabilities))
+        #expect(enabled.filter { !taskCapabilities.contains($0) } == disabled)
     }
 
     @Test @MainActor func testMobileWorkspaceChangesFlagDefaultsAndRemoteValue() {
@@ -631,6 +911,30 @@ extension MobileHostAuthorizationTests {
         remoteValue = true
         flags.applyLoadedFlags()
         #expect(flags.isMobileWorkspaceChangesEnabled)
+    }
+
+    @Test @MainActor func testMobileTaskComposerFlagDefaultsOnAndCanDisableRemotely() {
+        let suiteName = "cmux-tests-mobile-task-composer-flag-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValue: Any?
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { key in
+                key == CmuxFeatureFlags.mobileTaskComposerFlag.key ? remoteValue : nil
+            }
+        )
+
+        #expect(flags.isMobileTaskComposerEnabled)
+
+        remoteValue = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileTaskComposerEnabled)
+
+        remoteValue = true
+        flags.applyLoadedFlags()
+        #expect(flags.isMobileTaskComposerEnabled)
     }
 
     // MARK: - Mobile workspace.action sub-action gate
@@ -774,6 +1078,11 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
 
     func close() async {
         closeCount += 1
+        let pendingSentWaiters = sentWaiters
+        sentWaiters.removeAll()
+        for waiter in pendingSentWaiters {
+            waiter.continuation.resume(returning: sent)
+        }
         let ready = closeWaiters.filter { closeCount >= $0.count }
         closeWaiters.removeAll { closeCount >= $0.count }
         for waiter in ready {
@@ -802,12 +1111,16 @@ private actor ScriptedMobileHostByteTransport: CmxByteTransport {
     }
 
     func waitForSentBufferCount(_ count: Int) async -> [Data] {
-        if sent.count >= count {
-            return sent
+        let buffers: [Data]
+        if sent.count >= count || closeCount > 0 {
+            buffers = sent
+        } else {
+            buffers = await withCheckedContinuation { continuation in
+                sentWaiters.append((count, continuation))
+            }
         }
-        return await withCheckedContinuation { continuation in
-            sentWaiters.append((count, continuation))
-        }
+        #expect(buffers.count >= count, "Transport closed before the expected response was sent")
+        return buffers
     }
 
     func observedCloseCount() -> Int { closeCount }

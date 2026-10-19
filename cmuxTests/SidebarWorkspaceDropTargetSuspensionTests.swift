@@ -7,6 +7,44 @@ import Testing
 @Suite
 @MainActor
 struct SidebarWorkspaceDropTargetSuspensionTests {
+    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
+        let draggingDestinationWindow: NSWindow?
+        let draggingSourceOperationMask: NSDragOperation = .move
+        let draggingLocation: NSPoint
+        let draggedImageLocation: NSPoint
+        let draggedImage: NSImage? = nil
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any? = nil
+        let draggingSequenceNumber = 1
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+        init(window: NSWindow, location: NSPoint, pasteboard: NSPasteboard) {
+            draggingDestinationWindow = window
+            draggingLocation = location
+            draggedImageLocation = location
+            draggingPasteboard = pasteboard
+        }
+
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+
+        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+            nil
+        }
+
+        func enumerateDraggingItems(
+            options enumOpts: NSDraggingItemEnumerationOptions = [],
+            for view: NSView?,
+            classes classArray: [AnyClass],
+            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+        ) {}
+
+        func resetSpringLoading() {}
+    }
+
     @Test
     func hidingDeactivatesBonsplitTargetsBeforeReveal() async {
         let controller = SidebarWorkspaceTableController()
@@ -60,6 +98,67 @@ struct SidebarWorkspaceDropTargetSuspensionTests {
         controller.dismantleContainerView(container)
 
         #expect(activeStates == [true, false])
+    }
+
+    @Test
+    func hidingRearmsReorderTargetsAfterReveal() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        let actions = makeTableActions { _ in }
+
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-reorder-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            row.workspaceId.uuidString,
+            forType: SidebarWorkspaceReorderDropOverlay.pasteboardType
+        )
+        let sender = MockDraggingInfo(
+            window: window,
+            location: NSPoint(x: 40, y: 80),
+            pasteboard: pasteboard
+        )
+
+        _ = container.reorderDropView.draggingEntered(sender)
+        #expect(!container.reorderDropView.targets.isEmpty)
+
+        controller.setPresentationActive(false, workspaceIds: [row.workspaceId])
+        #expect(container.reorderDropView.targets.isEmpty)
+
+        controller.setPresentationActive(true, workspaceIds: [row.workspaceId])
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        _ = container.reorderDropView.draggingEntered(sender)
+        #expect(!container.reorderDropView.targets.isEmpty)
     }
 
     private func makeRowConfiguration() -> SidebarWorkspaceTableRowConfiguration {

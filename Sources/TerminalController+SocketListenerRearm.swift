@@ -23,7 +23,7 @@ extension TerminalController {
 
             let restartMode = self.socketServer.accessMode
 
-            self.stop()
+            self.stop(cleanupDiscoveryState: false)
             self.startSocketTransport(
                 SocketControlServerConfiguration(
                     accessMode: restartMode,

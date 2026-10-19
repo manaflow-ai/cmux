@@ -35,6 +35,10 @@ extension SurfaceResumeBindingSnapshot {
             )
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        // Stays raw POSIX: remote restores (remoteStartupInput) hand this to
+        // the remote host's shell, and local callers apply the nushell dialect
+        // envelope at their own typed boundary (restoreStartupInput). Wrapping
+        // here would leak `^/bin/sh …` into contexts that parse POSIX.
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
         }
@@ -50,11 +54,21 @@ extension SurfaceResumeBindingSnapshot {
         repairPortableAgentExecutable: Bool
     ) -> String? {
         if usesLocalRestoreVerb {
+            // Bare words (` cmux restore <kind> <id>`): parses identically in
+            // POSIX shells and nushell, no dialect handling needed.
             return localRestoreCLIInput
         }
-        return inlineStartupInput(
+        guard let inline = inlineStartupInput(
             repairPortableAgentExecutable: repairPortableAgentExecutable
-        )
+        ) else {
+            return nil
+        }
+        // The compatibility fallback is a POSIX one-liner typed into the local
+        // login shell, so it is the nushell dialect boundary (the trailing
+        // newline stays outside the wrap). Remote hosts keep raw POSIX via
+        // remoteStartupInput().
+        let command = inline.hasSuffix("\n") ? String(inline.dropLast()) : inline
+        return TerminalStartupTypedShellCommand().typedInput(posixCommand: command) + "\n"
     }
 
     func remoteStartupInput() -> String? {
@@ -68,14 +82,6 @@ extension SurfaceResumeBindingSnapshot {
             return " \(executable) restore \(kind) \(checkpointId)\n"
         }
         return " \(executable) restore --surface\n"
-    }
-
-    private static func restoreCLIArgument(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return nil
-        }
-        return AgentRestoreCLIArgument(rawValue: value)?.rawValue
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
@@ -96,17 +102,34 @@ extension SurfaceResumeBindingSnapshot {
             repaired = suppressed
         }
         guard let restoreLaunch = AgentRestoreLaunch(kind: kind, sessionID: checkpointId) else { return repaired }
-        return restoreLaunch.applying(toStoredCommand: repaired)
+        return restoreLaunch.applying(
+            toStoredCommand: repaired,
+            routedLaunchCommand: launchCommand,
+            checkpointID: checkpointId
+        )
     }
 }
 
 extension AgentRestoreLaunch {
-    func applying(toStoredCommand command: String) -> String {
+    func applying(
+        toStoredCommand command: String,
+        routedLaunchCommand launchCommand: AgentLaunchCommandSnapshot? = nil,
+        checkpointID: String? = nil
+    ) -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
         guard let executableIndex = SurfaceResumeCommandCanonicalizer.commandExecutableWordIndex(
             in: words,
             command: command
         ) else { return command }
+        if let routed = applyingSubrouterCodexChildWrapper(
+            to: command,
+            words: words,
+            executableIndex: executableIndex,
+            launchCommand: launchCommand,
+            checkpointID: checkpointID
+        ) {
+            return routed
+        }
         let wrapperToken = wrapperShellExecutableToken
         let executable = words[executableIndex].value
         guard command.contains(wrapperToken) || (executable as NSString).lastPathComponent == executableName else {
@@ -132,6 +155,52 @@ extension AgentRestoreLaunch {
         return authorizing(
             leadingShell: String(routed[..<executableStart]),
             routedCommand: String(routed[executableStart...])
+        )
+    }
+
+    private func applyingSubrouterCodexChildWrapper(
+        to command: String,
+        words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        executableIndex: Int,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        checkpointID: String?
+    ) -> String? {
+        guard executableName == "codex",
+              let launchCommand,
+              let checkpointID,
+              let routedPrefix = SubrouterCodexResumeRouting().resumeArguments(
+                  launcher: launchCommand.launcher,
+                  sessionID: checkpointID,
+                  launchArguments: launchCommand.arguments,
+                  environment: launchCommand.environment
+              ),
+              words.count >= executableIndex + routedPrefix.count,
+              Array(words[executableIndex..<(executableIndex + routedPrefix.count)]).map(\.value)
+                  == routedPrefix else {
+            return nil
+        }
+
+        let executableStart = words[executableIndex].range.lowerBound
+        var assignments: [String] = []
+        let capturedExecutable = SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+            in: launchCommand.environment,
+            fallbackExecutable: launchCommand.executablePath,
+            wrapperShim: wrapperShellExecutableToken
+        )
+        if let capturedExecutable {
+            assignments.append(
+                TerminalStartupShellQuoting.singleQuoted("CMUX_CUSTOM_CODEX_PATH=\(capturedExecutable)")
+            )
+        }
+        let routedExecutableToken = capturedExecutable.map {
+            AgentResumeArgv.codexWrapperShellExecutableToken(fallbackExecutable: $0)
+        } ?? wrapperShellExecutableToken
+        assignments.append("SUBROUTER_CODEX_BIN=\(routedExecutableToken)")
+        let routedCommand = "/usr/bin/env " + assignments.joined(separator: " ") + " "
+            + String(command[executableStart...])
+        return authorizing(
+            leadingShell: String(command[..<executableStart]),
+            routedCommand: portableWrapperShellCommand(posixCommand: routedCommand)
         )
     }
 }

@@ -69,6 +69,7 @@ describe("billing success page", () => {
       });
       const html = renderToStaticMarkup(element);
       expect(html).toContain("cmux Pro is active");
+      expect(html).toContain("You&#x27;re all set");
       expect(html).toContain("What you unlocked");
     } finally {
       acceptLanguage = "en";
@@ -87,16 +88,17 @@ describe("billing success page", () => {
     expect(html).toContain("Cloud agents on Cloud VMs");
     expect(html).toContain("Run agents in isolated remote sandboxes.");
     expect(html).toContain("Model gateway");
-    expect(html).toContain("Route across providers with usage and cost analytics, plus 20 compute-hours a month.");
+    expect(html).toContain("Hosted model routing across your connected provider accounts.");
     expect(html).toContain("Connect your AI accounts");
     expect(html).toContain("Add provider accounts so cmux can route work through them.");
     expect(html).toContain("cmux iOS app");
     expect(html).toContain("Use cmux on your phone.");
     expect(html).toContain('href="https://cmux.test/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback"');
+    expect(html).toContain('target="_blank"');
     expect(html).toContain('href="/dashboard/coderouter"');
     expect(html).toContain('href="/dashboard/ai-accounts"');
     expect(html).toContain('href="/dashboard/testflight"');
-    expect(html).toContain('href="/api/billing/portal"');
+    expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain('href="/handler/account-settings"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Open cmux");

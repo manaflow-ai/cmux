@@ -12,11 +12,17 @@ extension WorkspaceGroupCoordinator {
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else {
             return nil
         }
-        let includesAnchorWorkspace = model.tabs.contains { $0.id == group.anchorWorkspaceId }
-        var memberWorkspaceIds = includesAnchorWorkspace ? [group.anchorWorkspaceId] : []
+        let liveAnchorId = group.liveAnchorWorkspaceId
+        let includesAnchorWorkspace = liveAnchorId.map { anchorId in
+            model.tabs.contains { $0.id == anchorId }
+        } ?? false
+        var memberWorkspaceIds: [UUID] = {
+            guard includesAnchorWorkspace, let liveAnchorId else { return [] }
+            return [liveAnchorId]
+        }()
         memberWorkspaceIds.append(
             contentsOf: model.tabs.compactMap { tab in
-                tab.groupId == groupId && tab.id != group.anchorWorkspaceId ? tab.id : nil
+                tab.groupId == groupId && tab.id != group.liveAnchorWorkspaceId ? tab.id : nil
             }
         )
         return WorkspaceGroupDeletionConfirmation(
@@ -71,8 +77,21 @@ extension WorkspaceGroupCoordinator {
             || model.tabs.contains(where: { $0.id == confirmation.anchorWorkspaceId }) else {
             return 0
         }
-
         let confirmedWorkspaceIds = Set(confirmation.memberWorkspaceIds)
+        var newlyProtectedGroupIds = Set<UUID>()
+        let groupsContainingConfirmedWorkspaces = model.tabs.compactMap { tab in
+            confirmedWorkspaceIds.contains(tab.id) ? tab.groupId : nil
+        }
+        for groupId in Set(groupsContainingConfirmedWorkspaces).union([confirmation.groupId])
+            where deletingGroupIds.insert(groupId).inserted {
+            newlyProtectedGroupIds.insert(groupId)
+        }
+        defer {
+            for groupId in newlyProtectedGroupIds {
+                deletingGroupIds.remove(groupId)
+            }
+        }
+
         let confirmedOrder = Dictionary(
             uniqueKeysWithValues: confirmation.memberWorkspaceIds.enumerated().map { ($1, $0) }
         )
@@ -100,6 +119,10 @@ extension WorkspaceGroupCoordinator {
 
         var closed = 0
         for tab in members {
+            if let groupId = tab.groupId,
+               deletingGroupIds.insert(groupId).inserted {
+                newlyProtectedGroupIds.insert(groupId)
+            }
             if model.tabs.count <= 1 {
                 _ = host.createWorkspaceForGroup(
                     title: nil,

@@ -12,14 +12,16 @@ internal import os
 /// Wire an instance as the ``CMUXMobileCore/DiagnosticLog`` event tap from the
 /// composition root. Each retained event becomes:
 ///
-/// 1. A Sentry **breadcrumb** (category `transport` or `simulator`), so every
-///    subsequent event, including crashes, hangs, and watchdog kills, carries
-///    the recent connection or Simulator timeline.
-/// 2. A budget-limited Sentry **structured log** line (when the SDK started
-///    with `enableLogs`), searchable without waiting for an error.
-/// 3. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
+/// 1. A Sentry **breadcrumb** (category `transport`, `simulator`, or `app`), so
+///    every subsequent event, including crashes, hangs, and watchdog kills,
+///    carries the recent connection and feature timeline.
+/// 2. When it crosses ``CMUXMobileCore/TransportIncidentPolicy``'s capture
 ///    gates, a Sentry **event** fingerprinted by the failure signature and
 ///    carrying the plain-language diagnostic timeline as an attachment.
+///
+/// Production composition disables structured log delivery and individual
+/// failure captures. The remaining Sentry events are sustained outage
+/// escalations, while breadcrumbs preserve the diagnostic timeline.
 ///
 /// Privacy: everything sent derives from the fixed integer diagnostic
 /// taxonomy, so no free text, peer identity, address, account, or terminal
@@ -116,8 +118,8 @@ public final class TransportSentryReporter: Sendable {
     public init(
         role: DiagnosticRuntimeRole,
         exportRing: @escaping @Sendable () async -> Data,
-        incidentConfiguration: TransportIncidentPolicy.Configuration = .init(),
-        logsPerHour: Int = 300,
+        incidentConfiguration: TransportIncidentPolicy.Configuration = .init(captureIndividualFailures: false),
+        logsPerHour: Int = 0,
         delivery: Delivery = .sentry()
     ) {
         self.roleCode = DiagnosticEventPresentation().name(role)
@@ -134,6 +136,10 @@ public final class TransportSentryReporter: Sendable {
     /// as ``CMUXMobileCore/DiagnosticLog/setEventTap(_:)``'s observer.
     public func ingest(_ event: DiagnosticEvent) {
         guard delivery.isEnabled() else { return }
+        if let breadcrumb = TerminalWorkSentryBreadcrumb().make(event, role: roleCode) {
+            delivery.addBreadcrumb(breadcrumb)
+            return
+        }
 
         let described = DiagnosticEventPresentation().describe(event)
         let level = telemetryLevel(for: event)
@@ -173,7 +179,7 @@ public final class TransportSentryReporter: Sendable {
         for field in described.fields {
             data[field.key] = field.value
         }
-        crumb.data = data
+        crumb.replaceData(data)
         delivery.addBreadcrumb(crumb)
     }
 
@@ -207,6 +213,9 @@ public final class TransportSentryReporter: Sendable {
         if code.isSimulatorDiagnosticEvent {
             return TelemetryNamespace(name: "simulator", attributePrefix: "simulator")
         }
+        if code.isAppFeatureDiagnosticEvent {
+            return TelemetryNamespace(name: "app", attributePrefix: "app")
+        }
         return TelemetryNamespace(name: "transport", attributePrefix: "transport")
     }
 
@@ -225,6 +234,12 @@ public final class TransportSentryReporter: Sendable {
         if TransportIncidentPolicy.failureCodes.contains(event.code) {
             return .warning
         }
+        if event.code.isAppFeatureDiagnosticEvent {
+            guard let failureRaw = event.b,
+                  failureRaw != DiagnosticFailureKind.none.rawValue
+            else { return .info }
+            return .warning
+        }
         guard event.code.isSimulatorDiagnosticEvent else {
             return .info
         }
@@ -234,7 +249,7 @@ public final class TransportSentryReporter: Sendable {
                   let state = DiagnosticSimulatorStreamLifecycle(rawValue: a)
             else { return .warning }
             switch state {
-            case .locked, .startFailed, .stalled:
+            case .locked, .startFailed, .stopFailed, .stalled:
                 return .warning
             case .startRequested, .started, .stopRequested, .stopped,
                  .closed, .restartRequested, .pausedForBackground,

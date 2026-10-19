@@ -243,7 +243,48 @@ def main() -> int:
         _run_cli_json(cli, ["browser", surface, "cookies", "set", "cli_cookie", "cookie_val", "--url", "https://example.com"])
         cookies_get = _run_cli_json(cli, ["browser", surface, "cookies", "get", "--name", "cli_cookie"])
         _must(any(str(row.get("name")) == "cli_cookie" for row in (cookies_get.get("cookies") or [])), f"Expected cli_cookie via CLI: {cookies_get}")
-        _run_cli_json(cli, ["browser", surface, "cookies", "clear", "--name", "cli_cookie"])
+        cleared_cookie = _run_cli_json(cli, ["browser", surface, "cookies", "clear", "--name", "cli_cookie"])
+        _must(int(cleared_cookie.get("cleared") or 0) == 1, f"Expected cookies clear to report one cleared cookie: {cleared_cookie}")
+
+        scoped_cookie_names = {
+            "a": "cmux_scope_cookie_a",
+            "b": "cmux_scope_cookie_b",
+            "c": "cmux_scope_cookie_c",
+        }
+        for host, name in scoped_cookie_names.items():
+            _run_cli_json(
+                cli,
+                [
+                    "browser",
+                    surface,
+                    "cookies",
+                    "set",
+                    name,
+                    "cookie_value",
+                    "--url",
+                    f"https://{host}.example.com/",
+                ],
+            )
+
+        _run_cli_expect_failure(
+            cli,
+            ["browser", surface, "cookies", "clear"],
+            ["scope", "--all", "invalid_params"],
+        )
+        url_cleared = _run_cli_json(
+            cli,
+            ["browser", surface, "cookies", "clear", "--url", "https://b.example.com/"],
+        )
+        _must(int(url_cleared.get("cleared") or 0) == 1, f"Expected URL clear to report one cleared cookie: {url_cleared}")
+
+        for host, name in scoped_cookie_names.items():
+            remaining = _run_cli_json(cli, ["browser", surface, "cookies", "get", "--name", name])
+            present = any(str(row.get("name")) == name for row in (remaining.get("cookies") or []))
+            expected = host != "b"
+            _must(present == expected, f"URL-scoped clear changed the wrong cookie ({host}): {remaining}")
+
+        for name in scoped_cookie_names.values():
+            _run_cli_json(cli, ["browser", surface, "cookies", "clear", "--name", name])
 
         _run_cli_json(cli, ["browser", surface, "storage", "local", "set", "alpha", "one"])
         storage_get = _run_cli_json(cli, ["browser", surface, "storage", "local", "get", "alpha"])

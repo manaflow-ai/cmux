@@ -4,6 +4,10 @@ import UIKit
 import QuartzCore
 
 /// Layer-backed remote browser mirror with native scroll mechanics and a local zoom lens.
+///
+/// Streamed browser pixels live in a plain `CALayer`, which Sentry session
+/// replay's text/image masking defaults cannot classify, so this class is
+/// exported for masking through ``BrowserStreamReplayMasking``.
 @MainActor
 final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     weak var delegate: (any BrowserStreamContentViewDelegate)?
@@ -24,7 +28,7 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     private var viewportOffset = CGPoint.zero
     private var pinchStartScale: CGFloat = 1
     private var panStartOffset = CGPoint.zero
-    private var displayLink: CADisplayLink?
+    private(set) var displayLink: CADisplayLink?
     private var viewportPolicy = BrowserStreamViewportEmissionPolicy()
     private var tapClickCounter = BrowserStreamTapClickCounter()
 
@@ -81,20 +85,20 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         localPanGesture.delegate = self
         addGestureRecognizer(localPanGesture)
         updateGestureModes()
-        startDisplayLink()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
 
-    // No deinit: the display-link proxy self-invalidates once its weak target
-    // (this view) deallocates, and `didMoveToWindow` pauses the link while the
-    // view is detached, so nonisolated deinit never has to touch CADisplayLink.
-
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        displayLink?.isPaused = window == nil
+        if window == nil {
+            displayLink?.invalidate()
+            displayLink = nil
+        } else if displayLink == nil {
+            startDisplayLink()
+        }
         recordViewportIfPossible()
     }
 

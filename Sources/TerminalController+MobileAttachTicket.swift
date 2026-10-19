@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 // MARK: - Mobile attach-ticket creation
@@ -5,12 +6,44 @@ import Foundation
 extension TerminalController {
     @MainActor
     func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
+        // `DisableRemoteControl` (MDM): no pairing material is minted while the
+        // Mac may not host a phone, rather than relying on the route set
+        // happening to be empty.
+        guard MobileRemoteControlPolicy.isEnabled else {
+            return .err(
+                code: "remote_control_disabled",
+                message: String(
+                    localized: "settings.mobile.managedByOrganization",
+                    defaultValue: "Remote control from the iOS app is disabled by your organization."
+                ),
+                data: nil
+            )
+        }
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
             ?? v2OptionalTrimmedRawString(params, "routeKind")
         let scope = v2OptionalTrimmedRawString(params, "scope")
+        let rawIOSBundleIdentifier =
+            v2OptionalTrimmedRawString(params, "ios_bundle_identifier")
+            ?? v2OptionalTrimmedRawString(params, "iosBundleIdentifier")
+        let pairingURLScheme: CmxPairingURLScheme?
+        if let rawIOSBundleIdentifier {
+            guard let parsed = CmxPairingURLScheme(
+                iOSBundleIdentifier: rawIOSBundleIdentifier
+            ) else {
+                return .err(
+                    code: "invalid_request",
+                    message: "ios_bundle_identifier must be an exact valid iOS bundle identifier",
+                    data: ["ios_bundle_identifier": rawIOSBundleIdentifier]
+                )
+            }
+            pairingURLScheme = parsed
+        } else {
+            pairingURLScheme =
+                MobileIOSPairingTargetStore().selectedPairingURLScheme
+        }
         let rawTarget = v2OptionalTrimmedRawString(params, "target")
         let target: MobileAttachTarget?
         if let rawTarget {
@@ -74,7 +107,8 @@ extension TerminalController {
                 ttl: ttl,
                 routeID: routeID,
                 routeKind: routeKind,
-                target: target
+                target: target,
+                pairingURLScheme: pairingURLScheme
             )
             return .ok(payload)
         } catch MobileAttachTicketStoreError.noRoutes {

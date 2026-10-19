@@ -193,27 +193,7 @@ fn write_response(mut writer: impl Write, response: &Response) -> io::Result<()>
 
 #[cfg(target_os = "linux")]
 fn peer_uid(stream: &std::os::unix::net::UnixStream) -> io::Result<u32> {
-    use std::mem::{size_of, zeroed};
-    use std::os::fd::AsRawFd;
-
-    let mut credentials = unsafe { zeroed::<libc::ucred>() };
-    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
-    let result = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&raw mut credentials).cast(),
-            &raw mut length,
-        )
-    };
-    if result != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if length as usize != size_of::<libc::ucred>() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer credentials"));
-    }
-    Ok(credentials.uid)
+    crate::platform::unix_peer_uid(stream)
 }
 
 /// Serves the systemd-provided listener in a detached thread. Each peer is
@@ -228,8 +208,23 @@ pub fn serve(
         return Err(io::Error::last_os_error());
     }
     std::thread::Builder::new().name("provider-management".into()).spawn(move || {
+        // Descriptor exhaustion persists across accepts; an immediate retry
+        // spun this thread at 100% CPU.
+        let mut backoff =
+            crate::backoff::Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
         for connection in listener.incoming() {
-            let Ok(stream) = connection else { continue };
+            let stream = match connection {
+                Ok(stream) => {
+                    backoff.reset();
+                    stream
+                }
+                Err(error) => {
+                    if crate::backoff::accept_error_needs_backoff(&error) {
+                        backoff.sleep();
+                    }
+                    continue;
+                }
+            };
             let mux = mux.clone();
             let _ = std::thread::Builder::new().name("provider-management-peer".into()).spawn(
                 move || {

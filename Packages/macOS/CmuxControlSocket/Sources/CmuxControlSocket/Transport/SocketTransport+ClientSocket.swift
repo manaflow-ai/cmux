@@ -59,7 +59,13 @@ extension SocketTransport {
     }
 
     /// Clears `O_NONBLOCK` on `fd`; returns the failing `errno` otherwise.
-    func configureBlocking(_ fd: Int32) -> Int32? {
+    ///
+    /// Restores blocking mode on a descriptor previously configured for async
+    /// client I/O. This is used only by the legacy long-lived event-stream
+    /// bridge, which owns its own slow-consumer backpressure loop.
+    ///
+    /// - Parameter fd: The descriptor to restore.
+    public func configureBlocking(_ fd: Int32) -> Int32? {
         let flags = fcntl(fd, F_GETFL, 0)
         guard flags >= 0 else {
             return errno

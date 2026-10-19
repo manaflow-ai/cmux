@@ -9,6 +9,14 @@ struct MobileSimulatorListResponse: Decodable, Sendable {
     }
 }
 
+struct MobileSimulatorDevicesResponse: Decodable, Sendable {
+    let devices: [MobileSimulatorDeviceDescriptor]
+
+    static func decode(_ data: Data) throws -> MobileSimulatorDevicesResponse {
+        try JSONDecoder().decode(Self.self, from: data)
+    }
+}
+
 public struct MobileSimulatorCommandResponse: Decodable, Sendable {
     public let ok: Bool?
     public let stopped: Bool?

@@ -4,13 +4,15 @@ import Foundation
 ///
 /// Back-compat: existing terminal-only configs omit `type`/`url` and require
 /// `command`; those decode unchanged as `.terminal` entries. New configs may add
-/// `"type": "browser"` with a `url` to seed a browser pane.
+/// `"type": "browser"` with a `url` to seed a browser pane. Browser controls
+/// may set `"chrome": false` to keep the pane's browser toolbar hidden.
 struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     let id: String
     let title: String
     let kind: DockSurfaceKind
     let command: String?
     let url: String?
+    let showsBrowserChrome: Bool
     let cwd: String?
     let height: Double?
     let env: [String: String]
@@ -21,6 +23,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         kind: DockSurfaceKind = .terminal,
         command: String? = nil,
         url: String? = nil,
+        showsBrowserChrome: Bool = true,
         cwd: String? = nil,
         height: Double? = nil,
         env: [String: String] = [:]
@@ -30,6 +33,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         self.kind = kind
         self.command = command
         self.url = url
+        self.showsBrowserChrome = showsBrowserChrome
         self.cwd = cwd
         self.height = height
         self.env = env
@@ -41,6 +45,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         case type
         case command
         case url
+        case chrome
         case cwd
         case height
         case env
@@ -105,6 +110,14 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         id = normalizedID
         title = normalizedTitle.isEmpty ? normalizedID : normalizedTitle
         kind = resolvedKind
+        if resolvedKind == .browser {
+            showsBrowserChrome = try container.decodeIfPresent(
+                Bool.self,
+                forKey: .chrome
+            ) ?? true
+        } else {
+            showsBrowserChrome = true
+        }
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         height = try container.decodeIfPresent(Double.self, forKey: .height)
@@ -140,6 +153,9 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
                 throw EncodingError.invalidValue(url as Any, context)
             }
             try container.encode(url, forKey: .url)
+            if !showsBrowserChrome {
+                try container.encode(false, forKey: .chrome)
+            }
         }
         try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encodeIfPresent(height, forKey: .height)

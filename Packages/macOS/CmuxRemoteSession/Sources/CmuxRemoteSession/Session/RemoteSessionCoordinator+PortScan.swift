@@ -272,9 +272,9 @@ extension RemoteSessionCoordinator {
             excluding: excludedRemoteScanPorts(),
             protecting: protectedPortsByTTY
         )
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         let result = try sshExec(
-            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+            arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 8
         )
         guard result.status == 0 else {
@@ -380,10 +380,10 @@ extension RemoteSessionCoordinator {
             return
         }
 
-        let command = "sh -c \(Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts()).shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts())).commandLine
         do {
             let result = try sshExec(
-                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
                 timeout: 8
             )
             guard result.status == 0 else {
@@ -440,6 +440,13 @@ extension RemoteSessionCoordinator {
 
     private func remotePortPollingModeLocked() -> RemotePortPollingMode? {
         guard remotePortScanningEnabled else { return nil }
+        // vm-baked Cloud VMs have no ssh-exec channel (bootstrap and relay skip it
+        // for the same reason), so an ssh port scan can only time out. The first
+        // poll runs synchronously ahead of `publishState(.connected)`, so that
+        // timeout used to hold the "Reconnecting Cloud session" overlay for 8 s
+        // after the shell was already live. Ports on these machines come from
+        // the daemon (`cmux vm open`), not from scanning.
+        guard !configuration.skipDaemonBootstrap else { return nil }
         if !remotePortScanTTYNames.isEmpty {
             return shouldUseTTYFallbackRemotePortPollingLocked() ? .ttyScoped : nil
         }

@@ -24,6 +24,77 @@ struct ClaudeHookLiveDeliveryTargetTests {
     private static let otherSurfaceId = "55555555-5555-5555-5555-555555555555"
     private static let fallbackSurfaceId = "44444444-4444-4444-4444-444444444444"
 
+    /// A Claude `SubagentStop` must remain telemetry even if an older or
+    /// duplicated hook configuration invokes the visible `stop` command for
+    /// that event. Only the parent `Stop` event may publish completion
+    /// attention or settle the parent lifecycle.
+    ///
+    /// https://github.com/manaflow-ai/cmux/issues/10233
+    @Test func subagentStopDoesNotPublishParentCompletionAttention() throws {
+        let context = try Harness.makeContext(name: "subagent-stop-parent-running")
+        defer { context.cleanup() }
+        let sessionId = "subagent-stop-parent-running-session"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path,
+            pid: 43209
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43209"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"SubagentStop","cwd":"\#(context.root.path)","last_assistant_message":"subagent finished"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        let feedEventNames = commands.compactMap { command -> String? in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.push",
+                  let params = object["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event["hook_event_name"] as? String
+        }
+
+        #expect(feedEventNames.contains("SubagentStop"), "Subagent completion must stay distinct telemetry; saw \(feedEventNames)")
+        #expect(!feedEventNames.contains("Stop"), "SubagentStop must not be rewritten as parent Stop; saw \(feedEventNames)")
+        #expect(
+            !commands.contains { $0.hasPrefix("notify_target_async ") },
+            "A subagent completion must not publish the parent's completion notification; saw \(commands)"
+        )
+        #expect(
+            !commands.contains { $0.hasPrefix("set_agent_lifecycle ") || $0.hasPrefix("set_status ") },
+            "A subagent completion must not settle the parent lifecycle/status; saw \(commands)"
+        )
+        // The journal still records the fact, tagged as a subagent event so
+        // the reducer keeps it off the hosting pane's badge.
+        #expect(
+            AgentJournalAppendCapture.captures(in: commands)
+                .allSatisfy { $0.isSubagent || $0.kind == "agent.state.changed" },
+            "Subagent events must be journaled with the subagent tag; saw \(commands)"
+        )
+    }
+
     /// Two Claude agents in two workspaces: the session record for this agent
     /// was polluted to point at the OTHER agent's pane (issue #7391 drift).
     /// The live pid target must win and the record must self-heal.
@@ -238,16 +309,203 @@ struct ClaudeHookLiveDeliveryTargetTests {
             "Resume binding must target the pane that owns the live agent pid, not the stale tty row; params=\(resumeBinding)"
         )
         #expect(
+            resumeBinding["checkpoint_id"] as? String == sessionId,
+            "/clear SessionStart must immediately replace the surface's resume identity"
+        )
+        #expect(
             commands.contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
             },
-            "Visible status must target the live pane; saw \(commands)"
+            "/clear SessionStart must leave the live pane Idle; saw \(commands)"
         )
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == Self.liveWorkspaceId)
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
+        #expect(record?["agentLifecycle"] as? String == "idle")
+    }
+
+    /// Installing a Claude owner in one pane must not retire a live sibling
+    /// pane just because both panes share a workspace-level routing fallback.
+    @Test func sessionStartInSiblingPanePreservesTheOtherOwner() throws {
+        let context = try Harness.makeContext(name: "sibling-session-start")
+        defer { context.cleanup() }
+        let firstSessionId = "sibling-first-session"
+        let secondSessionId = "sibling-second-session"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId, Self.otherSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        let first = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(firstSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        assertSuccessfulHook(first)
+
+        environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
+        let second = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(secondSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(second)
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: context.storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        #expect(sessions[firstSessionId] != nil)
+        #expect(sessions[secondSessionId] != nil)
+        let activeBySurface = try #require(saved["activeSessionsBySurface"] as? [String: Any])
+        let firstActive = try #require(activeBySurface[Self.liveSurfaceId] as? [String: Any])
+        let secondActive = try #require(activeBySurface[Self.otherSurfaceId] as? [String: Any])
+        #expect(firstActive["sessionId"] as? String == firstSessionId)
+        #expect(secondActive["sessionId"] as? String == secondSessionId)
+    }
+
+    /// A superseded session may resume on another pane later. Its historical
+    /// pane is no longer owned by that session, so recovery must not clear the
+    /// replacement owner's status or notifications there.
+    @Test func resumedSupersededSessionDoesNotClearReplacementPane() throws {
+        let context = try Harness.makeContext(name: "superseded-session-resume")
+        defer { context.cleanup() }
+        let firstSessionId = "superseded-first-session"
+        let replacementSessionId = "superseded-replacement-session"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId, Self.otherSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(firstSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(replacementSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+
+        let commandCountBeforeResume = context.state.snapshot().count
+        environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(firstSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        let resumeCommands = Array(context.state.snapshot().dropFirst(commandCountBeforeResume))
+        #expect(
+            !resumeCommands.contains { command in
+                command.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)")
+                    || (command.contains("set_status claude_code Idle")
+                        && command.contains("--tab=\(Self.liveWorkspaceId)")
+                        && command.contains("--panel=\(Self.liveSurfaceId)"))
+            },
+            "Resuming a superseded session must not clear the replacement pane; saw \(resumeCommands)"
+        )
+    }
+
+    /// A nested SessionStart may move an agent away from a parent-owned pane.
+    /// Suppression must cover cleanup of the previous pane as well as the new
+    /// pane, so a child recovery cannot clear the parent's visible state.
+    @Test func suppressedSessionMoveDoesNotClearPreviousPane() throws {
+        let context = try Harness.makeContext(name: "suppressed-session-move")
+        defer { context.cleanup() }
+        let sessionId = "suppressed-session-move-id"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId, Self.otherSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "1"
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+
+        let commandCountBeforeMove = context.state.snapshot().count
+        environment["CMUX_SURFACE_ID"] = Self.otherSurfaceId
+        assertSuccessfulHook(Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        ))
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        let moveCommands = Array(context.state.snapshot().dropFirst(commandCountBeforeMove))
+        #expect(
+            !moveCommands.contains { command in
+                command.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)")
+                    || (command.contains("set_status claude_code Idle")
+                        && command.contains("--tab=\(Self.liveWorkspaceId)")
+                        && command.contains("--panel=\(Self.liveSurfaceId)"))
+            },
+            "A suppressed recovery must not mutate the previous parent pane; saw \(moveCommands)"
+        )
+    }
+
+    /// A SessionStart without pid, explicit surface, caller tty, or an existing
+    /// session record has no proof of ownership. The workspace's focused pane is
+    /// only a UI fallback and must never receive another process's identity.
+    @Test func sessionStartWithoutSurfaceOwnershipFailsClosed() throws {
+        let context = try Harness.makeContext(name: "start-no-owner")
+        defer { context.cleanup() }
+        let sessionId = "unowned-session-start"
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.fallbackSurfaceId]],
+            pidTarget: nil
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        #expect(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId) == nil)
+        #expect(
+            Harness.resumeBindingParams(in: context).isEmpty,
+            "An unowned SessionStart must not stamp the focused fallback surface"
+        )
     }
 
 

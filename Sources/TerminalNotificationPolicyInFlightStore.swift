@@ -132,8 +132,27 @@ final class TerminalNotificationPolicyInFlightStore {
     }
 
     func discard(forTabId tabId: UUID, correlationKey: String) {
-        let idsToDiscard = requests.compactMap { id, entry in
+        let idsToDiscard: [UUID] = requests.compactMap { id, entry in
             entry.indexedTabId == tabId && entry.request.correlationKey == correlationKey ? id : nil
+        }
+        let identities = Set(idsToDiscard.compactMap(discardRequest))
+        identities.forEach(drainCompletedRequests)
+    }
+
+    /// Discards policy work for one surface and correlation key without
+    /// affecting another request that happens to share the same destination.
+    func discard(
+        forSurfaceId surfaceId: UUID,
+        correlationKey: String,
+        through generation: UInt64? = nil
+    ) {
+        let idsToDiscard: [UUID] = requests.compactMap { id, entry -> UUID? in
+            guard generation.map({ entry.generation <= $0 }) ?? true,
+                  entry.request.correlationKey == correlationKey,
+                  Self.matchesSurfaceAlias(entry.request, surfaceId: surfaceId) else {
+                return nil
+            }
+            return id
         }
         let identities = Set(idsToDiscard.compactMap(discardRequest))
         identities.forEach(drainCompletedRequests)

@@ -222,7 +222,8 @@ private final class AttachmentFixture {
         from initialImage: NSImage,
         for attachment: NSTextAttachment
     ) async -> Bool {
-        for _ in 0..<10_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             await Task.yield()
             guard let cell = attachment.attachmentCell as? NSTextAttachmentCell,
                   let image = cell.image else {
@@ -232,7 +233,11 @@ private final class AttachmentFixture {
                 return true
             }
         }
-        return false
+        guard let cell = attachment.attachmentCell as? NSTextAttachmentCell,
+              let image = cell.image else {
+            return false
+        }
+        return image !== initialImage
     }
 
     func location(

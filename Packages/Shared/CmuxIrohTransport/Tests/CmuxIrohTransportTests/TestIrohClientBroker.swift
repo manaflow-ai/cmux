@@ -7,6 +7,7 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private let discoveryResponse: CmxIrohDiscoveryResponse
     private let relayResponse: CmxIrohRelayTokenResponse
     private let pairGrantResponse: CmxIrohPairGrantResponse?
+    private let bindingAuthorizationAvailable: Bool
     private let revokeError: (any Error)?
     private let registrationHook: (@Sendable (_ count: Int) async -> Void)?
     private let discoveryHook: (@Sendable (_ count: Int) async -> Void)?
@@ -29,6 +30,7 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         discovery: CmxIrohDiscoveryResponse,
         relay: CmxIrohRelayTokenResponse,
         pairGrant: CmxIrohPairGrantResponse? = nil,
+        bindingAuthorizationAvailable: Bool = true,
         issueRelayAtRegistration: Bool = true,
         registrationError: (any Error)? = nil,
         discoveryErrorsByCount: [Int: any Error] = [:],
@@ -43,11 +45,20 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         discoveryResponse = discovery
         relayResponse = relay
         pairGrantResponse = pairGrant
+        self.bindingAuthorizationAvailable = bindingAuthorizationAvailable
         self.revokeError = revokeError
         self.registrationError = registrationError
         self.discoveryErrorsByCount = discoveryErrorsByCount
         self.registrationHook = registrationHook
         self.discoveryHook = discoveryHook
+    }
+
+    func hasBindingAuthorization() async -> Bool {
+        bindingAuthorizationAvailable
+    }
+
+    func bindingAuthorizationID() async -> String? {
+        bindingAuthorizationAvailable ? registration.binding.bindingID : nil
     }
 
     func register(
@@ -107,6 +118,14 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     func revoke(bindingID: String) throws {
         revokedBindingIDs.append(bindingID)
         if let revokeError { throw revokeError }
+    }
+
+    func revokeStale(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
+    }
+
+    func forgetMac(bindingID: String) throws {
+        try revoke(bindingID: bindingID)
     }
 
     func observedRegistrations() -> [CmxIrohPreparedRegistration] {

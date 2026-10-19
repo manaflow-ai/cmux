@@ -317,6 +317,9 @@ extension RemoteDaemonRPCClient {
         }()
         let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport exited with status \(process.terminationStatus)"
 
+        if self.process === process {
+            removeForwardSocketDirectoryLocked()
+        }
         isClosed = true
         self.process = nil
         stdinPipe = nil

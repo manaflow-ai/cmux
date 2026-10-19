@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   version:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -95,7 +95,7 @@ jobs:
 
   bindings-e2e-python:
     needs: version
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -109,7 +109,8 @@ jobs:
           python-version: "3.12.8"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Install Linux build dependencies
         run: |
@@ -151,7 +152,7 @@ jobs:
 
   build:
     needs: bindings-e2e-python
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:

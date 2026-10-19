@@ -17,6 +17,11 @@ import UIKit
             isAuthenticated: true,
             connectionPhase: .searching
         )
+        let pairing = OnboardingSceneChrome(
+            stage: .pairing,
+            isAuthenticated: true,
+            connectionPhase: .searching
+        )
 
         #expect(!agents.showsBack)
         #expect(agents.showsSkip)
@@ -27,6 +32,33 @@ import UIKit
         #expect(notifications.showsSkip)
         #expect(notifications.primaryTitle != nil)
         #expect(notifications.secondaryTitle == nil)
+
+        #expect(pairing.showsBack)
+        #expect(!pairing.showsSkip)
+        #expect(pairing.primaryTitle != nil)
+        #expect(pairing.secondaryTitle == nil)
+    }
+
+    /// The push page always offers the paired opt-in choice: Enable as the
+    /// primary action and Not Now as the secondary, with Skip still available.
+    @Test func pushPageOffersEnableAndNotNow() {
+        let push = OnboardingSceneChrome(
+            stage: .push,
+            isAuthenticated: false,
+            connectionPhase: .searching
+        )
+        let authenticatedPush = OnboardingSceneChrome(
+            stage: .push,
+            isAuthenticated: true,
+            connectionPhase: .ready
+        )
+
+        for chrome in [push, authenticatedPush] {
+            #expect(chrome.showsBack)
+            #expect(chrome.showsSkip)
+            #expect(chrome.primaryTitle != nil)
+            #expect(chrome.secondaryTitle != nil)
+        }
     }
 
     @Test func connectionChromeFollowsAuthenticationAndDiscoveryPhase() {
@@ -45,10 +77,16 @@ import UIKit
             isAuthenticated: true,
             connectionPhase: .idle
         )
-        let fallback = OnboardingSceneChrome(
+        let automaticFallback = OnboardingSceneChrome(
             stage: .connect,
             isAuthenticated: true,
             connectionPhase: .fallback
+        )
+        let tailscaleFallback = OnboardingSceneChrome(
+            stage: .connect,
+            isAuthenticated: true,
+            connectionPhase: .fallback,
+            connectionMethod: .tailscale
         )
         let ready = OnboardingSceneChrome(
             stage: .connect,
@@ -65,8 +103,10 @@ import UIKit
         #expect(searching.secondaryTitle == nil)
         #expect(idle.primaryTitle != nil)
         #expect(idle.secondaryTitle == nil)
-        #expect(fallback.primaryTitle != nil)
-        #expect(fallback.secondaryTitle != nil)
+        #expect(automaticFallback.primaryTitle != nil)
+        #expect(automaticFallback.secondaryTitle == nil)
+        #expect(tailscaleFallback.primaryTitle != nil)
+        #expect(tailscaleFallback.secondaryTitle != nil)
         #expect(ready.primaryTitle != nil)
         #expect(ready.secondaryTitle == nil)
     }

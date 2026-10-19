@@ -9,6 +9,8 @@ func renderGridFrame(
     surfaceID: String,
     seq: UInt64,
     text: String,
+    columns: Int = 80,
+    rows: Int = 4,
     activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
     full: Bool = true,
     anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
@@ -18,8 +20,8 @@ func renderGridFrame(
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
-        columns: 80,
-        rows: 4,
+        columns: columns,
+        rows: rows,
         full: full,
         rowSpans: [
             MobileTerminalRenderGridFrame.RowSpan(

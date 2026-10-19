@@ -8,8 +8,8 @@ import UIKit
 /// SwiftUI only drives bar scroll edge effects for its own scroll views. The
 /// workspace list is a represented `UITableView`, invisible to that machinery.
 /// Registration identifies the bar's effect source. The table underlaps the
-/// bars visually while its controller forwards their safe-area occlusion to
-/// UIKit so the bars never cover interactive rows.
+/// bars visually while UIKit's normal safe-area and adjusted-inset handling
+/// keeps interactive rows outside the bars.
 @MainActor
 final class WorkspaceListScrollEdgeCoordinator {
     private weak var registeredScrollView: UIScrollView?

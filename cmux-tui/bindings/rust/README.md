@@ -20,6 +20,16 @@ client.close()?;
 # }
 ```
 
+Connection selection is explicit. `Client::connect` uses exactly the socket
+path in the supplied `Config` and never redirects to a legacy path. Call
+`Client::connect_with_legacy_fallback` only when compatibility with an older
+hashed-session socket is required; that method opts in to trying the legacy
+path after the configured path is missing or refuses the connection. Paths
+from environment variables and paths supplied directly (including through a
+`Config` struct literal) remain authoritative unless the caller chooses that
+compatibility method. `Config` keeps its existing public fields, so struct
+literals remain source-compatible.
+
 Every ID validates one opaque prefix such as `ws_`, `pane_`, or `term_`.
 Handles contain a `Client` and a tagged `Selector`: ID, current resource, or
 exact name. Cloning and dropping a handle perform no I/O. `refresh` and

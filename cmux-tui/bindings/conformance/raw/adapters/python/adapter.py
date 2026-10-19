@@ -324,7 +324,7 @@ def real_flow(request: Mapping[str, Any]) -> dict[str, Any]:
         positions = [observed.index(name) for name in required_events]
         stream_ordered = positions == sorted(positions)
         return {
-            "identified": identity.protocol == 11,
+            "identified": identity.protocol == 12,
             "workspace_created": workspace > 0,
             "terminal_created": terminal_created,
             "marker_sent": True,

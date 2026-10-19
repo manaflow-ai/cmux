@@ -155,7 +155,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     func setRendering(_ rendering: Bool) {
         switch content {
         case .terminal(let panel, _):
-            panel.surface.setOcclusion(rendering)
+            panel.surface.applyVisibilityOcclusion(rendering)
         case .hosted(let panel, _, _):
             (panel as? SimulatorPanel)?.setCanvasRendering(rendering)
             // Offscreen browsers may hidden-discard their webview; coming
@@ -176,7 +176,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setActive(false)
             hostedView.setFocusHandler(nil)
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
-            panel.surface.setOcclusion(true)
+            panel.surface.applyVisibilityOcclusion(true)
             hostedView.removeFromSuperview()
         case .hosted(let panel, let view, _):
             if let simulatorPanel = panel as? SimulatorPanel {

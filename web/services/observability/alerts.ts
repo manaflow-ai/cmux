@@ -11,6 +11,11 @@ export type AlertInput = {
 
 export type AlertResult = {
   readonly sent: boolean;
+  /**
+   * False only when no Slack webhook is configured at all: the alert fired
+   * and went nowhere. Callers use this to make the silent state loud.
+   */
+  readonly configured: boolean;
   readonly status?: number;
   readonly error?: string;
 };
@@ -29,7 +34,7 @@ export async function sendAlert(
 ): Promise<AlertResult> {
   const env = options.env ?? process.env;
   const webhookUrl = env.CMUX_ALERTS_SLACK_WEBHOOK_URL?.trim();
-  if (!webhookUrl) return { sent: false };
+  if (!webhookUrl) return { sent: false, configured: false };
 
   const fetchImpl = options.fetch ?? fetch;
   try {
@@ -46,16 +51,16 @@ export async function sendAlert(
         severity: input.severity,
         status: response.status,
       });
-      return { sent: false, status: response.status };
+      return { sent: false, configured: true, status: response.status };
     }
-    return { sent: true, status: response.status };
+    return { sent: true, configured: true, status: response.status };
   } catch (error) {
     reportError(error, {
       subsystem: "cloud_vm_alerts",
       alertKey: input.key,
       severity: input.severity,
     });
-    return { sent: false, error: errorMessage(error) };
+    return { sent: false, configured: true, error: errorMessage(error) };
   }
 }
 

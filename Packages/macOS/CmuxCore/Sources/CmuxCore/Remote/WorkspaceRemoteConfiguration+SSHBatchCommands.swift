@@ -20,6 +20,11 @@ extension WorkspaceRemoteConfiguration {
     /// The positional command conflicts with a host-configured
     /// `RemoteCommand` unless overridden (issue #7246); the override leads
     /// so it also wins (first value per option) over configured options.
+    ///
+    /// Unlike the other batch runs, this one keeps the configured agent and
+    /// X11 forwarding: persistent daemon PTYs inherit this session's
+    /// environment, so `SSH_AUTH_SOCK` and `DISPLAY` in remote shells come
+    /// from here.
     public func daemonTransportArguments(remotePath: String) -> [String] {
         var serveArguments = ["serve", "--stdio"]
         if let slot = persistentDaemonSlot?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -37,20 +42,35 @@ extension WorkspaceRemoteConfiguration {
         return ["-T"]
             + SSHHostConfiguredRemoteCommand().overrideArguments
             + batchSSHArguments()
-            + ["-o", "RequestTTY=no", destination, command]
+            + ["-o", "RequestTTY=no", "--", destination, command]
     }
 
-    /// `ssh` argv that forwards `127.0.0.1:<localPort>` to the baked VM
-    /// daemon's Unix socket (`-N`, no remote command). Argument text is
-    /// wire/process behavior; do not alter.
-    public func daemonSocketForwardArguments(localPort: Int, remoteSocketPath: String) -> [String] {
-        ["-N", "-T", "-S", "none"]
-            + batchSSHArguments()
+    /// `ssh` argv that forwards the local Unix socket `localSocketPath` to
+    /// the baked VM daemon's Unix socket (`-N`, no remote command). Argument
+    /// text is wire/process behavior; do not alter.
+    ///
+    /// Daemon RPC on this forward carries no credential of its own, so the
+    /// caller places `localSocketPath` in a directory only the current user
+    /// can open, and ssh creates the socket with mode 0600. The bind options
+    /// lead so they win (first value per option) over configured options.
+    ///
+    /// Agent and X11 forwarding are off. `ClearAllForwardings` is not used
+    /// because it would also drop this run's own `-L`.
+    public func daemonSocketForwardArguments(localSocketPath: String, remoteSocketPath: String) -> [String] {
+        [
+            "-N", "-T", "-S", "none",
+            "-o", "StreamLocalBindMask=0177",
+            "-o", "StreamLocalBindUnlink=yes",
+        ]
+            + batchSSHArguments(
+                sshOptions: sshOptions,
+                forwarding: .agentAndX11Off
+            )
             + [
                 "-o", "ExitOnForwardFailure=yes",
                 "-o", "RequestTTY=no",
-                "-L", "127.0.0.1:\(localPort):\(remoteSocketPath)",
-                destination,
+                "-L", "\(localSocketPath):\(remoteSocketPath)",
+                "--", destination,
             ]
     }
 
@@ -86,11 +106,15 @@ extension WorkspaceRemoteConfiguration {
         }
 
         var arguments = batchSSHArguments(sshOptions: effectiveSSHOptions)
-        arguments += ["-O", controlCommand, "-R", forwardSpec, destination]
+        arguments += ["-O", controlCommand, "-R", forwardSpec, "--", destination]
         return arguments
     }
 
     /// Builds a non-interactive command that reuses the supplied exact ControlPath.
+    ///
+    /// Agent, X11 and port forwarding are off for this session. It never
+    /// becomes a master (`ControlMaster=no`), so this cannot change what the
+    /// interactive session forwards.
     ///
     /// - Parameters:
     ///   - command: Remote shell command to execute.
@@ -102,19 +126,25 @@ extension WorkspaceRemoteConfiguration {
     ) -> [String] {
         ["-T"]
             + SSHHostConfiguredRemoteCommand().overrideArguments
-            + batchSSHArguments(sshOptions: effectiveSSHOptions)
-            + ["-o", "RequestTTY=no", destination, command]
+            + batchSSHArguments(
+                sshOptions: effectiveSSHOptions,
+                forwarding: .allOff
+            )
+            + ["-o", "RequestTTY=no", "--", destination, command]
     }
 
     // Shared batch-mode `ssh` options: keepalives, BatchMode, no new
-    // ControlMaster (existing ControlPath sockets may be reused), port,
-    // identity, then the configuration's options minus
-    // ControlMaster/ControlPersist.
+    // ControlMaster (existing ControlPath sockets may be reused), the
+    // forwarding to turn off (none when `forwarding` is nil), port, identity,
+    // then the configuration's options minus ControlMaster/ControlPersist.
     private func batchSSHArguments() -> [String] {
         batchSSHArguments(sshOptions: sshOptions)
     }
 
-    private func batchSSHArguments(sshOptions: [String]) -> [String] {
+    private func batchSSHArguments(
+        sshOptions: [String],
+        forwarding: SSHBackgroundForwarding? = nil
+    ) -> [String] {
         let effectiveSSHOptions = backgroundSSHOptions(sshOptions)
         var args: [String] = [
             "-o", "ConnectTimeout=6",
@@ -127,6 +157,8 @@ extension WorkspaceRemoteConfiguration {
         args += ["-o", "BatchMode=yes"]
         // Batch helpers may reuse an existing ControlPath, but must not negotiate a new master.
         args += ["-o", "ControlMaster=no"]
+        // Ahead of the configured options: OpenSSH keeps the first value.
+        args += forwarding?.optionArguments ?? []
         if let port {
             args += ["-p", String(port)]
         }

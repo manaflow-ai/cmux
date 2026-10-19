@@ -36,7 +36,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxRemoteWorkspaceTests",
-            dependencies: ["CmuxRemoteWorkspace"]
+            dependencies: [
+                "CmuxRemoteWorkspace",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ]
         ),
     ]
 )

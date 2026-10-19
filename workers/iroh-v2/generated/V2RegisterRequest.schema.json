@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2RegisterRequest.json",
+  "type": "object",
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "const": "device.register.v1"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "device": {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2DeviceDescriptor.json"
+    },
+    "challengeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{86}$"
+    }
+  },
+  "required": [
+    "schemaId",
+    "requestId",
+    "device",
+    "challengeId",
+    "nonce",
+    "signature"
+  ],
+  "additionalProperties": false
+}

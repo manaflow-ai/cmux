@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GUARD = REPO_ROOT / "scripts" / "ci" / "require_selected_test_execution.sh"
+IOS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "test-ios.yml"
 
 
 class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
@@ -22,6 +23,17 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
                 capture_output=True,
                 check=False,
             )
+
+    def test_workflow_documents_fully_qualified_ui_test_filter(self) -> None:
+        workflow = IOS_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell",
+            workflow,
+        )
+        self.assertNotIn(
+            "for example cmuxUITests/testSignInPairingAndWorkspaceShell",
+            workflow,
+        )
 
     def test_accepts_xctest_singular_and_plural_nonzero_counts(self) -> None:
         for summary in (
@@ -48,17 +60,34 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(
             result.stderr,
-            "selected iOS test filter matched zero tests; "
+            "selected test filter $'cmuxUITests/testMissingMethod\\n"
+            "::error::injected' matched zero tests; "
             "use target/class or target/class/method syntax\n",
         )
         self.assertNotIn(test_filter, result.stderr)
+        self.assertNotIn("\n::error::injected\n", result.stderr)
+
+    def test_rejects_expected_activation_failure_even_with_nonzero_count(self) -> None:
+        result = self.run_guard(
+            "\n".join(
+                (
+                    "XCTExpectFailure: matcher accepted Assertion Failure: "
+                    "Failed to activate application 'com.cmuxterm.app.debug "
+                    "(current state: Running Background)",
+                    "Executed 1 test, with 0 failures (0 unexpected)",
+                )
+            ),
+            "cmuxUITests/TerminalCmdClickUITests",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("app activation failure", result.stderr)
 
     def test_rejects_missing_execution_summary_for_requested_filter(self) -> None:
         result = self.run_guard("** TEST SUCCEEDED **", "cmuxUITests/testMissingMethod")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(
             result.stderr,
-            "selected iOS test execution summary was not found; "
+            "selected test execution summary was not found; "
             "verify the test log format\n",
         )
 
@@ -75,7 +104,7 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(
             result.stderr,
-            "selected iOS test execution log is unavailable\n",
+            "selected test execution log is unavailable\n",
         )
         self.assertNotIn(missing_log, result.stderr)
 

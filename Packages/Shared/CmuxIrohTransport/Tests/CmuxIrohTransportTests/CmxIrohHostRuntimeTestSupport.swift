@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CryptoKit
 import Foundation
+import Testing
 @testable import CmuxIrohTransport
 
 struct HostRuntimeFixture {
@@ -9,6 +10,7 @@ struct HostRuntimeFixture {
     let binding: CmxIrohBrokerBinding
     let discovery: CmxIrohDiscoveryResponse
     let managedRelays: Set<String>
+    let clientNamespace: CmxIrohMacBundleNamespace
     let configuration: CmxIrohHostRuntimeConfiguration
 
     init(
@@ -27,6 +29,11 @@ struct HostRuntimeFixture {
                 .joined()
         )
         managedRelays = Set(Self.relayURLs)
+        clientNamespace = try #require(
+            CmxIrohMacBundleNamespace(
+                bundleIdentifier: "com.cmuxterm.tests"
+            )
+        )
         binding = try Self.binding(
             endpointID: endpointID.endpointID,
             lastSeenAt: now,
@@ -41,6 +48,7 @@ struct HostRuntimeFixture {
             accountID: "account-a",
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: clientNamespace,
             tag: binding.tag,
             displayName: binding.displayName,
             identity: identity,
@@ -60,6 +68,7 @@ struct HostRuntimeFixture {
             accountID: configuration.accountID,
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: clientNamespace,
             tag: binding.tag,
             displayName: binding.displayName,
             identity: identity,
@@ -178,6 +187,7 @@ struct HostRuntimeFixture {
             "binding_id": bindingID,
             "device_id": deviceID,
             "app_instance_id": "123e4567-e89b-42d3-a456-426614174012",
+            "client_namespace": "mac:com.cmuxterm.tests",
             "tag": "cmux-ios-v0",
             "platform": "mac",
             "display_name": "Test Mac",

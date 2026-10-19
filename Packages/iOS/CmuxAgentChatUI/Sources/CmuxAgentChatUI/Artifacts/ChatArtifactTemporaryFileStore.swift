@@ -31,6 +31,9 @@ actor ChatArtifactTemporaryFileStore {
         loader: ChatArtifactLoader,
         progress: @escaping @Sendable (ChatArtifactChunk) async -> Void
     ) async throws -> URL {
+        guard expectedSize >= 0 else {
+            throw ChatArtifactError.invalidResponse
+        }
         guard expectedSize <= limit else {
             throw ChatArtifactError.tooLarge(limitBytes: limit)
         }
@@ -41,7 +44,8 @@ actor ChatArtifactTemporaryFileStore {
         let writer = try ChatArtifactTemporaryFileWriter(
             directory: directory,
             fileExtension: fileExtension,
-            preferredFilename: preferredFilename
+            preferredFilename: preferredFilename,
+            expectedSize: expectedSize
         )
         do {
             try await loader.stream(

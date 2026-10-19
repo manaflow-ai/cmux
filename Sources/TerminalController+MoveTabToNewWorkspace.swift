@@ -94,7 +94,10 @@ extension TerminalController {
         "pane.join",
         "markdown.open",
         "browser.open_split",
-        "sidebar.custom.open"
+        "sidebar.custom.open",
+        // Opens the forked session's tab only when the caller passes
+        // open=true; focus follows the same explicit opt-in.
+        "vault.fork"
     ]
 
     nonisolated static func explicitFocusParamAllowsFocus(commandKey: String, params: [String: Any]) -> Bool {
@@ -130,6 +133,7 @@ extension TerminalController {
         guard let surfaceId = v2UUID(params, "surface_id") else {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.missingSurfaceId, data: nil)
         }
+        if let refusal = v2BrowserReplTabRefusal(surfaceId) { return refusal }
         guard let directionStr = v2String(params, "direction"),
               let direction = parseSplitDirection(directionStr) else {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.invalidDirection, data: nil)
@@ -179,11 +183,11 @@ extension TerminalController {
                 ])
                 return
             }
-            let previousFocusedPanelId = ws.focusedPanelId
-            guard let newPaneId = ws.bonsplitController.splitPane(
+            guard let newPaneId = ws.splitPaneMovingTab(
                 orientation: orientation,
                 movingTab: bonsplitTabId,
-                insertFirst: insertFirst
+                insertFirst: insertFirst,
+                focusIntent: focus ? .activateMovedTab : .preserveCurrent
             ) else {
                 result = .err(code: "internal_error", message: SurfaceSplitOffMessage.splitPaneFailed, data: nil)
                 return
@@ -192,8 +196,6 @@ extension TerminalController {
                 _ = app.focusMainWindow(windowId: located.windowId)
                 setActiveTabManager(located.tabManager)
                 located.tabManager.focusTab(ws.id, surfaceId: surfaceId, suppressFlash: true)
-            } else if let previousFocusedPanelId, ws.panels[previousFocusedPanelId] != nil {
-                ws.focusPanel(previousFocusedPanelId)
             }
             let windowId = located.windowId
             result = .ok([

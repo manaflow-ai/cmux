@@ -39,7 +39,13 @@ public final class FrontendProjection {
     ) {
         Map<String, Object> params = params();
         params.putAll(options.mutation().extra());
+        params.put("frontend_id", options.frontendId());
+        params.put("window_id", options.windowId());
+        params.put("generation", options.generation());
         params.put("projection", options.projection());
+        options.expectedProjectionRevision().ifPresent(value ->
+            params.put("expected_projection_revision", value)
+        );
         Client.MutationResponse response = client.mutation(
             Operations.FRONTEND_PROJECTION_PUT, params, options.mutation()
         );

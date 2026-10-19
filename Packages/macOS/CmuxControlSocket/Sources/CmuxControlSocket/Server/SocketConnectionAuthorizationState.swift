@@ -31,9 +31,12 @@ final class SocketConnectionAuthorizationState: Sendable {
         state.withLock { state in
             let policyChanged = state.accessMode != accessMode
             let passwordChanged = accessMode.requiresPasswordAuth
-                && state.passwordFingerprint != fingerprint
+                && !constantTimeEqual(state.passwordFingerprint, fingerprint)
             state.accessMode = accessMode
             state.passwordFingerprint = fingerprint
+            if accessMode == .off {
+                state.isRunning = false
+            }
             if policyChanged || passwordChanged {
                 rotate(&state)
             }
@@ -59,7 +62,7 @@ final class SocketConnectionAuthorizationState: Sendable {
         let fingerprint = fingerprint(effectivePassword)
         return state.withLock { state in
             guard state.accessMode.requiresPasswordAuth,
-                  state.passwordFingerprint != fingerprint else {
+                  !constantTimeEqual(state.passwordFingerprint, fingerprint) else {
                 return nil
             }
             state.passwordFingerprint = fingerprint
@@ -70,7 +73,7 @@ final class SocketConnectionAuthorizationState: Sendable {
 
     func isCurrent(_ generation: UInt64) -> Bool {
         state.withLock {
-            $0.isRunning && $0.generation.number == generation
+            $0.isRunning && $0.accessMode != .off && $0.generation.number == generation
         }
     }
 
@@ -79,7 +82,9 @@ final class SocketConnectionAuthorizationState: Sendable {
         authenticatedPasswordFingerprint: Data?
     ) -> Bool {
         state.withLock { state in
-            guard state.isRunning, state.generation.number == generation else {
+            guard state.isRunning,
+                  state.accessMode != .off,
+                  state.generation.number == generation else {
                 return false
             }
             guard state.accessMode.requiresPasswordAuth,
@@ -88,6 +93,49 @@ final class SocketConnectionAuthorizationState: Sendable {
                 return true
             }
             return authenticatedPasswordFingerprint == state.passwordFingerprint
+        }
+    }
+
+    /// Runs a short response write while holding the authorization-state lock.
+    ///
+    /// Credential-bearing socket responses must not have a check-then-write
+    /// window: a listener policy/password rotation could otherwise revoke an
+    /// accepted connection after the check and before the lease bytes leave
+    /// the process. Callers must keep `body` bounded and side-effect free.
+    func withPermittedContinuation<T: Sendable>(
+        generation: UInt64,
+        authenticatedPasswordFingerprint: Data?,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        state.withLock { state in
+            guard state.isRunning,
+                  state.generation.number == generation else {
+                return nil
+            }
+            if state.accessMode.requiresPasswordAuth {
+                guard let authenticatedPasswordFingerprint,
+                      authenticatedPasswordFingerprint == state.passwordFingerprint else {
+                    return nil
+                }
+            }
+            return body()
+        }
+    }
+
+    /// Runs a short operation under the live listener-generation lock.
+    ///
+    /// This is the password-bypass half of the dedicated signed-peer handoff
+    /// path. The app must first validate and consume its scoped launch grant.
+    func withCurrentGeneration<T: Sendable>(
+        generation: UInt64,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        state.withLock { state in
+            guard state.isRunning,
+                  state.generation.number == generation else {
+                return nil
+            }
+            return body()
         }
     }
 

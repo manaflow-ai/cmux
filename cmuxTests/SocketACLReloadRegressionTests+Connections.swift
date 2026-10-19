@@ -12,13 +12,13 @@ extension SocketACLReloadRegressionTests {
     @Test(arguments: [false, true])
     func deniedConnectionReceivesAccessDeniedResponse(revokedBeforeHandling: Bool) throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
 
         let directory = shortTemporaryDirectory(prefix: "sald")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -56,14 +56,14 @@ extension SocketACLReloadRegressionTests {
 
     @Test func idleEventStreamClosesWhenPolicyGenerationChanges() throws {
         let controller = TerminalController.shared
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
         CmuxEventBus.shared.resetForTesting()
 
         let directory = shortTemporaryDirectory(prefix: "sals")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             CmuxEventBus.shared.resetForTesting()
             try? FileManager.default.removeItem(at: directory)
         }
@@ -104,6 +104,67 @@ extension SocketACLReloadRegressionTests {
 
         var byte: UInt8 = 0
         #expect(Darwin.read(sockets.client, &byte, 1) == 0)
+    }
+
+    /// Idle `events.stream` subscribers must not hold cooperative pool
+    /// threads; with one blocked thread per subscriber, a core count of
+    /// subscribers stopped the socket from answering (#21348).
+    @Test func socketAnswersWithMoreIdleEventStreamsThanCores() throws {
+        let controller = TerminalController.shared
+        controller.stop(cleanupDiscoveryState: true)
+        CmuxEventBus.shared.resetForTesting()
+
+        let directory = shortTemporaryDirectory(prefix: "salc")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        var clients: [Int32] = []
+        defer {
+            clients.forEach { close($0) }
+            controller.stop(cleanupDiscoveryState: true)
+            CmuxEventBus.shared.resetForTesting()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: .allowAll)
+
+        func enqueue(_ line: String) throws -> Int32 {
+            let sockets = try makeSocketPair()
+            clients.append(sockets.client)
+            try configureReadTimeout(sockets.client)
+            try writeLine(line, to: sockets.client)
+            let authorization = controller.socketServer.acceptedConnectionAuthorization()
+            let yieldResult = controller.socketServer.connectionsContinuation.yield(
+                ControlConnection(
+                    socket: sockets.server,
+                    peerProcessID: getpid(),
+                    authorizationGeneration: authorization.generation,
+                    authorizationRevocationSignal: authorization.revocationSignal
+                )
+            )
+            if case .enqueued = yieldResult {
+                // Ownership transferred to TerminalController's connection consumer.
+            } else {
+                close(sockets.server)
+                Issue.record("Failed to enqueue a synthetic connection")
+            }
+            return sockets.client
+        }
+
+        let streamCount = ProcessInfo.processInfo.activeProcessorCount + 1
+        for _ in 0..<streamCount {
+            let stream = try enqueue(
+                #"{"id":"stream","method":"events.stream","params":{"include_heartbeats":false}}"#
+            )
+            let acknowledgement = try readLine(from: stream)
+            let acknowledgementData = try #require(acknowledgement.data(using: .utf8))
+            let acknowledgementObject = try #require(
+                JSONSerialization.jsonObject(with: acknowledgementData) as? [String: Any]
+            )
+            #expect(acknowledgementObject["type"] as? String == "ack")
+        }
+
+        let ping = try enqueue("ping")
+        #expect(try readLine(from: ping) == "PONG")
     }
 
     private func makeSocketPair() throws -> (client: Int32, server: Int32) {

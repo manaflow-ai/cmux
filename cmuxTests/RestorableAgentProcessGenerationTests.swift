@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import os
 import Testing
@@ -9,7 +10,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(2)))
 struct RestorableAgentProcessGenerationTests {
     private typealias Fixture = (
         root: URL,
@@ -23,6 +24,12 @@ struct RestorableAgentProcessGenerationTests {
         storeURL: URL,
         previousHookStateDirectory: String?
     )
+
+    // These loaders return a prepared index at once; the production 10 s
+    // loader deadline is not what they test. A starved CI runner once took
+    // longer than that to schedule the detached loader, the refresh timed out
+    // and the index stayed nil. The test's time limit bounds a real hang.
+    private static let loaderTimeoutOutsideTheTest: UInt64 = 600_000_000_000
 
     @Test("Shared cache publishes unknown-to-exited liveness transitions")
     func sharedCachePublishesUnknownToExitedLivenessTransitions() async throws {
@@ -60,7 +67,8 @@ struct RestorableAgentProcessGenerationTests {
                     forkValidatedPanels: []
                 )
             },
-            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path }
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path },
+            ownershipRefreshTimeoutNanoseconds: Self.loaderTimeoutOutsideTheTest
         )
 
         await sharedIndex.refreshForkAvailabilityNow()
@@ -74,6 +82,77 @@ struct RestorableAgentProcessGenerationTests {
             workspaceId: fixture.workspaceID,
             panelId: fixture.panelID
         )?.processLiveness == .exited)
+    }
+
+    @Test("Ownership-sensitive restore does not consume a warm cache")
+    func ownershipSensitiveRestoreDoesNotConsumeWarmCache() async throws {
+        let fixture = try makeFixture(prefix: "cmux-ownership-refresh")
+        defer { cleanup(fixture) }
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: AgentPIDProcessIdentity(
+                pid: pid_t(fixture.processID),
+                startSeconds: Int64(fixture.updatedAt),
+                startMicroseconds: 0
+            )
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path },
+            ownershipRefreshTimeoutNanoseconds: Self.loaderTimeoutOutsideTheTest
+        )
+
+        _ = await sharedIndex.indexRefreshingNow()
+        #expect(loadCount.withLock { $0 } == 1)
+        #expect(sharedIndex.currentIndexForOwnershipSensitiveRestore() == nil)
+        _ = await sharedIndex.indexRefreshingNow()
+        #expect(loadCount.withLock { $0 } == 2)
+    }
+
+    @Test("Cached stable-panel snapshot lookup does not probe the process table")
+    func cachedStablePanelSnapshotLookupAvoidsProcessProbes() throws {
+        let fixture = try makeFixture(prefix: "cmux-cached-stable-panel-lookup")
+        defer { cleanup(fixture) }
+        let processIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt),
+            startMicroseconds: 0
+        )
+        try writeStoredProcessIdentity(processIdentity, to: fixture)
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: processIdentity
+        )
+        var identityProbeCount = 0
+        var presenceProbeCount = 0
+        let resolved = index.entryForStablePanel(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID,
+            processIdentityProvider: { _ in
+                identityProbeCount += 1
+                return nil
+            },
+            processPresenceProvider: { _ in
+                presenceProbeCount += 1
+                return .unknown
+            },
+            revalidateProcessEvidence: false
+        )
+
+        #expect(resolved?.snapshot.sessionId == fixture.sessionID)
+        #expect(identityProbeCount == 0)
+        #expect(presenceProbeCount == 0)
     }
 
     @Test("A later process generation cannot satisfy a stale hook PID")
@@ -121,6 +200,107 @@ struct RestorableAgentProcessGenerationTests {
         )?.processLiveness == .running)
     }
 
+    @Test("A legacy PID reused by another executable does not block restore")
+    func legacyPIDReusedByAnotherExecutableDoesNotBlockRestore() throws {
+        let fixture = try makeFixture(prefix: "cmux-legacy-pid-reuse")
+        defer { cleanup(fixture) }
+        let reusedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt + 1),
+            startMicroseconds: 0
+        )
+        let reusedProcess = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude"],
+            environment: [
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]
+        )
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: reusedProcess,
+            processIdentity: reusedIdentity
+        )
+
+        #expect(index.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.processLiveness == .exited)
+        #expect(!index.hasUncertainStablePanelEntry(panelId: fixture.panelID))
+        #expect(index.snapshot(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.sessionId == fixture.sessionID)
+    }
+
+    @Test("Conclusive generation evidence avoids an additional presence probe", arguments: [false, true])
+    func conclusiveGenerationAvoidsRedundantPresenceProbe(generationMatches: Bool) throws {
+        let fixture = try makeFixture(prefix: "cmux-conclusive-pid-presence")
+        defer { cleanup(fixture) }
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt),
+            startMicroseconds: 0
+        )
+        try writeStoredProcessIdentity(recordedIdentity, to: fixture)
+        let currentIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: recordedIdentity.startSeconds + (generationMatches ? 0 : 1),
+            startMicroseconds: 0
+        )
+        let arguments = codexProcessArguments(for: fixture)
+        var presenceProbeCount = 0
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in arguments },
+            processPresenceProvider: { _ in
+                presenceProbeCount += 1
+                return .present
+            },
+            processIdentityProvider: { _ in currentIdentity }
+        )
+
+        #expect(index.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.processLiveness == (generationMatches ? .running : .exited))
+        // A mismatched PID still needs one presence check to keep an occupied
+        // process out of pressure reclamation; restore adds no second probe.
+        #expect(presenceProbeCount == (generationMatches ? 0 : 1))
+    }
+
+    @Test("A present mismatched hook PID is not pressure-safe")
+    func presentMismatchedHookPIDIsNotPressureSafe() throws {
+        let fixture = try makeFixture(prefix: "cmux-mismatched-present-pid")
+        defer { cleanup(fixture) }
+
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt - 1),
+            startMicroseconds: 0
+        )
+        let currentIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt + 1),
+            startMicroseconds: 0
+        )
+        try writeStoredProcessIdentity(recordedIdentity, to: fixture)
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: codexProcessArguments(for: fixture),
+            processIdentity: currentIdentity
+        )
+        let entry = try #require(
+            index.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)
+        )
+
+        #expect(entry.processLiveness == .exited)
+        #expect(entry.containsUnrelatedProcess)
+    }
+
     @Test("A current PID owner does not authenticate a record without stored generation identity")
     func currentPIDOwnerDoesNotAuthenticateRecordWithoutStoredGenerationIdentity() throws {
         let fixture = try makeFixture(prefix: "cmux-unbound-pid-generation")
@@ -140,6 +320,98 @@ struct RestorableAgentProcessGenerationTests {
             workspaceId: fixture.workspaceID,
             panelId: fixture.panelID
         )?.processLiveness == .unknown)
+    }
+
+    @Test("A legacy PID with contradictory argv is available for restore without identity")
+    func legacyPIDWithContradictoryArgumentsDoesNotBlockRestoreWithoutIdentity() throws {
+        let fixture = try makeFixture(prefix: "cmux-legacy-pid-missing-identity")
+        defer { cleanup(fixture) }
+        let unrelatedProcess = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude"],
+            environment: [
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
+            processArgumentsProvider: { pid in
+                pid == fixture.processID ? unrelatedProcess : nil
+            },
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { _ in nil }
+        )
+
+        #expect(index.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.processLiveness == .exited)
+        #expect(!index.hasUncertainStablePanelEntry(panelId: fixture.panelID))
+    }
+
+    @Test("Missing identity for a recorded live PID fails closed")
+    func missingIdentityForRecordedLivePIDFailsClosed() throws {
+        let fixture = try makeFixture(prefix: "cmux-partial-pid-identity")
+        defer { cleanup(fixture) }
+
+        let firstPID = fixture.processID
+        let secondPID = fixture.processID - 1
+        let recordedFirstIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(firstPID),
+            startSeconds: Int64(fixture.updatedAt),
+            startMicroseconds: 0
+        )
+        let currentFirstIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(firstPID),
+            startSeconds: Int64(fixture.updatedAt + 1),
+            startMicroseconds: 0
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "partial-pid-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: nil
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [key: (
+                snapshot: snapshot,
+                updatedAt: fixture.updatedAt + 1,
+                processIDs: [firstPID, secondPID],
+                agentProcessIDs: [firstPID, secondPID],
+                sessionIDSource: .explicit
+            )],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { pid in
+                pid == secondPID ? .present : .absent
+            },
+            processIdentityProvider: { pid in
+                pid == firstPID ? recordedFirstIdentity : nil
+            }
+        )
+
+        #expect(
+            index.hasUncertainStablePanelEntry(
+                panelId: fixture.panelID,
+                processIdentityProvider: { pid in
+                    pid == firstPID ? currentFirstIdentity : nil
+                },
+                processPresenceProvider: { pid in
+                    pid == secondPID ? .present : .absent
+                }
+            )
+        )
     }
 
     @Test("Shared cache publishes a same-PID process generation change")
@@ -182,7 +454,8 @@ struct RestorableAgentProcessGenerationTests {
                     forkValidatedPanels: []
                 )
             },
-            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path }
+            hookStoreDirectoryProvider: { fixture.hookStateDirectory.path },
+            ownershipRefreshTimeoutNanoseconds: Self.loaderTimeoutOutsideTheTest
         )
 
         await sharedIndex.refreshForkAvailabilityNow()
@@ -261,6 +534,15 @@ struct RestorableAgentProcessGenerationTests {
         let sessionID = "codex-generation-session"
         let processID = 987_654_321
         let updatedAt: TimeInterval = 1_777_777_777
+        let rollout = root.appendingPathComponent(".codex/sessions/rollout-\(sessionID).jsonl")
+        try fileManager.createDirectory(at: rollout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": ["id": sessionID, "cwd": "/tmp/repo", "source": "cli", "originator": "codex_cli_rs"],
+        ]
+        var rolloutData = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        rolloutData.append(0x0a)
+        try rolloutData.write(to: rollout, options: .atomic)
         let storeURL = RestorableAgentKind.codex.hookStoreFileURL(
             homeDirectory: root.path,
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]

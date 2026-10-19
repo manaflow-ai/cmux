@@ -26,6 +26,8 @@ extension MobileShellComposite {
         _ ticket: CmxAttachTicket,
         instanceTagUpdate: PairedMacInstanceTagUpdate = .preserve,
         displayNameOverride: String? = nil,
+        markActive: Bool = true,
+        requiredScope: MobileShellScopeSnapshot? = nil,
         userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
@@ -34,12 +36,35 @@ extension MobileShellComposite {
               ticket.macDeviceID != "manual-ticket-request",
               !ticket.macDeviceID.hasPrefix("manual-") else { return true }
         let stackUserID = identityProvider?.currentUserID
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(
+            .pairedMacStoreWriteStarted,
+            correlationID: ticket.macDeviceID
+        )
         let scope = await currentScopeSnapshot(userID: stackUserID)
         let ticketDisplayName = displayNameOverride ?? ticket.macDisplayName
         var accepted = true
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
-            guard let self else { return }
-            if let scope, await !self.isScopeCurrent(scope) { return }
+            guard let self else {
+                accepted = false
+                return
+            }
+            if let requiredScope {
+                guard scope == requiredScope else {
+                    accepted = false
+                    return
+                }
+            }
+            if let scope, await !self.isScopeCurrent(scope) {
+                accepted = false
+                self.recordAppEvent(
+                    .pairedMacStoreWriteFailed,
+                    correlationID: ticket.macDeviceID,
+                    startedAt: startedAt,
+                    failure: .superseded
+                )
+                return
+            }
             let scopedMacs = (try? await pairedMacStore.loadAll(
                 stackUserID: stackUserID, teamID: scope?.teamID
             )) ?? []
@@ -53,11 +78,13 @@ extension MobileShellComposite {
                 expectedStoredTag = reportedTag
             }
             let exactExisting = scopedMacs.first {
-                $0.macDeviceID == ticket.macDeviceID
-                    && $0.instanceTag == expectedStoredTag
+                MacPairingKey($0) == MacPairingKey(
+                    macDeviceID: ticket.macDeviceID,
+                    instanceTag: expectedStoredTag
+                )
             }
             let physicalMatches = scopedMacs.filter {
-                $0.macDeviceID == ticket.macDeviceID
+                MacPairingKey($0).isOnDevice(ticket.macDeviceID)
             }
             let existing: MobilePairedMac?
             if let exactExisting {
@@ -79,7 +106,10 @@ extension MobileShellComposite {
                     stackUserID: nil, teamID: scope?.teamID
                 )) ?? []
                 displayName = knownMacs.first {
-                    $0.macDeviceID == ticket.macDeviceID
+                    MacPairingKey($0) == MacPairingKey(
+                        macDeviceID: ticket.macDeviceID,
+                        instanceTag: expectedStoredTag
+                    )
                 }?.displayName
             }
             let instanceTag: String?
@@ -109,19 +139,34 @@ extension MobileShellComposite {
                         displayName: displayName,
                         routes: routes,
                         condition: .unclaimed,
-                        markActive: true,
+                        markActive: markActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()
                     )
-                    guard accepted else { return }
+                    guard accepted else {
+                        self.recordAppEvent(
+                            .pairedMacStoreWriteFailed,
+                            correlationID: ticket.macDeviceID,
+                            startedAt: startedAt,
+                            failure: .authorizationFailed
+                        )
+                        self.recordAppEvent(
+                            .computerRoutesUpdated,
+                            correlationID: ticket.macDeviceID,
+                            startedAt: startedAt,
+                            failure: .authorizationFailed,
+                            count: routes.count
+                        )
+                        return
+                    }
                 } else {
                     try await pairedMacStore.upsert(
                         macDeviceID: ticket.macDeviceID,
                         displayName: displayName,
                         routes: routes,
                         instanceTag: instanceTag,
-                        markActive: true,
+                        markActive: markActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()
@@ -141,7 +186,14 @@ extension MobileShellComposite {
                         )
                     } catch {
                         pairedMacPersistenceLog.error(
-                            "user tailscale grant persist failed: \(String(describing: error), privacy: .public)"
+                            "user tailscale grant persist failed: \(String(describing: error), privacy: .private)"
+                        )
+                        self.recordAppEvent(
+                            .computerRoutesUpdated,
+                            correlationID: ticket.macDeviceID,
+                            startedAt: startedAt,
+                            failure: DiagnosticFailureKind.classify(error),
+                            count: userAuthorizedTailscaleRoutes.count
                         )
                     }
                 }
@@ -154,9 +206,35 @@ extension MobileShellComposite {
             } catch {
                 accepted = false
                 pairedMacPersistenceLog.error(
-                    "paired mac upsert failed: \(String(describing: error), privacy: .public)"
+                    "paired mac upsert failed: \(String(describing: error), privacy: .private)"
+                )
+                self.recordAppEvent(
+                    .pairedMacStoreWriteFailed,
+                    correlationID: ticket.macDeviceID,
+                    startedAt: startedAt,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+                self.recordAppEvent(
+                    .computerRoutesUpdated,
+                    correlationID: ticket.macDeviceID,
+                    startedAt: startedAt,
+                    failure: DiagnosticFailureKind.classify(error),
+                    count: routes.count
                 )
             }
+        }
+        if accepted {
+            recordAppEvent(
+                .pairedMacStoreWriteSucceeded,
+                correlationID: ticket.macDeviceID,
+                startedAt: startedAt
+            )
+            recordAppEvent(
+                .computerRoutesUpdated,
+                correlationID: ticket.macDeviceID,
+                startedAt: startedAt,
+                count: ticket.routes.count
+            )
         }
         return accepted
     }

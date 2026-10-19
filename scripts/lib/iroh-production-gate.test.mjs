@@ -62,15 +62,20 @@ test("release gate rejects Mac and iOS artifacts configured for different author
   const macApp = path.join(directory, "cmux DEV gate.app");
   const iosApp = path.join(directory, "cmux.app");
   const expected = "https://gate.example";
+  const expectedV2 = "https://cmux-v2-staging.debussy.workers.dev";
   const presence = "https://presence.example";
 
   writeGateAppPlist(macApp, {}, {
     CMUX_API_BASE_URL: "https://stale.example",
     CMUX_IROH_BROKER_BASE_URL: "https://stale.example",
+    CMUX_IROH_V2_BASE_URL: "https://stale.example",
+    CMUX_IROH_V2_ENVIRONMENT: "development",
   }, "macOS");
   writeGateAppPlist(iosApp, {
     CMUXApiBaseURL: expected,
     CMUXIrohBrokerBaseURL: expected,
+    CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
     CMUXPresenceBaseURL: presence,
   });
 
@@ -79,6 +84,8 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     "--mac-app", macApp,
     "--ios-app", iosApp,
     "--backend-base-url", expected,
+    "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.notEqual(mismatch.status, 0);
@@ -88,12 +95,16 @@ test("release gate rejects Mac and iOS artifacts configured for different author
   writeGateAppPlist(macApp, {}, {
     CMUX_API_BASE_URL: expected,
     CMUX_IROH_BROKER_BASE_URL: expected,
+    CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
   }, "macOS");
   const presenceMismatch = run("bash", [
     "scripts/lib/verify-iroh-release-gate-builds.sh",
     "--mac-app", macApp,
     "--ios-app", iosApp,
     "--backend-base-url", expected,
+    "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.notEqual(presenceMismatch.status, 0);
@@ -102,6 +113,8 @@ test("release gate rejects Mac and iOS artifacts configured for different author
   writeGateAppPlist(macApp, {}, {
     CMUX_API_BASE_URL: expected,
     CMUX_IROH_BROKER_BASE_URL: expected,
+    CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
     CMUX_PRESENCE_BASE_URL: presence,
   }, "macOS");
   const matched = run("bash", [
@@ -109,6 +122,8 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     "--mac-app", macApp,
     "--ios-app", iosApp,
     "--backend-base-url", expected,
+    "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.equal(matched.status, 0, matched.stderr);
@@ -138,7 +153,7 @@ test("explicit credentials file is exclusive and accepts either supported key pa
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, [
-    "==> dev sign-in account: [redacted]",
+    "==> dev sign-in profile: agent ([redacted])",
     "temporary@example.com",
     "temporary-password",
     "",
@@ -198,6 +213,59 @@ test("production release-gate flags fail before creating runtime state", () => {
   assert.match(productionEnvironmentWithoutProduction.stderr, /requires --production/u);
 });
 
+test("release gate iOS build is isolated from the configured default iPhone", () => {
+  const result = run("bash", ["-c", [
+    "set -euo pipefail",
+    "source scripts/lib/iroh-release-gate-targets.sh",
+    "iroh_release_gate_set_ios_reload_args prodgate 'cmux Iroh gate prodgate' SIMULATOR-ID 1",
+    "printf '<%s>\\n' \"${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}\"",
+  ].join("; ")]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, [
+    "<--tag>",
+    "<prodgate>",
+    "<--simulator>",
+    "<cmux Iroh gate prodgate>",
+    "<--simulator-id>",
+    "<SIMULATOR-ID>",
+    "<--simulator-only>",
+    "<--prod-auth>",
+    "<--no-launch>",
+    "",
+  ].join("\n"));
+});
+
+test("iOS release artifact gate rejects staged runtime origins", (t) => {
+  const directory = fixtureDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const app = path.join(directory, "cmux.app");
+  const args = ["scripts/lib/verify-ios-release-origins.sh", "--app", app];
+
+  writeGateAppPlist(app, {
+    CFBundleIdentifier: "dev.cmux.app.internal",
+    CMUXAuthEnvironment: "production",
+    CMUXApiBaseURL: "https://cmux.com",
+    CMUXIrohBrokerBaseURL: "https://cmux.com",
+    CMUXPresenceBaseURL: "https://presence.cmux.dev",
+    CMUXDevTag: "",
+  });
+  const valid = run("bash", args);
+  assert.equal(valid.status, 0, valid.stderr);
+
+  writeGateAppPlist(app, {
+    CFBundleIdentifier: "dev.cmux.app.internal",
+    CMUXAuthEnvironment: "production",
+    CMUXApiBaseURL: "https://cmux.com",
+    CMUXIrohBrokerBaseURL: "https://cmux-staging.vercel.app",
+    CMUXPresenceBaseURL: "https://presence.cmux.dev",
+    CMUXDevTag: "internal",
+  });
+  const invalid = run("bash", args);
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /CMUXIrohBrokerBaseURL/u);
+});
+
 test("production release gate gives its account helper a normalized protected state directory", (t) => {
   const directory = fixtureDirectory();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -231,6 +299,8 @@ exit 73
   const stackEnvironment = path.join(directory, "stack.env");
   writeFileSync(stackEnvironment, "unused=true\n", { mode: 0o600 });
   chmodSync(stackEnvironment, 0o600);
+  const reportOutput = path.join(directory, "release-gate-report.json");
+  writeFileSync(reportOutput, '{"passed":true,"stale":true}\n', { mode: 0o600 });
 
   const result = run("bash", [
     "scripts/run-iroh-release-gate.sh",
@@ -238,6 +308,7 @@ exit 73
     "--tag", "prodtmp",
     "--production",
     "--stack-env-file", stackEnvironment,
+    "--report-output", reportOutput,
   ], {
     CMUX_TEST_CAPTURE_FILE: captureFile,
     PATH: `${fakeBin}:${process.env.PATH}`,
@@ -249,6 +320,7 @@ exit 73
   assert.equal(stateFile, path.resolve(stateFile));
   assert.equal(path.dirname(stateFile).startsWith(`${directory}/`), true);
   assert.equal(mode, "700");
+  assert.equal(existsSync(reportOutput), false);
 });
 
 test("production release gate removes disposable tagged Iroh endpoint state", (t) => {
@@ -301,4 +373,19 @@ test("Mac reload documents production auth without accepting secret values", () 
   assert.match(result.stdout, /--prod-auth/u);
   assert.match(result.stdout, /--credentials-file <path>/u);
   assert.match(result.stdout, /credential values never enter argv/u);
+});
+
+test("Mac reload accepts an immutable cmux-tui manifest pin", () => {
+  const result = run("bash", ["scripts/reload.sh", "--help"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /--cmux-tui-manifest-url <url>/u);
+
+  const source = readFileSync(
+    path.join(repositoryRoot, "scripts/reload.sh"),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /--manifest-url "\$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"/u,
+  );
 });

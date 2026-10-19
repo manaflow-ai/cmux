@@ -6,7 +6,8 @@ public struct WorkspaceGroupDeletionConfirmation: Equatable, Sendable {
     public let groupId: UUID
     /// The group's current display name.
     public let groupName: String
-    /// The workspace represented by the group header.
+    /// The stable identity represented by the group header. For an empty group
+    /// this is a placeholder id and `memberWorkspaceIds` is empty.
     public let anchorWorkspaceId: UUID
     /// Whether ``memberWorkspaceIds`` includes the anchor workspace.
     public let includesAnchorWorkspace: Bool

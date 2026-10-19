@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import Foundation
 
 /// Persists per-Mac update-hint dismissal signatures in injected user defaults.
@@ -41,9 +42,9 @@ public struct MobileMacUpdateHintDismissalStore {
     /// Builds the persistence key for one Mac pairing. Tagged pairings get a
     /// per-build key; untagged pairings keep the legacy device-level key.
     private static func key(for macDeviceID: String, instanceTag: String?) -> String {
-        guard let instanceTag, !instanceTag.isEmpty else {
-            return keyPrefix + macDeviceID
-        }
-        return keyPrefix + macDeviceID + "\u{1F}" + instanceTag
+        keyPrefix + CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
     }
 }

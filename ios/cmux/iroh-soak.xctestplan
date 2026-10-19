@@ -1,0 +1,20 @@
+{
+  "configurations": [
+    {
+      "id": "05D69F28-DF65-4F50-9D59-228086E4E460",
+      "name": "Iroh soak harness",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {},
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:cmuxPackage",
+        "identifier": "cmuxFeatureTests",
+        "name": "cmuxFeatureTests"
+      }
+    }
+  ],
+  "version": 1
+}

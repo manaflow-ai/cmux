@@ -15,11 +15,16 @@ private let mobileIrohReleaseGateLog = Logger(
 
 @MainActor
 final class MobileIrohReleaseGateRunner {
-    private static let relayRolloverSoakDurationSeconds = 330
+    // Relay credentials live for 30 minutes. Keep the explicit continuity
+    // probe just beyond that lifetime so it proves the normal make-before-break
+    // renewal path instead of relying on a shortened test interval.
+    private static let relayRolloverSoakDurationSeconds = 1_950
     private static let requiredReadyObservations = 2
-    private static let readinessSettlingDuration: Duration = .milliseconds(500)
     private static let standardTimeout: Duration = .seconds(90)
-    private static let extendedTimeout: Duration = .seconds(420)
+    // The relay rollover scenario runs for 1,950 seconds to cross the
+    // 30-minute credential lifetime. Leave room for startup and final report
+    // writing without timing out the runner first.
+    private static let extendedTimeout: Duration = .seconds(2_400)
 
     struct Configuration: Equatable, Sendable {
         static let modeEnvironmentKey = "CMUX_IROH_RELEASE_GATE_MODE"
@@ -30,6 +35,8 @@ final class MobileIrohReleaseGateRunner {
         let mode: CmxIrohTransportVerificationMode
         let scenario: MobileIrohReleaseGateScenario
         let reportURL: URL
+        let soakProfile: MobileIrohSoakRunner.Profile?
+        let startupPath: String
 
         init?(
             environment: [String: String],
@@ -50,8 +57,18 @@ final class MobileIrohReleaseGateRunner {
                 scenario = .standard
             }
             guard scenario == .standard || mode == .relayOnly else { return nil }
+            if let rawProfile = environment["CMUX_IROH_SOAK_PROFILE"], !rawProfile.isEmpty {
+                guard let profile = MobileIrohSoakRunner.Profile(rawValue: rawProfile),
+                      scenario == .standard || scenario == .relayRollover else { return nil }
+                self.soakProfile = profile
+            } else {
+                self.soakProfile = nil
+            }
             self.mode = mode
             self.scenario = scenario
+            self.startupPath = ["CMUX_DOGFOOD_ATTACH_URL", "CMUX_UITEST_ATTACH_URL"].contains {
+                !(environment[$0] ?? "").isEmpty
+            } ? "injected_pairing" : "stored_pairing"
             self.reportURL = cachesDirectory.appendingPathComponent(Self.reportFilename)
         }
 
@@ -75,6 +92,7 @@ final class MobileIrohReleaseGateRunner {
         let scenario: String
         let passed: Bool
         let hostStatusVerified: Bool
+        let rpcMethodInventoryVerified: Bool
         let terminalRoundTripVerified: Bool
         let workspaceMutationVerified: Bool
         let independentEventsVerified: Bool
@@ -91,7 +109,15 @@ final class MobileIrohReleaseGateRunner {
         let soakDurationSeconds: Int
         let routeKind: String?
         let selectedPath: String?
-        let failure: String?
+        var failure: String?
+        var uiLatencies: [String: Double]? = nil
+        var startupPath: String? = nil
+        /// Last privacy-safe transport diagnostic observed when readiness timed out.
+        /// Raw values belong to the stable ``DiagnosticEventCode`` vocabulary.
+        let lastDiagnosticEventCode: UInt16?
+        /// Raw ``DiagnosticFailureKind`` carried by that event, when present.
+        let lastDiagnosticFailureKind: Int?
+        var soak: MobileIrohSoakRunner.Evidence? = nil
     }
 
     struct Readiness: Equatable, Sendable {
@@ -113,8 +139,18 @@ final class MobileIrohReleaseGateRunner {
     private enum Failure: String, Sendable {
         case timeout
         case readinessUnavailable = "readiness_unavailable"
+        case notSignedIn = "not_signed_in"
+        case notConnected = "not_connected"
+        case nonIrohRoute = "non_iroh_route"
+        case workspaceUnavailable = "workspace_unavailable"
+        case terminalUnavailable = "terminal_unavailable"
         case pathPolicyMismatch = "path_policy_mismatch"
         case unknownProbeFailure = "unknown_probe_failure"
+    }
+
+    private enum Progress: Equatable, Sendable {
+        case awaitingReadiness(lastObserved: Readiness?)
+        case running
     }
 
     struct Dependencies {
@@ -124,31 +160,118 @@ final class MobileIrohReleaseGateRunner {
             String
         ) async throws -> MobileIrohReleaseGateProbeResult
         let settingsUpdates: @MainActor () -> AsyncStream<CmxIrohSettingsSnapshot>
+        let diagnosticReport: @MainActor () async -> DiagnosticReport
         let writeReport: @MainActor (Report, URL) throws -> Void
         let postReportReady: @MainActor () -> Void
+        let settleReadiness: @MainActor () async throws -> Void
         let timeout: Duration
+
+        init(
+            readinessUpdates: (@MainActor (CMUXMobileShellStore) -> AsyncStream<Readiness>)?,
+            runProbe: @escaping @MainActor (
+                CMUXMobileShellStore,
+                String
+            ) async throws -> MobileIrohReleaseGateProbeResult,
+            settingsUpdates: @escaping @MainActor () -> AsyncStream<CmxIrohSettingsSnapshot>,
+            diagnosticReport: @escaping @MainActor () async -> DiagnosticReport = { .empty },
+            writeReport: @escaping @MainActor (Report, URL) throws -> Void,
+            postReportReady: @escaping @MainActor () -> Void,
+            settleReadiness: @escaping @MainActor () async throws -> Void = {},
+            timeout: Duration
+        ) {
+            self.readinessUpdates = readinessUpdates
+            self.runProbe = runProbe
+            self.settingsUpdates = settingsUpdates
+            self.diagnosticReport = diagnosticReport
+            self.writeReport = writeReport
+            self.postReportReady = postReportReady
+            self.settleReadiness = settleReadiness
+            self.timeout = timeout
+        }
     }
 
+    private let uiProbe: MobileReleaseGateUIProbe?
     private let configuration: Configuration
     private let fileManager: FileManager
     private let dependencies: Dependencies
     private var observationID: UUID?
     private var runTask: Task<Void, Never>?
     private var completedProbe: MobileIrohReleaseGateProbeResult?
+    private var progress: Progress = .awaitingReadiness(lastObserved: nil)
+    private let soakRunner: MobileIrohSoakRunner?
 
     init(
         configuration: Configuration,
+        uiProbe: MobileReleaseGateUIProbe,
         settingsController: any CmxIrohSettingsControlling,
         endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity? = { nil },
         relayCredentialExpiry: @escaping @Sendable () async -> Date? = { nil },
         fileManager: FileManager = .default
     ) {
+        self.uiProbe = uiProbe
         self.configuration = configuration
         self.fileManager = fileManager
+        let soakRunner = configuration.soakProfile.map {
+            MobileIrohSoakRunner(
+                profile: $0,
+                requiresRelay: configuration.mode == .relayOnly,
+                allowForcedReconnect: false
+            )
+        }
+        self.soakRunner = soakRunner
         self.dependencies = Dependencies(
             readinessUpdates: nil,
             runProbe: { store, marker in
-                try await store.runIrohReleaseGateProbe(
+                if let soakRunner {
+                    uiProbe.record(.authenticatedWorkspacesReady)
+                    guard let identity = store.irohSoakUIIdentity() else {
+                        throw MobileReleaseGateUIProbe.Failure.unavailable
+                    }
+                    try await uiProbe.exercise(
+                        workspaceID: identity.workspace, surfaceID: identity.surface
+                    )
+                    // UI evidence returns to the list so the compositor can
+                    // prove teardown. Restore the exact measured target before
+                    // transport work, rather than relying on a stale selection
+                    // or a compact-navigation side effect.
+                    store.selectedWorkspaceID = .init(rawValue: identity.workspace)
+                    store.selectedTerminalID = .init(rawValue: identity.surface)
+                    await Task.yield()
+                    let terminalSession = MobileIrohReleaseGateTerminalSession(client: store)
+                    defer { terminalSession.reset() }
+                    let soakProbe = try await soakRunner.run(
+                        marker: marker,
+                        connection: { await store.irohSoakConnection() },
+                        probe: { marker in try await store.runIrohReleaseGateProbe(marker: marker, terminalSession: terminalSession) },
+                        stress: { cycle, marker in
+                            try await store.runIrohSoakUsageStep(
+                                cycle: cycle,
+                                marker: marker,
+                                terminalSession: terminalSession,
+                                includeForcedReconnect: false
+                            )
+                        },
+                        recovery: {
+                            terminalSession.reset()
+                            return await store.recoverIrohSoakConnection()
+                        }
+                    )
+                    guard configuration.scenario == .relayRollover else {
+                        return soakProbe
+                    }
+                    // The stress workload proves sustained use. Run the
+                    // explicit rollover probe afterward so the report also
+                    // proves credential replacement and continuity.
+                    return try await store.runIrohReleaseGateProbe(
+                        marker: "\(marker)_ROLLOVER",
+                        terminalSession: terminalSession,
+                        scenario: .relayRollover,
+                        soakDurationSeconds: Self.relayRolloverSoakDurationSeconds,
+                        endpointIdentity: endpointIdentity,
+                        relayCredentialExpiry: relayCredentialExpiry
+                    )
+                }
+                return try await store.runIrohReleaseGateProbe(
                     marker: marker,
                     scenario: configuration.scenario,
                     soakDurationSeconds: configuration.scenario == .relayRollover
@@ -161,15 +284,28 @@ final class MobileIrohReleaseGateRunner {
             settingsUpdates: {
                 settingsController.irohSettingsUpdates()
             },
+            diagnosticReport: {
+                await settingsController.irohDiagnosticReport()
+            },
             writeReport: { report, url in
                 try Self.write(report: report, to: url)
             },
             postReportReady: {
                 Self.postReportReadyNotification()
             },
-            timeout: configuration.scenario == .standard
-                ? Self.standardTimeout
-                : Self.extendedTimeout
+            settleReadiness: {
+                try await ContinuousClock().sleep(for: .milliseconds(500))
+            },
+            timeout: configuration.soakProfile.map {
+                .seconds(
+                    $0.seconds
+                        + (configuration.scenario == .relayRollover
+                            ? Self.relayRolloverSoakDurationSeconds
+                            : 0)
+                        + 180
+                )
+            }
+                ?? (configuration.scenario == .standard ? Self.standardTimeout : Self.extendedTimeout)
         )
     }
 
@@ -180,7 +316,9 @@ final class MobileIrohReleaseGateRunner {
     ) {
         self.configuration = configuration
         self.fileManager = fileManager
+        self.uiProbe = nil
         self.dependencies = dependencies
+        self.soakRunner = nil
     }
 
     func run(store: CMUXMobileShellStore) async {
@@ -197,8 +335,12 @@ final class MobileIrohReleaseGateRunner {
 
     private func runOnce(store: CMUXMobileShellStore) async {
         completedProbe = nil
+        progress = .awaitingReadiness(lastObserved: nil)
         try? fileManager.removeItem(at: configuration.reportURL)
-        let report = await boundedReport(store: store)
+        var report = await boundedReport(store: store)
+        report.soak = soakRunner?.evidence
+        report.uiLatencies = uiProbe?.latencies()
+        report.startupPath = configuration.startupPath
         do {
             try dependencies.writeReport(report, configuration.reportURL)
             dependencies.postReportReady()
@@ -260,11 +402,13 @@ final class MobileIrohReleaseGateRunner {
                     return
                 }
                 guard !Task.isCancelled, let self else { return }
+                let deadline = await self.deadlineFailure()
                 continuation.yield(Self.failureReport(
                     mode: mode,
                     scenario: scenario,
-                    failure: .timeout,
-                    completedProbe: self.completedProbe
+                    failure: deadline.failure,
+                    completedProbe: self.completedProbe,
+                    lastDiagnosticEvent: deadline.lastDiagnosticEvent
                 ))
                 continuation.finish()
                 operationTask.cancel()
@@ -291,6 +435,7 @@ final class MobileIrohReleaseGateRunner {
                 ?? readinessUpdates(for: store)
             var observedReady = false
             for await state in readiness {
+                progress = .awaitingReadiness(lastObserved: state)
                 mobileIrohReleaseGateLog.info(
                     "readiness signedIn=\(state.isSignedIn, privacy: .public) connected=\(state.isConnected, privacy: .public) iroh=\(state.usesIroh, privacy: .public) workspace=\(state.hasWorkspaceMutation, privacy: .public) terminal=\(state.hasTerminal, privacy: .public)"
                 )
@@ -321,10 +466,13 @@ final class MobileIrohReleaseGateRunner {
                 )
             }
             readyObservations += 1
-            if readyObservations < Self.requiredReadyObservations,
-               dependencies.readinessUpdates == nil {
+            if readyObservations < Self.requiredReadyObservations {
+                // Require the connection to remain ready across a real
+                // settling interval before starting transport work. This
+                // interval is injected in tests and is excluded from UI
+                // latency measurements.
                 do {
-                    try await Task.sleep(for: Self.readinessSettlingDuration)
+                    try await dependencies.settleReadiness()
                 } catch {
                     return Self.failureReport(
                         mode: configuration.mode,
@@ -334,6 +482,7 @@ final class MobileIrohReleaseGateRunner {
                 }
             }
         }
+        progress = .running
         guard !Task.isCancelled else {
             return Self.failureReport(
                 mode: configuration.mode,
@@ -351,10 +500,14 @@ final class MobileIrohReleaseGateRunner {
                         failure: .timeout
                     )
                 }
-                if let accepted = Self.acceptedPath(
+                let accepted = Self.acceptedPath(
                     snapshot.selectedTransportPath,
                     mode: configuration.mode
-                ) {
+                )
+                mobileIrohReleaseGateLog.info(
+                    "path-check path=\(String(describing: snapshot.selectedTransportPath), privacy: .public) accepted=\(accepted ?? "no", privacy: .public)"
+                )
+                if let accepted {
                     pathBeforeProbe = accepted
                     break
                 }
@@ -379,12 +532,29 @@ final class MobileIrohReleaseGateRunner {
         let probe: MobileIrohReleaseGateProbeResult
         do {
             probe = try await dependencies.runProbe(store, marker)
+        } catch let failure as MobileReleaseGateUIProbe.Failure {
+            var report = Self.failureReport(mode: configuration.mode, scenario: configuration.scenario,
+                                            failure: .unknownProbeFailure)
+            report.failure = failure.rawValue
+            return report
+        } catch let failure as MobileIrohSoakRunner.Failure {
+            var report = Self.failureReport(
+                mode: configuration.mode,
+                scenario: configuration.scenario,
+                failure: .unknownProbeFailure
+            )
+            // The stable operation name in the soak evidence locates failures.
+            report.soak = soakRunner?.evidence
+            report.failure = failure.rawValue
+            mobileIrohReleaseGateLog.error("soak failed reason=\(failure.rawValue, privacy: .public)")
+            return report
         } catch let failure as MobileIrohReleaseGateProbeFailure {
             return Self.probeFailureReport(
                 mode: configuration.mode,
                 scenario: configuration.scenario,
                 failure: failure,
-                selectedPath: pathBeforeProbe
+                selectedPath: pathBeforeProbe,
+                soak: soakRunner?.evidence
             )
         } catch {
             return Self.failureReport(
@@ -394,6 +564,13 @@ final class MobileIrohReleaseGateRunner {
             )
         }
         completedProbe = probe
+
+        if let soakRunner, let selectedPath = soakRunner.evidence.selectedPath {
+            return Self.completedReport(
+                mode: configuration.mode, scenario: configuration.scenario,
+                probe: probe, selectedPath: selectedPath, soak: soakRunner.evidence
+            )
+        }
 
         if let pathBeforeProbe {
             return Self.completedReport(
@@ -437,6 +614,70 @@ final class MobileIrohReleaseGateRunner {
             failure: .pathPolicyMismatch,
             completedProbe: probe
         )
+    }
+
+    private struct DeadlineFailure: Sendable {
+        let failure: Failure
+        let lastDiagnosticEvent: DiagnosticEvent?
+    }
+
+    private func deadlineFailure() async -> DeadlineFailure {
+        let failure: Failure
+        guard case let .awaitingReadiness(lastObserved) = progress,
+              let readiness = lastObserved else {
+            return DeadlineFailure(failure: .timeout, lastDiagnosticEvent: nil)
+        }
+        if !readiness.isSignedIn {
+            failure = .notSignedIn
+        } else if !readiness.isConnected {
+            failure = .notConnected
+        } else if !readiness.usesIroh {
+            failure = .nonIrohRoute
+        } else if !readiness.hasWorkspaceMutation {
+            failure = .workspaceUnavailable
+        } else if !readiness.hasTerminal {
+            failure = .terminalUnavailable
+        } else {
+            failure = .timeout
+        }
+        guard failure == .notConnected else {
+            return DeadlineFailure(failure: failure, lastDiagnosticEvent: nil)
+        }
+        let report = await dependencies.diagnosticReport()
+        return DeadlineFailure(
+            failure: failure,
+            lastDiagnosticEvent: report.events.last(where: Self.isConnectionDiagnosticEvent)
+        )
+    }
+
+    private nonisolated static func isConnectionDiagnosticEvent(_ event: DiagnosticEvent) -> Bool {
+        switch event.code {
+        case .pairFail,
+             .pairUnreachable,
+             .transportDialStarted,
+             .transportDialConnected,
+             .transportDialFailed,
+             .hostAuthenticated,
+             .rpcReady,
+             .endpointStarting,
+             .endpointActive,
+             .endpointStopped,
+             .endpointFailed,
+             .relayPolicyRefreshStarted,
+             .relayPolicyRefreshSucceeded,
+             .relayPolicyRefreshFailed,
+             .routeUnavailable,
+             .discoveryStarted,
+             .discoverySucceeded,
+             .discoveryFailed,
+             .admissionSucceeded,
+             .admissionFailed,
+             .hostAuthenticationFailed,
+             .rpcFailed:
+            true
+        default:
+            false
+        }
     }
 
     private func readinessUpdates(
@@ -515,25 +756,29 @@ final class MobileIrohReleaseGateRunner {
         }
     }
 
-    private static func completedReport(
+    static func completedReport(
         mode: CmxIrohTransportVerificationMode,
         scenario: MobileIrohReleaseGateScenario,
         probe: MobileIrohReleaseGateProbeResult,
-        selectedPath: String
+        selectedPath: String,
+        soak: MobileIrohSoakRunner.Evidence? = nil
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: probe.hostStatusVerified
+                && probe.rpcMethodInventoryVerified
                 && probe.terminalRoundTripVerified
                 && probe.workspaceMutationVerified
                 && probe.independentEventsVerified
                 && probe.notificationReconcileVerified
                 && probe.chatSessionsVerified
                 && probe.artifactScanCountVerified
+                && (soak?.recoverableFailures.isEmpty ?? true)
                 && scenarioPassed(scenario, probe: probe),
             hostStatusVerified: probe.hostStatusVerified,
+            rpcMethodInventoryVerified: probe.rpcMethodInventoryVerified,
             terminalRoundTripVerified: probe.terminalRoundTripVerified,
             workspaceMutationVerified: probe.workspaceMutationVerified,
             independentEventsVerified: probe.independentEventsVerified,
@@ -550,7 +795,10 @@ final class MobileIrohReleaseGateRunner {
             soakDurationSeconds: probe.soakDurationSeconds,
             routeKind: CmxAttachTransportKind.iroh.rawValue,
             selectedPath: selectedPath,
-            failure: nil
+            failure: (soak?.recoverableFailures.isEmpty ?? true) ? nil : "soak_terminal_recovered",
+            lastDiagnosticEventCode: nil,
+            lastDiagnosticFailureKind: nil,
+            soak: soak
         )
     }
 
@@ -577,14 +825,16 @@ final class MobileIrohReleaseGateRunner {
         mode: CmxIrohTransportVerificationMode,
         scenario: MobileIrohReleaseGateScenario,
         failure: MobileIrohReleaseGateProbeFailure,
-        selectedPath: String?
+        selectedPath: String?,
+        soak: MobileIrohSoakRunner.Evidence? = nil
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: false,
+            rpcMethodInventoryVerified: false,
             terminalRoundTripVerified: false,
             workspaceMutationVerified: false,
             independentEventsVerified: false,
@@ -601,7 +851,10 @@ final class MobileIrohReleaseGateRunner {
             soakDurationSeconds: 0,
             routeKind: CmxAttachTransportKind.iroh.rawValue,
             selectedPath: selectedPath,
-            failure: failure.rawValue
+            failure: failure.rawValue,
+            lastDiagnosticEventCode: nil,
+            lastDiagnosticFailureKind: nil,
+            soak: soak
         )
     }
 
@@ -609,14 +862,16 @@ final class MobileIrohReleaseGateRunner {
         mode: CmxIrohTransportVerificationMode,
         scenario: MobileIrohReleaseGateScenario,
         failure: Failure,
-        completedProbe: MobileIrohReleaseGateProbeResult? = nil
+        completedProbe: MobileIrohReleaseGateProbeResult? = nil,
+        lastDiagnosticEvent: DiagnosticEvent? = nil
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: completedProbe?.hostStatusVerified ?? false,
+            rpcMethodInventoryVerified: completedProbe?.rpcMethodInventoryVerified ?? false,
             terminalRoundTripVerified: completedProbe?.terminalRoundTripVerified ?? false,
             workspaceMutationVerified: completedProbe?.workspaceMutationVerified ?? false,
             independentEventsVerified: completedProbe?.independentEventsVerified ?? false,
@@ -633,7 +888,9 @@ final class MobileIrohReleaseGateRunner {
             soakDurationSeconds: completedProbe?.soakDurationSeconds ?? 0,
             routeKind: completedProbe == nil ? nil : CmxAttachTransportKind.iroh.rawValue,
             selectedPath: nil,
-            failure: failure.rawValue
+            failure: failure.rawValue,
+            lastDiagnosticEventCode: lastDiagnosticEvent?.code.rawValue,
+            lastDiagnosticFailureKind: lastDiagnosticEvent?.diagnosticFailureKind?.rawValue
         )
     }
 }

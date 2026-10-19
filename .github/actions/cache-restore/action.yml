@@ -1,0 +1,88 @@
+name: Restore a cache
+description: Restore a cache from the store the repository selects. Never saves.
+
+inputs:
+  path:
+    description: Files and directories to restore.
+    required: true
+  key:
+    description: Exact key to restore.
+    required: true
+  restore-keys:
+    description: Ordered key prefixes to fall back to.
+    required: false
+    default: ""
+  backend:
+    description: "`warp` reads the runner provider store on Warp runners, `r2` reads the R2 bucket from any runner. Anything else reads the GitHub store."
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: "`true` when the exact key was restored."
+    value: ${{ steps.github.outputs.cache-hit || steps.warp.outputs.cache-hit || steps.r2.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Start cache restore measurement
+      id: receipt-clock
+      continue-on-error: true
+      shell: bash
+      run: echo "started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_OUTPUT"
+
+    # The provider store only answers its own runners, so a job that lands
+    # anywhere else keeps reading the GitHub store.
+    - name: Restore from the GitHub store
+      id: github
+      if: ${{ inputs.backend != 'r2' && !(inputs.backend == 'warp' && startsWith(runner.name, 'warp-')) }}
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+    - name: Restore from the Warp store
+      id: warp
+      if: ${{ inputs.backend == 'warp' && startsWith(runner.name, 'warp-') }}
+      uses: WarpBuilds/cache/restore@dad44e2487e9dc889ad6e6bd198e77bb2d828eee # v2.0.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+    # R2 is reachable from every runner and its restores need no credentials.
+    - name: Restore from the R2 store
+      id: r2
+      if: ${{ inputs.backend == 'r2' }}
+      shell: bash
+      env:
+        CACHE_PATH: ${{ inputs.path }}
+        CACHE_KEY: ${{ inputs.key }}
+        CACHE_RESTORE_KEYS: ${{ inputs.restore-keys }}
+      run: |
+        prefixes=()
+        while IFS= read -r prefix; do
+          prefix="${prefix//[[:space:]]/}"
+          if [ -n "$prefix" ]; then prefixes+=("$prefix"); fi
+        done <<< "$CACHE_RESTORE_KEYS"
+        "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" restore "$CACHE_PATH" "$CACHE_KEY" ${prefixes[@]+"${prefixes[@]}"}
+
+    - name: Report cache restore evidence
+      id: receipt
+      if: always()
+      # Observability cannot change restore behavior or hide a failed action.
+      continue-on-error: true
+      shell: bash
+      env:
+        CACHE_STARTED_NS: ${{ steps.receipt-clock.outputs.started_ns }}
+        CACHE_REQUESTED_BACKEND: ${{ inputs.backend }}
+        CACHE_KEY: ${{ inputs.key }}
+        CACHE_GITHUB_OUTCOME: ${{ steps.github.outcome }}
+        CACHE_GITHUB_HIT: ${{ steps.github.outputs.cache-hit }}
+        CACHE_GITHUB_MATCHED: ${{ steps.github.outputs.cache-matched-key }}
+        CACHE_WARP_OUTCOME: ${{ steps.warp.outcome }}
+        CACHE_WARP_HIT: ${{ steps.warp.outputs.cache-hit }}
+        CACHE_WARP_MATCHED: ${{ steps.warp.outputs.cache-matched-key }}
+        CACHE_R2_OUTCOME: ${{ steps.r2.outcome }}
+        CACHE_R2_HIT: ${{ steps.r2.outputs.cache-hit }}
+        CACHE_R2_MATCHED: ${{ steps.r2.outputs.cache-matched-key }}
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py"

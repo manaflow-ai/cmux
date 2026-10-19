@@ -5,15 +5,24 @@
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::Position;
 use ratatui::style::{Modifier, Style};
-use unicode_width::UnicodeWidthStr;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::app::{App, ContextMenu, MenuItem};
 use crate::localization::catalog;
 
 use super::{ScrollbarState, ScrollbarStyle};
+
+#[derive(Clone, Copy)]
+struct ConnectionPromptStyles {
+    base: Style,
+    title: Style,
+    input: Style,
+    button_accent: ratatui::style::Color,
+    button_hover: ratatui::style::Color,
+}
 
 /// Trusted approval dialog for a browser pairing request.
 pub fn draw_pairing_dialog(app: &mut App, frame: &mut Frame) {
@@ -88,12 +97,20 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let hover = app.hover;
     let shake = app.shake_frames;
+    let connection = app.connection_transaction.clone();
     if app.shake_frames > 0 {
         app.shake_frames -= 1;
     }
 
-    let width: u16 = 42.min(screen.width.saturating_sub(2)).max(20);
-    let height: u16 = 9;
+    let width: u16 =
+        if connection.is_some() { 64 } else { 42 }.min(screen.width.saturating_sub(2)).max(20);
+    let height: u16 = if connection.as_ref().is_some_and(|transaction| {
+        matches!(transaction.phase, crate::app::ConnectionDialogPhase::Failed(_))
+    }) {
+        13
+    } else {
+        9
+    };
     if screen.width < width || screen.height < height {
         return;
     }
@@ -121,6 +138,24 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         }
     }
     draw_border(buf, prompt.rect, border);
+    if let Some(transaction) = connection
+        && !matches!(transaction.phase, crate::app::ConnectionDialogPhase::Editing)
+    {
+        draw_connection_prompt(
+            frame,
+            prompt,
+            &transaction,
+            hover,
+            ConnectionPromptStyles {
+                base,
+                title: title_style,
+                input: input_style,
+                button_accent: chrome.prompt_button_accent_fg,
+                button_hover: chrome.prompt_button_hover_bg,
+            },
+        );
+        return;
+    }
     buf.set_stringn(x + 2, y + 2, prompt.label.as_str(), (width - 4) as usize, title_style);
 
     // Input row: visible slice around the cursor.
@@ -181,9 +216,163 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     buf.set_stringn(ok_x, button_y, ok_label, ok_w as usize, button_style(prompt.ok, true));
 }
 
+fn draw_connection_prompt(
+    frame: &mut Frame,
+    prompt: &mut crate::app::Prompt,
+    transaction: &crate::app::ConnectionTransaction,
+    hover: Option<(u16, u16)>,
+    styles: ConnectionPromptStyles,
+) {
+    use crate::app::ConnectionDialogPhase;
+
+    let Rect { x, y, width, height } = prompt.rect;
+    let copy = &catalog().sidebar;
+    let (title, error) = match &transaction.phase {
+        ConnectionDialogPhase::Editing => return,
+        ConnectionDialogPhase::Connecting => {
+            (copy.connecting_to_message(&transaction.target), None)
+        }
+        ConnectionDialogPhase::Starting => (copy.starting_on_message(&transaction.target), None),
+        ConnectionDialogPhase::Failed(error) => {
+            (copy.failed_to_connect_message(&transaction.target), Some(error.as_str()))
+        }
+    };
+    frame.buffer_mut().set_stringn(x + 2, y + 2, &title, (width - 4) as usize, styles.title);
+
+    let input_w = width.saturating_sub(4);
+    prompt.input_rect = Rect::default();
+    for dx in 0..input_w {
+        set_cell(frame.buffer_mut(), x + 2 + dx, y + 4, " ", styles.input);
+    }
+    frame.buffer_mut().set_stringn(
+        x + 2,
+        y + 4,
+        &transaction.target,
+        input_w as usize,
+        styles.input,
+    );
+
+    if let Some(error) = error {
+        for (index, line) in
+            wrapped_message_lines(error, (width - 4) as usize, 3).into_iter().enumerate()
+        {
+            frame.buffer_mut().set_stringn(
+                x + 2,
+                y + 6 + index as u16,
+                &line,
+                (width - 4) as usize,
+                styles.base,
+            );
+        }
+    }
+
+    let close_label = format!("[ {} esc ]", copy.close_dialog);
+    let retry_label = format!("[ {} ⏎ ]", copy.retry_connection);
+    let copy_label = format!("[ {} ^C ]", catalog().menu.copy_message);
+    let close_w = label_width(&close_label);
+    let retry_w = label_width(&retry_label);
+    let copy_w = label_width(&copy_label);
+    let button_y = y + height.saturating_sub(3);
+    let retry_x = x + width - 2 - retry_w;
+    let close_x = retry_x.saturating_sub(close_w + 2);
+    let copy_x = close_x.saturating_sub(copy_w + 2);
+    let failed = error.is_some();
+    prompt.ok = if failed {
+        Rect { x: retry_x, y: button_y, width: retry_w, height: 1 }
+    } else {
+        Rect::default()
+    };
+    prompt.clear = if failed && copy_x >= x + 2 {
+        Rect { x: copy_x, y: button_y, width: copy_w, height: 1 }
+    } else {
+        Rect::default()
+    };
+    prompt.cancel = Rect {
+        x: if failed { close_x } else { x + width - 2 - close_w },
+        y: button_y,
+        width: close_w,
+        height: 1,
+    };
+    let button_style = |rect: Rect, accent: bool| {
+        let hovered = hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
+        let mut style = if accent { styles.base.fg(styles.button_accent) } else { styles.base };
+        if hovered {
+            style = style.add_modifier(Modifier::BOLD).bg(styles.button_hover);
+        }
+        style
+    };
+    if prompt.clear.width > 0 {
+        frame.buffer_mut().set_stringn(
+            prompt.clear.x,
+            button_y,
+            &copy_label,
+            copy_w as usize,
+            button_style(prompt.clear, false),
+        );
+    }
+    frame.buffer_mut().set_stringn(
+        prompt.cancel.x,
+        button_y,
+        &close_label,
+        close_w as usize,
+        button_style(prompt.cancel, false),
+    );
+    if prompt.ok.width > 0 {
+        frame.buffer_mut().set_stringn(
+            prompt.ok.x,
+            button_y,
+            &retry_label,
+            retry_w as usize,
+            button_style(prompt.ok, true),
+        );
+    }
+}
+
+fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<String> {
+    if width == 0 || limit == 0 {
+        return Vec::new();
+    }
+    let sanitized = message
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect::<String>();
+    let mut lines = Vec::new();
+    let mut remaining = sanitized.as_str();
+    while !remaining.is_empty() && lines.len() < limit {
+        let end = grapheme_prefix_end(remaining, width);
+        if end == 0 {
+            break;
+        }
+        let split = if end < remaining.len() {
+            remaining[..end]
+                .grapheme_indices(true)
+                .rev()
+                .find(|(_, grapheme)| grapheme_is_whitespace(grapheme))
+                .map(|(index, _)| index)
+                .filter(|index| *index > 0)
+                .unwrap_or(end)
+        } else {
+            end
+        };
+        lines.push(trim_grapheme_whitespace(&remaining[..split]).to_string());
+        remaining = trim_grapheme_whitespace_start(&remaining[split..]);
+    }
+    if !remaining.is_empty()
+        && let Some(last) = lines.last_mut()
+    {
+        while usize::from(format!("{last}…").cell_width()) > width && !last.is_empty() {
+            let end = last.grapheme_indices(true).next_back().map_or(0, |(index, _)| index);
+            last.truncate(end);
+        }
+        last.push('…');
+    }
+    lines
+}
+
 pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let chrome = app.chrome;
+    let hover = app.hover;
     let Some(menu) = app.menu.as_mut() else { return };
     let base = Style::default().bg(chrome.menu_bg).fg(chrome.menu_fg);
     let border = base.fg(chrome.menu_border);
@@ -221,7 +410,10 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
             continue;
         }
 
+        let scrollbar_dragging = menu.scrollbar_dragging(depth);
         let level = &menu.levels[depth];
+        let scrollbar = level.scrollbar();
+        let scrollbar_track = scrollbar.map(|(track, _)| track);
         let buf = frame.buffer_mut();
         for dy in 0..height {
             for dx in 0..width {
@@ -230,44 +422,77 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         }
         draw_border(buf, level.rect, border);
 
+        if depth == 0
+            && let Some(search) = menu.search.as_mut()
+        {
+            let title_x = x + 2;
+            let title_w = width.saturating_sub(4) as usize;
+            let prefix = format!(" {} · ", search.label);
+            let prefix_w = usize::from(prefix.cell_width()).min(title_w);
+            let search_style = base.add_modifier(Modifier::BOLD);
+            buf.set_stringn(title_x, y, &prefix, title_w, search_style);
+            let value_x = title_x + prefix_w as u16;
+            let value_w = title_w.saturating_sub(prefix_w);
+            if search.input.as_str().is_empty() {
+                let placeholder = format!("{} ", search.placeholder);
+                buf.set_stringn(
+                    value_x,
+                    y,
+                    &placeholder,
+                    value_w,
+                    base.add_modifier(Modifier::DIM),
+                );
+            } else if value_w > 0 {
+                let (shown, _) = search.input.visible_text_and_cursor(value_w.saturating_sub(1));
+                buf.set_stringn(value_x, y, &shown, value_w, search_style);
+                let cursor_x = value_x + shown.cell_width().min(value_w.saturating_sub(1) as u16);
+                buf.set_stringn(cursor_x, y, "▏", 1, search_style);
+            }
+        }
+
         let pad = ContextMenu::PAD;
         let inner_x = x + 1;
         let inner_y = y + 1;
         let inner_w = width.saturating_sub(2);
         let inner_h = height.saturating_sub(2);
+        let scrollbar_width = u16::from(scrollbar_track.is_some());
+        let row_content_w = inner_w.saturating_sub(scrollbar_width);
         for (i, item) in
             level.items.iter().enumerate().skip(level.scroll_offset).take(inner_h as usize)
         {
             let row_y = inner_y + (i - level.scroll_offset) as u16;
             if *item == MenuItem::Separator {
                 set_cell(buf, x, row_y, "├", border);
-                for dx in 0..inner_w {
+                for dx in 0..row_content_w {
                     set_cell(buf, inner_x + dx, row_y, "─", border);
                 }
                 set_cell(buf, x + width - 1, row_y, "┤", border);
                 continue;
             }
             if let Some(label) = item.label() {
-                let style = if i == level.selected { selected } else { base };
-                for dx in 0..inner_w {
+                let style =
+                    if level.selection_active && i == level.selected { selected } else { base };
+                for dx in 0..row_content_w {
                     set_cell(buf, inner_x + dx, row_y, " ", style);
                 }
                 let shortcut_width =
-                    item.shortcut().map(|shortcut| shortcut.width() as u16 + 2).unwrap_or(0);
+                    item.shortcut().map(|shortcut| shortcut.cell_width() + 2).unwrap_or(0);
                 let arrow_width = matches!(item, MenuItem::Submenu { .. }) as u16 * 2;
                 buf.set_stringn(
                     inner_x + pad + 1,
                     row_y,
                     label,
-                    inner_w.saturating_sub(pad * 2 + arrow_width + shortcut_width) as usize,
+                    row_content_w.saturating_sub(pad * 2 + arrow_width + shortcut_width) as usize,
                     style,
                 );
                 if let Some(shortcut) = item.shortcut() {
                     let shortcut_width =
-                        (shortcut.width() as u16).min(inner_w.saturating_sub(pad * 2));
+                        shortcut.cell_width().min(row_content_w.saturating_sub(pad * 2));
                     if shortcut_width > 0 {
-                        let shortcut_x =
-                            x + level.rect.width.saturating_sub(pad + 1 + shortcut_width);
+                        let shortcut_x = x + level
+                            .rect
+                            .width
+                            .saturating_sub(pad + 1 + shortcut_width + scrollbar_width);
                         buf.set_stringn(
                             shortcut_x,
                             row_y,
@@ -277,10 +502,20 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                         );
                     }
                 }
-                if matches!(item, MenuItem::Submenu { .. }) && inner_w > 2 {
-                    buf.set_stringn(x + width - pad - 3, row_y, " ›", 2, style);
+                if matches!(item, MenuItem::Submenu { .. }) && row_content_w > 2 {
+                    buf.set_stringn(x + width - pad - 3 - scrollbar_width, row_y, " ›", 2, style);
                 }
             }
+        }
+        if let Some((track, thumb)) = scrollbar {
+            let state = if scrollbar_dragging {
+                ScrollbarState::Expanded
+            } else if hover.is_some_and(|(hx, hy)| track.contains(hx, hy)) {
+                ScrollbarState::Highlighted
+            } else {
+                ScrollbarState::Idle
+            };
+            ScrollbarStyle::from_chrome(chrome).draw_thumb(buf, track, thumb, base, state);
         }
     }
 }
@@ -301,10 +536,18 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let desired_width = help
         .rows
         .iter()
-        .map(|(action, shortcuts)| catalog.action_label(*action).width() + shortcuts.width() + 9)
+        .map(|(action, shortcuts)| {
+            usize::from(app.action_display_label(*action).cell_width())
+                + usize::from(shortcuts.cell_width())
+                + 9
+        })
         .max()
         .unwrap_or(44)
-        .max(catalog.shortcuts.title.width() + close_text.width() + 8);
+        .max(
+            usize::from(catalog.shortcuts.title.cell_width())
+                + usize::from(close_text.cell_width())
+                + 8,
+        );
     let width = (desired_width as u16).min(76).min(screen.width.saturating_sub(2)).max(24);
     let height = (total_rows as u16 + 4).min(screen.height.saturating_sub(2)).max(7);
     let x = (screen.width - width) / 2;
@@ -319,7 +562,7 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
     let Some(help) = app.shortcut_help.as_mut() else { return };
     help.rect = rect;
     help.visible_rows = visible_rows;
-    let close_width = close_text.width().min(width.saturating_sub(4) as usize) as u16;
+    let close_width = close_text.cell_width().min(width.saturating_sub(4));
     help.close_button = Rect {
         x: x + width.saturating_sub(close_width + 3),
         y: y + 1,
@@ -371,9 +614,9 @@ pub fn draw_shortcut_help(app: &mut App, frame: &mut Frame) {
         help.rows.iter().skip(scroll_offset).take(visible_rows).enumerate()
     {
         let row_y = y + 2 + line as u16;
-        let label = catalog.action_label(*action);
+        let label = app.action_display_label(*action);
         let shortcuts = format!(" {shortcuts} ");
-        let shortcut_width = (shortcuts.width() as u16).min(inner_width / 2);
+        let shortcut_width = shortcuts.cell_width().min(inner_width / 2);
         let shortcut_x = x + width.saturating_sub(shortcut_width + 2);
         let shortcut_x = if scrollbar_track.height > 0 {
             shortcut_x.min(scrollbar_track.x.saturating_sub(shortcut_width + 1))
@@ -463,14 +706,54 @@ fn draw_border(buf: &mut Buffer, rect: Rect, style: Style) {
 }
 
 fn label_width(label: &str) -> u16 {
-    label.chars().count() as u16
+    label.cell_width()
+}
+
+fn grapheme_prefix_end(input: &str, max_width: usize) -> usize {
+    let mut width: usize = 0;
+    let mut end = 0;
+    for (index, grapheme) in input.grapheme_indices(true) {
+        let grapheme_width = usize::from(grapheme.cell_width());
+        if width.saturating_add(grapheme_width) > max_width {
+            break;
+        }
+        width += grapheme_width;
+        end = index + grapheme.len();
+    }
+    end
+}
+
+fn grapheme_is_whitespace(grapheme: &str) -> bool {
+    grapheme.chars().next().is_some_and(char::is_whitespace)
+}
+
+fn trim_grapheme_whitespace_start(input: &str) -> &str {
+    let start = input
+        .grapheme_indices(true)
+        .find(|(_, grapheme)| !grapheme_is_whitespace(grapheme))
+        .map_or(input.len(), |(index, _)| index);
+    &input[start..]
+}
+
+fn trim_grapheme_whitespace_end(input: &str) -> &str {
+    let end = input
+        .grapheme_indices(true)
+        .rev()
+        .find(|(_, grapheme)| !grapheme_is_whitespace(grapheme))
+        .map_or(0, |(index, grapheme)| index + grapheme.len());
+    &input[..end]
+}
+
+fn trim_grapheme_whitespace(input: &str) -> &str {
+    trim_grapheme_whitespace_end(trim_grapheme_whitespace_start(input))
 }
 
 #[cfg(test)]
 mod tests {
     use cmux_tui_core::Rect;
+    use ratatui::buffer::CellWidth;
 
-    use super::toast_rect_for_label;
+    use super::{label_width, toast_rect_for_label, wrapped_message_lines};
     use crate::localization::catalog_for_locale;
 
     #[test]
@@ -483,7 +766,29 @@ mod tests {
     fn toast_occlusion_uses_the_rendered_character_clamp() {
         assert_eq!(
             toast_rect_for_label(Rect { x: 10, y: 2, width: 10, height: 5 }, " 界 "),
-            Some(Rect { x: 16, y: 5, width: 3, height: 1 })
+            Some(Rect { x: 15, y: 5, width: 4, height: 1 })
         );
+    }
+
+    #[test]
+    fn overlay_labels_and_wrapping_use_terminal_cell_width() {
+        assert_eq!(label_width(" 界 "), 4);
+        let lines = wrapped_message_lines("界界界", 4, 2);
+        assert_eq!(lines, vec!["界界", "界"]);
+        assert!(lines.iter().all(|line| line.cell_width() <= 4));
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_trims_whitespace_graphemes_without_orphaning_marks() {
+        let lines = wrapped_message_lines("a \u{301}b", 2, 2);
+        assert_eq!(lines, vec!["a", "b"]);
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn wrapping_uses_terminal_cell_width_for_halfwidth_dakuten() {
+        let lines = wrapped_message_lines("界ﾞ界ﾞ", 5, 2);
+        assert_eq!(lines, vec!["界ﾞ", "界ﾞ"]);
     }
 }

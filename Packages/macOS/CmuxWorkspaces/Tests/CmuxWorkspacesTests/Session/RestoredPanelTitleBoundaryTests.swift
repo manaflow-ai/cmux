@@ -11,10 +11,17 @@ import Testing
             shellState: .promptIdle
         )
 
-        #expect(!boundary.shouldApply(rawTitle: seededTitle))
-        #expect(boundary.observe(shellState: .commandRunning) == nil)
-        #expect(!boundary.shouldApply(rawTitle: seededTitle))
-        #expect(boundary.shouldApply(rawTitle: "Resumed Codex session"))
+        let appliesSeededTitleBeforeBootstrap = boundary.shouldApply(rawTitle: seededTitle)
+        #expect(!appliesSeededTitleBeforeBootstrap)
+
+        let bufferedTitle = boundary.observe(shellState: .commandRunning)
+        #expect(bufferedTitle == nil)
+
+        let appliesSeededTitleDuringBootstrap = boundary.shouldApply(rawTitle: seededTitle)
+        #expect(!appliesSeededTitleDuringBootstrap)
+
+        let appliesResumedAgentTitle = boundary.shouldApply(rawTitle: "Resumed Codex session")
+        #expect(appliesResumedAgentTitle)
         #expect(!boundary.isReleased)
     }
 
@@ -24,10 +31,15 @@ import Testing
             shellState: .promptIdle
         )
 
-        #expect(!boundary.shouldApply(rawTitle: "cd /tmp/cmux"))
-        #expect(boundary.observe(shellState: .commandRunning) == "cd /tmp/cmux")
+        let appliesPreexecTitle = boundary.shouldApply(rawTitle: "cd /tmp/cmux")
+        #expect(!appliesPreexecTitle)
+
+        let bufferedTitle = boundary.observe(shellState: .commandRunning)
+        #expect(bufferedTitle == "cd /tmp/cmux")
         #expect(boundary.isReleased)
-        #expect(boundary.shouldApply(rawTitle: "/tmp/cmux"))
+
+        let appliesReleasedTitle = boundary.shouldApply(rawTitle: "/tmp/cmux")
+        #expect(appliesReleasedTitle)
     }
 
     @Test func alreadyRunningUnseededShellStartsReleased() {
@@ -36,7 +48,9 @@ import Testing
             shellState: .commandRunning
         )
 
+        let appliesRunningCommandTitle = boundary.shouldApply(rawTitle: "Genuine running command")
+
         #expect(boundary.isReleased)
-        #expect(boundary.shouldApply(rawTitle: "Genuine running command"))
+        #expect(appliesRunningCommandTitle)
     }
 }

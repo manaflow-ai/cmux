@@ -153,6 +153,51 @@ export function verifyEndpointRegistrationSignature(input: {
   if (!valid) throw new IrohForbiddenError({ code: "invalid_registration_signature" });
 }
 
+export type IrohBindingRequestProof = {
+  readonly bindingId: string;
+  readonly method: string;
+  readonly path: string;
+  readonly timestampSeconds: number;
+  readonly bodySha256: string;
+  readonly signature: string;
+};
+
+export function bindingRequestTranscript(input: Omit<
+  IrohBindingRequestProof,
+  "signature"
+>): Uint8Array {
+  return Buffer.from(
+    `cmux/iroh/binding-request/v1\n${input.bindingId}\n${input.method}\n${input.path}\n${input.timestampSeconds}\n${input.bodySha256}`,
+    "utf8",
+  );
+}
+
+export function verifyBindingRequestSignature(input: IrohBindingRequestProof & {
+  readonly endpointId: string;
+  readonly nowSeconds: number;
+}): void {
+  if (
+    !Number.isSafeInteger(input.timestampSeconds)
+    || Math.abs(input.nowSeconds - input.timestampSeconds) > 5 * 60
+    || !/^[0-9a-f]{64}$/.test(input.bodySha256)
+  ) {
+    throw new IrohForbiddenError({ code: "invalid_binding_request_proof" });
+  }
+  const signature = decodeCanonicalBase64url(
+    input.signature,
+    64,
+    "invalid_binding_request_proof",
+  );
+  if (!verify(
+    null,
+    bindingRequestTranscript(input),
+    endpointPublicKey(input.endpointId),
+    signature,
+  )) {
+    throw new IrohForbiddenError({ code: "invalid_binding_request_proof" });
+  }
+}
+
 export function nonceHash(nonce: string): string {
   return sha256(Buffer.from(nonce, "base64url"));
 }

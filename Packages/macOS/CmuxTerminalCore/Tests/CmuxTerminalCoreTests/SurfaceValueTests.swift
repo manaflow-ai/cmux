@@ -14,6 +14,16 @@ import GhosttyKit
     }
 }
 
+@Suite struct TextSendResultTests {
+    @Test func acceptedDistinguishesDeliveryFromQueueing() {
+        #expect(TextSendResult.sent.accepted)
+        #expect(TextSendResult.queued.accepted)
+        #expect(!TextSendResult.inputQueueFull.accepted)
+        #expect(!TextSendResult.surfaceUnavailable.accepted)
+        #expect(!TextSendResult.processExited.accepted)
+    }
+}
+
 @Suite struct InputSendResultTests {
     @Test func acceptedReflectsDelivery() {
         #expect(InputSendResult.sent.accepted)

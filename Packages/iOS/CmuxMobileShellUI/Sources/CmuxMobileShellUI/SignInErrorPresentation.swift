@@ -4,6 +4,8 @@ import Foundation
 import StackAuth
 
 struct SignInErrorPresentation {
+    private let emailCodeFailurePolicy = SignInEmailCodeFailurePolicy()
+
     /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
     /// (enums only, never the error text or the user's email).
     func failureReason(for error: Error) -> String {
@@ -27,6 +29,12 @@ struct SignInErrorPresentation {
                 return "code_expired"
             case "RATE_LIMIT", "RATE_LIMITED":
                 return "rate_limit"
+            case "EMAIL_PASSWORD_MISMATCH":
+                return "invalid_credentials"
+            case "USER_EMAIL_ALREADY_EXISTS":
+                return emailCodeFailurePolicy.action(for: error) == .requestEmailVerification
+                    ? "email_unverified"
+                    : "email_exists"
             default:
                 return "oauth_error"
             }
@@ -45,6 +53,12 @@ struct SignInErrorPresentation {
             case "SCHEMA_ERROR":
                 return L10n.string("auth.error.invalid_email", defaultValue: "Please enter a valid email address.")
             case "USER_EMAIL_ALREADY_EXISTS":
+                if emailCodeFailurePolicy.action(for: displayError) == .requestEmailVerification {
+                    return L10n.string(
+                        "auth.error.email_requires_verification",
+                        defaultValue: "Verify this email before requesting a sign-in code."
+                    )
+                }
                 return L10n.string("auth.error.email_exists", defaultValue: "An account with this email already exists. Try signing in instead.")
             case "VERIFICATION_CODE_ERROR", "INVALID_OTP":
                 return L10n.string("auth.error.invalid_code", defaultValue: "Invalid code. Please check and try again.")

@@ -77,6 +77,7 @@ struct MarkdownPanelView: View {
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
                 backgroundColor: appearance.contentBackgroundColor,
+                isVisibleInUI: isVisibleInUI && panel.displayMode == .preview,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -84,7 +85,10 @@ struct MarkdownPanelView: View {
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus
+                onRequestPanelFocus: onRequestPanelFocus,
+                onViewAttachedToWindow: { [weak panel] in
+                    panel?.replayPendingPreviewFocusAfterWindowAttach()
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(panel.displayMode == .preview ? 1 : 0)
@@ -98,9 +102,26 @@ struct MarkdownPanelView: View {
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    gutterBackgroundColor: appearance.backgroundColor,
+                    wordWrap: fileEditorWordWrap,
+                    filePath: panel.filePath
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if panel.displayMode == .preview, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    focusRequestGeneration: panel.searchFocusRequestGeneration,
+                    canApplyFocusRequest: { generation in
+                        panel.canApplySearchFocusRequest(generation)
+                    },
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() },
+                    onFieldDidFocus: {}
+                )
             }
         }
     }
@@ -176,7 +197,7 @@ struct MarkdownPanelView: View {
                 .cmuxFont(size: 12, design: .monospaced)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+                .copyOnlyTextSelection(for: panel.filePath)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
@@ -207,9 +228,10 @@ struct MarkdownPanelView: View {
     // MARK: - Copy actions
 
     private func copyAsMarkdown() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(panel.content, forType: .string)
+        guard GhosttyApp.terminalPasteboard.writeString(
+            panel.content,
+            to: .general
+        ) else { return }
         flashCopyConfirmation(.markdown)
     }
 
@@ -217,12 +239,15 @@ struct MarkdownPanelView: View {
         Task { @MainActor in
             guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
             let text = await panel.rendererSession.renderedText() ?? panel.content
-            let pb = NSPasteboard.general
-            pb.clearContents()
             // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
             // and a plain-text fallback so plain editors still receive content.
-            pb.setString(html, forType: .html)
-            pb.setString(text, forType: .string)
+            let item = NSPasteboardItem()
+            _ = item.setString(html, forType: .html)
+            _ = item.setString(text, forType: .string)
+            guard GhosttyApp.terminalPasteboard.replaceContents(
+                of: .general,
+                with: [item]
+            ) else { return }
             flashCopyConfirmation(.html)
         }
     }
@@ -245,9 +270,9 @@ struct MarkdownPanelView: View {
     private func triggerFocusFlashAnimation() {
         focusFlashAnimationGeneration &+= 1
         let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+        focusFlashOpacity = FocusFlashPattern.current.values.first ?? 0
 
-        for segment in FocusFlashPattern.segments {
+        for segment in FocusFlashPattern.current.segments {
             DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
                 guard focusFlashAnimationGeneration == generation else { return }
                 withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {

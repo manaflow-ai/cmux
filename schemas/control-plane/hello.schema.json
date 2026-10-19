@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlHello",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "hello"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "endpointId",
+        "wantPasses"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "endpointId": {
+          "type": "string"
+        },
+        "haveRev": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "highest rev this client has on disk; server streams deltas after it, or a full snapshot when null/too old"
+        },
+        "wantPasses": {
+          "type": "boolean"
+        },
+        "deviceId": {
+          "type": "string",
+          "description": "optional client self-identification; presence of any client-info field confirms the device into the account overlay"
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "mac",
+            "ios"
+          ]
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "releaseTrack": {
+          "type": "string",
+          "enum": [
+            "nightly",
+            "stable",
+            "internal",
+            "beta",
+            "appstore",
+            "dev"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

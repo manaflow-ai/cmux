@@ -9,6 +9,7 @@ extension Workspace {
     }
 
     func restoreCustomSidebarPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         guard let name = snapshot.customSidebar?.name,
               let customSidebarPanel = newCustomSidebarSurface(inPane: paneId, name: name, focus: false) else {
             return nil
@@ -23,6 +24,7 @@ extension Workspace {
         name rawName: String,
         focus: Bool = true
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         for (existingId, panel) in panels {
@@ -43,6 +45,7 @@ extension Workspace {
         from panelId: UUID,
         name rawName: String
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         for (existingId, panel) in panels {
@@ -74,6 +77,7 @@ extension Workspace {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
             return nil
@@ -132,10 +136,12 @@ extension Workspace {
         insertFirst: Bool,
         name rawName: String
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
             return nil
         }
+        guard admitsSplitSpacePreflight(splitting: paneId, orientation: orientation) else { return nil }
 
         let customPanel = CustomSidebarPanel(workspace: self, name: name, fileURL: fileURL)
         panels[customPanel.id] = customPanel
@@ -163,6 +169,7 @@ extension Workspace {
             panels.removeValue(forKey: customPanel.id)
             panelTitles.removeValue(forKey: customPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
+            customPanel.close()
             return nil
         }
 

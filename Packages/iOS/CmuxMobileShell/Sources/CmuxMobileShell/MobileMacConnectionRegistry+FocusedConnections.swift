@@ -11,9 +11,15 @@ extension MobileMacConnectionRegistry {
             }
         }
 
-        /// Device-level read of the single focused connection. Get-only:
-        /// installing or removing a focus must name the exact pairing key.
+        /// Compatibility read accepting either a bare legacy id or a composite
+        /// pairing id. It always resolves one exact owner key.
         subscript(macDeviceID: String) -> MacConnection? {
+            registry.focusedConnection(for: MacPairingKey(pairingID: macDeviceID))
+        }
+
+        /// Resolve the one focused owner on a physical Mac regardless of the
+        /// stored versus authenticated instance tag.
+        func onDevice(_ macDeviceID: String) -> MacConnection? {
             registry.focusedConnection(onDevice: macDeviceID)
         }
 

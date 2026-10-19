@@ -39,34 +39,12 @@ struct WindowDockRoutingSocketTests {
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previous = defaults.object(forKey: key)
-        defaults.set(true, forKey: key)
-        defer {
-            if let previous {
-                defaults.set(previous, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
+    private func withDockAvailable(_ body: () throws -> Void) rethrows {
         try body()
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () async throws -> Void) async rethrows {
-        let defaults = UserDefaults.standard
-        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previous = defaults.object(forKey: key)
-        defaults.set(true, forKey: key)
-        defer {
-            if let previous {
-                defaults.set(previous, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
+    private func withDockAvailable(_ body: () async throws -> Void) async rethrows {
         try await body()
     }
 
@@ -91,8 +69,8 @@ struct WindowDockRoutingSocketTests {
         )
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
@@ -101,10 +79,191 @@ struct WindowDockRoutingSocketTests {
         try body(manager, workspace, windowId)
     }
 
+    @Test("Dock focus commands fail when the owning Dock cannot be revealed")
+    @MainActor
+    func dockFocusCommandsFailWhenRevealIsUnavailable() throws {
+        try withDockAvailable {
+            try withSocketAppContext(fileExplorerState: nil) { _, _, windowId in
+                let appDelegate = try #require(AppDelegate.shared)
+                let dock = appDelegate.windowDock(forWindowId: windowId)
+                let firstPane = try #require(dock.bonsplitController.allPaneIds.first)
+                let firstSurfaceID = try #require(dock.newSurface(
+                    kind: .terminal,
+                    inPane: firstPane,
+                    focus: true
+                ))
+                let secondSurfaceID = try #require(dock.newSplit(
+                    kind: .terminal,
+                    orientation: .vertical,
+                    insertFirst: false,
+                    sourcePanelId: firstSurfaceID,
+                    focus: false
+                ))
+                let secondPane = try #require(dock.paneId(forPanelId: secondSurfaceID))
+
+                dock.focusPanel(firstSurfaceID)
+                dock.bonsplitController.focusPane(firstPane)
+                #expect(dock.focusedPanelId == firstSurfaceID)
+                #expect(dock.bonsplitController.focusedPaneId == firstPane)
+
+                let surfaceEnvelope = try v2Envelope(method: "surface.focus", params: [
+                    "workspace_id": windowId.uuidString,
+                    "surface_id": secondSurfaceID.uuidString,
+                ])
+                #expect(surfaceEnvelope["ok"] as? Bool == false)
+                let surfaceError = try #require(surfaceEnvelope["error"] as? [String: Any])
+                #expect(surfaceError["code"] as? String == "unavailable")
+                #expect(surfaceError["message"] as? String == "Dock could not be revealed")
+                #expect(dock.focusedPanelId == firstSurfaceID)
+
+                let paneEnvelope = try v2Envelope(method: "pane.focus", params: [
+                    "workspace_id": windowId.uuidString,
+                    "pane_id": secondPane.id.uuidString,
+                ])
+                #expect(paneEnvelope["ok"] as? Bool == false)
+                let paneError = try #require(paneEnvelope["error"] as? [String: Any])
+                #expect(paneError["code"] as? String == "unavailable")
+                #expect(paneError["message"] as? String == "Dock could not be revealed")
+                #expect(dock.bonsplitController.focusedPaneId == firstPane)
+            }
+        }
+    }
+
+    @Test("Hidden workspace Dock surfaces cannot focus through the visible window Dock")
+    @MainActor
+    func hiddenWorkspaceDockSurfaceFocusFailsClosed() throws {
+        try withDockAvailable {
+            let fileExplorerState = FileExplorerState()
+            fileExplorerState.setVisible(false)
+            try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, _ in
+                let mainPanelID = try #require(workspace.focusedPanelId)
+                let workspaceDock = try #require(workspace.dockSplit)
+                let pane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
+                let originalDockSurfaceID = try #require(workspaceDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: true
+                ))
+                let requestedDockSurfaceID = try #require(workspaceDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: false
+                ))
+                workspaceDock.focusPanel(originalDockSurfaceID)
+
+                let envelope = try v2Envelope(method: "surface.focus", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": requestedDockSurfaceID.uuidString,
+                ])
+
+                #expect(envelope["ok"] as? Bool == false)
+                let error = try #require(envelope["error"] as? [String: Any])
+                #expect(error["code"] as? String == "unavailable")
+                #expect(workspaceDock.focusedPanelId == originalDockSurfaceID)
+                #expect(workspace.focusedPanelId == mainPanelID)
+                #expect(!fileExplorerState.isVisible)
+            }
+        }
+    }
+
+    @Test("Window Dock focus never falls back to a different live window")
+    @MainActor
+    func dockFocusDoesNotFallBackWhenOwnerWindowIsUnavailable() async throws {
+        try await withDockAvailable {
+            try await AppContextSerialGate.withExclusiveAppContext {
+                let previousAppDelegate = AppDelegate.shared
+                let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+                let appDelegate = AppDelegate()
+                let fallbackManager = TabManager(autoWelcomeIfNeeded: false)
+                let ownerManager = TabManager(autoWelcomeIfNeeded: false)
+                let fallbackSidebarState = FileExplorerState()
+                fallbackSidebarState.setVisible(false)
+
+                AppDelegate.shared = appDelegate
+                appDelegate.tabManager = fallbackManager
+                TerminalController.shared.setActiveTabManager(fallbackManager)
+                let fallbackWindowId = appDelegate.registerMainWindowContextForTesting(
+                    tabManager: fallbackManager,
+                    fileExplorerState: fallbackSidebarState
+                )
+                let ownerWindowId = appDelegate.registerMainWindowContextForTesting(
+                    tabManager: ownerManager,
+                    fileExplorerState: nil
+                )
+                defer {
+                    TerminalController.shared.setActiveTabManager(previousManager)
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: ownerWindowId)
+                    appDelegate.unregisterMainWindowContextForTesting(windowId: fallbackWindowId)
+                    fallbackManager.tabs.forEach { $0.teardownAllPanels() }
+                    ownerManager.tabs.forEach { $0.teardownAllPanels() }
+                    AppDelegate.shared = previousAppDelegate
+                }
+
+                let ownerDock = appDelegate.windowDock(forWindowId: ownerWindowId)
+                let pane = try #require(ownerDock.bonsplitController.allPaneIds.first)
+                let originalSurfaceId = try #require(ownerDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: true
+                ))
+                let requestedSurfaceId = try #require(ownerDock.newSurface(
+                    kind: .terminal,
+                    inPane: pane,
+                    focus: false
+                ))
+                let requestedBrowserSurfaceId = try #require(ownerDock.newSurface(
+                    kind: .browser,
+                    inPane: pane,
+                    focus: false
+                ))
+                ownerDock.focusPanel(originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+
+                let envelope = try v2Envelope(method: "surface.focus", params: [
+                    "surface_id": requestedSurfaceId.uuidString,
+                ])
+
+                #expect(envelope["ok"] as? Bool == false)
+                let error = try #require(envelope["error"] as? [String: Any])
+                #expect(error["code"] as? String == "unavailable")
+                #expect(ownerDock.focusedPanelId == originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+                #expect(
+                    TerminalController.shared.activeTabManagerForCallerNotification() === fallbackManager
+                )
+
+                let browserEnvelope = try v2Envelope(method: "browser.focus_webview", params: [
+                    "surface_id": requestedBrowserSurfaceId.uuidString,
+                ])
+                #expect(browserEnvelope["ok"] as? Bool == false)
+                let browserError = try #require(browserEnvelope["error"] as? [String: Any])
+                #expect(browserError["code"] as? String == "unavailable")
+                #expect(ownerDock.focusedPanelId == originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+                #expect(
+                    TerminalController.shared.activeTabManagerForCallerNotification() === fallbackManager
+                )
+
+                let focusModeEnvelope = try v2Envelope(method: "browser.focus_mode.set", params: [
+                    "surface_id": requestedBrowserSurfaceId.uuidString,
+                    "mode": "enter",
+                ])
+                #expect(focusModeEnvelope["ok"] as? Bool == false)
+                let focusModeError = try #require(focusModeEnvelope["error"] as? [String: Any])
+                #expect(focusModeError["code"] as? String == "unavailable")
+                #expect(ownerDock.focusedPanelId == originalSurfaceId)
+                #expect(!fallbackSidebarState.isVisible)
+                #expect(
+                    TerminalController.shared.activeTabManagerForCallerNotification() === fallbackManager
+                )
+            }
+        }
+    }
+
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
     func legacyDockAliasRoutesToCallerWindowDock() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withSocketAppContext { _, _, windowId in
                 let createResult = try v2Result(
                     method: "surface.create",
@@ -150,7 +309,7 @@ struct WindowDockRoutingSocketTests {
     @MainActor
     func dockPaneRoutingAndFocusedCloseStayInDock() async throws {
 #if DEBUG
-        try await withDockEnabled {
+        try await withDockAvailable {
             // Async app-context gate: keep the swapped-in globals ours across
             // the body even when other serialized suites use async helpers.
             try await AppContextSerialGate.withExclusiveAppContext {
@@ -172,14 +331,15 @@ struct WindowDockRoutingSocketTests {
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = activeManager
             TerminalController.shared.setActiveTabManager(activeManager)
-            appDelegate.registerMainWindow(activeWindow, windowId: activeWindowId, tabManager: activeManager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState())
+            appDelegate.registerMainWindow(activeWindow, windowId: activeWindowId, tabManager: activeManager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(), fileExplorerState: FileExplorerState())
             appDelegate.registerMainWindow(dockWindow, windowId: dockWindowId, tabManager: dockManager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(), fileExplorerState: fileExplorerState)
             dockWindow.orderFront(nil)
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
-                // Unregistering each window context also tears down its Dock.
                 appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: activeWindowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: dockWindowId)
                 activeManager.tabs.forEach { $0.teardownAllPanels() }
                 dockManager.tabs.forEach { $0.teardownAllPanels() }
                 activeWindow.orderOut(nil)

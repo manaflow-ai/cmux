@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import CmuxAgentChat
 public import CmuxMobileChanges
 internal import CmuxMobileDiagnostics
@@ -113,20 +114,39 @@ extension MobileShellComposite {
         revision: WorkspaceChangesFileRevision,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)? = nil
     ) async throws -> Data {
-        let statResponse = try await workspaceChangesFileStatResponse(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision
-        )
-        return try await workspaceChangesContentChunks(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision,
-            expectedFingerprint: statResponse.contentFingerprint,
-            collectsData: true,
-            progress: progress,
-            onChunk: { _ in }
-        )
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.artifactDownloadStarted, correlationID: workspaceID)
+        do {
+            let statResponse = try await workspaceChangesFileStatResponse(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision
+            )
+            let data = try await workspaceChangesContentChunks(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision,
+                expectedFingerprint: statResponse.contentFingerprint,
+                collectsData: true,
+                progress: progress,
+                onChunk: { _ in }
+            )
+            recordAppEvent(
+                .artifactDownloadSucceeded,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                count: data.count
+            )
+            return data
+        } catch {
+            recordAppEvent(
+                .artifactDownloadFailed,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 
     /// Creates a path-scoped loader for current working-tree text lines.
@@ -179,6 +199,7 @@ extension MobileShellComposite {
         var result = Data()
         var fingerprints: [String?] = []
         var receivedChunkCount = 0
+        var chunkValidator = ChatArtifactChunkValidator()
         while true {
             try Task.checkCancellation()
             let response = try await workspaceChangesFileFetchResponse(
@@ -189,6 +210,7 @@ extension MobileShellComposite {
                 length: chunkLength
             )
             let chunk = response.value
+            try chunkValidator.receive(chunk)
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: expectedFingerprint,
                 observed: response.contentFingerprint
@@ -206,9 +228,9 @@ extension MobileShellComposite {
             }
             result.append(chunk.data)
             offset = chunk.offset + Int64(chunk.data.count)
-            if chunk.eof { return (result, fingerprints) }
-            guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
+            if chunk.eof {
+                try chunkValidator.finish()
+                return (result, fingerprints)
             }
         }
     }
@@ -227,20 +249,37 @@ extension MobileShellComposite {
         revision: WorkspaceChangesFileRevision,
         onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
-        let statResponse = try await workspaceChangesFileStatResponse(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision
-        )
-        _ = try await workspaceChangesContentChunks(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision,
-            expectedFingerprint: statResponse.contentFingerprint,
-            collectsData: false,
-            progress: nil,
-            onChunk: onChunk
-        )
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.artifactDownloadStarted, correlationID: workspaceID)
+        do {
+            let statResponse = try await workspaceChangesFileStatResponse(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision
+            )
+            _ = try await workspaceChangesContentChunks(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision,
+                expectedFingerprint: statResponse.contentFingerprint,
+                collectsData: false,
+                progress: nil,
+                onChunk: onChunk
+            )
+            recordAppEvent(
+                .artifactDownloadSucceeded,
+                correlationID: workspaceID,
+                startedAt: startedAt
+            )
+        } catch {
+            recordAppEvent(
+                .artifactDownloadFailed,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 
     private func workspaceChangesContentCall<T: Decodable & Sendable>(
@@ -263,7 +302,7 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "changes.content error method=\(request.method) params=\(request.params) error=\(error)"
             )
-            throw Self.workspaceChangesArtifactError(from: error)
+            throw MobileArtifactFailureClassifier().classify(error, method: request.method)
         }
     }
 
@@ -294,29 +333,6 @@ extension MobileShellComposite {
             return response.value
         } onChunk: { chunk in
             try await onChunk(chunk)
-        }
-    }
-
-    private nonisolated static func workspaceChangesArtifactError(
-        from error: any Error
-    ) -> ChatArtifactError {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return .macUnreachable
-        }
-        guard case .rpcError(let code, _) = connectionError else {
-            return .macUnreachable
-        }
-        switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "invalid_params":
-            return .invalidParams
-        case "forbidden":
-            return .forbidden
-        case "file_not_found", "not_found":
-            return .fileNotFound
-        case "unsupported_media":
-            return .unsupportedMedia
-        default:
-            return .macUnreachable
         }
     }
 

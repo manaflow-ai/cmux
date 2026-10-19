@@ -755,7 +755,7 @@ private actor ScriptedConnectivityAuthority: CmxConnectivityAuthorityServing {
     ) async throws -> CmxConnectivitySyncResponse {
         observedKnownRevisions.append(knownRevision)
         guard !responses.isEmpty else {
-            throw CmxIrohTrustBrokerClientError.connectivity
+            throw CmxIrohTrustBrokerClientError.connectivity(nil)
         }
         return responses.removeFirst()
     }
@@ -778,7 +778,7 @@ private actor InitialThenFailingConnectivityAuthority: CmxConnectivityAuthorityS
         if knownRevision == nil {
             return initial
         }
-        throw CmxIrohTrustBrokerClientError.connectivity
+        throw CmxIrohTrustBrokerClientError.connectivity(nil)
     }
 
     func callCount() -> Int { calls }

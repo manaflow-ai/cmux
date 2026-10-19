@@ -125,11 +125,11 @@ struct SidebarScrollViewConfiguratorTests {
     /// Yields the main actor until `condition` holds (bounded, no wall-clock
     /// sleeps), so the resolver's deferred main-actor hop — enqueued
     /// synchronously by the lifecycle callback or notification under test —
-    /// has run before the test continues. The bound keeps a regression a
-    /// clean assertion failure instead of a hang.
+    /// has run before the test continues. The real deadline keeps a regression
+    /// a clean assertion failure instead of a hang under scheduler load.
     private func yieldUntil(_ condition: () -> Bool) async {
-        for _ in 0..<1000 {
-            if condition() { return }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }

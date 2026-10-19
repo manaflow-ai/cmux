@@ -354,7 +354,19 @@ public extension DiagnosticEvent {
     /// Positive process-local correlation ID shared by a dial attempt and its
     /// outcome. It is intentionally not stable across launches or devices.
     var diagnosticAttemptID: Int? {
-        guard code.isTransportDialEvent, let c, c > 0 else { return nil }
+        guard code.isTransportDialEvent || code == .transportDialSessionLinked
+                || code == .transportDialCancelled,
+              let c,
+              c > 0 else { return nil }
+        return c
+    }
+
+    /// Positive process-local session correlation ID carried by a dial/session
+    /// link or close-reason event.
+    var diagnosticLinkedSessionID: Int? {
+        guard code == .transportDialSessionLinked || code == .transportCloseReason,
+              let c,
+              c > 0 else { return nil }
         return c
     }
 
@@ -385,10 +397,13 @@ public extension DiagnosticEvent {
     /// Positive process-local session correlation ID. This value is not stable
     /// across app launches or devices.
     var diagnosticSessionID: Int? {
-        guard code == .transportSessionLifecycle
+        guard code == .selectedPathChanged
+                || code == .transportSessionLifecycle
                 || code == .sessionClosed
                 || code == .transportCloseAttribution
-                || code == .transportPathEvent,
+                || code == .transportCloseReason
+                || code == .transportPathEvent
+                || code == .transportPathInventory,
               let c,
               c > 0 else { return nil }
         return c
@@ -429,6 +444,7 @@ public extension DiagnosticEventCode {
              .streamEnded,
              .error,
              .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,
@@ -446,6 +462,7 @@ public extension DiagnosticEventCode {
     var carriesDiagnosticFailureKind: Bool {
         switch self {
         case .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,
@@ -473,6 +490,7 @@ public extension DiagnosticEventCode {
         case .pairFail,
              .error,
              .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,

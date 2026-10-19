@@ -17,6 +17,50 @@ struct CanvasViewportMathTests {
         #expect(origin == CanvasPoint(x: 0, y: 0))
     }
 
+    @Test func visibleTargetInsideMarginKeepsOrigin() {
+        // Fully on screen but closer to the edges than the margin: focus
+        // moves between visible panes must not pan.
+        let origin = math.originToReveal(
+            CanvasRect(x: 4, y: 590 - 200, width: 790, height: 200),
+            viewportOrigin: CanvasPoint(x: 0, y: 0),
+            viewportSize: viewportSize,
+            margin: 24
+        )
+        #expect(origin == CanvasPoint(x: 0, y: 0))
+    }
+
+    @Test func visibleAxisStaysPutWhileCutOffAxisScrolls() {
+        let origin = math.originToReveal(
+            CanvasRect(x: 790, y: 100, width: 100, height: 200),
+            viewportOrigin: CanvasPoint(x: 0, y: 0),
+            viewportSize: viewportSize,
+            margin: 24
+        )
+        #expect(origin == CanvasPoint(x: 914 - 800, y: 0))
+    }
+
+    @Test func partlyVisibleTargetScrollsInWithMargin() {
+        let origin = math.originToReveal(
+            CanvasRect(x: -50, y: -20, width: 200, height: 100),
+            viewportOrigin: CanvasPoint(x: 0, y: 0),
+            viewportSize: viewportSize,
+            margin: 24
+        )
+        #expect(origin == CanvasPoint(x: -74, y: -44))
+    }
+
+    @Test func targetThatFitsOnlyWithoutMarginEndsUpFullyVisible() {
+        // 780 wide in an 800 viewport: the 24 pt margin cannot fit on both
+        // sides, so the margin shrinks and the far edge stays on screen.
+        let origin = math.originToReveal(
+            CanvasRect(x: 780, y: 100, width: 780, height: 200),
+            viewportOrigin: CanvasPoint(x: 0, y: 0),
+            viewportSize: viewportSize,
+            margin: 24
+        )
+        #expect(origin == CanvasPoint(x: 1560 - 800, y: 0))
+    }
+
     @Test func targetBeyondRightBottomScrollsMinimally() {
         let origin = math.originToReveal(
             CanvasRect(x: 900, y: 700, width: 200, height: 100),

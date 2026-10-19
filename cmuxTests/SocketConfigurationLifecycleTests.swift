@@ -9,6 +9,47 @@ import CmuxSettings
 #endif
 
 extension SocketACLReloadRegressionTests {
+    @Test(arguments: [SocketControlMode.allowAll, .password])
+    func updateRelaunchPreparationKeepsSocketAvailable(mode: SocketControlMode) async throws {
+        let controller = TerminalController.shared
+        let originalTabManager = controller.tabManager
+        let originalDelegate = AppDelegate.shared
+        controller.stop(cleanupDiscoveryState: true)
+
+        let directory = lifecycleTemporaryDirectory(prefix: "scfu")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        let appDelegate = AppDelegate()
+        defer {
+            controller.stop(cleanupDiscoveryState: true)
+            controller.setActiveTabManager(originalTabManager)
+            AppDelegate.shared = originalDelegate
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.start(tabManager: TabManager(), socketPath: socketPath, accessMode: mode)
+        let identity = try #require(controller.socketServer.transport.pathIdentity(at: socketPath))
+        let expectedResponse = mode == .password
+            ? controller.passwordAuthRequiredResponse(for: "ping")
+            : "PONG"
+        let before = await Task.detached {
+            SocketTransport().probeCommand("ping", at: socketPath, timeout: 2)
+        }.value
+        try #require(before == expectedResponse)
+
+        // Sparkle can announce a relaunch without the app subsequently exiting.
+        // Both new clients and the original bound path must remain available.
+        appDelegate.updaterWillRelaunchApplication()
+
+        #expect(controller.socketServer.isRunning)
+        #expect(controller.socketServer.accessMode == mode)
+        #expect(controller.socketServer.transport.pathIdentity(at: socketPath) == identity)
+        let after = await Task.detached {
+            SocketTransport().probeCommand("ping", at: socketPath, timeout: 2)
+        }.value
+        #expect(after == expectedResponse)
+    }
+
     @Test(arguments: [
         "{",
         #"{"automation":{"socketControlMode":"invalid-mode"}}"#,
@@ -287,6 +328,38 @@ extension SocketACLReloadRegressionTests {
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
     }
 
+    @Test func malformedRecreatedPrimaryDoesNotRestorePreDeletionMode() throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = lifecycleTemporaryDirectory(prefix: "scfr")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let primaryURL = directory.appendingPathComponent("cmux.json")
+        let fallbackURL = directory.appendingPathComponent("settings.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .allowAll)
+        try writeConfig(mode: SocketControlMode.allowAll.rawValue, to: primaryURL)
+        try writeConfig(mode: SocketControlMode.cmuxOnly.rawValue, to: fallbackURL)
+        let store = CmuxSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.allowAll.rawValue)
+
+        try FileManager.default.removeItem(at: primaryURL)
+        store.reload()
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
+
+        try "{".write(to: primaryURL, atomically: true, encoding: .utf8)
+        store.reload()
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
+    }
+
     @Test func missingPrimaryAcceptsFallbackThatDisablesSocket() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
@@ -319,14 +392,14 @@ extension SocketACLReloadRegressionTests {
     @Test func enabledReconciliationStartsListenerWithoutTabManager() throws {
         let controller = TerminalController.shared
         let originalTabManager = controller.tabManager
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
         controller.setActiveTabManager(nil)
 
         let directory = lifecycleTemporaryDirectory(prefix: "scfh")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             controller.setActiveTabManager(originalTabManager)
             try? FileManager.default.removeItem(at: directory)
         }
@@ -367,11 +440,14 @@ extension SocketACLReloadRegressionTests {
         let legacyDirectory = try #require(
             CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager)
         )
-        let markerPaths = SocketControlSettings.lastSocketPathFiles(
+        let markerPaths = SocketPathMarkerStore(
             bundleIdentifier: "com.cmuxterm.app",
             environment: [:],
+            stateDirectory: currentDirectory,
+            legacyDirectory: legacyDirectory,
+            tmpMarkerPath: SocketPathMarkerFiles.stableTmpPath,
             fileManager: fileManager
-        )
+        ).markerPaths()
 
         #expect(markerPaths.contains(
             currentDirectory.appendingPathComponent("last-socket-path").path

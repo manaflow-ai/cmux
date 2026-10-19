@@ -14,8 +14,9 @@ public import CmuxCore
 ///
 /// Isolation design (two serial queues + blocking semaphores, deliberately
 /// not an actor):
-/// - **Who mutates:** all transport state (`process`, pipes/handles,
-///   websocket task/session/delegate, `isClosed`, `shouldReportTermination`,
+/// - **Who mutates:** all transport state (`process`, pipes/handles, the
+///   socket-forward directory, websocket task/session/delegate, `isClosed`,
+///   `shouldReportTermination`,
 ///   `stdoutBuffer`, `stderrBuffer`, and both subscription maps) is confined
 ///   to `stateQueue`; readability/termination/receive callbacks hop onto it
 ///   with `stateQueue.async`, and synchronous paths enter with
@@ -40,6 +41,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     static let maxStdoutBufferBytes = 256 * 1024
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
+    static let socketForwardConnectTimeout: TimeInterval = 5.0
     static let webSocketKeepaliveInterval: TimeInterval = 5.0
     static let ptyAttachCancellationWriteTimeout: TimeInterval = 1.0
     /// Wire capability required for push-based proxy streaming
@@ -107,10 +109,11 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let cliRequestHandler: (@Sendable (Data) throws -> Data)?
     let keepaliveInterval: TimeInterval
     let keepaliveTimeout: TimeInterval
-    /// Test seam: replaces the `/usr/bin/ssh` stdio-transport executable.
-    /// Kept off the public initializer so the package API carries no
-    /// test-injection surface; keepalive tests set it via `@testable import`
-    /// before calling ``start()``. Production always launches `/usr/bin/ssh`.
+    /// Test seam: replaces the `/usr/bin/ssh` executable of the stdio and
+    /// baked-VM socket-forward transports. Kept off the public initializer so
+    /// the package API carries no test-injection surface; transport tests set
+    /// it via `@testable import` before calling ``start()``. Production always
+    /// launches `/usr/bin/ssh`.
     var transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
     let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
@@ -127,6 +130,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stdinHandle: FileHandle?
     var stdoutHandle: FileHandle?
     var stderrHandle: FileHandle?
+    var forwardSocketDirectory: RemoteDaemonForwardSocketDirectory?
     var webSocketSession: URLSession?
     var webSocketTask: URLSessionWebSocketTask?
     var webSocketDelegate: RemoteDaemonWebSocketDelegate?
@@ -146,6 +150,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var ptySubscriptions: [String: PTYSubscription] = [:]
     var cliRequestsInFlight = 0
     var advertisedCapabilities: Set<String> = []
+    var advertisedVersion: String?
 
     /// Creates a client for one daemon transport.
     ///
@@ -197,6 +202,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let capabilities = (hello["capabilities"] as? [String]) ?? []
             stateQueue.sync {
                 advertisedCapabilities = Set(capabilities)
+                advertisedVersion = hello["version"] as? String
             }
             let missingCapabilities = Self.missingRequiredCapabilities(
                 Self.requiredCapabilities(for: configuration),
@@ -261,6 +267,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         streamSubscriptions.removeAll(keepingCapacity: false)
         ptySubscriptions.removeAll(keepingCapacity: false)
         advertisedCapabilities.removeAll(keepingCapacity: false)
+        advertisedVersion = nil
     }
 
     func failPTYSubscriptionsLocked(_ detail: String) {
@@ -278,6 +285,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport stopped"
             let shouldNotify = !suppressTerminationCallback && !isClosed
             shouldReportTermination = !suppressTerminationCallback
+            removeForwardSocketDirectoryLocked()
             if isClosed {
                 return (nil, nil, nil, nil, nil, nil, false, detail)
             }
@@ -334,5 +342,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
 
     func signalPendingFailureLocked(_ message: String) {
         pendingCalls.failAll(message)
+    }
+
+    func removeForwardSocketDirectoryLocked() {
+        forwardSocketDirectory?.remove()
+        forwardSocketDirectory = nil
     }
 }

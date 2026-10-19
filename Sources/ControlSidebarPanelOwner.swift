@@ -34,7 +34,14 @@ enum ControlSidebarPanelOwner {
 
     func statusEntry(key: String, panelId: UUID?) -> SidebarStatusEntry? {
         switch self {
-        case .workspace(let workspace): workspace.statusEntries[key]
+        case .workspace(let workspace):
+            // A pane compares against its own last report, so its first report
+            // is recorded even when another pane already wrote the same text.
+            if let panelId, workspace.panels[panelId] != nil {
+                workspace.agentStatusEntry(key: key, panelId: panelId)
+            } else {
+                workspace.statusEntries[key]
+            }
         case .dock(let dock):
             panelId.flatMap { dock.agentRuntimeStatusEntry(key: key, panelId: $0) }
         }
@@ -42,7 +49,7 @@ enum ControlSidebarPanelOwner {
 
     func setStatusEntry(_ entry: SidebarStatusEntry, key: String, panelId: UUID?) {
         switch self {
-        case .workspace(let workspace): workspace.statusEntries[key] = entry
+        case .workspace(let workspace): workspace.setStatusEntry(entry, key: key, panelId: panelId)
         case .dock(let dock):
             guard let panelId else { return }
             dock.setAgentRuntimeStatusEntry(entry, key: key, panelId: panelId)
@@ -52,7 +59,7 @@ enum ControlSidebarPanelOwner {
     func clearStatusEntry(key: String, panelId: UUID?) {
         switch self {
         case .workspace(let workspace):
-            workspace.statusEntries.removeValue(forKey: key)
+            workspace.clearStatusEntry(key: key, panelId: panelId)
         case .dock(let dock):
             guard let panelId else { return }
             dock.clearAgentRuntimeStatusEntry(key: key, panelId: panelId)
@@ -81,6 +88,17 @@ enum ControlSidebarPanelOwner {
         case .dock(let dock):
             guard let panelId else { return }
             dock.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+        }
+    }
+
+    @discardableResult
+    func clearAgentLifecycle(key: String, panelId: UUID?) -> Bool {
+        switch self {
+        case .workspace(let workspace):
+            return workspace.clearAgentLifecycle(key: key, panelId: panelId)
+        case .dock(let dock):
+            guard let panelId else { return false }
+            return dock.clearAgentLifecycle(key: key, panelId: panelId)
         }
     }
 

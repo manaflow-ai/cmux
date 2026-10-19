@@ -87,7 +87,7 @@ struct NotificationScrollRestoreLifecycleTests {
     @Test func promptIdleDoesNotCompleteTheInBandReplayLifecycle() throws {
         let boundary = "test-replay-boundary"
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.releaseSurfaceForTesting() }
+        defer { panel.surface.releaseHostedSurfaceForTesting() }
         let hostedView = panel.hostedView
         hostedView.surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
         beginReplay(on: hostedView, endBoundary: boundary)
@@ -130,7 +130,7 @@ struct NotificationScrollRestoreLifecycleTests {
             focus: false,
             startupEnvironment: [SessionScrollbackReplayStore.environmentKey: replayFilePath]
         ))
-        defer { panel.surface.releaseSurfaceForTesting() }
+        defer { panel.surface.releaseHostedSurfaceForTesting() }
 
         guard case .armed(let expectedStartBoundary, let expectedEndBoundary) =
             panel.hostedView.notificationScrollRestoreState.replay else {
@@ -282,7 +282,7 @@ struct NotificationScrollRestoreLifecycleTests {
 
     @Test func anchorlessActivationClearsPendingRestoreWhilePanelIsHibernated() {
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.releaseSurfaceForTesting() }
+        defer { panel.surface.releaseHostedSurfaceForTesting() }
         panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
             replay: .replaying(expectedEndBoundary: "expected-end"),
             request: .waitingForReplay(
@@ -307,7 +307,7 @@ struct NotificationScrollRestoreLifecycleTests {
 
     @Test func panelBindingActionCancelsPendingRestoreForAutomationEntrypoints() {
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.releaseSurfaceForTesting() }
+        defer { panel.surface.releaseHostedSurfaceForTesting() }
         panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
             replay: .replaying(expectedEndBoundary: "expected-end"),
             request: .waitingForReplay(
@@ -365,7 +365,7 @@ struct NotificationScrollRestoreLifecycleTests {
 
     @Test func internalBindingActionPreservesPendingRestore() {
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.releaseSurfaceForTesting() }
+        defer { panel.surface.releaseHostedSurfaceForTesting() }
         panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
             replay: .replaying(expectedEndBoundary: "expected-end"),
             request: .waitingForReplay(

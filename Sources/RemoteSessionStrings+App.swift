@@ -33,6 +33,10 @@ extension RemoteSessionStrings {
                     "remoteSession.controlMaster.ownershipUnavailable",
                 defaultValue:
                     "SSH connection is busy in another cmux process."
+            ),
+            remoteProxyUnavailable: String(
+                localized: "remoteSession.proxy.unavailable",
+                defaultValue: "Remote proxy unavailable"
             )
         )
     }

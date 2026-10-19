@@ -123,3 +123,95 @@ async fn invitation_enrolls_over_direct_websocket_with_isolated_lanes() {
     client.close().await.unwrap();
     server.shutdown().await.unwrap();
 }
+
+/// A cmux Cloud machine's listener is reachable only from the owner's private
+/// network, so it grants carrier authentication to every link: the client
+/// dials with no enrollment and no invitation. The same dial against a
+/// listener that is not trusted is refused, so the client flag alone weakens
+/// nothing.
+#[tokio::test]
+async fn carrier_dial_is_accepted_only_by_a_trusted_listener() {
+    use cmux_remote::daemon::{DirectWebSocketOptions, serve_direct_websocket_with_options};
+
+    let state = tempdir().unwrap();
+    let auth = AuthDatabase::load_or_create(state.path(), "trusted-listener-test", false).unwrap();
+    let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+    let trusted = serve_direct_websocket_with_options(
+        daemon.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        65_535,
+        DirectWebSocketOptions { allow_insecure_non_loopback: false, trusted_carrier: true },
+    )
+    .await
+    .unwrap();
+    let untrusted = serve_direct_websocket(daemon, "127.0.0.1:0".parse().unwrap(), 65_535, false)
+        .await
+        .unwrap();
+    let provider = DirectWebSocketProvider::new(65_535).with_carrier_auth(true);
+    let dial = |server: &cmux_remote::daemon::DirectWebSocketServer,
+                session: SessionId,
+                reconnect: ReconnectPolicy| {
+        let endpoint = Url::parse(&format!("ws://{}/v1/link", server.local_addr())).unwrap();
+        let provider = provider.clone();
+        async move {
+            let group = provider
+                .connect(ConnectRequest {
+                    endpoint,
+                    session,
+                    lane_policy: LanePolicy::Isolated,
+                    routing: Default::default(),
+                })
+                .await
+                .unwrap();
+            ClientConnection::connect(
+                group,
+                ClientConnectionConfig {
+                    identity: StaticIdentity::generate().unwrap(),
+                    expected_daemon: None,
+                    auth: ClientAuthMode::Carrier,
+                    device_name: "carrier-client".into(),
+                    session,
+                    lane_policy: LanePolicy::Isolated,
+                    limits: SessionLimits::default(),
+                    reconnect,
+                },
+            )
+            .await
+        }
+    };
+
+    let client = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        dial(&trusted, SessionId([81; 16]), ReconnectPolicy::default()),
+    )
+    .await
+    .expect("trusted carrier dial timed out")
+    .expect("trusted listener refused a carrier dial");
+    let daemon_client =
+        tokio::time::timeout(Duration::from_secs(5), accepted.recv()).await.unwrap().unwrap();
+    assert_eq!(client.snapshot().await.state, ConnectionState::Connected);
+    assert!(auth.pending_enrollments().await.is_empty(), "carrier dial left a pending enrollment");
+    client
+        .send(Lane::Interactive, 1, Bytes::from_static(b"input"), FrameFlags::empty())
+        .await
+        .unwrap();
+    assert_eq!(daemon_client.receive().await.unwrap().unwrap().payload, b"input".as_slice());
+    client.close().await.unwrap();
+
+    // One attempt is enough to observe the refusal; a retry budget would only
+    // repeat the same rejected handshake.
+    tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        dial(
+            &untrusted,
+            SessionId([82; 16]),
+            ReconnectPolicy { maximum_attempts: Some(1), ..Default::default() },
+        ),
+    )
+    .await
+    .expect("untrusted carrier dial timed out")
+    .expect_err("untrusted listener accepted a carrier dial");
+
+    trusted.shutdown().await.unwrap();
+    untrusted.shutdown().await.unwrap();
+}

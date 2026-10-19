@@ -8,9 +8,9 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .library(name: "CmuxSimulator", targets: ["CmuxSimulator"]),
-        .library(name: "CmuxSimulatorUI", targets: ["CmuxSimulatorUI"]),
-        .library(name: "CmuxSimulatorWorker", targets: ["CmuxSimulatorWorker"]),
+        .library(name: "CmuxSimulator", type: .static, targets: ["CmuxSimulator"]),
+        .library(name: "CmuxSimulatorUI", type: .static, targets: ["CmuxSimulatorUI"]),
+        .library(name: "CmuxSimulatorWorker", type: .static, targets: ["CmuxSimulatorWorker"]),
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),
@@ -48,7 +48,11 @@ let package = Package(
         ),
         .target(
             name: "CmuxSimulatorUI",
-            dependencies: ["CmuxSimulator", "CmuxSimulatorSystem"],
+            dependencies: [
+                "CmuxSimulator",
+                "CmuxSimulatorSystem",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ],

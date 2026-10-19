@@ -22,6 +22,7 @@ struct FakeState {
     std::deque<std::string> incoming;
     std::vector<std::string> outgoing;
     std::size_t receive_timeouts = 0;
+    std::size_t waiting_receivers = 0;
     bool closed = false;
 };
 
@@ -41,9 +42,14 @@ public:
 
     cmux::raw::Result<std::string> receive(std::chrono::milliseconds timeout) override {
         std::unique_lock lock(state_->mutex);
-        if (!state_->ready.wait_for(lock, timeout, [this] {
-                return state_->closed || !state_->incoming.empty();
-            })) {
+        ++state_->waiting_receivers;
+        state_->ready.notify_all();
+        const bool ready = state_->ready.wait_for(lock, timeout, [this] {
+            return state_->closed || !state_->incoming.empty();
+        });
+        --state_->waiting_receivers;
+        state_->ready.notify_all();
+        if (!ready) {
             ++state_->receive_timeouts;
             state_->ready.notify_all();
             return cmux::raw::make_error(cmux::raw::ErrorCode::timeout, "fake timeout");
@@ -77,6 +83,12 @@ void wait_for_send(const std::shared_ptr<FakeState>& state) {
     state->ready.wait(lock, [&] { return !state->outgoing.empty(); });
 }
 
+bool wait_for_receive(const std::shared_ptr<FakeState>& state) {
+    std::unique_lock lock(state->mutex);
+    return state->ready.wait_for(
+        lock, std::chrono::seconds(2), [&] { return state->waiting_receivers > 0; });
+}
+
 void wait_for_receive_timeouts(
     const std::shared_ptr<FakeState>& state,
     std::size_t count) {
@@ -89,7 +101,7 @@ void wait_for_receive_timeouts(
 
 std::string identify_response(
     std::uint64_t id,
-    std::uint32_t protocol = 11,
+    std::uint32_t protocol = 12,
     std::initializer_list<std::string_view> capabilities = {}) {
     cmux::raw::Json::Array encoded_capabilities;
     encoded_capabilities.reserve(capabilities.size());
@@ -137,13 +149,13 @@ TEST("ClientCore sends command envelopes and returns typed JSON data") {
         wait_for_send(state);
         std::lock_guard lock(state->mutex);
         state->incoming.emplace_back(
-            R"({"id":1,"ok":true,"data":{"protocol":11,"large":18446744073709551615}})");
+            R"({"id":1,"ok":true,"data":{"protocol":12,"large":18446744073709551615}})");
         state->ready.notify_all();
     });
     auto response = client.value().request("identify");
     server.join();
     CHECK(response);
-    CHECK_EQ(response.value().find("protocol")->as_uint64().value(), 11U);
+    CHECK_EQ(response.value().find("protocol")->as_uint64().value(), 12U);
     CHECK_EQ(
         response.value().find("large")->as_uint64().value(),
         std::numeric_limits<std::uint64_t>::max());
@@ -310,7 +322,7 @@ TEST("ClientCore caches explicit identify for subsequent typed commands") {
     enqueue(state, identify_response(1));
     enqueue(
         state,
-        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":11,"version":"test"}})");
+        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":12,"version":"test"}})");
 
     auto identified = client.value().request("identify");
     CHECK(identified);
@@ -389,7 +401,7 @@ TEST("Client denies every provider-authority method before transport write") {
     enqueue(state, identify_response(1));
     enqueue(
         state,
-        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":11,"version":"test"}})");
+        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":12,"version":"test"}})");
     auto ping = client.ping();
     CHECK(ping);
     std::lock_guard lock(state->mutex);
@@ -533,9 +545,10 @@ TEST("stream close unblocks a pending next") {
     cmux::raw::Result<cmux::raw::Json> next =
         cmux::raw::make_error(cmux::raw::ErrorCode::protocol, "not started");
     std::thread reader([&] { next = event_stream.next(std::chrono::seconds(30)); });
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const bool receive_started = wait_for_receive(stream_state);
     event_stream.close();
     reader.join();
+    CHECK(receive_started);
     CHECK(!next);
     CHECK_EQ(next.error().code, cmux::raw::ErrorCode::closed);
 }

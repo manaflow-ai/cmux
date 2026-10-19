@@ -8,7 +8,12 @@ import Foundation
 struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
+    /// `sidebar.compactAgentStatus`: agent status entries draw on the title line.
+    let compactsAgentStatus: Bool
+    /// `sidebar.compactStatusIcons`, keeping only known states and non-empty names.
+    let compactStatusIcons: [String: String]
     let showsWorkspaceDescription: Bool
+    let workspaceDescriptionColorHex: String?
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
@@ -17,6 +22,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let branchDirectory: SidebarWorkspaceBranchDirectorySettings
     let details: SidebarWorkspaceDetailSettings
     let showsGitBranchIcon: Bool
+    let showsCloudDeviceIcons: Bool
     let makesPullRequestsClickable: Bool
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
@@ -26,17 +32,24 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let loadingSpinnerPosition: SidebarIndicatorPosition
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
+    let subtleSelection: Bool
+    let brightenInDarkMode: Bool
+    let unselectedFillOpacity: Double
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
+    /// The resolved cmux accent. Rows draw selection, progress, drop
+    /// indicators and agent status with it, and reconfigure when it changes.
+    let accentColor: CmuxAccentColor
 
     var usesLastSegmentPath: Bool { branchDirectory.usesLastSegmentPath }
     var showsSSH: Bool { details.showSSH }
 
     init(
         defaults: UserDefaults = .standard,
-        sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize
+        sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
+        accentColor: CmuxAccentColor = CmuxAccentColor()
     ) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let sidebar = SidebarCatalogSection()
@@ -51,6 +64,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
+        showsCloudDeviceIcons = settings.value(for: sidebar.showCloudDeviceIcons)
         makesPullRequestsClickable = settings.value(for: sidebar.makePullRequestsClickable)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
@@ -60,12 +74,15 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
         hidesAllDetails = settings.value(for: sidebar.hideAllDetails)
         wrapsWorkspaceTitles = settings.value(for: sidebar.wrapWorkspaceTitles)
+        compactsAgentStatus = settings.value(for: sidebar.compactAgentStatus)
+        compactStatusIcons = SidebarCompactStatusGlyph.validIconOverrides(settings.value(for: sidebar.compactStatusIcons))
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
+        workspaceDescriptionColorHex = settings.value(for: sidebar.workspaceDescriptionColorHex).nilIfEmpty
         showsNotificationMessage = detailVisibility.showsNotificationMessage
         notificationMessageLineLimit = min(
             max(
@@ -78,6 +95,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             showMetadata: details.showCustomMetadata,
             showLog: details.showLog,
             showProgress: details.showProgress,
+            showAgentUsage: details.showAgentUsage,
             showBranchDirectory: details.showBranchDirectory,
             showPullRequests: details.showPullRequests,
             showPorts: details.showPorts,
@@ -88,9 +106,13 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         loadingSpinnerPosition = settings.value(for: sidebar.loadingSpinnerPosition)
         notificationBadgePosition = settings.value(for: sidebar.notificationBadgePosition)
         selectionColorHex = settings.value(for: workspaceColors.selectionColorHex).nilIfEmpty
+        subtleSelection = settings.value(for: workspaceColors.subtleSelection)
+        brightenInDarkMode = settings.value(for: workspaceColors.brightenInDarkMode)
+        unselectedFillOpacity = settings.value(for: workspaceColors.unselectedFillOpacity)
         notificationBadgeColorHex = settings.value(for: workspaceColors.notificationBadgeColorHex).nilIfEmpty
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)
+        self.accentColor = accentColor
     }
 
     private static func bool(

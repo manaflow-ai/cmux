@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 public import Foundation
@@ -57,6 +58,23 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async -> Result<String, MobileWorkspaceMutationFailure> {
+        let diagnosticStartedAt = appDiagnosticNow()
+        let diagnosticCorrelationID = attachment.id.uuidString
+        recordAppEvent(
+            .attachmentPreparationStarted,
+            correlationID: diagnosticCorrelationID
+        )
+        func fail(
+            _ failure: MobileWorkspaceMutationFailure
+        ) -> Result<String, MobileWorkspaceMutationFailure> {
+            recordAppEvent(
+                .taskAttachmentPreparationFailed,
+                correlationID: diagnosticCorrelationID,
+                startedAt: diagnosticStartedAt,
+                failure: failure.diagnosticFailureKind
+            )
+            return .failure(failure)
+        }
         if !matchesForegroundPairing(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
@@ -65,7 +83,7 @@ extension MobileShellComposite {
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
             ) else {
-                return .failure(.notConnected(
+                return fail(.notConnected(
                     hostDisplayName: taskComposerTargetName(
                         macDeviceID: macDeviceID,
                         instanceTag: instanceTag
@@ -75,9 +93,11 @@ extension MobileShellComposite {
         }
         guard !Task.isCancelled,
               let context = captureWorkspaceCreateContext(),
-              context.macDeviceID == macDeviceID,
-              instanceTag == nil || context.instanceTag == instanceTag else {
-            return .failure(.notConnected(
+              context.matchesTarget(
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
+              ) else {
+            return fail(.notConnected(
                 hostDisplayName: taskComposerTargetName(
                     macDeviceID: macDeviceID,
                     instanceTag: instanceTag
@@ -87,7 +107,7 @@ extension MobileShellComposite {
         guard context.supportedHostCapabilities.contains(
             Self.taskAttachmentCapability
         ) else {
-            return .failure(.unsupported(hostDisplayName: context.hostDisplayName))
+            return fail(.unsupported(hostDisplayName: context.hostDisplayName))
         }
 
         let data: Data
@@ -96,11 +116,11 @@ extension MobileShellComposite {
                 from: attachment.localStagedFileURL
             )
         } catch {
-            return .failure(.rejected(hostDisplayName: context.hostDisplayName))
+            return fail(.rejected(hostDisplayName: context.hostDisplayName))
         }
         guard data.count == attachment.byteCount,
               data.count <= TaskComposerAttachment.maximumFileBytes else {
-            return .failure(.rejected(hostDisplayName: context.hostDisplayName))
+            return fail(.rejected(hostDisplayName: context.hostDisplayName))
         }
 
         let plan = MobileTaskAttachmentChunkPlan(totalByteCount: data.count)
@@ -130,7 +150,7 @@ extension MobileShellComposite {
                     client: remoteClient,
                     generation: connectionGeneration
                 ), isSignedIn else {
-                    return .failure(.notConnected(
+                    return fail(.notConnected(
                         hostDisplayName: context.hostDisplayName
                     ))
                 }
@@ -147,8 +167,19 @@ extension MobileShellComposite {
                 }
             }
             guard let finalPath else {
-                return .failure(.rejected(hostDisplayName: context.hostDisplayName))
+                return fail(.rejected(hostDisplayName: context.hostDisplayName))
             }
+            recordAppEvent(
+                .attachmentPreparationSucceeded,
+                correlationID: diagnosticCorrelationID,
+                startedAt: diagnosticStartedAt,
+                count: data.count
+            )
+            recordAppEvent(
+                .taskAttachmentPrepared,
+                correlationID: diagnosticCorrelationID,
+                count: plan.ranges.count
+            )
             return .success(finalPath)
         } catch {
             if context.isCurrent(
@@ -163,7 +194,7 @@ extension MobileShellComposite {
                     expectedGeneration: context.generation
                 )
             }
-            return .failure(
+            return fail(
                 workspaceMutationFailure(
                     error,
                     hostDisplayName: context.hostDisplayName
