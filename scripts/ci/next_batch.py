@@ -33,6 +33,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -78,6 +79,9 @@ HEAVY_CHECKS = frozenset({
     "cmux-next generated files",
     "wait for the same-tree cmux-tui",
 })
+# One job, many static checks. Its last step lists each red one; the queue
+# compares those, not the job, with the base (one base red never hides another).
+CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 # Web formatting and lint autofix (`bun run check:fix` in webviews). The queue
 # fixes these on the PR's own branch before landing, so they never block one.
 FORMAT_CHECKS = frozenset({"web / react-apps-check", "web / Web status"})
@@ -783,6 +787,27 @@ def build_stack(worktree: Path, base_sha: str, prs: list[PullRequest], tools_roo
 # --- validation ---------------------------------------------------------------
 
 
+CHECKS_FAILED_HEADER = re.compile(r"Z ### \d+ cmux-next check\(s\) failed\s*$")
+CHECKS_FAILED_ITEM = re.compile(r"Z - (.+) \(([a-z_ ]+)\)\s*$")
+
+
+def red_subchecks(log: str) -> list[str]:
+    """The checks CHECKS_JOB's last step names as red (`- name (outcome)`
+    under its `### N cmux-next check(s) failed` header)."""
+    names, listing = [], False
+    for line in log.splitlines():
+        if CHECKS_FAILED_HEADER.search(line):
+            listing, names = True, []
+            continue
+        if listing:
+            found = CHECKS_FAILED_ITEM.search(line)
+            if found:
+                names.append(found.group(1))
+            elif names:
+                listing = False
+    return names
+
+
 @dataclass
 class Validation:
     name: str
@@ -839,6 +864,11 @@ class Controller:
         self.started = time.monotonic()
         self.base_failures: set[str] | None = None
         self.base_sha = ""
+        # The base itself, validated on its own next-batch branch alongside the
+        # first stack: base pushes and dispatches skip CHECKS_JOB and route
+        # other jobs away, so they are no record of what is red on the base.
+        self.base_probe: threading.Thread | None = None
+        self.base_probe_result: dict = {}
 
     # git in the trusted checkout. The token goes on the command line of this
     # process only, never into .git/config, which the generators could read.
@@ -915,17 +945,92 @@ class Controller:
                        if job.get("conclusion") == "success" and any(job["name"].endswith(name) for name in HEAVY_CHECKS)})
 
     def failed_jobs(self, run_id: int) -> list[str]:
+        """Red jobs, with CHECKS_JOB as `CHECKS_JOB: <check>` for each red check in it."""
         jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
-        return sorted({job["name"] for job in jobs if (job.get("conclusion") or "") in RED})
+        failed: set[str] = set()
+        for job in jobs:
+            if (job.get("conclusion") or "") in RED:
+                failed |= self.expand_job(job["name"], job["id"])
+        return sorted(failed)
+
+    def expand_job(self, name: str, job_id: int | str) -> set[str]:
+        if not name.endswith(CHECKS_JOB):
+            return {name}
+        # The job's log, readable while the rest of its run still goes.
+        log = self.gh.gh("api", "--allow-escape-sequences", f"repos/{self.args.repo}/actions/jobs/{job_id}/logs",
+                         check=False).stdout
+        return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
+
+    def start_base_probe(self) -> None:
+        if self.base_probe is None:
+            self.base_probe = threading.Thread(target=self.probe_base, name="base-probe", daemon=True)
+            self.base_probe.start()
+
+    def probe_base(self) -> None:
+        """Run every cmux-next tier on the base head, the way a stack runs them,
+        with one rerun of failed jobs. Its failures are the batch's inherited reds."""
+        branch = f"{BRANCH_PREFIX}{self.batch_id}-base"
+        try:
+            self.push(self.base_sha, branch)
+            self.base_probe_result["branch"] = branch
+            dispatched = now()
+            self.gh.dispatch(HEAVY_WORKFLOW, branch)
+            heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == self.base_sha, dispatched)
+            self.base_probe_result["url"] = heavy["html_url"]
+            log(f"base probe: {heavy['html_url']}")
+            run = self.wait_run(heavy["id"], timeout=180 * 60)
+            if run["status"] != "completed":
+                raise RuntimeError("the base probe did not finish")
+            failed = self.failed_jobs(heavy["id"])
+            if failed:
+                self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
+                time.sleep(30)
+                if self.wait_run(heavy["id"], timeout=120 * 60)["status"] == "completed":
+                    failed = self.failed_jobs(heavy["id"])
+            self.base_probe_result["failed"] = set(failed)
+            log("base probe: " + (", ".join(failed) or "green"))
+        except Exception as error:  # the base runs' own record is the fallback
+            log(f"base probe: {type(error).__name__}: {error}")
 
     def failing_on_base(self, base_sha: str) -> set[str]:
-        """Jobs already red on the base head's own cmux-next run (inherited, not the batch's)."""
+        """Checks already red on the base head (inherited, not the batch's): the
+        base probe's, plus any red job in the base's own completed cmux-next runs."""
         if self.base_failures is not None:
             return self.base_failures
+        if self.base_probe is not None:
+            self.base_probe.join()
+        failed = set(self.base_probe_result.get("failed") or ())
         runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&per_page=10")
-        done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
-        self.base_failures = set(self.failed_jobs(done[0]["id"])) if done else set()
-        return self.base_failures
+        for run in runs:
+            if run["status"] == "completed" and run["head_branch"] == BASE:
+                failed |= set(self.failed_jobs(run["id"]))
+        self.base_failures = failed
+        return failed
+
+    def own_reds(self, pr: PullRequest) -> set[str]:
+        """The PR's own red checks, CHECKS_JOB expanded like a stack's."""
+        names = {name for name, status, conclusion in pr.checks if status == "completed" and conclusion in RED}
+        out = names - {CHECKS_JOB}
+        if CHECKS_JOB in names:
+            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name="
+                               + urllib.parse.quote(CHECKS_JOB) + "&filter=latest")["check_runs"]
+            for run in runs:
+                if (run.get("conclusion") or "") in RED:
+                    out |= self.expand_job(CHECKS_JOB, run["id"])
+        return out
+
+    def suspects(self, validation: Validation) -> list[PullRequest]:
+        """PRs whose own runs are red on a check the stack failed: the likely
+        culprits, dropped together without a bisect."""
+        failing = set(validation.heavy_failed)
+        found = []
+        for pr in validation.stack.included:
+            try:
+                if self.own_reds(pr) & failing:
+                    found.append(pr)
+            except RuntimeError as error:
+                log(f"#{pr.number}: could not read its own checks: {error}")
+        return found
 
     def mini(self, mode: str, branch: str, sha: str, extra: dict[str, str]) -> tuple[dict, dict]:
         """`mini_once`, dispatched once more when the job wrote no result.
@@ -1069,6 +1174,7 @@ class Controller:
         if not stack.included or stack.error:
             validation.seconds = int(time.monotonic() - started)
             return validation
+        self.start_base_probe()
         branch = f"{BRANCH_PREFIX}{self.batch_id}-{len(self.validations)}"
         validation.branch = branch
         self.push(stack.head, branch)
@@ -1147,12 +1253,15 @@ class Controller:
             f"Batch queue: dropped from [this batch]({self.run_url}), conflict.\n\n{lines}\n\n"
             "Next: merge feat-cmux-next, resolve, push."))
 
-    def report_culprit(self, pr: PullRequest, red: Validation, prefix: Validation | None) -> None:
+    def report_culprit(self, pr: PullRequest, red: Validation, prefix: Validation | None,
+                       own: bool = False) -> None:
         evidence = prefix or red
         failing = "\n".join(f"- {item}" for item in evidence.failures())
         runs = f"[heavy tier]({evidence.heavy_url})" if evidence.heavy_url else "the stack"
+        why = (f"{runs} is red on a check that is red on this PR's own run too" if own
+               else f"turns {runs} red")
         self.comment_once(pr, "culprit", (
-            f"Batch queue: dropped from [this batch]({self.run_url}), turns {runs} red.\n\n"
+            f"Batch queue: dropped from [this batch]({self.run_url}), {why}.\n\n"
             f"{failing}\n\nNext: fix, push."))
 
     # -- landing
@@ -1300,6 +1409,8 @@ class Controller:
             result = "green" if validation.green else "red: " + "; ".join(validation.failures())[:300]
             prs = " ".join(f"#{pr.number}" for pr in validation.stack.included)
             lines.append(f"| {validation.name} | {prs} | {result} | {validation.seconds // 60}m{validation.seconds % 60:02d}s |")
+        if url := self.base_probe_result.get("url"):
+            lines += ["", f"Base probe (feat-cmux-next `{self.base_sha[:12]}` alone): {url}"]
         if final and final.inherited:
             lines += ["", "Red on feat-cmux-next itself (not counted): " + ", ".join(f"`{j}`" for j in final.inherited)]
         if final and final.stack.resolved:
@@ -1348,6 +1459,7 @@ class Controller:
         candidates = eligible
         culprits: list[PullRequest] = []
         landed: list[tuple[PullRequest, str]] = []
+        rounds = 0
         while candidates:
             validation = self.validate(candidates, "batch" if not culprits else f"rerun {len(culprits)}")
             for pr, blocking in validation.stack.dropped:
@@ -1364,10 +1476,19 @@ class Controller:
                 # compiles already ran, so blame the fleet, not a PR.
                 log("fleet build failed on a green stack; not bisecting, not landing")
                 break
-            if len(culprits) >= MAX_CULPRITS:
-                log("too many culprits in one batch; stopping")
+            if rounds >= MAX_CULPRITS:
+                log("too many culprit rounds in one batch; stopping")
                 break
+            rounds += 1
             included = validation.stack.included
+            if suspects := self.suspects(validation) if len(included) > 1 else []:
+                for suspect in suspects:
+                    self.report_culprit(suspect, validation, None, own=True)
+                    log(f"culprit #{suspect.number} (its own run is red on the same check)")
+                culprits += suspects
+                dropped = {suspect.number for suspect in suspects}
+                candidates = [pr for pr in included if pr.number not in dropped]
+                continue
             culprit = included[0] if len(included) == 1 else self.bisect(validation)
             prefix = next((v for v in reversed(self.validations)
                            if v.stack.included and v.stack.included[-1].number == culprit.number and not v.green), None)
@@ -1378,6 +1499,9 @@ class Controller:
         for validation in self.validations:
             if validation.branch and not self.args.keep_branches:
                 self.delete_branch(validation.branch)
+        if self.base_probe_result.get("branch") and not self.args.keep_branches:
+            # A probe still running keeps its run; only the branch goes.
+            self.delete_branch(self.base_probe_result["branch"])
         text = self.report(eligible, skipped, landed, culprits)
         write_summary(text)
         self.post_sticky(text)
