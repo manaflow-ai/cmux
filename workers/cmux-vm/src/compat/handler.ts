@@ -160,9 +160,9 @@ const handle = (request: Request, options: { readonly publicSnapshotIds: Readonl
   return notAvailable();
 }).pipe(Effect.catchAll(recoverCompat));
 
-type OwnedVmVisitor = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, owns: TenantOwnsResource<C, V, "vm">, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
-type OwnedSnapshotVisitor = <C, V>(caller: Named<C, Principal>, snapshot: Named<V, SnapshotId>, owns: TenantOwnsResource<C, V, "snapshot">, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
-const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: OwnedVmVisitor): Effect.Effect<Response, unknown, unknown> => Effect.gen(function* () {
+type OwnedVmVisitor = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, owns: TenantOwnsResource<C, V, "vm">, row: OwnedResource) => Effect.Effect<Response, unknown, Services>;
+type OwnedSnapshotVisitor = <C, V>(caller: Named<C, Principal>, snapshot: Named<V, SnapshotId>, owns: TenantOwnsResource<C, V, "snapshot">, row: OwnedResource) => Effect.Effect<Response, unknown, Services>;
+const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: OwnedVmVisitor): Effect.Effect<Response, unknown, Services> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "vm", upstreamId);
   if (Option.isNone(row)) return notFound();
@@ -170,7 +170,7 @@ const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: Owne
   if (Option.isNone(parsed)) return notFound();
   return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <V>(vm: Named<V, VmId>) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : visit(caller, vm, owns, row.value)))));
 });
-const withOwnedSnapshotCompat = (principal: Principal, upstreamId: string, visit: OwnedSnapshotVisitor): Effect.Effect<Response, unknown, unknown> => Effect.gen(function* () {
+const withOwnedSnapshotCompat = (principal: Principal, upstreamId: string, visit: OwnedSnapshotVisitor): Effect.Effect<Response, unknown, Services> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "snapshot", upstreamId);
   if (Option.isNone(row)) return notFound();
