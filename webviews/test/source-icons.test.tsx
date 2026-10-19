@@ -2,32 +2,66 @@
 // source now shows its site's icon (labs sourceIcons): the one cmux holds, else the site's own,
 // fetched once per site by the host; a search aimed at one site (`site:…`) shows that site's.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { build } from "esbuild";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { reactCompilerPlugin } from "../scripts/agent-pane/reactCompilerPlugin.mjs";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Element",
+  "Node",
+  "MutationObserver",
+  "customElements",
+  "ResizeObserver",
+  "IntersectionObserver",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  const { window } = new JSDOM("<!doctype html><div id=root></div>");
+  const { window } = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    virtualConsole: new VirtualConsole(),
+  });
   Object.assign(scope, {
     window,
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    MutationObserver: window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    IntersectionObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.querySelector<HTMLElement>("#root")!;
+  Object.defineProperty(window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
+  Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 });
 
 afterEach(async () => {
@@ -159,7 +193,7 @@ test("inspection finishes with a held icon before any favicon request", async ()
 });
 
 for (const negative of [false, true]) {
-  test(`favicon ${negative ? "negative" : "positive"} cache evicts least recently used origins`, async () => {
+  test(`favicon ${negative ? "negative" : "positive"} results share a 64-origin lifetime budget with chat`, async () => {
     const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
     const calls: string[] = [];
     setChipHost(async (method, params) => {
@@ -169,14 +203,25 @@ for (const negative of [false, true]) {
       }
       return {};
     });
-    const url = (n: number) => `https://cache${n}.example/page`;
-    for (let n = 0; n < 128; n++) await renderIcons([url(n)]);
-    await renderIcons([url(0)]);
-    await renderIcons([url(128)]);
-    await renderIcons([url(0)]);
-    expect(calls.filter((value) => value === url(0))).toHaveLength(1);
-    await renderIcons([url(1)]);
-    expect(calls.filter((value) => value === url(1))).toHaveLength(2);
+    const source = (n: number) => `https://source${n}.example/page`;
+    const replies = Array.from({ length: 32 }, (_, n) => `https://reply${n}.example/page`);
+    const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+    const { createRoot } = await import("react-dom/client");
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <VirtualTranscript
+          rows={[{ id: "message", kind: "assistant", text: replies.join("\n\n"), at: 1, version: 1 }]}
+          expanded={new Set()}
+          onToggleActivity={() => {}}
+        />,
+      ),
+    );
+    expect(calls).toEqual(replies);
+    for (let n = 0; n < 32; n++) await renderIcons([source(n)]);
+    await renderIcons([source(0), source(32)]);
+    expect(calls).toEqual([...replies, ...Array.from({ length: 32 }, (_, n) => source(n))]);
+    expect(calls.filter((value) => value === source(0))).toHaveLength(1);
   });
 }
 
@@ -307,7 +352,7 @@ test("the last source reader cancels shared native favicon work", async () => {
   expect(calls.filter((method) => method === "link.cancelFavicon")).toHaveLength(1);
 });
 
-test("compiled sources fetch after inspection and display the completed icon", async () => {
+test("compiled sources and opted-in UrlChips fetch after inspection and display completed icons", async () => {
   const out = mkdtempSync(path.join(tmpdir(), "source-icons-compiled-"));
   let compiledRoot: Root | undefined;
   let finishIcon: ((reply: unknown) => void) | undefined;
@@ -317,6 +362,8 @@ test("compiled sources fetch after inspection and display the completed icon", a
     await build({
       stdin: {
         contents: [
+          'export { ReplySourceIconsContext } from "./src/agent-session/acpmux/chips/ReplySourceIconsContext";',
+          'export { UrlChip } from "./src/agent-session/acpmux/chips/LinkChips";',
           'export { SummaryBody } from "./src/agent-session/acpmux/summary/SummaryBody";',
           'export { setChipHost } from "./src/agent-session/acpmux/chips/host";',
           'export { createRoot } from "react-dom/client";',
@@ -355,6 +402,14 @@ test("compiled sources fetch after inspection and display the completed icon", a
         });
       return Promise.resolve({});
     });
+    const passive = "https://compiled-passive.example/read";
+    compiledRoot = page.createRoot(host);
+    await page.act(async () => compiledRoot?.render(<page.UrlChip href={passive}>Passive</page.UrlChip>));
+    await page.act(async () => finishInspect?.({ sites: {} }));
+    expect(calls.filter(({ method }) => method === "link.favicon")).toEqual([]);
+    await page.act(async () => compiledRoot?.unmount());
+    compiledRoot = undefined;
+    calls.length = 0;
     const url = "https://en.wikipedia.org/wiki/Albert_Einstein";
     const summary = {
       scheduled: [],
@@ -377,6 +432,26 @@ test("compiled sources fetch after inspection and display the completed icon", a
     expect(calls.filter(({ method }) => method === "link.cancelFavicon")).toHaveLength(0);
     await page.act(async () => finishIcon?.({ icon: ICON }));
     expect(host.querySelector("img.acpmux-summary-favicon")?.getAttribute("src")).toBe(ICON);
+    expect(calls.filter(({ method }) => method === "link.favicon")).toHaveLength(1);
+
+    calls.length = 0;
+    const chipURL = "https://compiled-reply.example/read";
+    const reply = () => (
+      <page.ReplySourceIconsContext.Provider value={true}>
+        <page.UrlChip href={chipURL}>Reply</page.UrlChip>
+      </page.ReplySourceIconsContext.Provider>
+    );
+    await page.act(async () => compiledRoot?.render(reply()));
+    expect(calls.map(({ method }) => method)).toEqual(["link.inspect"]);
+    expect(host.querySelector("img.cv-chip__favicon")).toBeNull();
+    await page.act(async () => finishInspect?.({ sites: {} }));
+    expect(calls.filter(({ method }) => method === "link.favicon")).toEqual([
+      { method: "link.favicon", params: { url: chipURL } },
+    ]);
+    await page.act(async () => compiledRoot?.render(reply()));
+    expect(calls.filter(({ method }) => method === "link.cancelFavicon")).toHaveLength(0);
+    await page.act(async () => finishIcon?.({ icon: ICON }));
+    expect(host.querySelector("img.cv-chip__favicon")?.getAttribute("src")).toBe(ICON);
     expect(calls.filter(({ method }) => method === "link.favicon")).toHaveLength(1);
   } finally {
     // Use this bundle's React instance for its root, including on a failing assertion.
@@ -402,18 +477,21 @@ async function renderChips(asked: string[], chips: { href: string; own?: boolean
   });
   const { createRoot } = await import("react-dom/client");
   const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { ReplySourceIconsContext } = await import("../src/agent-session/acpmux/chips/ReplySourceIconsContext");
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <ul>
-        {chips.map(({ href, own }) => (
-          <li key={href}>
-            <UrlChip href={href} {...(own ? { icon: <svg data-icon="own" /> } : {})}>
-              {href}
-            </UrlChip>
-          </li>
-        ))}
-      </ul>,
+      <ReplySourceIconsContext.Provider value={true}>
+        <ul>
+          {chips.map(({ href, own }) => (
+            <li key={href}>
+              <UrlChip href={href} {...(own ? { icon: <svg data-icon="own" /> } : {})}>
+                {href}
+              </UrlChip>
+            </li>
+          ))}
+        </ul>
+      </ReplySourceIconsContext.Provider>,
     ),
   );
   for (let tick = 0; tick < 4; tick++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -440,4 +518,118 @@ test("with sourceIcons off a reply's web links fetch nothing and keep the globe"
   const asked: string[] = [];
   expect(await renderChips(asked, [{ href: "https://en.wikipedia.org/wiki/Albert_Einstein" }])).toEqual(["globe"]);
   expect(asked).toEqual([]);
+});
+
+// Passive requests disclose the pane's IP even when third-party text is never clicked.
+async function renderContent(asked: string[], content: ReactNode) {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { createRoot } = await import("react-dom/client");
+  setChipHost(async (method, params) => {
+    if (method === "link.favicon") {
+      asked.push(String(params.url));
+      return { icon: ICON };
+    }
+    return {};
+  });
+  root ??= createRoot(host);
+  await act(async () => root!.render(content));
+  for (let tick = 0; tick < 4; tick++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+}
+
+async function transcript(text: string, kind = "assistant") {
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  return (
+    <VirtualTranscript
+      rows={[{ id: "message", kind, text, at: 1, version: 1 }]}
+      expanded={new Set()}
+      onToggleActivity={() => {}}
+    />
+  );
+}
+
+for (const body of ["[review](https://review.example/read)", "https://review.example/bare"]) {
+  test(`review plainCode Markdown never fetches icons: ${body}`, async () => {
+    const { ReviewThread } = await import("../src/agent-session/acpmux/changes/ReviewThread");
+    const asked: string[] = [];
+    await renderContent(
+      asked,
+      <ReviewThread
+        thread={{
+          path: "file.ts",
+          side: "additions",
+          resolved: false,
+          outdated: false,
+          moved: false,
+          comments: [{ author: "reviewer", body }],
+        }}
+      />,
+    );
+    expect(host.querySelectorAll("a.cv-chip")).toHaveLength(1);
+    expect(asked).toEqual([]);
+  });
+}
+
+test("plain Markdown outside a reply never fetches icons for links or bare URLs", async () => {
+  const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const asked: string[] = [];
+  await renderContent(asked, <Markdown>{"[link](https://plain.example/read) https://bare.example/read"}</Markdown>);
+  expect(host.querySelectorAll("a.cv-chip")).toHaveLength(2);
+  expect(asked).toEqual([]);
+});
+
+test("the transcript's agent reply fetches icons for prose links and bare URLs", async () => {
+  const asked: string[] = [];
+  await renderContent(asked, await transcript("[link](https://reply.example/read) https://bare.example/read"));
+  expect(asked.sort()).toEqual(["https://bare.example/read", "https://reply.example/read"]);
+  expect(host.querySelectorAll("img.cv-chip__favicon")).toHaveLength(2);
+});
+
+test("quoted tool output inside an agent reply never fetches icons", async () => {
+  const asked: string[] = [];
+  await renderContent(
+    asked,
+    await transcript(
+      "[prose](https://prose.example/read)\n\n> [tool](https://tool.example/read)\n>\n> > https://nested.example/read",
+    ),
+  );
+  expect(host.querySelectorAll("blockquote a.cv-chip")).toHaveLength(2);
+  expect(asked).toEqual(["https://prose.example/read"]);
+});
+
+test("user prompts never fetch icons", async () => {
+  const asked: string[] = [];
+  await renderContent(asked, await transcript("[link](https://user.example/read) https://bare.example/read", "user"));
+  expect(asked).toEqual([]);
+});
+
+test("chat fetches at most 32 distinct origins for the page lifetime, resetLinkStore restores the budget", async () => {
+  const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const urls = Array.from({ length: 33 }, (_, n) => `https://reply${n}.example/read`);
+  const asked: string[] = [];
+  await renderContent(asked, await transcript(urls.join("\n\n")));
+  expect(asked).toEqual(urls.slice(0, 32));
+  expect(host.querySelectorAll("img.cv-chip__favicon")).toHaveLength(32);
+  // Remounting chips does not restore the budget.
+  await renderContent(asked, null);
+  await renderContent(asked, await transcript(urls[32]!));
+  expect(asked).toHaveLength(32);
+  await renderContent(asked, null);
+  resetLinkStore();
+  await renderContent(asked, await transcript(urls[32]!));
+  expect(asked).toEqual([...urls.slice(0, 32), urls[32]!]);
+});
+
+test("held icons still show outside replies, but cached passive icons do not", async () => {
+  const { seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const held = "https://held.example/read";
+  seedLinkStore({ sites: { [held]: { icon: ICON } } });
+  const asked: string[] = [];
+  const passive = "https://cached.example/read";
+  await renderContent(asked, await transcript(passive));
+  expect(asked).toEqual([passive]);
+  await renderContent(asked, <Markdown>{`${held} ${passive}`}</Markdown>);
+  expect(host.querySelectorAll("img.cv-chip__favicon")).toHaveLength(1);
+  expect(host.querySelector("a.cv-chip img")?.getAttribute("src")).toBe(ICON);
+  expect(asked).toEqual([passive]);
 });
