@@ -173,7 +173,8 @@ def main():
     for wanted, want in (("true", True), ("false", False)):
         context = pr_event("synchronize", [])
         context["needs"] = {"route": {"result": "success", "outputs": {"wanted": wanted}}}
-        _check(bool(expression(jobs["publish"]["if"], context)) == want,
+        publish_if = jobs["publish"]["if"].replace("!cancelled() && ", "")  # a run that is not cancelled
+        _check(bool(expression(publish_if, context)) == want,
                f"the publish job {'posts' if want else 'posts nothing'} when the route wanted={wanted}")
     decide = next((s for s in jobs["route"]["steps"] if s.get("id") == "decide"), None)
     _check(decide is not None and "media_auto_tour.py" in decide.get("run", ""),
