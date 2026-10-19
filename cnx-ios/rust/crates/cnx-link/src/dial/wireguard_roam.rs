@@ -69,8 +69,9 @@ pub(super) enum Control {
         /// Which of `relayed` ride TCP or TLS to their server.
         relayed_tls: Vec<String>,
     },
-    /// The peer receives what this side sends (its `reach` message).
-    Reached,
+    /// The peer receives what this side sends (its `reach` message): from
+    /// this address of ours, on its TURN allocation when `via_turn`.
+    Reached { from: Option<SocketAddr>, via_turn: bool },
     /// Debug and tests: the socket's network is gone.
     Blackhole,
     /// Debug and tests: the TURN allocation's stream to its server dies.
@@ -115,8 +116,15 @@ enum RoamMessage {
         generation: u64,
     },
     /// "Your datagrams reach me" (protocol version 2; an older peer logs it
-    /// as unreadable and goes on).
-    Reach,
+    /// as unreadable and goes on): they arrived from `from` (the sender's
+    /// address as seen here), on this side's plain UDP socket or its TURN
+    /// allocation (`via`: `udp` or `turn`).
+    Reach {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        via: Option<String>,
+    },
 }
 
 pub(super) struct SessionParts {
@@ -128,7 +136,7 @@ pub(super) struct SessionParts {
     pub net: Arc<Mutex<Option<Arc<WgNet>>>>,
     pub control: mpsc::UnboundedSender<Control>,
     /// The underlay's requests to send the peer `reach`.
-    pub reach: mpsc::UnboundedReceiver<()>,
+    pub reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     pub options: DialOptions,
     pub stun: Vec<SocketAddr>,
     pub endpoints: Vec<String>,
@@ -149,7 +157,7 @@ pub(super) struct Session {
     signaling: Arc<Mutex<SignalingClient>>,
     net: Arc<Mutex<Option<Arc<WgNet>>>>,
     control: mpsc::UnboundedSender<Control>,
-    reach: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
+    reach: Mutex<Option<mpsc::UnboundedReceiver<(SocketAddr, Carrier)>>>,
     options: DialOptions,
     stun: Mutex<Vec<SocketAddr>>,
     /// This side's endpoints as last offered to the peer.
@@ -157,8 +165,9 @@ pub(super) struct Session {
     /// Which of them are this side's TURN relayed addresses (all, over a
     /// stream).
     relayed: Mutex<(Vec<String>, Vec<String>)>,
-    /// Takes a new TURN allocation after a roam or a dead stream.
-    keeps_turn: bool,
+    /// Takes a new TURN allocation after a roam or a dead stream (the phone;
+    /// a Mac once its network blocked UDP).
+    keeps_turn: AtomicBool,
     turn_monitor: Mutex<Option<JoinHandle<()>>>,
     /// Announcements the peer sent through signaling, for the control task.
     inject: mpsc::UnboundedSender<RoamMessage>,
@@ -175,6 +184,9 @@ pub(super) struct Session {
     /// Counts network changes on either side (the media lane asks for a
     /// keyframe after each).
     path_epoch: Arc<watch::Sender<u64>>,
+    /// Counts this side's roams (a TURN replacement started before one is
+    /// stale).
+    roams: std::sync::atomic::AtomicU64,
     closed: AtomicBool,
 }
 
@@ -216,7 +228,7 @@ impl Session {
             stun: Mutex::new(parts.stun),
             endpoints: Mutex::new(parts.endpoints),
             relayed: Mutex::new(parts.relayed),
-            keeps_turn: parts.keeps_turn,
+            keeps_turn: AtomicBool::new(parts.keeps_turn),
             turn_monitor: Mutex::new(None),
             inject,
             injected: Mutex::new(Some(injected)),
@@ -228,6 +240,7 @@ impl Session {
             roaming: tokio::sync::Mutex::new(()),
             last_roam: Mutex::new(None),
             path_epoch: Arc::new(watch::channel(0).0),
+            roams: std::sync::atomic::AtomicU64::new(0),
             closed: AtomicBool::new(false),
         });
         lock(registry()).push(Arc::downgrade(&session));
@@ -264,8 +277,15 @@ impl Session {
     /// Take a new TURN allocation on the current network and tell the peer
     /// its address; `false` when none could be had.
     async fn replace_turn(self: &Arc<Self>) -> bool {
-        let _one_at_a_time = self.roaming.lock().await;
+        // Allocate before taking the roam lock: a roam meanwhile must not wait
+        // seconds for an allocation that belongs to the old network.
+        let roams = self.roams.load(Ordering::Relaxed);
         let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
+        let _one_at_a_time = self.roaming.lock().await;
+        if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
+            // A roam took its own allocation on the new network.
+            return true;
+        }
         let Ok(net) = self.net() else { return true };
         let (old, _) = lock(&self.relayed).clone();
         let mut endpoints: Vec<String> =
@@ -431,6 +451,7 @@ impl Session {
     /// Move the session onto the network the device has now.
     async fn roam(self: &Arc<Self>) -> Timeline {
         let _one_at_a_time = self.roaming.lock().await;
+        self.roams.fetch_add(1, Ordering::Relaxed);
         let timeline = Timeline::new();
         timeline.mark("network_changed");
         *lock(&self.last_roam) = Some(timeline.clone());
@@ -460,7 +481,8 @@ impl Session {
         let mut endpoints = host_endpoints(port, &self.options);
         self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
         // On the transport the new network allows: UDP, else TLS.
-        let turn = async { if self.keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
+        let keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
+        let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
         let reflexive = async {
             let deadline = Instant::now() + STUN_WAIT;
             let mut found = Vec::new();
@@ -472,7 +494,15 @@ impl Session {
             }
             found
         };
-        let (turn, reflexive) = tokio::join!(turn, reflexive);
+        let (mut turn, reflexive) = tokio::join!(turn, reflexive);
+        if turn.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
+            // A Mac roamed onto a network that answers no STUN (it drops
+            // UDP): from now on it keeps a TURN allocation.
+            turn = TurnCarrier::allocate(&self.options).await;
+            if turn.is_some() {
+                self.keeps_turn.store(true, Ordering::Relaxed);
+            }
+        }
         let known = endpoints.len();
         for address in reflexive {
             if !endpoints.contains(&address) {
@@ -553,7 +583,7 @@ impl SignalTarget {
 /// signaling.
 struct ControlChannels {
     announce: mpsc::UnboundedReceiver<Announcement>,
-    reach: mpsc::UnboundedReceiver<()>,
+    reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     injected: mpsc::UnboundedReceiver<RoamMessage>,
     resignal: mpsc::UnboundedReceiver<()>,
     signal: SignalTarget,
@@ -592,12 +622,15 @@ async fn run_control(
             }
         };
         tokio::select! {
-            Some(()) = reach.recv() => {
-                tracing::debug!(dialer = signal.dialer, "sending reach");
-                send_message(&socket, peer, &RoamMessage::Reach).await;
+            Some((from, carrier)) = reach.recv() => {
+                let via = if carrier == Carrier::Turn { "turn" } else { "udp" };
+                let message = RoamMessage::Reach { from: Some(from.to_string()), via: Some(via.to_owned()) };
+                send_message(&socket, peer, &message).await;
             }
             endpoints = announce.recv() => {
                 let Some((mut endpoints, relayed, relayed_tls)) = endpoints else { return };
+                // Relayed addresses first, so a long list never loses them.
+                endpoints.sort_by_key(|text| !relayed.contains(text));
                 endpoints.truncate(MAX_ENDPOINTS);
                 generation += 1;
                 let relayed: Vec<String> =
@@ -645,11 +678,11 @@ async fn run_control(
                     tracing::debug!(dialer = signal.dialer, "roam control ends: the tunnel is gone");
                     return;
                 };
-                tracing::debug!(dialer = signal.dialer, ?received, "roam message");
                 match received {
-                    Ok(RoamMessage::Reach) => {
-                        tracing::debug!(dialer = signal.dialer, "got reach");
-                        if control.send(Control::Reached).is_err() {
+                    Ok(RoamMessage::Reach { from, via }) => {
+                        let from = from.and_then(|text| text.parse().ok());
+                        let via_turn = via.as_deref() == Some("turn");
+                        if control.send(Control::Reached { from, via_turn }).is_err() {
                             return;
                         }
                     }
@@ -794,6 +827,14 @@ mod tests {
             serde_json::to_string(&RoamMessage::Ack { generation: 9 }).unwrap(),
             r#"{"t":"ack","generation":9}"#
         );
-        assert_eq!(serde_json::to_string(&RoamMessage::Reach).unwrap(), r#"{"t":"reach"}"#);
+        let reach = RoamMessage::Reach { from: Some("203.0.113.7:4000".into()), via: Some("turn".into()) };
+        let text = serde_json::to_string(&reach).unwrap();
+        assert_eq!(text, r#"{"t":"reach","from":"203.0.113.7:4000","via":"turn"}"#);
+        assert_eq!(serde_json::from_str::<RoamMessage>(&text).unwrap(), reach);
+        // A bare `reach` names no route.
+        assert_eq!(
+            serde_json::from_str::<RoamMessage>(r#"{"t":"reach"}"#).unwrap(),
+            RoamMessage::Reach { from: None, via: None }
+        );
     }
 }

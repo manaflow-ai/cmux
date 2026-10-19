@@ -82,6 +82,12 @@ import Testing
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
         #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS)")
+        // WebRTC ignores it: a change there does not redial.
+        var webRTC = LinkMachine(transport: .webRTC)
+        _ = webRTC.handle(.target(mac))
+        _ = webRTC.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(webRTC.handle(.blockUDP(true)) == [])
+        #expect(webRTC.blockUDP)
     }
 
     @Test func dropReconnectsAndForegroundProbes() {

@@ -315,6 +315,22 @@ async fn wireguard_one_way_lan_settles_on_turn() {
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
 }
 
+/// One side's UDP to the LAN is silently lost while its UDP to the internet
+/// works (the mini's sshd-launched hostd could not route to the LAN; the
+/// retired relay used to carry this). The Mac receives the phone's LAN
+/// datagrams, so that route looks fine from its side; the phone's `reach`
+/// names the route that actually arrives (plain UDP to the phone's TURN
+/// relayed address), and the Mac sends there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_survives_one_way_udp_through_the_peers_turn() {
+    let turn = TestTurn::start().await;
+    let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
+    let mac = DialOptions { drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
+    let run = exercise_turn(phone, mac).await;
+    assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
+    assert!(run.changes.is_empty(), "path flapped: {run:?}");
+}
+
 /// An older peer's relay frames get one `relay_retired` error per session
 /// (naming it, so the peer's other dials go on), and the socket stays up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

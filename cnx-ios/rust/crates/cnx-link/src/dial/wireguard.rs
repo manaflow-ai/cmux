@@ -307,10 +307,15 @@ const MARKER_INTERVAL: Duration = Duration::from_secs(3);
 /// every route until one arrives.
 const REACH_REPEATS: [Duration; 3] =
     [Duration::from_millis(100), Duration::from_millis(300), Duration::from_millis(1000)];
+/// A route the peer's `reach` chose over the one its datagrams arrive on
+/// (reachability is one-way) is kept this long past each such `reach`:
+/// longer than two `reach` intervals, so it survives while it works and
+/// falls back to sending on every route soon after it stops.
+const REACH_PIN: Duration = Duration::from_secs(7);
 
 /// How a route reaches the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Carrier {
+pub(super) enum Carrier {
     /// Plain UDP from the tunnel's socket.
     Udp,
     /// Through this side's TURN allocation.
@@ -423,8 +428,14 @@ struct HybridUnderlay {
     last_marker: Option<Instant>,
     /// Repeats of `reach` still due after a route change ([`REACH_REPEATS`]).
     reach_repeats: usize,
-    /// Asks the session's control task to send the peer a `reach` message.
-    reach_out: mpsc::UnboundedSender<()>,
+    /// Asks the session's control task to send the peer a `reach` message
+    /// naming the address and carrier its datagram came in on.
+    reach_out: mpsc::UnboundedSender<(SocketAddr, Carrier)>,
+    /// Where plain UDP from the peer last came from.
+    last_udp_from: Option<SocketAddr>,
+    /// The route was chosen by the peer's `reach`, not by where its datagrams
+    /// arrive, until then ([`REACH_PIN`]).
+    pinned_until: Option<Instant>,
     path: watch::Sender<LinkPath>,
     control: mpsc::UnboundedReceiver<Control>,
     /// STUN transactions of the current socket still unanswered, and where
@@ -469,7 +480,7 @@ struct UnderlaySpec<'a> {
     peer_relayed_tls: &'a [String],
     peer_version: u32,
     turn: Option<TurnCarrier>,
-    reach_out: mpsc::UnboundedSender<()>,
+    reach_out: mpsc::UnboundedSender<(SocketAddr, Carrier)>,
     path: watch::Sender<LinkPath>,
     control: mpsc::UnboundedReceiver<Control>,
 }
@@ -500,6 +511,8 @@ impl HybridUnderlay {
             last_marker: None,
             reach_repeats: 0,
             reach_out: spec.reach_out,
+            last_udp_from: None,
+            pinned_until: None,
             path: spec.path,
             control: spec.control,
             stun: Vec::new(),
@@ -605,11 +618,7 @@ impl HybridUnderlay {
                 // What we sent toward its old network may be lost.
                 self.replay_recent(true);
             }
-            Control::Reached => {
-                tracing::debug!(was = self.confirmed, direct = ?self.direct, "peer confirmed our datagrams reach it");
-                self.confirmed = true;
-                self.publish_path();
-            }
+            Control::Reached { from, via_turn } => self.reached(from, via_turn),
             Control::Blackhole => {
                 self.blackhole = true;
                 self.turn = None;
@@ -621,6 +630,67 @@ impl HybridUnderlay {
                 }
             }
         }
+    }
+
+    /// The peer's `reach`: our datagrams arrived from `from` (our address as
+    /// it saw it), on its TURN allocation when `via_turn`. That names the
+    /// carrier that works (our TURN when `from` is our relayed address, else
+    /// plain UDP) and whether its destination was the peer's relayed
+    /// address. The current route is confirmed only when it is that pair;
+    /// otherwise the route becomes that pair (pinned, since our datagrams
+    /// may arrive one way while the peer's arrive another).
+    fn reached(&mut self, from: Option<SocketAddr>, via_turn: bool) {
+        let now = Instant::now();
+        let Some(from) = from else {
+            // No route named (not sent by this version): the current route.
+            self.confirmed = true;
+            self.publish_path();
+            return;
+        };
+        let carrier = if self.turn.as_ref().is_some_and(|turn| turn.relayed == from) {
+            Carrier::Turn
+        } else {
+            Carrier::Udp
+        };
+        let fits = |route: &Route, labels: &Labels| {
+            route.carrier == carrier && labels.peer_relayed.contains(&route.addr) == via_turn
+        };
+        if self.direct.is_some_and(|route| fits(&route, &self.labels)) {
+            if !self.confirmed {
+                tracing::debug!(direct = ?self.direct, "peer confirmed our datagrams reach it");
+            }
+            self.confirmed = true;
+            if self.pinned_until.is_some() {
+                self.pinned_until = Some(now + REACH_PIN);
+            }
+        } else if let Some(route) = self.route_for(carrier, via_turn) {
+            tracing::debug!(?route, current = ?self.direct, "the peer receives us on another route; sending there");
+            self.direct = Some(route);
+            self.pinned_until = Some(now + REACH_PIN);
+            self.confirmed = true;
+            self.replay_recent(false);
+        }
+        self.publish_path();
+    }
+
+    /// A route on `carrier` to the peer's relayed address (`via_turn`) or to
+    /// one of its plain addresses.
+    fn route_for(&self, carrier: Carrier, via_turn: bool) -> Option<Route> {
+        let usable = |addr: &SocketAddr| carrier == Carrier::Turn || !self.refused.contains(addr);
+        let addr = if via_turn {
+            let mut relayed: Vec<SocketAddr> =
+                self.labels.peer_relayed.iter().copied().filter(usable).collect();
+            relayed.sort();
+            relayed.first().copied()
+        } else if carrier == Carrier::Turn {
+            self.turn_targets.iter().copied().find(|addr| !self.labels.peer_relayed.contains(addr))
+        } else {
+            self.last_udp_from.filter(usable)
+        }?;
+        if carrier == Carrier::Turn && self.turn.is_none() {
+            return None;
+        }
+        Some(Route { carrier, addr })
     }
 
     /// Keep `datagram` for a replay, with the class it went out in.
@@ -684,7 +754,11 @@ impl HybridUnderlay {
         if self.options.refuse_udp_to.is_some_and(|refuse| refuse(&target)) {
             return false;
         }
-        if self.options.drop_outbound_udp || self.options.block_udp || self.blackhole {
+        if self.options.drop_outbound_udp
+            || self.options.block_udp
+            || self.blackhole
+            || self.options.drop_udp_to.is_some_and(|drop| drop(&target))
+        {
             return true;
         }
         if self.options.restrict_inbound_udp {
@@ -747,13 +821,14 @@ impl HybridUnderlay {
         self.refused.extend(refused);
     }
 
-    /// With a route: also try the other candidates, often right after a
-    /// roam, now and then while the route is not plain UDP (so a direct
-    /// path is found again).
+    /// With a route: also try the other candidates (the peer's relayed
+    /// addresses among them), often right after a roam or while the route is
+    /// not confirmed (it may work only toward us), now and then while the
+    /// route is not plain UDP (so a direct path is found again).
     fn maybe_spray(&mut self, datagram: &[u8], route: Route) {
         let now = Instant::now();
         let roaming = self.spray_until.is_some_and(|until| now < until);
-        let gap = if roaming {
+        let gap = if roaming || !self.confirmed {
             ROAM_SPRAY_GAP
         } else if route.carrier != Carrier::Udp {
             UPGRADE_SPRAY_GAP
@@ -807,6 +882,11 @@ impl HybridUnderlay {
     }
 
     fn transmit(&mut self, datagram: &[u8], class: SendClass) {
+        if self.pinned_until.is_some_and(|until| Instant::now() >= until) {
+            // The peer stopped confirming the route its `reach` chose.
+            self.pinned_until = None;
+            self.demote("chosen route no longer confirmed");
+        }
         if self.direct_only() && self.last_direct.is_some_and(|last| last.elapsed() > DIRECT_STALE) {
             // Nothing came back on the route for a while: offer every route
             // again (the peer's `reach` re-confirms this one if it works).
@@ -919,15 +999,18 @@ impl Underlay for HybridUnderlay {
         }
         if carrier == Carrier::Udp {
             self.last_udp = Some(now);
+            self.last_udp_from = Some(addr);
         }
-        // Plain UDP wins over TURN while it keeps arriving, and an address
-        // the OS refuses to send to is never the route.
+        // Plain UDP wins over TURN while it keeps arriving, an address the OS
+        // refuses to send to is never the route, and a route the peer's
+        // `reach` chose stays while it is confirmed.
         let udp_fresh = self.last_udp.is_some_and(|last| now.duration_since(last) <= DIRECT_STALE);
         let keep_udp = carrier == Carrier::Turn
             && udp_fresh
             && self.direct.is_some_and(|current| current.carrier == Carrier::Udp);
         let refused = carrier == Carrier::Udp && self.refused.contains(&addr);
-        if !keep_udp && !refused && self.direct != Some(route) {
+        let pinned = self.pinned_until.is_some_and(|until| now < until);
+        if !keep_udp && !refused && !pinned && self.direct != Some(route) {
             if self.direct.is_some() {
                 // The peer confirmed the old route, not this one (our UDP may
                 // be dropped silently): send on every route until it confirms
@@ -970,7 +1053,7 @@ impl Underlay for HybridUnderlay {
             };
             if due {
                 self.last_marker = Some(now);
-                let _ = self.reach_out.send(());
+                let _ = self.reach_out.send((addr, carrier));
             }
         }
         self.publish_path();

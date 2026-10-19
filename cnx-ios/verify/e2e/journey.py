@@ -1742,7 +1742,7 @@ w("\r\x1b[2KSTREAMDONE\n")
         check(found, "example.com did not render on the phone in 25 s")
         return round(dt, 1)
 
-    def s_turn_paths(self):
+    def s_turn_paths(self):  # noqa: C901 - one live scenario, two modes
         """WireGuard over TURN on the real link, typed on the phone: Relay only (TURN
         over UDP), then Block UDP (no plain UDP, no TURN over UDP: TURN over TLS on
         443). Each: the link line, the Mac's label, a terminal round trip, keystroke
@@ -1760,8 +1760,13 @@ w("\r\x1b[2KSTREAMDONE\n")
                 check(a == "1", f"{ident} did not turn on ({b} -> {a})")
                 st, dt, seen = self.wait_status(want)
                 check(st, f"{mode}: never 'Connected' on the expected path in 40 s; status sequence {seen[:6]}")
-                self.term_roundtrip()
-                lat = Latency(self, os.path.join(self.out, f"latency-{mode}"), self.log, 12)
+                # Typed on the phone: a command through the composer, then
+                # keystroke echo measured from the screen recording, both in
+                # the seeded terminal without leaving it.
+                self.open_seed_workspace()
+                check(self.current_tab_marker() is not None, f"{mode}: terminal input did not reach the Mac")
+                stay = _InTerminal(self)
+                lat = Latency(stay, os.path.join(self.out, f"latency-{mode}"), self.log, 12)
                 lat.keystroke_echo(False)
                 echo = lat.metrics.get("keystroke_echo_idle", {})
                 browser = self.browser_over_link() if mode == "turn_tls" else None
@@ -2104,3 +2109,21 @@ w("\r\x1b[2KSTREAMDONE\n")
                 self.results.append({"id": sid, "title": title, "owner": owner, "status": "fail",
                                      "notes": f"rig error around the step: {e}"[:400], "seconds": 0})
         return self.results
+
+
+class _InTerminal:
+    """The journey as the latency probe sees it, already in the seeded terminal:
+    returning to the list and reopening it are no-ops (the list's sheet
+    handling taps an off-screen row on the current app)."""
+
+    def __init__(self, journey):
+        self._j = journey
+
+    def back_to_list(self):
+        pass
+
+    def open_seed_workspace(self):
+        pass
+
+    def __getattr__(self, name):
+        return getattr(self._j, name)

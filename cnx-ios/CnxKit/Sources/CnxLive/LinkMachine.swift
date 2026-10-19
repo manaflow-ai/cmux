@@ -102,7 +102,8 @@ public struct LinkMachine: Sendable {
         case .blockUDP(let next):
             guard next != blockUDP else { return [] }
             blockUDP = next
-            guard let target, target.isOnline else { return [] }
+            // WebRTC ignores it: no redial (the next WireGuard dial uses it).
+            guard transport == .wireGuard, let target, target.isOnline else { return [] }
             return dial(attempt: 1, closing: true)
         case .dialSucceeded(let gen, let path):
             guard gen == generation, case .connecting = phase else { return [] }

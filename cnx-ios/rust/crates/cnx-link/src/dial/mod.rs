@@ -97,6 +97,11 @@ pub struct DialOptions {
     /// Network privacy answers for LAN peers).
     #[doc(hidden)]
     pub refuse_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Test support: WireGuard's plain UDP to addresses this returns true
+    /// for is silently lost (the OS takes it, nothing arrives), as when a
+    /// side's route to the LAN is broken but the internet works.
+    #[doc(hidden)]
+    pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
     /// Test support: WireGuard drops plain UDP from any address it has not
     /// sent plain UDP to, as an address-restricted NAT in front of this
     /// side would. A peer that roams then reaches this side only after
@@ -147,6 +152,7 @@ impl Default for DialOptions {
             turn_tls_roots: None,
             drop_outbound_udp: false,
             refuse_udp_to: None,
+            drop_udp_to: None,
             restrict_inbound_udp: false,
             input_lane: true,
             video_lane: false,

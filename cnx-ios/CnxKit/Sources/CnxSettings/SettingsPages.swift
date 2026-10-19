@@ -427,12 +427,13 @@ struct TransportPage: View {
                 Toggle(isOn: $relayOnly) {
                     SettingsLabel("Relay only", symbol: "point.3.connected.trianglepath.dotted")
                 }
-                .disabled(relayAvailable == false)
+                // Turning off stays possible when the relay goes away while on.
+                .disabled(relayAvailable == false && !relayOnly)
                 .accessibilityIdentifier("settings.transport.relayOnly")
                 Toggle(isOn: $blockUDP) {
                     SettingsLabel("Block UDP", symbol: "network.slash")
                 }
-                .disabled(relayAvailable == false)
+                .disabled(relayAvailable == false && !blockUDP)
                 .accessibilityIdentifier("settings.transport.blockUDP")
                 Toggle(isOn: $browserVideoOnChannel) {
                     SettingsLabel("Browser video on channel", symbol: "film")

@@ -48,6 +48,16 @@ const UDP_GRACE: Duration = Duration::from_millis(250);
 const STREAM_RTO_MS: u16 = 1500;
 /// Datagrams received from the TURN server before new ones are dropped.
 const INBOUND_QUEUE: usize = 1024;
+/// Bound on the TCP connect and TLS handshake to a TURN server.
+const CONNECT_WAIT: Duration = Duration::from_secs(10);
+/// A write to the TURN stream that takes longer than this means the stream
+/// is stuck (a middlebox that black-holes it without a reset): it is dead.
+const STREAM_WRITE_WAIT: Duration = Duration::from_secs(10);
+/// TCP keepalive on the TURN stream, so a silent dead connection is noticed.
+const STREAM_KEEPALIVE: Duration = Duration::from_secs(10);
+/// A peer address the allocation could not send to (say a refused
+/// permission) is skipped this long, so it does not stall the queue.
+const FAILED_TARGET_WAIT: Duration = Duration::from_secs(5);
 /// The largest STUN or ChannelData message on a stream (RFC 5766: 16-bit
 /// length) with its header and padding.
 #[cfg(test)]
@@ -281,14 +291,16 @@ impl<S: AsyncRead + AsyncWrite + Send + Sync + 'static> Conn for StreamConn<S> {
         let mut writer = self.writer.lock().await;
         // The client pads ChannelData already; STUN is whole words. Flush
         // every message: TLS would otherwise keep a record until the next.
-        match async {
+        let write = async {
             writer.write_all(buf).await?;
             writer.flush().await
-        }
-        .await
-        {
-            Ok(()) => Ok(buf.len()),
-            Err(error) => Err(self.fail(error)),
+        };
+        match tokio::time::timeout(STREAM_WRITE_WAIT, write).await {
+            Ok(Ok(())) => Ok(buf.len()),
+            Ok(Err(error)) => Err(self.fail(error)),
+            Err(_) => {
+                Err(self.fail(std::io::Error::new(std::io::ErrorKind::TimedOut, "TURN stream write stalled")))
+            }
         }
     }
 
@@ -375,31 +387,56 @@ impl TurnCarrier {
         }
     }
 
+    /// Allocate on `server` in a task of its own: a caller that gives up (a
+    /// timeout, the losing side of the UDP and TLS race) drops only the
+    /// answer, and the task still finishes and releases what it opened.
     async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let options = options.clone();
+        tokio::spawn(async move {
+            let result = Self::allocate_inner(server, &options).await;
+            // Unwanted by now: dropping the carrier releases the allocation.
+            let _ = tx.send(result);
+        });
+        rx.await.map_err(|_| "the TURN allocation task ended".to_owned())?
+    }
+
+    async fn connect_stream(
+        server: &TurnServer,
+        options: &DialOptions,
+    ) -> Result<(Arc<dyn Conn + Send + Sync>, watch::Receiver<bool>), String> {
+        let tcp = TcpStream::connect(server.address.as_str()).await.map_err(|e| e.to_string())?;
+        let _ = tcp.set_nodelay(true);
+        let keepalive =
+            socket2::TcpKeepalive::new().with_time(STREAM_KEEPALIVE).with_interval(STREAM_KEEPALIVE / 2);
+        let _ = socket2::SockRef::from(&tcp).set_tcp_keepalive(&keepalive);
+        let local = tcp.local_addr().map_err(|e| e.to_string())?;
+        let peer = tcp.peer_addr().map_err(|e| e.to_string())?;
+        if server.transport == TurnTransport::Tcp {
+            let conn = StreamConn::new(tcp, local, peer);
+            let dead = conn.dead();
+            return Ok((Arc::new(conn), dead));
+        }
+        let name = rustls::pki_types::ServerName::try_from(server.host.clone()).map_err(|e| e.to_string())?;
+        let tls = tokio_rustls::TlsConnector::from(tls_config(options)?)
+            .connect(name, tcp)
+            .await
+            .map_err(|e| e.to_string())?;
+        let conn = StreamConn::new(tls, local, peer);
+        let dead = conn.dead();
+        Ok((Arc::new(conn), dead))
+    }
+
+    async fn allocate_inner(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
         let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server
             .transport
         {
             TurnTransport::Udp => (Arc::new(super::wireguard::bind_udp().map_err(|e| e.to_string())?), None),
             TurnTransport::Tcp | TurnTransport::Tls => {
-                let tcp = TcpStream::connect(server.address.as_str()).await.map_err(|e| e.to_string())?;
-                let _ = tcp.set_nodelay(true);
-                let local = tcp.local_addr().map_err(|e| e.to_string())?;
-                let peer = tcp.peer_addr().map_err(|e| e.to_string())?;
-                if server.transport == TurnTransport::Tcp {
-                    let conn = StreamConn::new(tcp, local, peer);
-                    let dead = conn.dead();
-                    (Arc::new(conn), Some(dead))
-                } else {
-                    let name = rustls::pki_types::ServerName::try_from(server.host.clone())
-                        .map_err(|e| e.to_string())?;
-                    let tls = tokio_rustls::TlsConnector::from(tls_config(options)?)
-                        .connect(name, tcp)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    let conn = StreamConn::new(tls, local, peer);
-                    let dead = conn.dead();
-                    (Arc::new(conn), Some(dead))
-                }
+                let (conn, dead) = tokio::time::timeout(CONNECT_WAIT, Self::connect_stream(&server, options))
+                    .await
+                    .map_err(|_| "TURN server connect timed out".to_owned())??;
+                (conn, Some(dead))
             }
         };
         // The server address the client compares against: the stream's peer.
@@ -434,9 +471,20 @@ impl TurnCarrier {
         let sender = {
             let (relay, queue) = (Arc::clone(&relay), Arc::clone(&queue));
             tokio::spawn(async move {
+                let mut failed: std::collections::HashMap<SocketAddr, tokio::time::Instant> =
+                    std::collections::HashMap::new();
                 while let Some(Queued { datagram, to }) = queue.next().await {
-                    if let Err(error) = relay.send_to(&datagram, to).await {
-                        tracing::trace!(%error, %to, "TURN send failed");
+                    if failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
+                        continue;
+                    }
+                    match relay.send_to(&datagram, to).await {
+                        Ok(_) => {
+                            failed.remove(&to);
+                        }
+                        Err(error) => {
+                            tracing::debug!(%error, %to, "TURN send failed; skipping this peer address for a while");
+                            failed.insert(to, tokio::time::Instant::now());
+                        }
                     }
                 }
             })
@@ -520,8 +568,11 @@ async fn bounded(
 
 impl Drop for TurnCarrier {
     fn drop(&mut self) {
+        // The sender (the first task) stops on its own once the queue is
+        // closed: aborting it in the middle of a write would leave half a
+        // message on a stream.
         self.queue.close();
-        for task in &self.tasks {
+        for task in self.tasks.iter().skip(1) {
             task.abort();
         }
         // Release the allocation; without a runtime it simply expires.
