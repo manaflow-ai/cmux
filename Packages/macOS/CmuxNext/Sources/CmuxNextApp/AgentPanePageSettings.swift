@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextDiff
 import CmuxNextSettings
 import Observation
 

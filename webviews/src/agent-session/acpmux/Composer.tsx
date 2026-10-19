@@ -83,6 +83,7 @@ export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
 export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
+  placeholderQueued: "composer.placeholderQueued",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -334,7 +335,7 @@ export function Composer({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // The controls row drops its permission labels to icons when it runs out of room (composerRowFit.ts).
+  // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
   useRowFit(bar);
   // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
@@ -909,6 +910,8 @@ export function Composer({
   // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
   const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
   const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
+  // While a turn runs, what is sent waits behind it, so the empty prompt says so.
+  const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1119,7 +1122,7 @@ export function Composer({
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
             value={text}
-            placeholder={t(COMPOSER_LABELS.placeholder)}
+            placeholder={t(queues ? COMPOSER_LABELS.placeholderQueued : COMPOSER_LABELS.placeholder)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
@@ -1285,7 +1288,12 @@ export function Composer({
                 </button>
               )}
               {speed && <FastToggle speed={speed} />}
-              {accessory}
+              {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
+              {accessory && (
+                <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
+                  {accessory}
+                </span>
+              )}
               {stop ? (
                 <button
                   key="stop"

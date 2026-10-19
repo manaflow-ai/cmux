@@ -51,6 +51,7 @@ pub struct Conn {
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
+    watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
@@ -728,6 +729,7 @@ async fn serve_connection_from(
         subs: StdMutex::new(HashMap::new()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
+        watch_inventory: StdMutex::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
@@ -738,51 +740,7 @@ async fn serve_connection_from(
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
-    // Fan-out task.
-    let fan = {
-        let hub = hub.clone();
-        let conn = conn.clone();
-        let mut rx = hub.subscribe();
-        let mut harnesses = hub.subscribe_harness_changes();
-        let mut catalog = hub.catalog.subscribe();
-        tokio::spawn(async move {
-            loop {
-                let ev = tokio::select! {
-                    ev = rx.recv() => ev,
-                    note = harnesses.recv() => {
-                        match note {
-                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
-                                harness_admin::watch_note(&conn, note)
-                            }
-                            // Lagged: a newer change follows with the full list.
-                            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                        continue;
-                    }
-                    // Every connection hears a catalog change: no watch or attach is needed.
-                    changed = catalog.recv() => {
-                        match changed {
-                            Ok(summary) => conn.send(&Message::notification(crate::catalog::EVENT_CHANGED, summary)),
-                            Err(broadcast::error::RecvError::Lagged(_)) => conn.send(&Message::notification(
-                                crate::catalog::EVENT_CHANGED,
-                                hub.catalog.summary(),
-                            )),
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                        continue;
-                    }
-                };
-                match ev {
-                    Ok(ev) => deliver(&hub, &conn, ev),
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        })
-    };
+    let fan = fanout::start(hub.clone(), conn.clone());
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -1004,10 +962,12 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod fanout;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
+mod inventory_watch;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;

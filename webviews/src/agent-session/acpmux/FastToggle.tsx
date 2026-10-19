@@ -51,6 +51,9 @@ export function FastToggle({ speed }: { speed: SpeedTiers }) {
     <button
       type="button"
       className="acpmux-fast"
+      // A narrow row lays the bolt out of it (composerRowFit.ts speedHidden).
+      data-fit-part="speed"
+      data-fit-forms="full"
       data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
       aria-pressed={at >= 0}
       aria-label={label}
