@@ -1143,6 +1143,7 @@ jobs:
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/ublock-pin.test.sh
+          bash scripts/cmux-next/tests/base-autofix-push.test.sh
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
