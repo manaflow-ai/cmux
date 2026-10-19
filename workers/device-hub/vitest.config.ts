@@ -8,7 +8,7 @@ async function testKey(): Promise<string> {
 }
 
 export const TEST_STACK_PROJECT = "test-project";
-export const PAID_USER = "paid-user";
+export const TEST_STACK_DEV_PROJECT = "test-dev-project";
 
 export default defineConfig({
   plugins: [
@@ -18,9 +18,10 @@ export default defineConfig({
         bindings: {
           SESSION_KEY: await testKey(),
           TICKET_KEY: await testKey(),
-          STACK_PROJECT_ID: TEST_STACK_PROJECT,
+          STACK_PROJECT_IDS: `${TEST_STACK_PROJECT},${TEST_STACK_DEV_PROJECT}`,
           STACK_API_URL: "https://stack.test",
-          PAID_USER_IDS: PAID_USER,
+          // Hub user ids are "<projectId>:<sub>".
+          PAID_USER_IDS: `${TEST_STACK_PROJECT}:paid-user`,
           TURN_KEY_ID: "turn-key",
           TURN_KEY_API_TOKEN: "turn-token",
         },

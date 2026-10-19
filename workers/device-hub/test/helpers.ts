@@ -7,6 +7,8 @@ export const hubEnv = env as unknown as Env;
 export const worker = (workerExports as unknown as { default: Fetcher }).default;
 export const BASE = "https://hub.test";
 export const STACK_PROJECT = "test-project";
+export const STACK_DEV_PROJECT = "test-dev-project";
+export const STACK_OTHER_PROJECT = "test-unlisted-project";
 export const PAID_USER = "paid-user";
 const enc = new TextEncoder();
 
@@ -28,7 +30,8 @@ export function mockOutbound() {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     outbound.push(url);
-    if (url === `https://stack.test/api/v1/projects/${STACK_PROJECT}/.well-known/jwks.json`) {
+    const jwks = /^https:\/\/stack\.test\/api\/v1\/projects\/([^/]+)\/\.well-known\/jwks\.json$/.exec(url);
+    if (jwks && [STACK_PROJECT, STACK_DEV_PROJECT, STACK_OTHER_PROJECT].includes(jwks[1]!)) {
       const jwk = await crypto.subtle.exportKey("jwk", (await stackKeyPair()).publicKey);
       return Response.json({ keys: [{ ...jwk, kid: "k1", alg: "ES256" }] });
     }
@@ -51,9 +54,9 @@ export async function stackToken(claims: Record<string, unknown>, kid = "k1"): P
   return `${header}.${body}.${base64url(new Uint8Array(sig))}`;
 }
 
-export function stackClaims(sub: string, extra: Record<string, unknown> = {}) {
+export function stackClaims(sub: string, extra: Record<string, unknown> = {}, project = STACK_PROJECT) {
   const now = Math.floor(Date.now() / 1000);
-  return { iss: `https://stack.test/api/v1/projects/${STACK_PROJECT}`, aud: STACK_PROJECT, sub, iat: now, exp: now + 600, ...extra };
+  return { iss: `https://stack.test/api/v1/projects/${project}`, aud: project, sub, iat: now, exp: now + 600, ...extra };
 }
 
 export async function rawCall(method: string, path: string, opts: { body?: unknown; headers?: Record<string, string> } = {}) {
@@ -65,11 +68,12 @@ export async function rawCall(method: string, path: string, opts: { body?: unkno
 }
 
 /** Signs in a fresh (or given) Stack user and returns the hub session. */
-export async function signIn(userId = `user-${crypto.randomUUID()}`) {
+/** `sub` is the Stack user id; the returned `userId` is the hub's "<projectId>:<sub>". */
+export async function signIn(sub = `user-${crypto.randomUUID()}`, project = STACK_PROJECT) {
   mockOutbound();
-  const res = await rawCall("POST", "/v1/auth/stack", { body: { token: await stackToken(stackClaims(userId)) } });
+  const res = await rawCall("POST", "/v1/auth/stack", { body: { token: await stackToken(stackClaims(sub, {}, project)) } });
   expect(res.status).toBe(200);
-  return { userId, session: res.json.session as string };
+  return { userId: res.json.userId as string, session: res.json.session as string };
 }
 
 // ---- WebSocket peer ----
