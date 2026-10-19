@@ -56,8 +56,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let sidebarNowPlaying = BrowserTabsNowPlaying()
     /// cmux's own music player (cx-imt2i, a preview feature).
     let music = MusicPlayer()
-    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab.
-    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying)
+    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
+    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).
