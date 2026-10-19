@@ -310,6 +310,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
         }
         const install = ctx.newId("inst")
         const grant = ctx.newId("grant")
+        // Ledger pruning must not let a repeated key overwrite an old install/grant
+        // and make that revoked identity's still-valid tokens usable again.
+        if (state.installs[install] || state.grants[grant]) return reject("idempotency.conflict", "registration key already names an install; use a new key")
         const left = p.sso_team ? state.sso_left?.[p.sso_team] : undefined
         const stampSso = Boolean(p.sso_team) && (p.kind === "session" || (op === "install.register_server" && p.kind === "system" && (left === undefined || (v.sso_seen_at ?? -1) > left)))
         const device = v.device ?? ctx.newId("dev")
