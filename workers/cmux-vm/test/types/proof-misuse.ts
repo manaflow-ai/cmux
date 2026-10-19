@@ -7,7 +7,7 @@
 import { name } from "@gdp-ts/core";
 import { Effect } from "effect";
 import type { Principal } from "../../src/domain/principal.ts";
-import type { VmId } from "../../src/lib/ids.ts";
+import { UpstreamId, type VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
@@ -49,6 +49,8 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* upstream.listFiles(a, { owns: ownsA, scope: write }, "/");
         // @ts-expect-error a create needs a TenantMayCreate proof
         yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
+        // @ts-expect-error fleet reads require the scheduled-only metering proof
+        yield* upstream.getVmForMetering(UpstreamId.make("provider-vm"), "scheduled");
       }),
     );
 

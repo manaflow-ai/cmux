@@ -4,7 +4,7 @@
  * https://www.freestyle.sh/docs/vms/pricing-and-limits
  */
 export interface ProviderPrices {
-  readonly effectiveFrom: string;
+  readonly effective_from: string;
   readonly vcpuHourMicrodollars: number;
   readonly memoryGibHourMicrodollars: number;
   readonly storageGibHourMicrodollars: number;
@@ -14,7 +14,7 @@ export interface ProviderPrices {
 export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, ProviderPrices>>>> = {
   freestyle: {
     "*": {
-      effectiveFrom: "2026-10-17T00:00:00.000Z",
+      effective_from: "2026-10-17T00:00:00.000Z",
       vcpuHourMicrodollars: 40_320,
       memoryGibHourMicrodollars: 12_900,
       storageGibHourMicrodollars: 86,
@@ -23,9 +23,11 @@ export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, Pr
   },
 };
 
-export const pricesFor = (provider: string, region: string, at: Date): ProviderPrices | null => {
+export const pricesFor = (provider: string, region: string, _at: Date): ProviderPrices | null => {
   const prices = PROVIDER_PRICES[provider]?.[region] ?? PROVIDER_PRICES[provider]?.["*"];
-  if (prices === undefined || at.getTime() < Date.parse(prices.effectiveFrom)) return null;
+  if (prices === undefined) return null;
+  // A later table entry must never make earlier historical hours unpriceable;
+  // the earliest published price remains the fallback before its effective date.
   return prices;
 };
 

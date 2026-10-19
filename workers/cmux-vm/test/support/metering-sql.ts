@@ -46,6 +46,13 @@ interface ExportView {
   status: "pending" | "exported" | "failed";
   last_error: string | null;
 }
+interface AdjustmentView {
+  readonly tenant_id: string;
+  readonly hour_start: Date;
+  readonly identifier: string;
+  readonly value_microdollars: number;
+  status: "pending" | "exported" | "failed";
+}
 
 const asDate = (value: SqlParam): Date => new Date(String(value));
 const sourceOf = (value: string): IntervalView["source"] => value === "identity" ? "identity" : value === "reconcile" ? "reconcile" : "api";
@@ -58,6 +65,7 @@ export const makeLiveMetering = (
   const intervals: IntervalView[] = [];
   const billingAccounts = new Map<string, BillingView>();
   const exports = new Map<string, ExportView>();
+  const adjustments = new Map<string, AdjustmentView>();
 
   const query = (operation: string, params: ReadonlyArray<SqlParam>): ReadonlyArray<unknown> => {
     switch (operation) {
@@ -81,6 +89,7 @@ export const makeLiveMetering = (
         return [];
       }
       case "metering.open.insert": {
+        if (intervals.some((row) => row.tenant_id === String(params[0]) && row.upstream_vm_id === String(params[3]) && row.ended_at === null)) throw new Error("unique open interval");
         const row: IntervalView = {
           id: crypto.randomUUID(),
           tenant_id: String(params[0]),
@@ -116,6 +125,12 @@ export const makeLiveMetering = (
         return [...billingAccounts.values()].filter((row) => row.status === "active");
       case "metering.exported":
         return [...exports.values()];
+      case "metering.exportWatermark": {
+        const rows = [...exports.values()].filter((row) => row.tenant_id === String(params[0]) && row.status === "exported");
+        return [{ watermark: rows.length === 0 ? null : rows.reduce((latest, row) => row.hour_start > latest ? row.hour_start : latest, rows[0]!.hour_start) }];
+      }
+      case "metering.adjustments":
+        return [...adjustments.values()];
       case "metering.exported.pending": {
         const key = `${String(params[0])}\u0000${String(params[1])}`;
         if (!exports.has(key)) exports.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1] ?? null), stripe_customer_id: String(params[2]), identifier: String(params[3]), value_microdollars: Number(params[4]), status: "pending", last_error: null });
@@ -140,9 +155,21 @@ export const makeLiveMetering = (
         return [];
       }
       case "metering.adjustment.pending":
-      case "metering.adjustment.done":
-      case "metering.adjustment.failed":
+        {
+          const key = String(params[3]);
+          if (!adjustments.has(key)) adjustments.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1] ?? null), identifier: key, value_microdollars: Number(params[4]), status: "pending" });
+          return [];
+        }
+      case "metering.adjustment.done": {
+        const row = adjustments.get(String(params[3]));
+        if (row !== undefined) row.status = "exported";
         return [];
+      }
+      case "metering.adjustment.failed": {
+        const row = adjustments.get(String(params[3]));
+        if (row !== undefined) row.status = "failed";
+        return [];
+      }
       default:
         throw new Error(`unsupported metering SQL operation ${operation}`);
     }

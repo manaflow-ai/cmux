@@ -77,17 +77,34 @@ describe("Stripe metering export", () => {
     await run(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))));
     await run(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))));
 
-    expect(requests.length).toBeGreaterThanOrEqual(1);
+    expect(requests).toHaveLength(1);
     const first = requests[0];
     if (first === undefined) throw new Error("Stripe request was not sent");
     const body = new URLSearchParams(await first.text());
     expect(body.get("event_name")).toBe("vm_usage");
     expect(body.get("payload[stripe_customer_id]")).toBe("cus_test");
+    expect(body.get("payload[value]")).toBe("293955");
     expect(body.get("identifier")).toMatch(/^cmux-vm-[0-9a-f]{64}$/u);
     expect(body.get("timestamp")).toBe("1792281600");
     expect(new Set(requests.map((request) => request.url))).toEqual(new Set(["https://api.stripe.com/v1/billing/meter_events"]));
     const exported = await pg.query<{ count: string }>("SELECT count(*)::text AS count FROM cmux_vm.usage_exports");
     expect(exported.rows[0]?.count).toBe("1");
+  });
+
+  it("sends two later corrections as distinct adjustments", async () => {
+    await seedAccount();
+    await seedInterval({ started: "2026-10-18T00:00:00Z", ended: "2026-10-18T01:00:00Z" });
+    const requests: Request[] = [];
+    const metering = meteringLayer({ markupBps: 0, stripeSecretKey: "sk_test", stripeMeterEvent: "vm_usage", fetch: async (request) => { requests.push(request); return new Response("{}", { status: 200 }); } }).pipe(Layer.provide(sqlLayer()));
+    const run = () => Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering));
+    await run();
+    await seedInterval({ started: "2026-10-18T00:30:00Z", ended: "2026-10-18T01:00:00Z", cmux: "vm_00000000000000000000000001" });
+    await run();
+    await seedInterval({ started: "2026-10-18T00:15:00Z", ended: "2026-10-18T01:00:00Z", cmux: "vm_00000000000000000000000002" });
+    await run();
+    const adjustments = await pg.query<{ count: string }>("SELECT count(*)::text AS count FROM cmux_vm.usage_adjustments WHERE status = 'exported'");
+    expect(adjustments.rows[0]?.count).toBe("2");
+    expect(requests).toHaveLength(3);
   });
 
   it("aggregates overlapping VMs, clips open intervals at a completed hour, and honors activation", async () => {
@@ -108,8 +125,8 @@ describe("Stripe metering export", () => {
     await seedInterval({ started: "2026-10-18T00:00:00Z", ended: "2026-10-18T01:00:00Z" });
     let calls = 0;
     let duplicate = false;
-    const metering = meteringLayer({ markupBps: 0, stripeSecretKey: "sk_test", stripeMeterEvent: "vm_usage", fetch: async () => { calls += 1; return duplicate ? new Response("duplicate identifier", { status: 409 }) : new Response("{}", { status: 200 }); } }).pipe(Layer.provide(sqlLayer("metering.exported.done")));
-    await expect(Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering))).rejects.toThrow();
+    const metering = meteringLayer({ markupBps: 0, stripeSecretKey: "sk_test", stripeMeterEvent: "vm_usage", fetch: async () => { calls += 1; return duplicate ? new Response('{"error":{"code":"meter_event_duplicate"}}', { status: 400 }) : new Response("{}", { status: 200 }); } }).pipe(Layer.provide(sqlLayer("metering.exported.done")));
+    await Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering));
     duplicate = true;
     await Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering));
     expect(calls).toBe(2);
@@ -127,5 +144,24 @@ describe("Stripe metering export", () => {
     expect(calls).toBe(1);
     const status = await pg.query<{ status: string }>("SELECT status FROM cmux_vm.usage_exports");
     expect(status.rows[0]?.status).toBe("failed");
+  });
+
+  it("continues exporting other tenants after one Stripe network failure", async () => {
+    await seedAccount();
+    await pg.query("INSERT INTO cmux_vm.billing_accounts (tenant_id, stripe_customer_id, status, activated_at) VALUES ('team_b', 'cus_b', 'active', '2026-10-17T00:00:00Z')");
+    await seedInterval({ started: "2026-10-18T00:00:00Z", ended: "2026-10-18T01:00:00Z", tenant: "team_a" });
+    await seedInterval({ started: "2026-10-18T00:00:00Z", ended: "2026-10-18T01:00:00Z", tenant: "team_b", cmux: "vm_00000000000000000000000001" });
+    const customers: string[] = [];
+    const metering = meteringLayer({ markupBps: 0, stripeSecretKey: "sk_test", stripeMeterEvent: "vm_usage", fetch: async (request) => {
+      const body = new URLSearchParams(await request.text());
+      const customer = body.get("payload[stripe_customer_id]") ?? "";
+      customers.push(customer);
+      if (customer === "cus_test") throw new Error("network down");
+      return new Response("{}", { status: 200 });
+    } }).pipe(Layer.provide(sqlLayer()));
+    await Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering));
+    expect(customers).toContain("cus_b");
+    const exported = await pg.query<{ tenant_id: string }>("SELECT tenant_id FROM cmux_vm.usage_exports WHERE status = 'exported'");
+    expect(exported.rows.map((row) => row.tenant_id)).toContain("team_b");
   });
 });

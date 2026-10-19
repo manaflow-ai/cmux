@@ -3,7 +3,6 @@
  * Redacted immediately; they are never logged or returned.
  */
 import { Effect, Layer, Redacted } from "effect";
-import { name } from "@gdp-ts/core";
 import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
 import { serviceKeysLayer } from "./auth/service-keys.ts";
@@ -26,7 +25,7 @@ import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
 import { MeteringLedger } from "./metering/ledger.ts";
 import { meteringConfig, meteringLayer } from "./metering/live.ts";
-import { mintMeteringMayReadFleet } from "./proofs/metering-may-read-fleet.ts";
+import { withMeteringMayReadFleet } from "./proofs/metering-may-read-fleet.ts";
 import { UpstreamClient, UpstreamError } from "./upstream/client.ts";
 import { UpstreamId } from "./lib/ids.ts";
 
@@ -110,9 +109,7 @@ const runScheduled = (env: Env): Promise<void> => {
   const effect = Effect.gen(function* () {
     const ledger = yield* MeteringLedger;
     const upstream = yield* UpstreamClient;
-    yield* name("scheduled", (caller) => {
-      const proof = mintMeteringMayReadFleet(caller);
-      return Effect.gen(function* () {
+    yield* withMeteringMayReadFleet((proof) => Effect.gen(function* () {
     yield* ledger.reconcile(now, (resource) =>
           upstream
             .getVmForMetering(UpstreamId.make(resource.upstreamVmId), proof)
@@ -124,8 +121,7 @@ const runScheduled = (env: Env): Promise<void> => {
             ),
     ).pipe(Effect.catchAll((error) => Effect.logError("cmux-vm scheduled reconciliation failed").pipe(Effect.annotateLogs({ operation: error instanceof Error ? error.message.slice(0, 80) : "reconcile" }), Effect.asVoid)));
     yield* ledger.exportStripe(now).pipe(Effect.catchAll((error) => Effect.logError("cmux-vm scheduled Stripe export failed").pipe(Effect.annotateLogs({ operation: error instanceof Error ? error.message.slice(0, 80) : "export" }), Effect.asVoid)));
-      });
-    });
+    }));
   });
   return Effect.runPromise(Effect.provide(effect, liveServices(env))).catch(() => {
     console.error("cmux-vm scheduled execution failed");
