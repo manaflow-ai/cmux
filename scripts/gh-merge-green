@@ -182,11 +182,11 @@ graphql_quota_error() {
 rest_pull_request_metadata() {
   local raw
   raw=$(gh api "repos/$repo/pulls/$num") || return 1
-  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // ""))), headRepositoryOwnerLogin:(.head.repo.owner.login // ""), headRepositoryNameWithOwner:(.head.repo.full_name // "")}' <<<"$raw"
+  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // ""))), headRepositoryOwnerLogin:(.head.repo.owner.login // ""), headRepositoryNameWithOwner:(.head.repo.full_name // ""), title:(.title // ""), body:(.body // "")}' <<<"$raw"
 }
 
 graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository 2>"$graphql_error_file"); then
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository,title,body 2>"$graphql_error_file"); then
   if graphql_quota_error "$graphql_error_file"; then
     if ! pr_json=$(rest_pull_request_metadata 2>"$graphql_error_file"); then
       rm -f "$graphql_error_file"
@@ -238,6 +238,11 @@ if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1
   refuse \
     'exploration PR, needs a decision from Leo or the team before merging.' \
     'remove the exploration label only after Leo or the team decides to merge'
+fi
+# Advisory only: a bug-fix PR should carry an Observed / Not run proof
+# section. The checker always exits 0 and a missing python3 is ignored.
+if [ -f "$script_dir/ci/pr_proof_section.py" ]; then
+  python3 "$script_dir/ci/pr_proof_section.py" <<<"$pr_json" || true
 fi
 [ $# -gt 0 ] || set -- --squash
 if [ "$fix" -eq 1 ]; then
