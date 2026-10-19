@@ -543,7 +543,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming"],
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon"],
             swiftSettings: uiSwiftSettings
         ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
