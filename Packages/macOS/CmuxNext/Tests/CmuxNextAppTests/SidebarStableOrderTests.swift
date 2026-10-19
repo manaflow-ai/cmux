@@ -51,6 +51,22 @@ import Testing
         #expect(memory.order(for: "window-1") == nil)
     }
 
+    /// The saved choices stay bounded: past ``SidebarRowOrderMemory/limit`` windows, the window
+    /// that chose longest ago is forgotten (it follows the setting again), and a window choosing
+    /// again moves to the newest.
+    @Test func theSavedChoicesKeepOnlyTheNewestWindows() {
+        let defaults = UserDefaults(suiteName: "SidebarStableOrderTests.\(UUID().uuidString)") ?? .standard
+        let memory = SidebarRowOrderMemory(defaults: defaults)
+        memory.save(.attention, for: "window-0")
+        for n in 1..<SidebarRowOrderMemory.limit { memory.save(.stable, for: "window-\(n)") }
+        memory.save(.attention, for: "window-0") // chose again: now the newest
+        memory.save(.stable, for: "window-new")
+        #expect(memory.order(for: "window-0") == .attention)
+        #expect(memory.order(for: "window-1") == nil)
+        #expect(memory.order(for: "window-new") == .stable)
+        #expect(memory.count == SidebarRowOrderMemory.limit)
+    }
+
     /// How many of 500 state changes moved a row, in a window that chose `window`.
     static func movesUnderFiftyStateChanges(window: SidebarRowOrder?) -> Int {
         let tree = SidebarDeepTreeTests.fiftySessionTree()
