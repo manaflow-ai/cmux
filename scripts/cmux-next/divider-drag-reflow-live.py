@@ -120,6 +120,9 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,760"}
+for probe in ("CMUX_NEXT_PROBE_DRAGMARGINS", "CMUX_NEXT_PROBE_NODRAGMARGINS", "CMUX_NEXT_PROBE_VARIANT", "CMUX_NEXT_HANG_THRESHOLD_MS"):  # PROBE ONLY
+    if os.environ.get(probe):
+        env[probe] = os.environ[probe]
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
@@ -167,15 +170,35 @@ try:
     time.sleep(2)
     report["frames_idle"] = rpc("debug.frames", {"action": "stop"})
     # Pass A: frame intervals of the drag alone (no debug reads or recording between events).
+    rpc("debug.hangs", {"clear": True, "limit": 0})  # PROBE ONLY: stalls of pass A only
     rpc("debug.frames", {"action": "start"})
     time.sleep(0.3)
     report["drag_started_ms"] = 300
     drag(sample=False)
     report["frames"] = rpc("debug.frames", {"action": "stop"})
+    report["hangs"] = rpc("debug.hangs")  # PROBE ONLY: main-thread stalls of pass A
     # Pass B, recorded frame by frame: the grid each terminal renders against what its frame fits.
     report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 10})
     drag(sample=True)
     report["after"] = terminals()
+    # PROBE ONLY: pass C, 160 tab switches between two tabs of the left pane (nextSurface), one per 60 Hz frame.
+    if os.environ.get("CMUX_NEXT_PROBE_TABS"):
+        rpc("action.run", {"action": "newSurface", "args": {}, "focus": True, "origin": "script"})
+        time.sleep(1.0)
+        rpc("debug.frames", {"action": "start"})
+        rpc("debug.tab_switch", {"action": "start"})
+        for _ in range(160):
+            rpc("action.run", {"action": "nextSurface", "args": {}, "focus": True, "origin": "script", "wait": False})
+            time.sleep(1 / 60)
+        time.sleep(0.5)
+        report["tabs_frames"] = rpc("debug.frames", {"action": "stop"})
+        switches = (rpc("debug.tab_switch", {"action": "stop"}) or {}).get("switches") or []
+        stats = {}
+        for key in sorted({k for sw in switches for k in sw}):
+            values = sorted(sw[key] for sw in switches if isinstance(sw.get(key), (int, float)))
+            if values:
+                stats[key] = {"n": len(values), "p50": round(values[len(values) // 2], 2), "p99": round(values[min(len(values) - 1, int(len(values) * 0.99))], 2), "max": round(values[-1], 2)}
+        report["tab_switch"] = stats
     # Pass rule, per terminal: the drawn columns equal what its frame fits at the same step (the text
     # fits the pane on the same frame); the owner's grid equals a fit of that step or one of the --lag
     # steps before it (one grid in flight and its echo) and changes during the drag; after the drag
@@ -226,7 +249,14 @@ print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses
                                               "owner_lagged", "unsettled_after",
                                               "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
 print("frames idle:", json.dumps(report.get("frames_idle"))[:600])
-print("frames drag:", json.dumps(report.get("frames"))[:600])
+print("frames drag:", json.dumps({k: v for k, v in (report.get("frames") or {}).items() if k != "dragmargins"})[:600])
+print("dragmargins:", json.dumps(((report.get("frames") or {}).get("dragmargins") or {}))[:12000])
+tf = report.get("tabs_frames") or {}
+print("tabs:", json.dumps({k: v for k, v in tf.items() if k != "dragmargins"})[:400], "resets", (tf.get("dragmargins") or {}).get("resets"), "needs", (tf.get("dragmargins") or {}).get("needs"))
+print("tab_switch:", json.dumps(report.get("tab_switch")))
+print("drag resets:", ((report.get("frames") or {}).get("dragmargins") or {}).get("resets"), "needs", ((report.get("frames") or {}).get("dragmargins") or {}).get("needs"))
+for record in ((report.get("hangs") or {}).get("records") or [])[:6]:
+    print("hang %.1f ms %s %s: %s" % (record.get("duration_ms", 0), record.get("kind"), {k: v for k, v in record.items() if k not in ("frames", "duration_ms", "kind")}, " < ".join(str(f)[:60] for f in (record.get("frames") or [])[:30])))
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
