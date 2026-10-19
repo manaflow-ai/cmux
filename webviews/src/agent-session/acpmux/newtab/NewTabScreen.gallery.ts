@@ -291,7 +291,11 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
         await ctx.hover({ selector: ".nt-suggest-chat" });
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-hovercard") !== null);
+        // The card settled: its fade-in ended, so the capture shows the solid card, not a ghost.
+        await ctx.waitFor(() => {
+          const card = ctx.document.querySelector<HTMLElement>(".nt-hovercard");
+          return !!card && !card.hasAttribute("data-starting-style") && ctx.document.defaultView?.getComputedStyle(card).opacity === "1";
+        });
         const row = ctx.document.querySelector(".nt-suggest-chat .nt-stage-text")!.getBoundingClientRect();
         const card = ctx.document.querySelector(".nt-hovercard")!.getBoundingClientRect();
         if (card.bottom > row.top && card.top < row.bottom) throw new Error("the hover card covers its row's text");
