@@ -116,10 +116,6 @@ impl Mux {
         let ContentPublicId::Terminal(public_id) = content.clone() else {
             return Err(TabRestartError::NotTerminal.into());
         };
-        // A keep-layout tab (`kept_tabs`): its shell starts in the directory
-        // the store recorded at the handoff, and the worker forgets the
-        // record once the new runtime is in place (`tab-restart-kept-layout-v1`).
-        let kept = self.presentation_snapshot().kept_tabs.get(tab_id.as_str()).cloned();
         // The automatic plan's lock order: registry, pinned state, then the
         // pending leaf lock.
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -132,6 +128,22 @@ impl Mux {
         let recorded = TerminalEnd::from_receipt(record.exit.as_ref()).exit().clone();
         let old_incarnation = record.incarnation.ok_or(TabRestartError::Unavailable)?;
         let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+        let placements = state.placements_of_content(&content).to_vec();
+        // Keep-layout tabs (`kept_tabs`, `tab-restart-kept-layout-v1`): the
+        // shell starts in the restarted tab's kept directory, and the worker
+        // forgets these rows once the new runtime is in the tabs. Read under
+        // the registry lock, so no commit lands between the read and the plan, and
+        // before the pending marker, so a failed read leaves nothing behind.
+        let mut tab_ids = vec![tab_id.to_string()];
+        tab_ids.extend(
+            placements
+                .iter()
+                .filter_map(|slot| {
+                    state.resource_indexes.tab_ids.get(slot).map(|id| id.to_string())
+                })
+                .filter(|id| id != tab_id.as_str()),
+        );
+        let kept = registry.kept_tabs_of(&tab_ids)?;
         {
             let mut pending = self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner);
             if pending.contains_key(public_id.as_str())
@@ -153,7 +165,6 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .forget(&terminal_id);
-        let placements = state.placements_of_content(&content).to_vec();
         let old_runtime = state.remove_catalog_terminal(&public_id);
         for placement in &placements {
             state.surfaces.remove(placement);

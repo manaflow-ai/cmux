@@ -89,7 +89,7 @@ impl Mux {
         });
         // A restarted keep-layout tab: the directory its shell was in at the
         // handoff, a fact newer than the launch record's.
-        let kept_cwd = plan.kept.as_ref().and_then(|kept| kept.cwd.clone());
+        let kept_cwd = plan.kept.first().and_then(|kept| kept.cwd.clone());
         let cwd = kept_cwd
             .filter(|cwd| Path::new(cwd).is_dir())
             .or_else(|| {
