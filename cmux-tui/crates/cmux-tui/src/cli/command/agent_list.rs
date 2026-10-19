@@ -48,8 +48,9 @@ pub(super) fn parse(flags: &mut Flags) -> Result<CommandPlan, UsageError> {
         ),
         None => None,
     };
+    let counts = flags.boolean("counts");
     Ok(request(ResourceOperation::AgentList, &Selectors::default(), flags, params)?
-        .agent_roster(AgentRosterView { sort, limit }))
+        .agent_roster(AgentRosterView { sort, limit, counts }))
 }
 
 #[cfg(test)]
@@ -89,9 +90,18 @@ mod tests {
             let list = protocol(&["agent", "list", "--sort", sort, "--limit", "5"]);
             assert_eq!(
                 list.view,
-                ResponseView::AgentRoster(AgentRosterView { sort: expected, limit: Some(5) })
+                ResponseView::AgentRoster(AgentRosterView {
+                    sort: expected,
+                    limit: Some(5),
+                    counts: false
+                })
             );
         }
+        let counts = protocol(&["agent", "list", "--counts"]);
+        assert_eq!(
+            counts.view,
+            ResponseView::AgentRoster(AgentRosterView { counts: true, ..Default::default() })
+        );
         // --needs-me is the daemon's `state: blocked` filter.
         let needs_me = protocol(&["agent", "list", "--needs-me", "--terminal", TERMINAL]);
         assert_eq!(needs_me.params["state"], "blocked");

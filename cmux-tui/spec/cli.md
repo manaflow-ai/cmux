@@ -468,7 +468,7 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>]
+agent list [--needs-me] [--state <state>] [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
@@ -864,10 +864,13 @@ agent: STATE, AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
 home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
 agents it prints `No agents.`
 
-`--json` prints `{"agents": [...], "counts": {...}}`. Each agent is the
+`--json` prints the ranked agents as a bare array, as it always has; only the
+default order changed (it was the daemon's order). Each agent is the
 `AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
-and `cwd`. `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
-`total`, counted before `--limit`. `--jsonl` prints one agent per line.
+and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
+instead: `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
+`total`, counted before `--limit`. `--jsonl` prints one agent per line with
+or without `--counts`.
 
 ## Agent messages
 

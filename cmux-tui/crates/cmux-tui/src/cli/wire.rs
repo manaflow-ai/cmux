@@ -610,8 +610,7 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     let result = plan.view.project(result);
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
-        OutputMode::JsonLines => agent_roster::json_lines(plan, &result),
-        _ => std::borrow::Cow::Borrowed(&result),
+        output => agent_roster::machine_view(plan, &result, output),
     };
     let code = print_success(&shown, global.output);
     if code == 0 { success_exit_code(plan, &result) } else { code }

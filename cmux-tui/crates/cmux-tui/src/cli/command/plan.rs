@@ -36,6 +36,9 @@ pub(in crate::cli) struct AgentRosterView {
     pub sort: AgentSort,
     /// At most this many rows; the counts still cover every listed agent.
     pub limit: Option<usize>,
+    /// `--counts`: `--json` prints `{"agents","counts"}` instead of the
+    /// bare agent array.
+    pub counts: bool,
 }
 
 /// `agent list --sort`.

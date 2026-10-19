@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 
-use super::super::super::command::{AgentRosterView, AgentSort};
+use super::super::super::OutputMode;
+use super::super::super::command::{
+    AgentRosterView, AgentSort, RequestPlan, ResponseView, WireOperation,
+};
 use super::*;
 
 const NOW: u64 = 1_000_000;
@@ -23,7 +26,7 @@ fn ids(result: &Value) -> Vec<&str> {
 }
 
 fn view(sort: AgentSort, limit: Option<usize>) -> AgentRosterView {
-    AgentRosterView { sort, limit }
+    AgentRosterView { sort, limit, counts: false }
 }
 
 fn mixed() -> Value {
@@ -206,4 +209,33 @@ fn ages_use_one_compact_unit() {
     assert_eq!(age_text(3_600_000), "1h");
     assert_eq!(age_text(86_399_999), "23h");
     assert_eq!(age_text(86_400_000 * 3), "3d");
+}
+
+fn list_plan(view: AgentRosterView) -> RequestPlan {
+    RequestPlan {
+        operation: WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::AgentList),
+        params: json!({}),
+        idempotency_key: None,
+        stream: false,
+        resolve: Vec::new(),
+        view: ResponseView::AgentRoster(view),
+    }
+}
+
+#[test]
+fn json_stays_the_bare_ranked_array_unless_counts_is_asked_for() {
+    let result = shape(mixed(), &[], AgentRosterView::default(), NOW);
+    let plain = list_plan(AgentRosterView::default());
+    let shown = machine_view(&plain, &result, OutputMode::Json);
+    assert!(shown.is_array(), "--json is the bare agent array scripts read");
+    assert_eq!(shown[0]["id"], "agent_blocked_new");
+    assert_eq!(shown.as_array().unwrap().len(), 9);
+    assert!(machine_view(&plain, &result, OutputMode::JsonLines).is_array());
+
+    let counted = list_plan(AgentRosterView { counts: true, ..AgentRosterView::default() });
+    let shown = machine_view(&counted, &result, OutputMode::Json);
+    assert_eq!(shown.as_object().unwrap().keys().collect::<Vec<_>>(), ["agents", "counts"]);
+    assert_eq!(shown["counts"]["total"], 9);
+    // --jsonl is one agent per line either way.
+    assert!(machine_view(&counted, &result, OutputMode::JsonLines).is_array());
 }

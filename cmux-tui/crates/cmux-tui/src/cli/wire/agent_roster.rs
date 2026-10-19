@@ -48,9 +48,20 @@ pub(in crate::cli) fn across(view: ResponseView, agents: Value, terminals: &[Val
     }
 }
 
-/// `--jsonl` prints one agent per line; the counts are in `--json`.
-pub(super) fn json_lines<'a>(plan: &RequestPlan, result: &'a Value) -> Cow<'a, Value> {
+/// What a machine-readable mode prints. `--json` stays the bare ranked
+/// array that scripts already read; `--json --counts` is the whole
+/// `{"agents","counts"}` roster. `--jsonl` prints one agent per line.
+pub(super) fn machine_view<'a>(
+    plan: &RequestPlan,
+    result: &'a Value,
+    output: super::OutputMode,
+) -> Cow<'a, Value> {
     match (plan.view, result.get("agents")) {
+        (ResponseView::AgentRoster(view), Some(_))
+            if view.counts && output == super::OutputMode::Json =>
+        {
+            Cow::Borrowed(result)
+        }
         (ResponseView::AgentRoster(_), Some(agents)) => Cow::Borrowed(agents),
         _ => Cow::Borrowed(result),
     }
