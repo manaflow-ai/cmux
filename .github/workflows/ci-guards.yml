@@ -568,6 +568,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate post-edit formatting touches only the edited file
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_format_post_edit.py
+
       - name: Validate bead auto-close on merged pull requests
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_bead_autoclose.py
