@@ -260,6 +260,13 @@ nonisolated enum AcpmuxServerPeer {
         return .success(own ? .own : .foreign)
     }
 
+    /// The cmux app whose bundled acpmux runs at `path` (`cmux DEV nxdog98-v1`), else the path.
+    static func holderName(executablePath path: String) -> String {
+        let parts = URL(fileURLWithPath: path).pathComponents
+        guard let app = parts.last(where: { $0.hasSuffix(".app") }) else { return path }
+        return String(app.dropLast(".app".count))
+    }
+
     /// This app's team when it is Team-signed; nil for an ad-hoc DEV build.
     static let ownTeam: String? = {
         var code: SecCode?

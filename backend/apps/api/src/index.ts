@@ -189,8 +189,9 @@ export default {
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
-    if (chiefBrain && chiefBrain[2] !== "brain" && opencodeOn(env)) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
-    if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrain[2] === "brain" ? "brain" : "runs", chiefBrain[3])
+    const chiefBrainPath = chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "memory" ? chiefBrain[2] : "runs"
+    if (chiefBrain && chiefBrainPath === "runs" && opencodeOn(env)) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
+    if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)
     if (fault) return handleFault(request, env, fault[1]!)
     const brainImpl = url.pathname.match(OPENCODE_IMPL_PATH)
