@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8. */
+/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8" as const;
+export const SDK_IR_SHA256 = "bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1384,7 +1384,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "machine_metadata": {
+        "since": 12,
+        "capability": "machine-identity-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -2615,6 +2620,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "dock-columns-v1",
     "fields": {
+      "pinned": {
+        "since": 12,
+        "capability": "pinned-dock-v1"
+      },
       "role": {
         "since": 12,
         "capability": "dock-column-role-v1"
@@ -2624,6 +2633,7 @@ export const COMMAND_METADATA = {
     "constraints": [
       "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
       "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
+      "pinned: true (pinned-dock-v1) marks the column pinned (the Home dock); false or omitted keeps the current value, and allow_tabs changes only with column.update. A pinned column keeps its first tab, takes no other tab unless allow_tabs is on, and refuses an undock, edge change or replacement with error_code \"dock-column-pinned\".",
       "See spec/commands.md for the result object."
     ]
   },
@@ -3444,6 +3454,22 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "agent-inventory-changed": {
+    "since": 12,
+    "capability": "agent-inventory-watch-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "agent-inventory-watch-ended": {
+    "since": 12,
+    "capability": "agent-inventory-watch-v1",
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -7134,6 +7160,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "machine_capabilities": {
+        "default": [],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "machine_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "machine_name": {
         "nullable": false,
         "presence": "optional",
@@ -7141,6 +7189,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "machine_platform": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "MachinePlatform"
         }
       },
       "pid": {
@@ -7704,6 +7761,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     ],
     "fields": {
       "stdout": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachinePlatform": {
+    "additional_properties": false,
+    "fields": {
+      "arch": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "os": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -19038,7 +19117,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "identify": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "machine_metadata": {
+          "capability": "machine-identity-v1",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {
@@ -24025,6 +24115,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
+        "pinned": {
+          "capability": "pinned-dock-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "role": {
           "capability": "dock-column-role-v1",
           "default": null,
@@ -26744,6 +26845,88 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-inventory-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-inventory-changed"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "watch_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-inventory-watch-ended": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-inventory-watch-ended"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "watch_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

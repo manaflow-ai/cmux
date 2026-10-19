@@ -1129,6 +1129,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
+          python3 tests/test_idea_ledger.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
@@ -1307,6 +1308,15 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
 
+      # Every capability the app references and the daemon source defines is
+      # in DaemonCapabilities.required/.optional, without a build: the app build
+      # runs this check first, so #21322 (four unlisted capabilities) broke
+      # every tagged build before any PR check saw it.
+      - name: App capability references are listed
+        id: app-capability-references
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-app-capability-references.py --repo .
+
       # A capability error is a version skew: it names the matching CLI or one
       # exact command, never "update the app" (plans/cmux-next/version-skew.md).
       - name: Capability texts never say update the app
@@ -1350,6 +1360,7 @@ jobs:
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
+            ${{ steps.app-capability-references.outcome }}|App capability references are listed
         run: |
           failed=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.

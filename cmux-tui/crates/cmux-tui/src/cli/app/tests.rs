@@ -872,6 +872,52 @@ fn ghostty_diagnostics_reads_the_app_report() {
     assert!(parse(&args(&["ghostty", "diagnostics", "extra"])).is_err());
 }
 
+/// `cmux errors` lists the app's error journal (`errors.list`) with its
+/// filters; `cmux errors clear` forgets entries (`errors.clear`).
+#[test]
+fn errors_lists_and_clears_the_app_journal() {
+    let (method, params) = call(parse(&args(&["errors"])).unwrap().unwrap());
+    assert_eq!(method, "errors.list");
+    assert_eq!(params, json!({}));
+    let (method, params) = call(
+        parse(&args(&[
+            "errors",
+            "list",
+            "--since",
+            "2h",
+            "--source",
+            "acpmux",
+            "--source",
+            "page",
+            "--level",
+            "error",
+            "--text",
+            "hello",
+            "--top",
+            "--limit",
+            "5",
+            "--no-harvest",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "errors.list");
+    assert_eq!(
+        params,
+        json!({"since": "2h", "source": ["acpmux", "page"], "level": "error", "text": "hello",
+               "order": "count", "limit": 5, "harvest": false})
+    );
+    let (method, params) = call(
+        parse(&args(&["errors", "clear", "--fingerprint", "ab", "--fingerprint", "cd"]))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(method, "errors.clear");
+    assert_eq!(params, json!({"fingerprints": ["ab", "cd"]}));
+    assert!(parse(&args(&["errors", "list", "--limit", "0"])).is_err());
+    assert!(parse(&args(&["errors", "list", "stray"])).is_err());
+}
+
 #[test]
 fn open_dash_reads_urls_from_stdin_and_passes_the_callers_terminal() {
     let environment =

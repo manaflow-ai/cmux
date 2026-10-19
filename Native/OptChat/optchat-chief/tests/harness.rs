@@ -1058,3 +1058,59 @@ fn a_user_entry_right_after_the_last_turns_messages_keeps_its_input_a_prefix() {
     let (a, b) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
     assert_eq!(b[..a.len()], a[..], "the first turn's input is a prefix");
 }
+
+#[test]
+fn a_failed_turn_closes_its_messages_so_the_next_turn_answers_only_the_new_one() {
+    // 2026-10-18: "can u make some subagents" failed on 10-08 ("(turn
+    // failed: ...)" posted); a "hi" ten days later got the answer to it,
+    // because the memory log still showed the old request as open.
+    const ERROR: &str = "agent process closed (claude): No conversation found with session ID: x";
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 0 {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                json!({"dir": "mux", "kind": "turn_error", "msg": {"error": ERROR}}),
+            ]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
+    let mut h = Harness::new(script);
+    h.agents.inner.lock().unwrap().answer_error = Some(ERROR.into());
+    h.connect();
+    h.say("user_local", "can u make some subagents");
+    h.settle();
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert!(
+        sends[0].1.contains("turn failed"),
+        "the failure is posted: {sends:?}"
+    );
+    // The memory log: the request, then the note that closes it.
+    let log = h.log();
+    let asked = log
+        .iter()
+        .position(|(_, t)| t == "can u make some subagents")
+        .expect("the request is logged");
+    let note = log
+        .iter()
+        .position(|(k, t)| k == "note" && t.starts_with("the turn failed ("))
+        .unwrap_or_else(|| panic!("no failure note: {log:?}"));
+    assert!(note > asked, "{log:?}");
+    assert!(log[note].1.contains("answer only messages after this note"));
+    h.say("user_local", "hi");
+    h.settle_posts();
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 2, "{sends:?}");
+    assert_eq!(sends[1].1, "answer 1");
+    // The next turn's input shows the old request closed before the new one.
+    let inner = h.agents.inner.lock().unwrap();
+    let input = texts(inner.prompts.last().unwrap()).join("");
+    let closed = input
+        .find("note: the turn failed (")
+        .unwrap_or_else(|| panic!("{input}"));
+    let hi = input
+        .rfind("|user: hi")
+        .unwrap_or_else(|| panic!("{input}"));
+    assert!(closed < hi, "{input}");
+}

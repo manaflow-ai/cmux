@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8. */
+/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -557,7 +557,10 @@ export type IdentifyResult = {
   "ghostty_commit"?: (string) | null;
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
+  "machine_capabilities"?: Array<string>;
+  "machine_id"?: string;
   "machine_name"?: string;
+  "machine_platform"?: MachinePlatform;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -647,6 +650,11 @@ export type LivePane = {
 
 export type MachineListeningTcpResult = {
   "stdout": string;
+};
+
+export type MachinePlatform = {
+  "arch": string;
+  "os": string;
 };
 
 export type MachineUsage = {

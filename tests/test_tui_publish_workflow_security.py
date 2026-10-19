@@ -254,9 +254,6 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
-    publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "trusted helper" in publisher
-    assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
     assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
     assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
@@ -265,21 +262,13 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     # is already running"); cmux-tui-artifacts-retry.yml retries completed
     # failed runs (policy: tests/test_cmux_tui_artifacts_retry.py).
     assert "/rerun" not in (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
-    pr_publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "github.event_name == 'pull_request_target'" in pr_publisher
-    assert "github.event.pull_request.head.repo.full_name == github.repository" in pr_publisher
-    assert 'git fetch --no-tags origin "$BASE_COMMIT"' in pr_publisher
-    assert "git show \"$BASE_COMMIT:scripts/ci/upload-r2-object.py\"" in pr_publisher
-    assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
-    assert "cmux_tui_tree_key.py" in pr_publisher
-    assert "cmux-tui/tree/$KEY" in pr_publisher
-    assert "missing opaque build companion" in pr_publisher
+    assert "publish-pr-tree" not in artifacts
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "publish-cmux-tui-tree.py" in tree_publisher
     assert "complete tree" in tree_publisher
     assert "trusted helper" in tree_publisher
     # 4f37f3577ce2: the companion list lives in publish-cmux-tui-tree.py
-    # (--list-companions), which both tree jobs read; it must keep the macOS
+    # (--list-companions), which the tree job reads; it must keep the macOS
     # app host and Cloud server beside the daemon.
     assert "publish-cmux-tui-tree.py --list-companions" in tree_publisher
     companions = subprocess.check_output(
@@ -344,9 +333,6 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
-    pr_tree_publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
-    assert "cancel-in-progress: false" in pr_tree_publisher
     assert "replaces an older pending job" in artifacts
 
 
@@ -2381,7 +2367,7 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
     marker_script = "scripts/ci/cmux-tui-mark-daemon-tested.sh"
     assert "publish-tree-daemon-tested" not in jobs
-    for name in ("publish-tree", "publish-pr-tree"):
+    for name in ("publish-tree",):
         job = jobs[name]
         assert "cmux-next-daemon-tests" not in job["needs"], name
         assert "cmux-next-daemon-tests" not in job["if"], name
@@ -2389,7 +2375,7 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
         assert marker_script not in str(job["steps"]), name
         assert '"daemonTests": "separate"' in str(job["steps"]), name
     marker = jobs["publish-tree-tested"]
-    assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
+    assert {"publish-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
     assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
     assert marker["environment"] == "artifacts"
