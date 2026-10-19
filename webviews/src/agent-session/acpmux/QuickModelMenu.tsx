@@ -129,13 +129,21 @@ export function QuickModelMenu({
     }
   }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
-  // goes to the first row left, so the next key, Enter and Escape still reach the menu.
+  // goes to the first row left, so the next key, Enter and Escape still reach the menu. A
+  // re-render with the same filter (a streaming reply hands over new families) keeps the row the
+  // keyboard moved to, so Enter picks it.
   const popup = useRef<HTMLDivElement | null>(null);
+  const focusedFor = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     const node = popup.current;
-    if (!open || !node || !families) return;
+    if (!open || !node || !families) {
+      focusedFor.current = undefined;
+      return;
+    }
     const active = node.ownerDocument.activeElement;
-    if (query || !node.contains(active)) {
+    const typed = query !== focusedFor.current;
+    focusedFor.current = query;
+    if ((query && typed) || !node.contains(active)) {
       const first = node.querySelector<HTMLElement>('.acpmux-quick-body [role^="menuitem"]:not([data-disabled])');
       (first ?? node).focus({ preventScroll: true });
     }
