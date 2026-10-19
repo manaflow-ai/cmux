@@ -196,6 +196,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
         } else if tab.kind != .browser {
             item.machineBadge = machine
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
+            // A kept tab this launch restarts draws as the running terminal it becomes, from the
+            // first frame (the app shows its own intent): the terminal icon, no failure mark, the
+            // directory its new shell starts in. Its item stays the same when the new shell runs.
+            if daemon.restartsKeptTab(tab) {
+                if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
+                if item.status == .failure { item.status = .none }
+                if item.subtitle == nil, let cwd = tab.relaunch?.cwd { item.subtitle = SidebarMapping.shared.abbreviate(cwd) }
+            }
         } else {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
