@@ -21,6 +21,8 @@ final class FilePageService: InternalPageProvider {
         var file: URL?
         /// The user opened the document (not an agent or a script): it is granted and writable.
         var userChose = true
+        /// The host opens the document read only (a chat transcript).
+        var readOnly = false
         var page: PageWebView?
         var provider: FilePageProvider?
         var host: FilePageTabHost?
@@ -94,12 +96,14 @@ final class FilePageService: InternalPageProvider {
     func file(_ key: String) -> URL? { tabs[key]?.provider?.file ?? tabs[key]?.file }
 
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
-    /// already shows it. A user run (`focus`) selects and focuses it.
+    /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
+    /// the file (a chat transcript); every other markdown file opens writable.
     @discardableResult
-    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, recoveredText: String? = nil) -> String {
+    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
+              recoveredText: String? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText)) { key in
+        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText)) { key in
             self.file(key) == real
         }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -275,7 +279,7 @@ final class FilePageService: InternalPageProvider {
         var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
-        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, host: host, clock: clock,
+        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
                                         libraries: libraries, images: images)
         provider.recoveredText = tab.recoveredText
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
