@@ -268,7 +268,7 @@ query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: Str
         isCrossRepository
         labels(first: 30) { nodes { name } }
         timelineItems(itemTypes: [LABELED_EVENT], last: 10) { nodes {
-          ... on LabeledEvent { label { name } actor { login } }
+          ... on LabeledEvent { createdAt label { name } actor { login } }
         } }
         commits(last: 1) { nodes { commit {
           committedDate
@@ -316,9 +316,12 @@ def open_prs(gh: GitHub) -> list[PullRequest]:
             author=(node.get("author") or {}).get("login", ""),
             files=[item["path"] for item in (node.get("files") or {}).get("nodes") or []],
             checks=checks,
+            # An override holds for the head it was applied to: one applied before the
+            # head's commit says nothing about the new code.
             label_actors={event["label"]["name"]: (event.get("actor") or {}).get("login", "")
                           for event in (node.get("timelineItems") or {}).get("nodes") or []
-                          if event and event.get("label")},
+                          if event and event.get("label")
+                          and (event.get("createdAt") or "") >= commit.get("committedDate", "")},
         ))
     return prs
 
@@ -345,7 +348,7 @@ def batch_authors() -> frozenset[str]:
 
 def overriders() -> frozenset[str]:
     configured = os.environ.get("CMUX_NEXT_BATCH_OVERRIDERS", "").split()
-    return frozenset(configured or DEFAULT_OVERRIDERS)
+    return frozenset(configured or DEFAULT_OVERRIDERS) - frozenset(DEFAULT_AUTHORS)  # never the lanes' login
 
 
 def trusted_labels(pr: PullRequest) -> set[str]:
@@ -356,17 +359,37 @@ def trusted_labels(pr: PullRequest) -> set[str]:
 def coordinator_prs() -> set[int]:
     """PR numbers coord-2 lands itself: every number in CMUX_NEXT_BATCH_EXCLUDE (its merge-ready file)."""
     path = os.environ.get("CMUX_NEXT_BATCH_EXCLUDE", "")
-    try:
-        text = Path(path).expanduser().read_text() if path else ""
-    except OSError:
+    if not path:
         return set()
-    return {int(number) for number in re.findall(r"(?<![0-9a-f])#?([1-9][0-9]{3,5})(?![0-9a-f])", text)}
+    # Its entries are "owner/repo|<pr>|<sha>|..." strings; nothing else in the file counts.
+    text = Path(path).expanduser().read_text()  # unreadable is an error, never "exclude nothing"
+    return {int(number) for number in re.findall(r"manaflow-ai/cmux\|([1-9][0-9]*)\|", text)}
 
 
-def land_alone_first(eligible: list[PullRequest]) -> list[PullRequest]:
-    """A PR with a trusted `queue: land alone` label is validated and landed in a batch of its own."""
-    alone = [pr for pr in eligible if OVERRIDE_ALONE in trusted_labels(pr)]
+def landing_refusal() -> str | None:
+    """Why this process must not land anything, or None."""
+    if os.environ.get("GITHUB_ACTIONS") == "true" and not os.environ.get("CMUX_NEXT_BATCH_EXCLUDE"):
+        return ("no CMUX_NEXT_BATCH_EXCLUDE on this runner, so coord-2's PRs can't be told apart; "
+                "serve on the coordinator's host lands instead")
+    return None
+
+
+def land_alone_first(eligible: list[PullRequest], tried: set[int] = frozenset()) -> list[PullRequest]:
+    """A PR with a trusted `queue: land alone` label is validated and landed in a batch of its own,
+    once per head: `tried` holds the PRs already taken alone at their current head."""
+    alone = [pr for pr in eligible if OVERRIDE_ALONE in trusted_labels(pr) and pr.number not in tried]
     return alone[:1] or eligible
+
+
+def admit_reviewed(eligible: list[PullRequest], gh: "GitHub | None", landing: bool
+                   ) -> tuple[list[PullRequest], dict[int, str]]:
+    """When the batch lands, stack only reviewed heads, so the validated stack is exactly what lands.
+    A receipt-only batch lands nothing and validates everything."""
+    if not landing:
+        return eligible, {}
+    admitted = [pr for pr in eligible if reviewed(pr, gh)]
+    return admitted, {pr.number: "waiting for an independent review at this head"
+                      for pr in eligible if pr not in admitted}
 
 
 def reviewed(pr: PullRequest, gh: "GitHub | None" = None) -> bool:
@@ -380,16 +403,26 @@ def reviewed(pr: PullRequest, gh: "GitHub | None" = None) -> bool:
     path = os.environ.get("CMUX_NEXT_BATCH_REVIEWED", "")
     if path:
         try:
-            for line in Path(path).expanduser().read_text().splitlines():
-                fields = line.split("#", 1)[0].split()
-                if len(fields) >= 2 and fields[0].lstrip("#") == str(pr.number) and len(fields[1]) >= 12 \
-                        and pr.sha.startswith(fields[1]):
-                    return True
+            file = Path(path).expanduser()
+            info = file.stat()
+            # Owned by this user and writable by nobody else. Every lane is this
+            # user too, so this keeps out other accounts, not other lanes.
+            if info.st_uid == os.getuid() and not info.st_mode & 0o022:
+                for line in file.read_text().splitlines():
+                    fields = line.split("#", 1)[0].split()
+                    if len(fields) >= 2 and fields[0] == str(pr.number) and len(fields[1]) >= 12 \
+                            and pr.sha.startswith(fields[1]):
+                        return True
         except OSError:
             pass
-    reviewers = set(os.environ.get("CMUX_NEXT_BATCH_REVIEWERS", "").split())
+    reviewers = set(os.environ.get("CMUX_NEXT_BATCH_REVIEWERS", "").split()) - set(DEFAULT_AUTHORS)
     if reviewers and gh is not None:
-        for status in gh.api(f"repos/{gh.repo}/commits/{pr.sha}/statuses?per_page=100") or []:
+        try:
+            statuses = gh.api(f"repos/{gh.repo}/commits/{pr.sha}/statuses?per_page=100") or []
+        except RuntimeError as error:
+            log(f"#{pr.number}: statuses unreadable ({error}); not reviewed")
+            return False
+        for status in statuses:
             if status.get("context") == REVIEW_CONTEXT and (status.get("creator") or {}).get("login") in reviewers:
                 return status.get("state") == "success"  # newest first: the latest status from a reviewer decides
     return False
@@ -1258,17 +1291,21 @@ class Controller:
                     if self.format_pr(current, validation.branch):
                         self.comment_once(pr, "formatted", (
                             "Batch queue: pushed `bun run check:fix` output (web formatting and lint "
-                            "autofix) to this branch; landing once its checks rerun."))
+                            "autofix) to this branch. That's a new head: it lands in a later batch "
+                            "once its checks rerun and it's reviewed."))
+                        landed.append((pr, "formatted; a later batch lands the new head once reviewed"))
+                        continue
                 except OwnerPushed:
                     landed.append((pr, "skipped: pushed while formatting; next batch"))
                     continue
                 except RuntimeError as error:
                     landed.append((pr, f"not landed: {error}"))
                     continue
-            if not getattr(self.args, "land", True) or not reviewed(current, self.gh):
+            if not getattr(self.args, "land", True) or landing_refusal() or not reviewed(current, self.gh):
                 self.comment_once(pr, "receipt", self.receipt(validation, pr))
-                why = "receipt posted; owner lands" if not getattr(self.args, "land", True) else \
-                    "not reviewed at this head; receipt posted, lands once reviewed"
+                why = ("receipt posted; owner lands" if not getattr(self.args, "land", True) else
+                       f"not landed: {landing_refusal()}; receipt posted" if landing_refusal() else
+                       "not reviewed at this head; receipt posted")
                 landed.append((pr, why))
                 log(f"#{pr.number}: {why}")
                 continue
@@ -1306,7 +1343,10 @@ class Controller:
         deadline = time.monotonic() + 30 * 60
         override = False
         while True:
-            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash"]
+            # Trailing flags reach gh pr merge after gh-merge-green's own: GitHub
+            # merges only the head this batch validated, never a newer push.
+            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash",
+                       "--match-head-commit", pr.sha]
             completed = subprocess.run(command, capture_output=True, text=True, env=env)
             output = (completed.stdout + completed.stderr).strip()
             if completed.returncode == 0:
@@ -1416,10 +1456,20 @@ class Controller:
             write_summary("No eligible pull requests.\n\n" + "\n".join(
                 f"- #{number}: {reason}" for number, reason in sorted(skipped.items())))
             return 0
-        candidates = land_alone_first(eligible)
+        landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
+        eligible, waiting = admit_reviewed(eligible, self.gh, landing)
+        skipped.update(waiting)
+        if not eligible:
+            write_summary("Nothing reviewed to land.\n\n" + "\n".join(
+                f"- #{number}: {reason}" for number, reason in sorted(skipped.items())))
+            return 0
+        tried = {pr.number for pr in eligible if self.reported(pr, ("alone",))}
+        candidates = land_alone_first(eligible, tried)
         for pr in eligible:
             if pr not in candidates:
                 skipped[pr.number] = "waiting: a trusted land-alone PR goes first"
+        if len(candidates) == 1 and candidates[0].number not in tried and candidates is not eligible:
+            self.comment_once(candidates[0], "alone", "Batch queue: validating this PR on its own (`queue: land alone`).")
         culprits: list[PullRequest] = []
         landed: list[tuple[PullRequest, str]] = []
         while candidates:

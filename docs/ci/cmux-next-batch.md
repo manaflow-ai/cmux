@@ -9,7 +9,7 @@ Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, reba
 - It has none of the labels `hold`, `exploration`, `needs a call`, `default call`, `do-not-merge` or `wip`.
 - Its head commit is less than 5 days old.
 - It doesn't change `.github/workflows/`. Those PRs land by hand.
-- coord-2 doesn't land it itself: every PR number in the `CMUX_NEXT_BATCH_EXCLUDE` file (coord-2's merge-ready list) stays out.
+- coord-2 doesn't land it itself: every `manaflow-ai/cmux|<pr>|...` entry in the `CMUX_NEXT_BATCH_EXCLUDE` file (coord-2's merge-ready list) stays out. That file exists only on the coordinator's host, so an Actions batch never lands; it validates and posts receipts.
 - No check is red outside the heavy tier, except web formatting (`web / react-apps-check`, `web / Web status`) on a PR that changes `webviews/`. Before landing such a PR, the queue runs `bun run check:fix` (formatter and lint autofix) on its head in `regen-linux` and pushes the fix to its branch. That push happens only for a batch author's PR; an opted-in PR by anyone else keeps its red check. gh-merge-green then waits for the rerun.
 - Pending checks are fine. The heavy tier is swift test, the Release and scheme compiles, daemon tests, generated files and the cmux-tui wait. The batch runs it once on the stack, so the PR's own copy may be red or still running.
 
@@ -17,10 +17,10 @@ To keep a PR out, add `hold`. A PR the queue dropped at its current head stays o
 
 ### Overrides
 
-Two labels change what the queue does, but only when a login in `CMUX_NEXT_BATCH_OVERRIDERS` (default `lawrencecchen`) applied them. Every agent session runs gh as `teamleaderleo`, so a label a lane applies does nothing.
+Two labels change what the queue does, but only when a login in `CMUX_NEXT_BATCH_OVERRIDERS` (default `lawrencecchen`; never `teamleaderleo`, the login every lane uses) applied them after the PR's head commit. A label from before a push says nothing about the new code.
 
-- `queue: land alone`: the next batch validates and lands this PR on its own, ahead of the others.
-- `queue: known base red`: a red check outside the heavy tier doesn't keep the PR out; the batch judges it, and a job red on feat-cmux-next itself never counts against the stack.
+- `queue: land alone`: the next batch validates and lands this PR on its own, ahead of the others, once per head.
+- `queue: known base red`: a red check outside the heavy tier doesn't keep the PR out of a batch. Landing still goes through gh-merge-green, which lands it only when that red also fails the same way on feat-cmux-next (its base-red excuse).
 
 ## One batch
 
@@ -47,10 +47,10 @@ In the workflow, pushes and merges use the `CMUX_NEXT_BATCH_APP_ID` App's token,
 
 Every PR is independently reviewed before it merges, and the queue keeps that rule. It lands a PR only when one of these approves the exact head it validated:
 
-- `CMUX_NEXT_BATCH_REVIEWED`: a file of `<pr> <sha>` lines, written by the reviewer (coord-2 today). `#` starts a comment.
+- `CMUX_NEXT_BATCH_REVIEWED`: a file of `<pr> <sha>` lines, written by the reviewer (coord-2 today). `#` starts a comment. The file counts only when this user owns it and nobody else can write it. Every lane on that host is this user too, so the file shows the reviewer's intent rather than proving it; it rests on coord-2 being its only writer.
 - A `review/independent` commit status with state `success`, created by a login in `CMUX_NEXT_BATCH_REVIEWERS`. Only a login no lane runs as can mean anything here, such as a review App or bot.
 
-A push makes a new head that neither names, so approval never carries over. With neither configured, the queue validates and posts receipts but lands nothing.
+A push makes a new head that neither names, so approval never carries over. When the queue lands, it stacks only reviewed heads, so the stack it validates is exactly what lands; an unreviewed PR waits, with no comment, and joins the batch after its review. The merge is pinned to the validated head (`--match-head-commit`), and a head the queue formatted waits for its own validation and review. With neither source configured, the queue validates and posts receipts but lands nothing.
 
 ## Serving locally
 
