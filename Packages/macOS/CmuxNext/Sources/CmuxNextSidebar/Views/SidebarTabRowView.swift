@@ -23,7 +23,7 @@ final class SidebarTabRowView: SidebarRowView {
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
     /// The last configuration, so a Debug Settings switch of the status side redraws the row.
-    private var lastConfiguration: (SidebarTab, SidebarRow)?
+    private var lastConfiguration: (SidebarTab, SidebarRow, SidebarRowBadgeStyle?)?
 
     private struct Content: Hashable {
         var tab: SidebarTab
@@ -48,13 +48,19 @@ final class SidebarTabRowView: SidebarRowView {
     /// Draws the last configuration again (a sidebar tunable changed).
     func redrawLastConfiguration() {
         guard let last = lastConfiguration else { return }
-        configure(last.0, row: last.1)
+        configure(last.0, row: last.1, badgeStyle: last.2)
     }
 
-    func configure(_ tab: SidebarTab, row: SidebarRow) {
-        lastConfiguration = (tab, row)
+    /// Shows `tab`; `badgeStyle` is the list's (`SidebarModel.rowBadgeStyle`), over the Debug
+    /// Settings tunable, as on workspace rows.
+    func configure(_ tab: SidebarTab, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
+        lastConfiguration = (tab, row, badgeStyle)
         let tunables = SidebarTunablesWatch.shared.values(for: self)
-        let side = tunables.rowBadge == .status ? tunables.statusSide : nil
+        let side = (badgeStyle ?? tunables.rowBadge) == .status ? tunables.statusSide : nil
+        // Agent work shows as its workspace row's does: only with the `working` row element on
+        // (`WorkspaceRowContent.activity`).
+        var tab = tab
+        tab.activity = WorkspaceRowContent.activity(tab.activity, working: row.tabShowsWorking, progress: true)
         let content = Content(tab: tab, group: row.group, groupColor: row.groupColor, statusSide: side)
         guard needsConfigure(content) else { return }
         statusSide = side

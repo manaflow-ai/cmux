@@ -221,10 +221,10 @@ extension SidebarListViewComponents {
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
-            view.configure(tab, row: row)
+            view.configure(tab, row: row, badgeStyle: model.rowBadgeStyle)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
-            view.configure(group, row: row, animated: animated)
+            view.configure(group, row: row, animated: animated, badgeStyle: model.rowBadgeStyle)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }

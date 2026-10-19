@@ -36,7 +36,12 @@ extension StatusIndicatorLayer {
             orbitLayer = replicator
             return replicator
         }()
-        if replicator.frame != rect { replicator.frame = rect }
+        if replicator.frame != rect {
+            replicator.frame = rect
+            // The turn's keyframes are points in this frame (a row is configured before it is laid
+            // out): drop the old turn so `updateAnimation` starts one in the new frame.
+            replicator.sublayers?.first?.removeAnimation(forKey: "orbit")
+        }
         replicator.instanceCount = Self.orbitCount
         // Applied about the replicator's center: each copy a quarter turn on.
         replicator.instanceTransform = CATransform3DMakeRotation(2 * .pi / CGFloat(Self.orbitCount), 0, 0, 1)

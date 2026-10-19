@@ -52,6 +52,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private var isEmpty = false
     private var tint: GroupTint = .palette(.grey)
     private var collapsed = false
+    /// The list's row badge style (`SidebarModel.rowBadgeStyle`), over the Debug Settings tunable.
+    private var badgeStyle: SidebarRowBadgeStyle?
     private var chevronFrame: CGRect = .zero
     private var chevronIcon: IconName = .disclosureExpanded
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -112,7 +114,8 @@ final class GroupHeaderRowView: SidebarRowView {
         var fontSize: CGFloat
     }
 
-    func configure(_ group: SidebarGroup, row: SidebarRow, animated: Bool) {
+    func configure(_ group: SidebarGroup, row: SidebarRow, animated: Bool, badgeStyle: SidebarRowBadgeStyle? = nil) {
+        if badgeStyle != self.badgeStyle { self.badgeStyle = badgeStyle; needsLayout = true }
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed, fontSize: SidebarStyle.headerFont.pointSize)
         guard needsConfigure(content) else { return }
         tint = group.tint
@@ -230,9 +233,13 @@ final class GroupHeaderRowView: SidebarRowView {
         // (the sidebar density: compact 24, comfortable 32 pt).
         let barHeight = SidebarStyle.groupHeaderBarHeight(rowHeight: b.height)
         let pad = (barHeight * 0.62).rounded()
-        // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
-        // on their icon column with the name on their text column, or the name alone on it.
-        let lead = SidebarStyle.horizontalInset
+        // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`, past their
+        // status slot when the status icon sits on the left): an icon on their icon column with
+        // the name on their text column, or the name alone on it.
+        let tunables = SidebarTunablesWatch.shared.values(for: self)
+        let statusSlot = (badgeStyle ?? tunables.rowBadge) == .status && tunables.statusSide == .left
+            ? SidebarStyle.statusGlyphSize + Metrics.space2 : 0
+        let lead = SidebarStyle.horizontalInset + statusSlot
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = name.font

@@ -15,6 +15,7 @@ final class SidebarTunablesWatch {
 
     private let rows = NSHashTable<WorkspaceRowView>.weakObjects()
     private let tabRows = NSHashTable<SidebarTabRowView>.weakObjects()
+    private let headers = NSHashTable<GroupHeaderRowView>.weakObjects()
     private var current: Values?
 
     /// The current values; `row` is redrawn when one changes.
@@ -26,6 +27,12 @@ final class SidebarTunablesWatch {
     /// The current values; the session row `row` is redrawn when one changes.
     func values(for row: SidebarTabRowView) -> Values {
         tabRows.add(row)
+        return values()
+    }
+
+    /// The current values; the group header `header` is laid out again when one changes.
+    func values(for header: GroupHeaderRowView) -> Values {
+        headers.add(header)
         return values()
     }
 
@@ -48,5 +55,6 @@ final class SidebarTunablesWatch {
         current = nil
         for row in rows.allObjects { row.redrawLastConfiguration() }
         for row in tabRows.allObjects { row.redrawLastConfiguration() }
+        for header in headers.allObjects { header.needsLayout = true }
     }
 }

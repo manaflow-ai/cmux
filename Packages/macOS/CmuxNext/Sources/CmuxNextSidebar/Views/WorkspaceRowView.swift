@@ -213,7 +213,9 @@ final class WorkspaceRowView: SidebarRowView {
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
         // its corner badge sits in the trailing slot (`layoutRowBadge`).
         // `.status` draws neither badge nor count: one status icon on the `sidebar.statusIconSide` side.
-        statusSide = content.rowBadge == .status && !isShowingPlaceholder ? content.statusSide : nil
+        // A connecting placeholder keeps the side (and the left slot) with no state, so its title
+        // lands on the column when it arrives.
+        statusSide = content.rowBadge == .status ? content.statusSide : nil
         let badgesLead = statusSide == nil && content.rowBadge != .trailing && !isShowingPlaceholder
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
@@ -245,13 +247,15 @@ final class WorkspaceRowView: SidebarRowView {
         (isExpanded, timeText) = (shown.expanded, shown.trailingText)
         timeLabel.setString(shown.trailingText ?? "")
         metaLabel.setString(shown.meta ?? "")
-        activity.configure(badgesLead ? .idle : rowStatus(ws, activity: shown.activity), style: badgesLead ? nil : ws.activityStyle)
+        activity.configure(badgesLead || isShowingPlaceholder ? .idle : rowStatus(ws, activity: shown.activity),
+                           style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
         agentMark.image = markImage
-        agentMark.isHidden = markImage == nil
+        // With the status icon (`.status`) the mark never takes the status slot: the icon has it.
+        agentMark.isHidden = markImage == nil || (statusSide != nil && agentMarkVariant == .replacesStatus)
         badge.configure(badgesLead || statusSide != nil ? .none : ws.unread)
         presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence : [])
         mutedMark.image = ws.muted && !isShowingPlaceholder

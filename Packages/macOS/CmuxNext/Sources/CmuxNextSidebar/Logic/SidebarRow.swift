@@ -57,6 +57,9 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
+    /// A session row: its workspace row shows agent work (`WorkspaceRowContent.showsWorking`, the
+    /// `working` row element), so the session row may too.
+    public var tabShowsWorking = true
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
     public var tabCount: Int? { content?.tabCount }
     /// A workspace row's second line.
