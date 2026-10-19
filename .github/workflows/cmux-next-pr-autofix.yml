@@ -518,6 +518,42 @@ jobs:
           name: pr-autofix-patch
           path: ${{ runner.temp }}/pr-autofix
 
+      # What the push may write (#21946): the pull request's own files and the
+      # generated outputs its changes feed (--changed), and no generated output
+      # the base changed after the repair's merge tree was made (--base-moved),
+      # whose copy in the patch is the older base's. The apply script skips the
+      # rest; the base bot formats base files and regenerates from the base.
+      - name: Scope of the repairs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/scope.args"
+          # The files API lists up to 3000 paths (a rename lists both); past
+          # that every repair output stays in scope, as before.
+          if [ "$CHANGED_FILES" -lt 3000 ]; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+            printf '%s\n' --changed "$RUNNER_TEMP/changed.txt" >> "$RUNNER_TEMP/scope.args"
+          fi
+          tip="$(git -C base rev-parse HEAD)"
+          : > "$RUNNER_TEMP/base-moved.txt"
+          if [ "$tip" != "$BASE_SHA" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/compare/$BASE_SHA...$tip" > "$RUNNER_TEMP/compare.json"
+            # The compare API lists at most 300 files: past that, or if the base
+            # did not just move ahead, every generated output counts as moved.
+            if [ "$(jq -r '.status' "$RUNNER_TEMP/compare.json")" = ahead ] \
+                && [ "$(jq '.files | length' "$RUNNER_TEMP/compare.json")" -lt 300 ]; then
+              jq -r '.files[] | .filename, (.previous_filename // empty)' "$RUNNER_TEMP/compare.json" > "$RUNNER_TEMP/base-moved.txt"
+            else
+              git -C head apply --numstat "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" | cut -f3 > "$RUNNER_TEMP/base-moved.txt"
+            fi
+          fi
+          printf '%s\n' --base-moved "$RUNNER_TEMP/base-moved.txt" >> "$RUNNER_TEMP/scope.args"
+
       - name: Apply and commit
         id: commit
         env:
@@ -538,7 +574,13 @@ jobs:
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head | tee -a "$GITHUB_STEP_SUMMARY"
+          mapfile -t scope < "$RUNNER_TEMP/scope.args"
+          "$apply" "$RUNNER_TEMP/pr-autofix/pr-autofix.patch" head ${scope[@]+"${scope[@]}"} | tee -a "$GITHUB_STEP_SUMMARY"
+          # Every repair output may have been out of scope.
+          if git -C head diff --quiet && [ -z "$(git -C head ls-files --others --exclude-standard)" ]; then
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           cd head
           git config user.name "cmux-autofix[bot]"
           git config user.email "cmux-autofix[bot]@users.noreply.github.com"
