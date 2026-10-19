@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Foundation
 import WebKit
 
@@ -7,7 +8,7 @@ import WebKit
 final class AgentPaneRenderPreview: NSObject, WKNavigationDelegate, WKURLSchemeHandler {
     private var view: WKWebView?
     private var continuation: CheckedContinuation<String, any Error>?
-    private var deadline: Task<Void, Never>?
+    private let deadline = DemandTimer(owner: "agent-pane.render-preview")
     private var evaluating = false
     private var releasePanel: (@MainActor () -> Void)?
 
@@ -25,8 +26,7 @@ final class AgentPaneRenderPreview: NSObject, WKNavigationDelegate, WKURLSchemeH
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
-                self.deadline = Task { @MainActor [weak self] in
-                    do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                self.deadline.schedule(after: .seconds(8)) { @MainActor [weak self] in
                     self?.finish(.failure(AgentPaneRenderPreviewError.timeout))
                 }
                 view.loadHTMLString(document, baseURL: nil)
@@ -36,7 +36,7 @@ final class AgentPaneRenderPreview: NSObject, WKNavigationDelegate, WKURLSchemeH
         }
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         guard !evaluating, continuation != nil else { return }
         evaluating = true
         webView.callAsyncJavaScript("return await window.cmuxPreviewResult", arguments: [:], in: nil, in: .page) { [weak self, weak webView] (result: Result<Any, any Error>) in
@@ -92,11 +92,11 @@ final class AgentPaneRenderPreview: NSObject, WKNavigationDelegate, WKURLSchemeH
         finish(.failure(URLError(.cannotLoadFromNetwork)))
     }
 
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         finish(.failure(error))
     }
 
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         finish(.failure(error))
     }
 
@@ -117,8 +117,7 @@ final class AgentPaneRenderPreview: NSObject, WKNavigationDelegate, WKURLSchemeH
     private func finish(_ result: Result<String, any Error>) {
         guard let continuation else { return }
         self.continuation = nil
-        deadline?.cancel()
-        deadline = nil
+        deadline.cancel()
         view?.stopLoading()
         view?.navigationDelegate = nil
         releasePanel?()

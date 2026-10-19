@@ -9,7 +9,8 @@ struct AgentPaneRenderPreviewPNG {
 
     nonisolated func encode(_ image: CGImage, width: Int, height: Int, report: Data) throws -> String {
         var scale = min(1, 1568 / Double(max(width, height)))
-        while true {
+        // Each pass shrinks by 0.8; 24 passes reach 0.5% scale, far below the 3 MiB limit.
+        for _ in 0..<24 {
             let w = max(1, Int(Double(width) * scale)), h = max(1, Int(Double(height) * scale))
             guard let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                           space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
@@ -33,5 +34,6 @@ struct AgentPaneRenderPreviewPNG {
             }
             scale *= 0.8
         }
+        throw AgentPaneRenderPreviewError.failed
     }
 }
