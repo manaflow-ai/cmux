@@ -257,10 +257,12 @@ public actor WorkstreamPersistence {
         let chunkSize = 64 * 1024
         let maximumTailBytes = 8 * 1024 * 1024
         var offset = pageEnd
-        var tail = Data()
-        var lineRanges: [(range: Range<Int>, startOffset: UInt64)] = []
+        var chunks: [Data] = []
+        chunks.reserveCapacity((maximumTailBytes + chunkSize - 1) / chunkSize)
+        var totalBytes = 0
+        var newlineCount = 0
         while offset > 0 {
-            let remainingBudget = maximumTailBytes - tail.count
+            let remainingBudget = maximumTailBytes - totalBytes
             guard remainingBudget > 0 else { break }
             let readSize = min(chunkSize, min(remainingBudget, Int(offset)))
             offset -= UInt64(readSize)
@@ -268,16 +270,20 @@ public actor WorkstreamPersistence {
             guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else {
                 break
             }
-            tail.insert(contentsOf: chunk, at: 0)
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-            if lineRanges.count > limit {
+            totalBytes += chunk.count
+            newlineCount += chunk.reduce(into: 0) { if $1 == 0x0A { $0 += 1 } }
+            chunks.append(chunk)
+            if newlineCount > limit {
                 break
             }
         }
 
-        if lineRanges.isEmpty {
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
+        var tail = Data()
+        tail.reserveCapacity(totalBytes)
+        for chunk in chunks.reversed() {
+            tail.append(chunk)
         }
+        var lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
         if offset > 0, lineRanges.first?.startOffset == offset {
             lineRanges.removeFirst()
         }
