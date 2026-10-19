@@ -836,7 +836,7 @@ fast_gate() {
   [ -n "$reds" ] || return 0
   # A red lint check is never waived (see the full gate); others may be by --override.
   if [ -n "$override_reason" ] && ! grep -qiE 'god[ -]?files?|l10n|locali[sz]ation|concurrency' <<<"$reds"; then
-    printf 'note: --override waives %s on %s\n' "$(paste -sd ';' <<<"$reds" | sed 's/;/; /g')" "$sha" >&2
+    printf 'note: --override waives %s on %s\n' "$(paste -sd ';' - <<<"$reds" | sed 's/;/; /g')" "$sha" >&2
     return 0
   fi
   local excuse_args=()
@@ -849,7 +849,7 @@ fast_gate() {
     why=$(cat "$excuse_errors")
     rm -f "$excuse_errors"
     refuse \
-      "not green: $(paste -sd ';' <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (${why:-the base comparison failed})" \
+      "not green: $(paste -sd ';' - <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (${why:-the base comparison failed})" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
   fi
   rm -f "$excuse_errors"
