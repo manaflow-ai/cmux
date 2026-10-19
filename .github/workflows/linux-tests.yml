@@ -9,9 +9,11 @@ name: Linux tests
 #
 # The files run one `bun test` process each (as scripts/ci/run-webviews-tests.sh
 # does in CI) with Playwright's Chromium and WebKit installed, after the web
-# bundles are built, so browser-lane suites run instead of skipping. The plan
-# script comes from this workflow's own revision, never the tested commit, and
-# the job holds a read-only token, so any commit of this repository can be tested.
+# bundles are built, so browser-lane suites run instead of skipping. Only a
+# branch head of this repository runs (resolve-dispatch-ref.yml): the run is on
+# main, and code from a fork's commit must never run at main's cache scope. The
+# plan script comes from this workflow's own revision, never the tested commit,
+# and the job's token is read-only.
 on:
   workflow_dispatch:
     inputs:
@@ -55,11 +57,27 @@ permissions:
   contents: read
 
 jobs:
+  resolve:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   test:
     name: Run the named test files
+    needs: resolve
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.runner }}
     timeout-minutes: 60
     steps:
+      - name: Refuse a commit that is not a branch head here
+        env:
+          TRUSTED: ${{ needs.resolve.outputs.trusted_ref }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          if [ "$TRUSTED" != true ]; then
+            echo "::error::$SHA is not the head of a branch of this repository; push it to a branch here and dispatch that head"
+            exit 1
+          fi
+
       - name: Check out the lane's plan script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -72,7 +90,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: src
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
 
       - name: Plan the run
@@ -80,7 +98,7 @@ jobs:
           FILES: ${{ inputs.files }}
         run: |
           set -euo pipefail
-          python3 lane/scripts/ci/linux_test_files.py plan --root src --files "$FILES" > "$RUNNER_TEMP/plan.tsv"
+          python3 lane/scripts/ci/linux_test_files.py plan --root src --files="$FILES" > "$RUNNER_TEMP/plan.tsv"
           {
             echo "### Linux tests at \`$(git -C src rev-parse HEAD)\`"
             echo
@@ -89,10 +107,28 @@ jobs:
             done < "$RUNNER_TEMP/plan.tsv"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The tested commit pins bun (webviews/package.json devEngines); a branch
+      # that moved to a newer bun must not be tested with this file's older one.
+      - name: Read the commit's bun version
+        id: bun
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, pathlib, re
+          version = "1.4.2"
+          try:
+              manifest = json.loads(pathlib.Path("src/webviews/package.json").read_text())
+              pinned = str(((manifest.get("devEngines") or {}).get("packageManager") or {}).get("version") or "")
+              if re.fullmatch(r"\d+\.\d+\.\d+", pinned):
+                  version = pinned
+          except (OSError, ValueError, AttributeError):
+              pass
+          print(f"version={version}")
+          PY
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: ${{ steps.bun.outputs.version }}
 
       # `vp` and the bundle build run on Node and need ^22.18 or ^24.11.
       - name: Setup Node
@@ -158,12 +194,16 @@ jobs:
             for file in $files; do
               echo "::group::$package/$file"
               start=$SECONDS
-              (cd "$package" && timeout -k 10 "$FILE_TIMEOUT" bun test "$file")
+              # A file may need longer: a `// cmux-web-test-timeout: SECONDS` header line, as in CI.
+              limit=$(head -n 20 "$package/$file" | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1)
+              { [ -n "$limit" ] && [ "$limit" -gt "$FILE_TIMEOUT" ]; } || limit=$FILE_TIMEOUT
+              # "./" names the file; a bare path is a substring filter that also runs its namesakes.
+              (cd "$package" && timeout -k 10 "$limit" bun test "./$file" < /dev/null)
               code=$?
               echo "::endgroup::"
               case $code in
                 0) result=pass ;;
-                124) result="timed out after ${FILE_TIMEOUT}s"; failed=1 ;;
+                124) result="timed out after ${limit}s"; failed=1 ;;
                 *) result="failed ($code)"; failed=1 ;;
               esac
               [ "$code" = 0 ] || echo "::error file=$package/$file::$result"

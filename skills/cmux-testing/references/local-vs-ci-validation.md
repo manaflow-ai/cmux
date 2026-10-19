@@ -54,7 +54,11 @@ Run a few named test files at a pushed commit on Blacksmith Linux, not on a shar
 ./scripts/run-linux-tests.sh --ref <pushed-commit-sha> webviews/test/foo.test.tsx --wait
 ```
 
-It dispatches `.github/workflows/linux-tests.yml` from main. Each file runs in its own `bun test` with the web bundles built and Playwright's Chromium and WebKit installed, so browser-lane suites run instead of skipping. Paths may be relative to `webviews/`; `--runner 16` or `32` picks a bigger machine, and `--no-bundles` skips the bundle build. The wrapper lives on main; from another branch run `git show origin/main:scripts/run-linux-tests.sh | bash -s -- ...`.
+It dispatches `.github/workflows/linux-tests.yml` from main for the head of a branch pushed here. Each file runs in its own `bun test` with the web bundles built and Playwright's Chromium and WebKit installed, so browser-lane suites run instead of skipping. Paths may be relative to `webviews/`. `--runner 16` or `32` picks a bigger machine, and `--no-bundles` skips the bundle build. Packages that test with vitest or Playwright Test are refused. The wrapper lives on main; from another branch run it with:
+
+```bash
+gh api -H 'Accept: application/vnd.github.raw' repos/manaflow-ai/cmux/contents/scripts/run-linux-tests.sh | bash -s -- --ref <sha> webviews/test/foo.test.tsx --wait
+```
 
 ## UI and socket checks
 

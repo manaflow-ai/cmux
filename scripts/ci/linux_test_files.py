@@ -14,6 +14,7 @@ installs a thing.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import re
 import sys
@@ -27,13 +28,32 @@ class PlanError(ValueError):
     pass
 
 
+OTHER_RUNNERS = ("vitest", "jest", "@playwright/test", "mocha")
+
+
 def package_of(root: Path, path: Path) -> Path | None:
-    """The nearest directory above path, inside root, with a package.json and a bun.lock."""
+    """The nearest directory above path, up to and including root, with a package.json and a bun.lock."""
     for parent in path.parents:
-        if parent == root or root not in parent.parents:
+        if parent != root and root not in parent.parents:
             return None
         if (parent / "package.json").is_file() and (parent / "bun.lock").is_file():
             return parent
+        if parent == root:
+            return None
+    return None
+
+
+def other_runner(package: Path) -> str | None:
+    """The test runner a package uses instead of bun test, from its test script and dependencies."""
+    try:
+        manifest = json.loads((package / "package.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    script = str((manifest.get("scripts") or {}).get("test") or "")
+    deps = {**(manifest.get("dependencies") or {}), **(manifest.get("devDependencies") or {})}
+    for runner in OTHER_RUNNERS:
+        if runner in script or (runner in deps and "bun test" not in script):
+            return runner
     return None
 
 
@@ -54,10 +74,15 @@ def plan(root: Path, files: str) -> dict[str, list[str]]:
         if not path.is_file():
             raise PlanError(f"{name}: no such file at this commit")
         path = path.resolve()
+        if root not in path.parents:
+            raise PlanError(f"{name}: resolves outside the checkout")
         package = package_of(root, path)
         if package is None:
             raise PlanError(f"{name}: not inside a bun package (a directory with package.json and bun.lock)")
-        key = package.relative_to(root).as_posix()
+        runner = other_runner(package)
+        if runner:
+            raise PlanError(f"{name}: its package tests with {runner}, not bun test; this lane runs bun test only")
+        key = package.relative_to(root).as_posix() or "."
         relative = path.relative_to(package).as_posix()
         if relative not in grouped.setdefault(key, []):
             grouped[key].append(relative)

@@ -42,6 +42,26 @@ class PlanTests(unittest.TestCase):
     def test_a_path_relative_to_webviews_is_accepted(self) -> None:
         self.assertEqual(linux_test_files.plan(self.root, "test/a.test.tsx"), {"webviews": ["test/a.test.tsx"]})
 
+    def test_a_file_whose_package_is_the_root_is_planned(self) -> None:
+        (self.root / "package.json").write_text("{}")
+        (self.root / "bun.lock").write_text("")
+        (self.root / "tests").mkdir()
+        (self.root / "tests" / "r.test.ts").write_text("")
+        self.assertEqual(linux_test_files.plan(self.root, "tests/r.test.ts"), {".": ["tests/r.test.ts"]})
+
+    def test_a_vitest_package_is_refused(self) -> None:
+        (self.root / "web/package.json").write_text('{"scripts": {"test": "vitest run"}}')
+        with self.assertRaisesRegex(linux_test_files.PlanError, "vitest"):
+            linux_test_files.plan(self.root, "web/lib/x.test.ts")
+
+    def test_a_link_out_of_the_checkout_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as outside:
+            target = Path(outside) / "evil.test.ts"
+            target.write_text("")
+            (self.root / "webviews/test/link.test.ts").symlink_to(target)
+            with self.assertRaisesRegex(linux_test_files.PlanError, "outside"):
+                linux_test_files.plan(self.root, "webviews/test/link.test.ts")
+
     def test_bad_paths_are_refused(self) -> None:
         for files in ("../etc/passwd.test.ts", "webviews/test/missing.test.ts", "webviews/src/notatest.ts",
                       "/abs/a.test.ts", "webviews/test/a.test.tsx; rm -rf /", ""):
@@ -61,11 +81,25 @@ class WorkflowTests(unittest.TestCase):
 
     def test_no_input_is_spliced_into_a_script(self) -> None:
         for job in self.workflow["jobs"].values():
-            for step in job["steps"]:
+            for step in job.get("steps", []):
                 self.assertNotIn("inputs.", step.get("run", ""), step.get("name"))
 
     def test_it_holds_no_write_token(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+
+    def test_only_a_branch_head_of_this_repository_runs(self) -> None:
+        jobs = self.workflow["jobs"]
+        self.assertEqual(jobs["resolve"]["uses"], "./.github/workflows/resolve-dispatch-ref.yml")
+        self.assertIn("resolve", jobs["test"]["needs"])
+        steps = jobs["test"]["steps"]
+        self.assertIn("trusted_ref", str(steps[0]))
+        checkout = next(step for step in steps if step.get("with", {}).get("path") == "src")
+        self.assertEqual(checkout["with"]["ref"], "${{ needs.resolve.outputs.sha }}")
+
+    def test_each_file_is_named_as_a_path_not_a_filter(self) -> None:
+        run = next(step["run"] for step in self.workflow["jobs"]["test"]["steps"]
+                   if step.get("name") == "Run the test files")
+        self.assertIn('bun test "./$file"', run)
 
 
 class WrapperTests(unittest.TestCase):
