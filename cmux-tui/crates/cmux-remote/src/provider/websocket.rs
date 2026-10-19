@@ -179,6 +179,11 @@ pub async fn connect_websocket_via(
 /// waits, it pings a silent peer every [`WebSocketKeepalive::ping_interval`];
 /// once nothing has arrived for [`WebSocketKeepalive::dead_peer_timeout`] (a
 /// half-open connection) it drops the socket and fails the link.
+///
+/// Liveness is counted per whole message here (axum does not expose partial
+/// frames), so a single inbound message that takes longer than the dead-peer
+/// timeout to arrive fails the link. The Cloud carrier caps a frame at
+/// 64 KiB, so that takes a link slower than about 1 KB/s.
 pub struct AxumWebSocketLink {
     description: String,
     maximum: usize,
@@ -255,15 +260,19 @@ impl FrameLink for AxumWebSocketLink {
         let mut sender = self.sender.lock().await;
         let Some(sink) = sender.as_mut() else { return Err(LinkError::Closed) };
         let sent = tokio::select! {
-            result = sink.send(AxumMessage::Binary(frame)) => Some(result),
+            biased;
             _ = dead.wait_for(|dead| *dead) => None,
+            result = sink.send(AxumMessage::Binary(frame)) => Some(result),
         };
+        // The dead-peer path could not take this half while the send held
+        // it; drop it here so the socket closes now.
+        if *self.dead.borrow() {
+            sender.take();
+            return Err(self.dead_peer_error());
+        }
         match sent {
             Some(result) => result.map_err(|error| LinkError::Transport(error.to_string())),
-            None => {
-                sender.take();
-                Err(self.dead_peer_error())
-            }
+            None => Err(self.dead_peer_error()),
         }
     }
 
@@ -313,14 +322,21 @@ impl FrameLink for AxumWebSocketLink {
     /// gone), then drop both halves so the socket closes now rather than
     /// whenever the link itself is dropped.
     async fn close(&self) -> Result<(), LinkError> {
+        let mut dead = self.dead.subscribe();
         let mut sender = self.sender.lock().await;
         let result = match sender.as_mut() {
-            Some(sink) => {
-                match tokio::time::timeout(self.keepalive.ping_interval, sink.close()).await {
-                    Ok(result) => result.map_err(|error| LinkError::Transport(error.to_string())),
-                    Err(_) => Ok(()),
+            Some(sink) => tokio::select! {
+                biased;
+                _ = dead.wait_for(|dead| *dead) => Ok(()),
+                closed = tokio::time::timeout(self.keepalive.ping_interval, sink.close()) => {
+                    match closed {
+                        Ok(result) => {
+                            result.map_err(|error| LinkError::Transport(error.to_string()))
+                        }
+                        Err(_) => Ok(()),
+                    }
                 }
-            }
+            },
             None => Ok(()),
         };
         sender.take();

@@ -715,7 +715,8 @@ fn websocket_keepalive_closes_a_peer_that_stops_answering() {
     let pings = opcodes.iter().filter(|opcode| **opcode == 0x9).count();
     assert!(pings >= 2, "daemon closed without pinging first: frames {opcodes:?}");
     assert!(
-        elapsed >= short_keepalive().dead_peer_timeout,
+        // `started` is a little after the daemon's last inbound byte.
+        elapsed >= short_keepalive().dead_peer_timeout - short_keepalive().ping_interval,
         "daemon closed after {elapsed:?}, before the dead-peer timeout"
     );
     assert!(elapsed < Duration::from_secs(8), "daemon took {elapsed:?} to close a silent peer");

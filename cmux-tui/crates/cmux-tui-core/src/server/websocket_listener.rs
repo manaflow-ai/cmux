@@ -436,6 +436,9 @@ fn handle_websocket_connection_with_permit(
                 if !keep_open {
                     break;
                 }
+                // Time spent handling the frame (a handler can wait on a
+                // slow client's queue) is not inbound silence.
+                idle_since = Instant::now();
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
                 let _ = websocket.flush();
