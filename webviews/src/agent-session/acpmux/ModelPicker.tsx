@@ -244,7 +244,6 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarness,
     onHarnessHint,
     onHarnessEnable,
-    onAddAgent,
     onCombo,
     fastMode,
     catalogRefresh,
@@ -294,7 +293,17 @@ export function ModelPicker(props: ModelPickerProps) {
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
   const menuId = useId();
-  const harnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
+  const allHarnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
+  // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
+  // launch) keeps the whole rail rather than an empty menu.
+  const ownHarness = useMemo(
+    () => allHarnesses.filter((entry) => entry.ids.includes(harness ?? "")),
+    [allHarnesses, harness],
+  );
+  const harnessFixed = props.harnessFixed === true && ownHarness.length > 0;
+  const harnesses = harnessFixed ? ownHarness : allHarnesses;
+  // A started chat offers no other harness, so it has no Add harness… row either.
+  const onAddAgent = harnessFixed ? undefined : props.onAddAgent;
   const navigableHarnesses = useMemo(
     () =>
       harnesses
@@ -517,7 +526,9 @@ export function ModelPicker(props: ModelPickerProps) {
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
   // that can start here, its top models numbered and the rest under More models.
   const quickFamilies = useMemo(() => {
-    if (!quick) return undefined;
+    // A started chat's compact menu lists its own harness's models with no rail; More models
+    // opens the full picker, which has no rail either.
+    if (!quick || harnessFixed) return undefined;
     const row = (entry: HarnessChoice, model: ModelChoice): QuickModel => ({
       id: model.id,
       name: model.name,
@@ -550,7 +561,7 @@ export function ModelPicker(props: ModelPickerProps) {
       });
     }
     return list;
-  }, [quick, harnesses, loginFor, favorites, starredText, harness, props.model, t, onLogIn]);
+  }, [quick, harnessFixed, harnesses, loginFor, favorites, starredText, harness, props.model, t, onLogIn]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
@@ -659,7 +670,7 @@ export function ModelPicker(props: ModelPickerProps) {
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       move(-1);
-    } else if (event.key === "ArrowLeft" && !query) {
+    } else if (event.key === "ArrowLeft" && !query && !harnessFixed) {
       event.preventDefault();
       if (starredView) focusRail(-1);
       else focusRail(activeHarness);
@@ -876,7 +887,9 @@ export function ModelPicker(props: ModelPickerProps) {
           // heights; a fixed height here collapsed a menu that opened before its models loaded.
           style={{ ...menuStyle, ...pickerHeightBounds(menuStyle.maxHeight, openHeight) }}
         >
-          {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. */}
+          {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. A
+              started chat's harness is fixed, so its menu has none. */}
+          {!harnessFixed && (
           <ScrollArea
             className="acpmux-mp-rail-scroll w-11 flex-none border-r-[0.5px] border-edge"
             viewportClassName="acpmux-mp-rail-viewport"
@@ -964,6 +977,7 @@ export function ModelPicker(props: ModelPickerProps) {
               ])}
             </PickerOptionList>
           </ScrollArea>
+          )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
             <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
               <SearchIcon size={15} />

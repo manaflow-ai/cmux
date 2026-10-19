@@ -185,7 +185,7 @@ export function ComposerPickers({
   const t = useT();
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
   // the reasoning menu draws a slider when the person opted in (the Debug Settings toggle agent.reasoningSlider).
-  const { showContextUsage, reasoningSlider, reasoningSliderStyle, modelMenu } = useComposerSettings();
+  const { showContextUsage, reasoningSlider, reasoningSliderStyle, modelMenu, harnessSwitch } = useComposerSettings();
   // The compact model menu carries Effort and Account, so the row has no effort chip of its own.
   const compact = modelMenu === "compact";
   const chatAccounts = useChatAccounts();
@@ -194,8 +194,12 @@ export function ComposerPickers({
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
   // probe alone (a timeout) keeps it.
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
-  // harness's models only, and another harness is Continue in…, never a pick.
-  const locked = !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
+  // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
+  // harness, then Add harness…, read as an offer to switch), and another harness is Continue in…,
+  // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
+  // keeps the whole rail and its switch.
+  const locked =
+    !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
   const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
         ...pickerCatalog.harnesses
@@ -668,6 +672,7 @@ export function ComposerPickers({
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
+          harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
