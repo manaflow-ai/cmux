@@ -116,7 +116,7 @@ struct WorkstreamPersistenceTests {
         encoder.dateEncodingStrategy = .iso8601
         var data = try encoder.encode(old)
         data.append(0x0A)
-        data.append(Data(repeating: 0x78, count: 17 * 1024 * 1024))
+        data.append(Data(repeating: 0x78, count: 33 * 1024 * 1024))
         try data.write(to: tmp)
 
         let persistence = WorkstreamPersistence(fileURL: tmp)
@@ -385,7 +385,7 @@ struct WorkstreamPersistenceTests {
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        var data = Data(repeating: 0x78, count: 17 * 1024 * 1024)
+        var data = Data(repeating: 0x78, count: 33 * 1024 * 1024)
         data.append(0x0A)
         data.append(try encoder.encode(item))
         data.append(0x0A)
@@ -501,6 +501,48 @@ struct WorkstreamPersistenceTests {
         try await persistence.append(item)
         let snapshot = try await persistence.loadStartupSnapshot(limit: 1)
         #expect(snapshot.items.map(\.workstreamId) == ["large-valid"])
+    }
+
+    @Test("repeated pages cross a complete row larger than the scan budget")
+    func repeatedPagesCrossOversizedCompleteRow() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-oversized-progress-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "oversized",
+            source: .claude,
+            kind: .toolUse,
+            payload: .toolUse(
+                toolName: "Write",
+                toolInputJSON: String(repeating: "x", count: 33 * 1024 * 1024)
+            )
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "new",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        var cursor = try #require((try await persistence.loadPage(limit: 1)).startOffset)
+        var foundOld = false
+        for _ in 0..<8 {
+            let page = try await persistence.loadPage(endingBefore: cursor, limit: 1)
+            if page.items.contains(where: { $0.workstreamId == "old" }) {
+                foundOld = true
+                break
+            }
+            guard page.hasMoreBefore, let next = page.startOffset, next < cursor else { break }
+            cursor = next
+        }
+        #expect(foundOld)
     }
 
     @Test("exact bounded-window row boundaries retain the first row")
