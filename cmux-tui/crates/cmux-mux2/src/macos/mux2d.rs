@@ -598,9 +598,7 @@ impl Server {
             argv.push(CString::new(r.bytes().ok_or_else(bad)?).map_err(|_| bad())?);
         }
         if argv.is_empty() {
-            let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
-            argv.push(CString::new(shell.as_bytes()).map_err(|_| bad())?);
-            argv.push(CString::new("-l").expect("static"));
+            argv = default_login_argv().map_err(|_| bad())?;
         }
         let cwd = if cwd.is_empty() { None } else { Some(CString::new(cwd).map_err(|_| bad())?) };
 

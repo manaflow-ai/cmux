@@ -191,3 +191,27 @@ pub(super) fn raise_nofile() {
         }
     }
 }
+
+/// The command for a terminal started without one: `login -fp USER`, as
+/// Terminal.app and Rex do. login(1) records the session (utmpx), runs the
+/// account's shell from the user database as a login shell, and `-p` keeps
+/// the server's environment. Falls back to `$SHELL -l` when login is missing
+/// or the account has no name.
+pub(super) fn default_login_argv() -> Result<Vec<CString>, std::ffi::NulError> {
+    const LOGIN: &str = "/usr/bin/login";
+    // SAFETY: getpwuid returns a pointer into static storage or null; the
+    // name is copied before any other passwd call.
+    let user = unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if pw.is_null() || (*pw).pw_name.is_null() {
+            None
+        } else {
+            Some(std::ffi::CStr::from_ptr((*pw).pw_name).to_owned())
+        }
+    };
+    if let Some(user) = user.filter(|_| std::path::Path::new(LOGIN).exists()) {
+        return Ok(vec![CString::new(LOGIN)?, CString::new("-fp")?, user]);
+    }
+    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
+    Ok(vec![CString::new(shell.as_bytes())?, CString::new("-l")?])
+}
