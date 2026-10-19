@@ -1368,6 +1368,35 @@ class Controller:
                 f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
                 "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`; gh-merge-green is optional).")
 
+    def waivable(self, line: str, validation: Validation) -> bool:
+        """Whether every red lane in gh-merge-green's refusal is a heavy-tier
+        job the stack ran green, so --override waives only what the batch tested.
+
+        The line reads `not green: <lane>; <lane> on <sha>, not excused by ...`.
+        A lane is a quoted check (`'cmux-next swift test'`) or a cmux-next run
+        verdict (`cmux-next run <id> attempt <n> (<event>) is failure`), whose
+        failed jobs then decide."""
+        found = re.match(r"not green: (.+) on [0-9a-f]{7,40}, not excused by ", line)
+        if not found:
+            return False
+
+        def passed(name: str) -> bool:
+            return name in HEAVY_CHECKS and any(job.endswith(name) for job in validation.heavy_passed)
+
+        for lane in found.group(1).split("; "):
+            quoted = re.fullmatch(r"'(.+)'", lane)
+            verdict = re.fullmatch(r"cmux-next run (\d+) attempt \d+ \(\S+\) is failure", lane)
+            if quoted:
+                if not passed(quoted.group(1)):
+                    return False
+            elif verdict:
+                jobs = self.failed_jobs(int(verdict.group(1)))
+                if not jobs or not all(passed(job) for job in jobs):
+                    return False
+            else:
+                return False
+        return True
+
     def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
         ref = f"{self.args.repo}#{pr.number}"
         env = {**self.writer.env, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
@@ -1384,9 +1413,7 @@ class Controller:
                 return "landed" + (" (override: own heavy check red, batch green)" if override else "")
             line = next((item for item in output.splitlines() if item.startswith("not green")), output[-300:])
             pending = re.search(r"is (queued|in_progress|waiting|pending|requested)/", line) or "has not run" in line
-            red = [name for name in HEAVY_CHECKS if name in line] if "is not successful" in line else []
-            # Waive the PR's own red heavy check only for a job the stack ran green.
-            heavy_red = bool(red) and all(any(job.endswith(name) for job in validation.heavy_passed) for name in red)
+            heavy_red = self.waivable(line, validation)
             if heavy_red and not override:
                 override = True  # the batch ran that tier on this head's stack
                 continue
