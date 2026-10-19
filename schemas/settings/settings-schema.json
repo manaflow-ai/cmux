@@ -713,7 +713,8 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.allowFullAccess"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -3994,6 +3995,56 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
       },
       "validation" : "portable"
     },
@@ -29266,7 +29317,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "45487313c9cf1309b38f14e8c2c2b4627f2cd3a9b4903a496b7866052af47b57",
+  "schema_hash" : "a294352e5431fb8b88af8465ab4334ca366e86f0321e611fd908bccaa7b5c988",
   "sections" : [
     {
       "id" : "general",
