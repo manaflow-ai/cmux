@@ -233,12 +233,10 @@ public final class AgentCLIUpdateActions {
         var inputs: [AgentCLIUpdateIntent] = []
         for family in families {
             guard intent.route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
-            // A row blocks when it is this session's, or recovery reattached its own session;
-            // one no route can reach (a reinstalled server) stays in the ledger until it ages out.
+            // Any session's row blocks: an unreachable session may still be a live server on this
+            // machine running the updater. The ledger's seven-day read bound retires true orphans.
             guard !retained.contains(where: { row in
                 row.intent.machine == intent.route.machine && row.intent.cli == family && !settled.contains(row.intent.key)
-                    && (row.intent.session == intent.route.session
-                        || intents.values.contains { $0.route.isCurrent() && $0.inputs.contains { $0.key == row.intent.key } })
             }), !intents.values.contains(where: { other in
                 other !== intent && other.jobs.contains { job in
                     job["machine"]?.stringValue == intent.route.machine.rawValue && job["cli"]?.stringValue == family
