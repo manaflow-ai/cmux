@@ -25,6 +25,7 @@ import { chiefsTools } from "./brain-chiefs.ts"
 import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
 import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
+import { type ImportBody, type ImportFail, type ImportStatus, importBatch, importStatus } from "./memory-import.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -320,6 +321,22 @@ export class ChiefBrainDO extends DurableObject<Env> {
     await this.lifecycle.start()
     const day = new Date().toISOString().slice(0, 10)
     return { config: this.config(), turns_today: Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `turns:${day}`).toArray()[0]?.value ?? 0) }
+  }
+
+  /** The memory copy from a Mac Chief (memory-import.ts): where it stands. */
+  memoryImportStatus(): ImportStatus {
+    return importStatus(this.sql)
+  }
+
+  /** One batch of the memory copy; after the last one the view is folded again from the copied nodes. */
+  memoryImport(body: ImportBody, brainOn: boolean): ImportStatus | ImportFail {
+    if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
+    const r = importBatch(this.sql, this.ctx.storage, body, brainOn)
+    if (!("ok" in r) && body.done) {
+      this.memory.reload()
+      this.compactor.pump()
+    }
+    return r
   }
 
   /** A brain asks before a turn (`turn: true` counts it) or a post: enabled, the chief live and not placed, under the daily limit. */
