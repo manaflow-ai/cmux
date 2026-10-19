@@ -127,6 +127,93 @@ describe("cloud Run terminal retention and cancellation", () => {
     }
   });
 
+  dbTest("schedules cleanup for a VM whose create returned after cancellation fenced the worker", async () => {
+    const userId = `cancel-during-create-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0];
+      if (!attempt) throw new Error("run did not create an attempt");
+      const lease = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "creating-worker" });
+      // Cancel lands while createVm is in flight: no VM id is stored yet, and
+      // the cancel bumps the lease generation, fencing the worker.
+      await repo().cancelRun(created.run.id, userId);
+      await repo().finalizeAttemptCancellation({ runId: created.run.id, attemptId: attempt.id });
+      const cancelled = (await repo().getRun(created.run.id, userId)).attempts[0];
+      expect(cancelled?.status).toBe("cancelled");
+      expect(cancelled?.providerVmId).toBeNull();
+
+      // createVm returns; the worker's attempt.started ingest is fenced, and
+      // its finally block hands the VM it now knows about to retention.
+      await expect(repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        externalId: "attempt-started",
+        attemptSequence: 0,
+        kind: "attempt.started",
+        payload: { providerVmId: "vm-created-during-cancel" },
+      })).rejects.toBeInstanceOf(repo().RunLeaseConflictError);
+      await repo().scheduleAttemptRetention({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        providerVmId: "vm-created-during-cancel",
+      });
+
+      const adopted = (await repo().getRun(created.run.id, userId)).attempts[0];
+      expect(adopted?.status).toBe("cancelled");
+      expect(adopted?.providerVmId).toBe("vm-created-during-cancel");
+      expect(adopted?.leaseGeneration).toBe(lease.leaseGeneration + 1);
+      const claims = await repo().claimExpiredAttemptCleanups({ now: new Date(Date.now() + 60 * 60 * 1000), limit: 100 });
+      const claim = claims.find((candidate) => candidate.attempt.id === attempt.id);
+      expect(claim?.attempt.providerVmId).toBe("vm-created-during-cancel");
+      for (const other of claims) {
+        await repo().finishAttemptCleanup({ attemptId: other.attempt.id, cleanupLeaseToken: other.cleanupLeaseToken, succeeded: false });
+      }
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("does not hand a stale worker's VM back to retention after the reaper destroyed it", async () => {
+    const userId = `cancel-after-reap-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0];
+      if (!attempt) throw new Error("run did not create an attempt");
+      const lease = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "reaped-worker" });
+      await repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        externalId: "attempt-started",
+        attemptSequence: 0,
+        kind: "attempt.started",
+        payload: { providerVmId: "vm-reaped" },
+      });
+      await repo().cancelRun(created.run.id, userId);
+      await repo().finalizeAttemptCancellation({ runId: created.run.id, attemptId: attempt.id });
+      // The reaper destroyed the VM and cleared the handles.
+      await sql!`update run_attempts set provider_vm_id = null, terminal_retain_until = null where id = ${attempt.id}`;
+
+      await expect(repo().scheduleAttemptRetention({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        providerVmId: "vm-reaped",
+      })).rejects.toBeInstanceOf(repo().RunLeaseConflictError);
+      const after = (await repo().getRun(created.run.id, userId)).attempts[0];
+      expect(after?.providerVmId).toBeNull();
+      expect(after?.terminalRetainUntil).toBeNull();
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("does not let a stale worker overwrite a replacement lease's retained terminal", async () => {
     const userId = `stale-retention-${randomUUID()}`;
     try {
