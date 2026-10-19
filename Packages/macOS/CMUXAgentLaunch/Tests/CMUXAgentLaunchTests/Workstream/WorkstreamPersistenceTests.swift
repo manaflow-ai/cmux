@@ -552,4 +552,31 @@ struct WorkstreamPersistenceTests {
         try await persistence.clear()
         #expect(!FileManager.default.fileExists(atPath: tmp.path))
     }
+
+    @Test("clear preserves a byte-count revision floor above the sidecar")
+    func clearPreservesByteCountRevisionFloor() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-clear-revision-floor-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: tmp.appendingPathExtension("revision"))
+        }
+
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.recordRevision(1)
+        for index in 0..<4 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: String(repeating: "row-\(index)-", count: 128),
+                source: .claude,
+                kind: .sessionStart,
+                payload: .sessionStart
+            ))
+        }
+        let byteCountRevision = try await persistence.loadRevision()
+        #expect(byteCountRevision > 1)
+
+        try await persistence.clear()
+        let restarted = WorkstreamPersistence(fileURL: tmp)
+        #expect(try await restarted.loadRevision() == byteCountRevision)
+    }
 }
