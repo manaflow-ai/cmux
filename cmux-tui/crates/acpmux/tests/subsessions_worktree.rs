@@ -3,9 +3,10 @@
 //! `git.worktree.create` lays one out (`~/.cmux/worktrees/<project>/<name>` on
 //! `cmux/<name>`, its base in `branch.<branch>.cmuxBase`), so the app's Apply
 //! and Remove work on it. The daemon runs that git outside the agent's
-//! sandbox, so nothing the agent wrote in its repository runs there: no hook,
-//! and no worktree at all when the repository's own config sets a checkout
-//! filter.
+//! sandbox, so nothing the agent wrote in its repository runs there: no
+//! hook, and no checkout filter, transport or helper from its config (the
+//! files are checked out without that config; the child's own git, in its
+//! sandbox, uses it from then on).
 //!
 //! Stand-in agents (fake_agent.py). One test function: HOME and the settings
 //! file are read from this process's environment.
@@ -150,19 +151,42 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
         p.ok(START, json!({"prompt": "echo again", "name": "Child task", "worktree": true})).await;
     assert_eq!(again["worktree"]["branch"], "cmux/child-task-2", "{again}");
 
-    // A checkout filter in the repository's own config: no worktree, and it never runs.
-    std::fs::write(repo.join(".gitattributes"), "*.txt filter=agent\n").unwrap();
+    // Checkout filters in the repository's own config, directly and through
+    // an include: the worktree is made with the files as committed, and
+    // neither filter runs. A child started from a subfolder starts in the
+    // same subfolder of its worktree.
+    std::fs::create_dir_all(repo.join("web/src")).unwrap();
+    std::fs::write(repo.join(".gitattributes"), "*.txt filter=agent\n*.md filter=included\n")
+        .unwrap();
     std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    std::fs::write(repo.join("web/src/b.md"), "b\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "attributes"]);
     let filter_ran = root.join("filter-ran");
-    let smudge = format!("sh -c 'touch \"{}\"; cat'", filter_ran.display());
+    let smudge = format!("sh -c 'touch \"{}\"; echo filtered'", filter_ran.display());
     git(&repo, &["config", "filter.agent.smudge", &smudge]);
-    let refused =
-        p.call(START, json!({"prompt": "echo x", "name": "Filtered", "worktree": true})).await;
+    git(&repo, &["config", "filter.agent.required", "true"]);
+    let included = root.join("included.gitconfig");
+    std::fs::write(&included, format!("[filter \"included\"]\n\tprocess = {smudge}\n")).unwrap();
+    git(&repo, &["config", "include.path", &included.to_string_lossy()]);
+    let filtered = p
+        .ok(
+            START,
+            json!({"prompt": "echo x", "name": "Filtered", "worktree": true, "cwd": repo.join("web")}),
+        )
+        .await;
     assert!(!filter_ran.exists(), "the repository's smudge filter ran outside the agent's sandbox");
-    assert!(refused.get("error").is_some(), "{refused}");
-    assert_eq!(refused["error"]["data"]["reason"], "subsessions.worktree_refused", "{refused}");
+    let fwt = home.join(".cmux/worktrees/shop-app/filtered");
+    assert_eq!(filtered["worktree"]["root"], json!(fwt), "{filtered}");
+    assert_eq!(std::fs::read_to_string(fwt.join("a.txt")).unwrap(), "a\n");
+    assert_eq!(std::fs::read_to_string(fwt.join("web/src/b.md")).unwrap(), "b\n");
+    let child = filtered["sessionId"].as_str().unwrap().to_owned();
+    let info = app.ok("_acpmux/info", json!({"sessionId": child})).await;
+    assert_eq!(canonical(info["cwd"].as_str().unwrap().as_ref()), canonical(&fwt.join("web")));
+    // Its index is the commit's: nothing staged, nothing missing.
+    let staged = git(&fwt, &["diff", "--cached", "--name-only"]);
+    assert_eq!(staged, "", "the worktree's index differs from its commit");
+    assert!(!filter_ran.exists(), "the repository's smudge filter ran outside the agent's sandbox");
 
     // A folder that is no repository gets no worktree either.
     let plain = root.join("plain");
