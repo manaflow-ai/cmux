@@ -136,22 +136,12 @@ pub(crate) const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(1
 pub(crate) const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
 pub(crate) const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
 
-pub(crate) fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
-    let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
-        anyhow::anyhow!(
-            "terminal pixel width exceeds {}: {cols} columns at {} pixels per cell",
-            u16::MAX,
-            cell_pixels.0
-        )
-    })?;
-    let pixel_height = rows.checked_mul(cell_pixels.1).ok_or_else(|| {
-        anyhow::anyhow!(
-            "terminal pixel height exceeds {}: {rows} rows at {} pixels per cell",
-            u16::MAX,
-            cell_pixels.1
-        )
-    })?;
-    Ok(PtySize { rows, cols, pixel_width, pixel_height })
+/// The winsize for a grid. The pixel fields saturate at `u16::MAX` so a
+/// grid the size clamp accepts never fails on `ws_xpixel`/`ws_ypixel`.
+pub(crate) fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> PtySize {
+    let pixel_width = cols.saturating_mul(cell_pixels.0);
+    let pixel_height = rows.saturating_mul(cell_pixels.1);
+    PtySize { rows, cols, pixel_width, pixel_height }
 }
 
 pub(crate) fn kitty_graphics_limits_within(
