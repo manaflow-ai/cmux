@@ -181,14 +181,25 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(claude.waitForExistence(timeout: 8))
         claude.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["Claude wants to run"].waitForExistence(timeout: 8))
+        let usage = app.otherElements["MobileAgentUsageContextCard"]
+        XCTAssertTrue(reveal(usage, in: app), "Claude usage/context card should be reachable")
+        keepScreenshot(app, named: "agent-claude-context")
+
+        let permissionTitle = app.staticTexts["Claude wants to run"]
+        XCTAssertTrue(reveal(permissionTitle, in: app), "Claude permission card should be reachable")
         let allowOnce = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Allow once")).firstMatch
-        XCTAssertTrue(allowOnce.waitForExistence(timeout: 8))
-        let localDevelopment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Local development")).firstMatch
-        XCTAssertTrue(localDevelopment.waitForExistence(timeout: 8))
+        XCTAssertTrue(reveal(allowOnce, in: app), "Allow once should be reachable")
         XCTAssertTrue(app.textFields["Message your agent"].waitForExistence(timeout: 8))
 
+        keepScreenshot(app, named: "agent-claude-permission-pending")
         allowOnce.tap()
+        XCTAssertTrue(app.staticTexts["Allowed once"].waitForExistence(timeout: 5))
+        let localDevelopment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Local development")).firstMatch
+        XCTAssertTrue(reveal(localDevelopment, in: app), "Claude question must remain pending after permission answer")
+        keepScreenshot(app, named: "agent-claude-permission-resolved")
+        localDevelopment.tap()
+        XCTAssertTrue(app.staticTexts["Answered: Local development"].waitForExistence(timeout: 5))
+        keepScreenshot(app, named: "agent-claude-question-resolved")
 
         let sessionsButton = app.buttons["Agent sessions"]
         XCTAssertTrue(sessionsButton.waitForExistence(timeout: 8))
@@ -213,10 +224,17 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["Review the networking changes and summarize risks."].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["Sources/Network/RetryPolicy.swift"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.otherElements["MobileAgentWebSearchCard"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["URLSession documentation"].waitForExistence(timeout: 8))
+        let initialPrompt = app.staticTexts["Review the networking changes and summarize risks."]
+        XCTAssertTrue(reveal(initialPrompt, in: app), "Codex initial prompt should be reachable")
+        let usage = app.otherElements["MobileAgentUsageContextCard"]
+        XCTAssertTrue(reveal(usage, in: app), "Codex usage/context card should be reachable")
+        let diffPath = app.staticTexts["Sources/Network/RetryPolicy.swift"]
+        XCTAssertTrue(reveal(diffPath, in: app), "Codex diff card should be reachable")
+        let webSearch = app.otherElements["MobileAgentWebSearchCard"]
+        XCTAssertTrue(reveal(webSearch, in: app), "Codex web-search card should be reachable")
+        let markdownCode = app.staticTexts["let delay = min(8, attempt * 2)"]
+        XCTAssertTrue(reveal(markdownCode, in: app), "Codex Markdown code block should be reachable")
+        keepScreenshot(app, named: "agent-codex-review")
 
         let composer = app.textFields["Message your agent"]
         XCTAssertTrue(composer.waitForExistence(timeout: 8))
@@ -228,6 +246,118 @@ final class AgentChatModeUITests: XCTestCase {
         let queue = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Queue for next turn")).firstMatch
         XCTAssertTrue(queue.waitForExistence(timeout: 8))
         queue.tap()
-        XCTAssertTrue(app.staticTexts["Show the failing test"].waitForExistence(timeout: 5))
+        let queuedBubble = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Queued: Show the failing test"))
+            .firstMatch
+        let queuedPrompt = app.staticTexts["Show the failing test"]
+        let queuedVisible = reveal(queuedBubble, in: app) || reveal(queuedPrompt, in: app)
+        XCTAssertTrue(queuedVisible, "Queued Codex prompt should be visible")
+        keepScreenshot(app, named: "agent-codex-queued")
+
+        let stop = app.buttons["Stop agent"]
+        XCTAssertTrue(reveal(stop, in: app), "Working Codex session should expose Stop agent")
+        stop.tap()
+        let stopTurn = app.buttons["Stop turn"]
+        XCTAssertTrue(stopTurn.waitForExistence(timeout: 5), "Stop agent menu should expose a polite stop")
+        stopTurn.tap()
+        XCTAssertTrue(app.buttons["Send"].waitForExistence(timeout: 8), "Interrupt should return the composer to idle send mode")
+        XCTAssertTrue(reveal(queuedPrompt, in: app), "Queued follow-up must survive interrupt delivery")
+        XCTAssertTrue(app.staticTexts["I received the instruction and finished this preview turn."].waitForExistence(timeout: 8))
+        keepScreenshot(app, named: "agent-codex-interrupted-followup")
+
+        let sessionsButton = app.buttons["Agent sessions"]
+        XCTAssertTrue(sessionsButton.waitForExistence(timeout: 8))
+        sessionsButton.tap()
+        let openCode = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "OpenCode, Polish the release notes")).firstMatch
+        XCTAssertTrue(openCode.waitForExistence(timeout: 8))
+        openCode.tap()
+        XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
+        let includeMigration = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Include it")).firstMatch
+        XCTAssertTrue(reveal(includeMigration, in: app), "OpenCode question should be reachable")
+        keepScreenshot(app, named: "agent-opencode-question")
+        includeMigration.tap()
+        XCTAssertTrue(app.staticTexts["Answered: Include it"].waitForExistence(timeout: 5))
+        let openCodeComposer = app.textFields["Message your agent"]
+        XCTAssertTrue(openCodeComposer.waitForExistence(timeout: 8))
+        openCodeComposer.tap()
+        openCodeComposer.typeText("Ship it")
+        app.buttons["Send"].tap()
+        XCTAssertTrue(app.staticTexts["Ship it"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["I updated the release notes and kept the migration note concise."].waitForExistence(timeout: 8))
+        keepScreenshot(app, named: "agent-opencode-followup")
+    }
+
+    @MainActor
+    func testAgentChatPreviewDarkLargeTextKeepsProviderAndComposerVisible() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-AppleInterfaceStyle", "Dark",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL",
+        ]
+        app.launchEnvironment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
+        let codex = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Codex, Review the networking changes")).firstMatch
+        XCTAssertTrue(codex.waitForExistence(timeout: 8))
+        codex.tap()
+        XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textFields["Message your agent"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Codex"].firstMatch.exists)
+        keepScreenshot(app, named: "agent-codex-dark-xxxl")
+    }
+
+    @MainActor
+    func testAgentChatPreviewCanCloseAndReopenFromBothNavigationColumns() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
+        let close = app.buttons["MobileAgentCloseMode"]
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        close.tap()
+        let reopen = app.buttons["OpenAgentMode"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 8), "Closing the sidebar should dismiss the full-screen Agent mode")
+        reopen.tap()
+        XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 8))
+
+        let codex = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Codex, Review the networking changes")).firstMatch
+        XCTAssertTrue(codex.waitForExistence(timeout: 8))
+        codex.tap()
+        let sessions = app.buttons["Agent sessions"]
+        XCTAssertTrue(sessions.waitForExistence(timeout: 8))
+        sessions.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        close.tap()
+        XCTAssertTrue(reopen.waitForExistence(timeout: 8), "Closing from the detail navigation should dismiss Agent mode")
+    }
+
+    @MainActor
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 10) -> Bool {
+        let transcript = app.scrollViews["MobileAgentTranscript"].exists
+            ? app.scrollViews["MobileAgentTranscript"]
+            : app.scrollViews.firstMatch
+        for _ in 0...maxSwipes {
+            if element.exists && element.isHittable { return true }
+            if transcript.exists { transcript.swipeUp() } else { app.swipeUp() }
+        }
+        for _ in 0...maxSwipes {
+            if element.exists && element.isHittable { return true }
+            if transcript.exists { transcript.swipeDown() } else { app.swipeDown() }
+        }
+        return element.exists && element.isHittable
+    }
+
+    @MainActor
+    private func keepScreenshot(_ app: XCUIApplication, named name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

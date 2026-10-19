@@ -11,6 +11,8 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
     private let clock = Date(timeIntervalSince1970: 1_735_689_600)
     private var descriptors: [ChatSessionDescriptor]
     private var transcripts: [String: [ChatMessage]]
+    private var usageBySession: [String: ChatUsageTotals]
+    private var pendingResponses: [String: String]
     private var continuations: [UUID: AsyncStream<ChatSessionEventFrame>.Continuation] = [:]
     private var versions: [String: Int]
 
@@ -55,6 +57,12 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
             codex.id: Self.codexTranscript(clock: clock),
             opencode.id: Self.openCodeTranscript(clock: clock),
         ]
+        usageBySession = [
+            claude.id: Self.usage(model: "claude-sonnet-4", contextTokens: 8_420, contextWindowTokens: 200_000),
+            codex.id: Self.usage(model: "gpt-5-codex", contextTokens: 96_200, contextWindowTokens: 128_000),
+            opencode.id: Self.usage(model: "opencode/default", contextTokens: 4_800, contextWindowTokens: 32_000),
+        ]
+        pendingResponses = [:]
     }
 
     nonisolated var supportsArtifacts: Bool { false }
@@ -105,11 +113,18 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
         } else {
             Array(messages.suffix(limit))
         }
-        return ChatHistoryPage(messages: page, hasMore: page.first?.seq ?? 0 > 1)
+        return ChatHistoryPage(
+            messages: page,
+            hasMore: page.first?.seq ?? 0 > 1,
+            usage: usageBySession[sessionID]
+        )
     }
 
     func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
         guard transcripts[sessionID] != nil else { throw PreviewError.missingSession }
+        guard let descriptor = descriptors.first(where: { $0.id == sessionID }) else {
+            throw PreviewError.missingSession
+        }
         let nextSeq = (transcripts[sessionID]?.map(\.seq).max() ?? 0) + 1
         let message = ChatMessage(
             id: "preview-user-\(nextSeq)",
@@ -120,6 +135,28 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
         )
         transcripts[sessionID, default: []].append(message)
         emit(sessionID: sessionID, event: .appended([message]))
+
+        // A live host acknowledges an idle turn with an assistant event. Keep
+        // the Codex fixture working so queue and interrupt can be exercised;
+        // OpenCode starts idle and therefore gets an immediate deterministic
+        // follow-up response for its end-to-end path.
+        let isWorking: Bool
+        if case .working = descriptor.state {
+            isWorking = true
+        } else {
+            isWorking = false
+        }
+        let response = descriptor.agentKind.sourceName == "opencode"
+            ? "I updated the release notes and kept the migration note concise."
+            : "I received the instruction and finished this preview turn."
+        if descriptor.agentKind.sourceName == "opencode" || !isWorking {
+            appendPreviewResponse(
+                sessionID: sessionID,
+                text: response
+            )
+        } else {
+            pendingResponses[sessionID] = response
+        }
     }
 
     func steer(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
@@ -131,17 +168,23 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
         let descriptor = descriptors[index]
         descriptors[index] = descriptor.withState(.idle, version: bumpVersion(sessionID))
         emit(sessionID: sessionID, event: .stateChanged(.idle))
+        if let response = pendingResponses.removeValue(forKey: sessionID) {
+            appendPreviewResponse(sessionID: sessionID, text: response)
+        }
     }
 
     func answer(optionIndex: Int, sessionID: String) async throws {
+        try await answer(optionIndexes: [optionIndex], requestID: nil, sessionID: sessionID)
+    }
+
+    func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws {
+        try await answer(optionIndexes: [optionIndex], requestID: requestID, sessionID: sessionID)
+    }
+
+    func answer(optionIndexes: [Int], requestID: String?, sessionID: String) async throws {
         guard var messages = transcripts[sessionID] else { throw PreviewError.missingSession }
-        guard let index = messages.lastIndex(where: { message in
-            switch message.kind {
-            case .permissionRequest(let request): return request.resolution == nil
-            case .question(let question): return question.selectedOptionLabel == nil
-            default: return false
-            }
-        }) else { return }
+        guard let index = actionableMessageIndex(messages: messages, requestID: requestID) else { return }
+        let optionIndex = optionIndexes.first ?? 0
         let message = messages[index]
         let replacement: ChatMessage
         switch message.kind {
@@ -170,6 +213,61 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
         emit(sessionID: sessionID, event: .updated([replacement]))
     }
 
+    func answer(text: String, requestID: String?, sessionID: String) async throws {
+        guard var messages = transcripts[sessionID] else { throw PreviewError.missingSession }
+        guard let index = actionableMessageIndex(messages: messages, requestID: requestID) else { return }
+        let message = messages[index]
+        guard case .question(let question) = message.kind else { return }
+        let replacement = ChatMessage(
+            id: message.id,
+            seq: message.seq,
+            role: message.role,
+            timestamp: message.timestamp,
+            kind: .question(ChatQuestion(
+                prompt: question.prompt,
+                options: question.options,
+                selectedOptionLabel: text,
+                questionID: question.questionID
+            ))
+        )
+        messages[index] = replacement
+        transcripts[sessionID] = messages
+        emit(sessionID: sessionID, event: .updated([replacement]))
+    }
+
+    private func actionableMessageIndex(messages: [ChatMessage], requestID: String?) -> Int? {
+        if let requestID {
+            return messages.lastIndex(where: { message in
+                guard message.id == requestID else { return false }
+                switch message.kind {
+                case .permissionRequest(let request): return request.resolution == nil
+                case .question(let question): return question.selectedOptionLabel == nil
+                default: return false
+                }
+            })
+        }
+        return messages.lastIndex(where: { message in
+            switch message.kind {
+            case .permissionRequest(let request): return request.resolution == nil
+            case .question(let question): return question.selectedOptionLabel == nil
+            default: return false
+            }
+        })
+    }
+
+    private func appendPreviewResponse(sessionID: String, text: String) {
+        let nextSeq = (transcripts[sessionID]?.map(\.seq).max() ?? 0) + 1
+        let message = ChatMessage(
+            id: "preview-agent-\(nextSeq)",
+            seq: nextSeq,
+            role: .agent,
+            timestamp: Date(),
+            kind: .prose(ChatProse(text: text))
+        )
+        transcripts[sessionID, default: []].append(message)
+        emit(sessionID: sessionID, event: .appended([message]))
+    }
+
     private func removeContinuation(_ id: UUID) {
         continuations[id] = nil
     }
@@ -190,6 +288,27 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
 
     private static func message(_ id: String, _ seq: Int, _ role: ChatRole, _ date: Date, _ kind: ChatMessageKind) -> ChatMessage {
         ChatMessage(id: id, seq: seq, role: role, timestamp: date, kind: kind)
+    }
+
+    private static func usage(model: String, contextTokens: Int, contextWindowTokens: Int) -> ChatUsageTotals {
+        let tokens = ChatTokenUsage(
+            freshInputTokens: 4_200,
+            cacheReadTokens: 1_600,
+            cacheWriteTokens: 700,
+            outputTokens: 2_900,
+            reasoningOutputTokens: 900
+        )
+        return ChatUsageTotals(
+            usage: tokens,
+            usageByModel: [model: tokens],
+            responses: 4,
+            contextTokens: contextTokens,
+            contextWindowTokens: contextWindowTokens,
+            rateLimit: ChatUsageRateLimit(
+                primary: .init(usedPercent: 42, windowMinutes: 300),
+                secondary: .init(usedPercent: 68, windowMinutes: 10_080)
+            )
+        )
     }
 
     private static func claudeTranscript(clock: Date) -> [ChatMessage] {
@@ -214,6 +333,23 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
                 ChatWebSearch.Source(title: "URLSession documentation", url: "https://developer.apple.com/documentation/foundation/urlsession", snippet: "Apple's URL loading system documentation."),
                 ChatWebSearch.Source(title: "Retrying failed requests", url: "https://example.com/retries", snippet: "A short guide to bounded backoff."),
             ]))),
+            message("codex-8", 8, .agent, clock.addingTimeInterval(28), .prose(ChatProse(text: """
+            # Retry policy
+
+            The bounded backoff keeps reconnects responsive while avoiding a tight loop.
+
+            ```swift
+            let delay = min(8, attempt * 2)
+            ```
+
+            - Preserve the server's retry hint.
+            - Stop after the configured budget.
+
+            | Attempt | Delay |
+            | --- | ---: |
+            | 1 | 2s |
+            | 2 | 4s |
+            """))),
         ]
     }
 
@@ -227,14 +363,25 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
 }
 
 /// Full-screen visual fixture for the production Agent Chat surface.
+///
+/// Keep the host view in the same presentation boundary as production. This
+/// makes close/reopen UI tests exercise the real ``Environment.dismiss`` path
+/// instead of embedding Agent Chat as an un-dismissable root view.
 public struct AgentChatPreviewView: View {
     @State private var store = CMUXMobileShellStore.preview()
+    @State private var isPresented = true
     private let source = AgentChatPreviewSource()
 
     public init() {}
 
     public var body: some View {
-        AgentChatModeView(store: store, source: source)
+        Button("Open Agent mode") {
+            isPresented = true
+        }
+        .accessibilityIdentifier("OpenAgentMode")
+        .fullScreenCover(isPresented: $isPresented) {
+            AgentChatModeView(store: store, source: source)
+        }
     }
 }
 #endif
