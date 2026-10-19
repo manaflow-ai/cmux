@@ -25,7 +25,7 @@ Usage: clickthrough-live.py --tag <tag> [--app PATH] [--out DIR] [--passes 1,2] 
 Exit status 0 when every check passes; the table of results is printed and written to
 <out>/results.md and <out>/results.json.
 """
-import argparse, glob, json, os, plistlib, shutil, socket, subprocess, sys, tempfile, time
+import argparse, concurrent.futures, glob, json, os, plistlib, shutil, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -415,12 +415,16 @@ def pass2():
         for k, mods in switches * workspaces:
             key(k, mods)
             sent = time.time()
-            watch = page("layout_watch", ms=1200)
+            # The blank poll runs beside the watch, from the key on: sampled after the watch's
+            # 1.2 s it would only ever see the settled pane.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                watching = pool.submit(page, "layout_watch", ms=1200)
+                blank = blank_frames(200)
+                watch = watching.result()
             if "error" in watch or focused_kind() != "agent":
                 # A workspace's terminal: no chat page to watch.
                 continue
             latency = (time.time() - sent) * 1000 - 1200
-            blank = blank_frames(200)
             entry = {"key": "+".join(mods + [k]), "session": shown_session(), "watch": watch,
                      "first_content_ms": None if watch.get("first_content_ms") is None
                      else round(watch["first_content_ms"] + max(latency, 0)), "blank_ms": blank}
@@ -446,8 +450,10 @@ def pass2():
     # see lasts longer than a frame.
     blanks = [r for r in results if (r["blank_ms"] or 0) > 17]
     check(P, "no switch shows a blank pane", not blanks, json.dumps([(r["key"], r["blank_ms"]) for r in blanks])[:600])
-    check(P, "the sidebar's workspace order never changes from a switch", sidebar_order() == order,
-          f"{order} -> {sidebar_order()}")
+    after = sidebar_order()
+    # An empty read is a failed read (debug.sidebar_rows erred), never a matching order.
+    check(P, "the sidebar's workspace order never changes from a switch", bool(order) and after == order,
+          f"{order} -> {after}")
     firsts = sorted(r["first_content_ms"] for r in results if r["first_content_ms"] is not None)
     if firsts:
         say(f"time to first content: median {firsts[len(firsts) // 2]} ms, worst {firsts[-1]} ms over {len(firsts)} switches")
