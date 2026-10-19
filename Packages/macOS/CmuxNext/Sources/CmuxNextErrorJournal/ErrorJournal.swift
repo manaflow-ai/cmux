@@ -207,8 +207,6 @@ public actor ErrorJournal {
         let clock = clock
         // Bounded, cancellable batching delay (CLAUDE.md Clock.sleep carve-out); flush() cancels it.
         flushTask = Task { [weak self] in
-            // concurrency-allow: async batching delay in this actor's task, never the main thread; flush() cancels it
-            // wakeup-allow: one-shot flush deadline after a write, cancelled when a batch flushes first
             guard (try? await clock.sleep(for: delay)) != nil else { return }
             await self?.flushFromTimer()
         }
