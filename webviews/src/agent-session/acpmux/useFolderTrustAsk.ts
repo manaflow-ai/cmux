@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readFolderTrust, sessionTrust, type TrustLevel, type TrustSource } from "./folderTrust";
+import {
+  readFolderTrust,
+  readTrust,
+  sessionTrust,
+  type FolderTrust,
+  type TrustLevel,
+  type TrustSource,
+} from "./folderTrust";
 import type { StringKey } from "./i18n";
 import { isTrustRefusal } from "./direct";
 
@@ -11,6 +18,68 @@ export type FolderTrustAsk =
 
 /// Why Send is off; no `reason` while the folder's trust is still being read.
 export type SendBlock = { reason?: StringKey };
+
+/// The last answer read for each folder, kept for the next chat there (another tab, workspace, or
+/// a new page from the pool): a switch draws the folder's known trust from its first render, and
+/// the read that follows only refreshes it (Leo 2026-10-19: the permission UI flickered on every
+/// switch while each read was in flight). acpmux still refuses a prompt the folder's current
+/// trust does not allow (`trust_gate.rs`), and that refusal reads the folder again.
+const KNOWN_KEY = "cmux.agentPane.folderTrust.v1";
+const KNOWN_LIMIT = 200;
+let known: Map<string, FolderTrust> | undefined;
+
+function knownTrust(): Map<string, FolderTrust> {
+  if (known) return known;
+  known = new Map();
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(KNOWN_KEY) ?? "[]") as unknown;
+    if (Array.isArray(saved))
+      for (const value of saved) {
+        const trust = readTrust(value);
+        if (trust) known.set(trust.cwd, trust);
+      }
+  } catch {
+    // No storage (a private page, a test): this page's reads still count.
+  }
+  return known;
+}
+
+function rememberTrust(cwd: string, trust: FolderTrust | undefined) {
+  const map = knownTrust();
+  map.delete(cwd);
+  if (trust) map.set(cwd, trust);
+  while (map.size > KNOWN_LIMIT) map.delete(map.keys().next().value!);
+  try {
+    window.localStorage.setItem(KNOWN_KEY, JSON.stringify([...map.values()]));
+  } catch {
+    // Kept for this page only.
+  }
+}
+
+/// What a folder's trust shows for a chat with `family`: the question, a decision, or trusted.
+function shownTrust(trust: FolderTrust, cwd: string, family: string | undefined, canAnswer: boolean) {
+  const level = sessionTrust(trust, family);
+  return {
+    ask:
+      level === "unknown"
+        ? ({ cwd, state: canAnswer ? "ask" : "remote" } as FolderTrustAsk)
+        : level === "untrusted"
+          ? ({ cwd, state: "decided", level } as FolderTrustAsk)
+          : undefined,
+    trusted: level === "trusted",
+  };
+}
+
+function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undefined): boolean {
+  return (
+    left === right ||
+    (left !== undefined &&
+      right !== undefined &&
+      left.cwd === right.cwd &&
+      left.state === right.state &&
+      (left.state === "decided" ? left.level : undefined) === (right.state === "decided" ? right.level : undefined))
+  );
+}
 
 /// The trust question for the chat in `cwd`, asked as soon as the folder is known (a new chat
 /// before its first prompt). No prompt goes while it is open or after Don't trust: `blocked`
@@ -25,6 +94,8 @@ export function useFolderTrustAsk(
   source: TrustSource,
   chat: { sessionId?: string; cwd?: string; family?: string; prompts: number },
   canAnswer = true,
+  /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
+  local = true,
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
   const [trusted, setTrusted] = useState(false);
@@ -44,29 +115,73 @@ export function useFolderTrustAsk(
   const decidedAt = useRef<number | undefined>(undefined);
   // One answer at a time: a second click while the first saves is ignored.
   const saving = useRef(false);
+  /// Answers saved per folder: a read of that folder that started before one is older than the
+  /// answer and is dropped. An answer for another folder leaves the read standing.
+  const answers = useRef(new Map<string, number>());
+  // A chat that can't answer here (a peer's or remote one) is another machine's folder: no record.
+  // A remote or peer folder can share a local path: its answer is never kept by path.
+  const remembers = canAnswer && local;
 
-  useEffect(() => {
-    setAsk(undefined);
-    setTrusted(false);
+  /// The folder's trust as last read or answered here, for another chat or agent in the same folder.
+  const lastRead = useRef<{ cwd: string; trust: FolderTrust } | undefined>(undefined);
+  /// The family a read applies (the read is the folder's; each agent's level comes from it).
+  const familyNow = useRef(family);
+  familyNow.current = family;
+
+  // Another chat, folder or agent: drawn in this render, so no frame shows it unread. The same
+  // folder keeps its answer and is not read again (Leo 2026-10-19); another agent there takes its
+  // own level from that answer. Another folder draws from its known trust, reading only when the
+  // pane never read it.
+  const chatKey = JSON.stringify([sessionId, cwd, family, canAnswer]);
+  const folderKey = JSON.stringify([cwd, canAnswer]);
+  const [shownChat, setShownChat] = useState<{ chat: string; folder: string }>();
+  if (shownChat?.chat !== chatKey) {
+    const sameFolder = shownChat?.folder === folderKey;
+    setShownChat({ chat: chatKey, folder: folderKey });
     setJustTrusted(false);
+    const last = lastRead.current;
+    const known = last && sameFolder && last.cwd === cwd ? last.trust : undefined;
+    if (sameFolder && known && cwd) {
+      const shown = shownTrust(known, cwd, family, canAnswer);
+      setAsk(shown.ask);
+      setTrusted(shown.trusted);
+    } else if (sameFolder) {
+      // The answer belongs to the last chat: another one starts with the folder's question or none.
+      setAsk((was) => (was?.state === "decided" && was.level === "trusted" ? undefined : was));
+    } else {
+      const trust = cwd && remembers ? knownTrust().get(cwd) : undefined;
+      const shown = trust && cwd ? shownTrust(trust, cwd, family, canAnswer) : { ask: undefined, trusted: false };
+      setAsk(shown.ask);
+      setTrusted(shown.trusted);
+      setReading(Boolean(cwd) && !trust);
+    }
+  }
+  useEffect(() => {
     clearTimeout(undoTimer.current);
     decidedAt.current = undefined;
-    setReading(Boolean(cwd));
+  }, [sessionId, cwd]);
+  useEffect(() => {
     if (!cwd) return;
     let live = true;
+    const answered = answers.current.get(cwd) ?? 0;
     void readFolderTrust(source, cwd).then((trust) => {
       if (!live) return;
       setReading(false);
-      // A folder the pane can't read is not asked about; acpmux still refuses its prompts.
-      const level = trust && sessionTrust(trust, family);
-      if (level === "unknown") setAsk({ cwd, state: canAnswer ? "ask" : "remote" });
-      else if (level === "untrusted") setAsk({ cwd, state: "decided", level });
-      else if (level === "trusted") setTrusted(true);
+      // An answer saved since this read began is newer than it: the answer stands.
+      if ((answers.current.get(cwd) ?? 0) !== answered) return;
+      // A folder the pane can't read is not asked about (a known answer stays); acpmux still
+      // refuses its prompts.
+      if (!trust) return;
+      if (remembers) rememberTrust(cwd, trust);
+      lastRead.current = { cwd, trust };
+      const shown = shownTrust(trust, cwd, familyNow.current, canAnswer);
+      setAsk((was) => (sameAsk(was, shown.ask) ? was : shown.ask));
+      setTrusted(shown.trusted);
     });
     return () => {
       live = false;
     };
-  }, [source, sessionId, cwd, family, reads, canAnswer]);
+  }, [source, cwd, reads, canAnswer, remembers]);
 
   useEffect(() => {
     if (
@@ -87,6 +202,12 @@ export function useFolderTrustAsk(
       const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === asked.cwd;
       try {
         await source.set(asked.cwd, level);
+        answers.current.set(asked.cwd, (answers.current.get(asked.cwd) ?? 0) + 1);
+        // Undo leaves each agent's own level to answer: the next read says which.
+        const answer: FolderTrust | undefined =
+          level === "unknown" ? undefined : { cwd: asked.cwd, level, decided: true };
+        if (remembers) rememberTrust(asked.cwd, answer);
+        lastRead.current = answer && { cwd: asked.cwd, trust: answer };
         if (!stillHere()) return;
         decidedAt.current = level === "unknown" ? undefined : prompts;
         setTrusted(level === "trusted");
@@ -104,7 +225,7 @@ export function useFolderTrustAsk(
         saving.current = false;
       }
     },
-    [ask, cwd, source, sessionId, prompts],
+    [ask, cwd, source, sessionId, prompts, remembers],
   );
 
   const blocked: SendBlock | undefined = reading
@@ -119,6 +240,10 @@ export function useFolderTrustAsk(
 
   return {
     ask,
+    /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
+    /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
+    /// keep their place while it reads (a chat switch), and only Send waits.
+    holdsAsks: Boolean(blocked?.reason),
     trusted,
     justTrusted,
     blocked,
@@ -133,12 +258,17 @@ export function useFolderTrustAsk(
         if (!isTrustRefusal(error)) return false;
         const named = (error as { cwd?: unknown }).cwd;
         if (typeof named === "string" && named) setRefusal({ sessionId, cwd: named });
+        // acpmux says the folder is not trusted now: its record is stale, and Send waits for the read.
+        for (const folder of [named, cwd]) if (typeof folder === "string" && folder) rememberTrust(folder, undefined);
+        lastRead.current = undefined;
+        setTrusted(false);
+        setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
         if (again) resend.current = again;
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId],
+      [sessionId, cwd],
     ),
   };
 }
