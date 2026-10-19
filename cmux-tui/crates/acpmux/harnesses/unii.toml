@@ -1,0 +1,21 @@
+# unii (https://uniichat.com): a chat CLI with its own memory and no ACP.
+# acpmux's generic CLI adapter (`acpmux cli-agent`) makes it an ACP harness:
+# each prompt runs `unii` once with the prompt on stdin and streams its reply.
+# --last-block sends only a Chief turn's new messages (unii remembers the
+# rest itself); --after-echo drops the history unii prints before its reply.
+# Install: see `unii help`; sign in with `unii login`.
+schema = 1
+id = "unii"
+name = "Unii"
+icon = "generic"
+family = "unii"
+protocol = "acp"
+command = "acpmux"
+args = ["cli-agent", "--last-block", "--after-echo", "--", "unii"]
+
+[capabilities]
+resume = true
+
+[auth]
+login = "unii login"
+docs = "https://uniichat.com"

@@ -183,8 +183,10 @@ let package = Package(
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextKeepAwake",
+                "CmuxNextChromiumWarmup",
                 "CmuxNextPhoneAccess",
                 "CmuxNextPopups",
+                "CmuxNextWorkspaceRepair",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
@@ -236,6 +238,7 @@ let package = Package(
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
+                "CmuxNextCookieImport",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
                 "CmuxNextPages",
@@ -355,6 +358,16 @@ let package = Package(
         // First-run onboarding window: theme and density, browser import,
         // default browser and terminal handlers, the key ideas tour. The App
         // supplies `OnboardingServices`.
+        // Import Cookies from Browser for the CLI and agents (`browser.importCookies`):
+        // the agent consent panel and the import. The App supplies `CookieImportHost`.
+        .target(
+            name: "CmuxNextCookieImport",
+            dependencies: ["CmuxNextActions", "CmuxNextBrowser", "CmuxNextBrowserImport", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextOnboarding",
             dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport"],
@@ -561,6 +574,19 @@ let package = Package(
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        // Chromium warm start: maps the framework and runs CefInitialize and the
+        // spare window at idle moments once a Chromium tab is likely. The App
+        // supplies the signals (AppServices+Chromium).
+        .target(
+            name: "CmuxNextChromiumWarmup",
+            dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextChromiumWarmupTests",
+            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Phone access (Settings > Accounts > Phone Access): the phone host's lifecycle
         // behind phone.allowConnections, the start-workspaces gate and the one-time
         // migration. The App supplies the account and the Mac's name.
@@ -588,6 +614,19 @@ let package = Package(
         .testTarget(
             name: "CmuxNextPopupsTests",
             dependencies: ["CmuxNextBrowser", "CmuxNextPopups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The one owner of what happens to a workspace with no pane: a last-tab
+        // close closes it, a lost terminal is refilled. The App supplies the
+        // daemon's create and close (`EmptyWorkspaceRepair(daemon:)`).
+        .target(
+            name: "CmuxNextWorkspaceRepair",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextWorkspaceRepairTests",
+            dependencies: ["CmuxNextDaemon", "CmuxNextWorkspaceRepair"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
@@ -1060,7 +1099,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextCompat", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            // ReduceMotionLoopTests builds the vendored Home typing indicators.

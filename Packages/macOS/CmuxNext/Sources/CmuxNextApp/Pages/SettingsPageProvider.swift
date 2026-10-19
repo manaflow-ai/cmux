@@ -31,7 +31,7 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Agents > Harnesses (cx-mg91, `SettingsHarnesses`): its state, and one gesture;
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
-    var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    var harnessesRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
     /// hooks `cmux agent hook` installs; nil in tests without an app.
     var integrations: (any PageProvider)?
@@ -116,7 +116,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
-        case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params)
+        case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
             return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
         case "cmux.settings.theme.set":
@@ -348,8 +348,8 @@ final class SettingsPageProvider: PageProvider {
         } catch let userOnly as SettingUserOnly {
             throw Self.userOnlyError(userOnly)
         }
-        // The watcher applies the write; reading it back now keeps the page's refresh current.
-        await settings.reload()
+        // setSetting returns once its own load applied the write (reloadAfterWrite), so the
+        // page's next read is current without a second full load and apply.
     }
 
     static func managedInfo(_ source: ManagedSource) -> JSONValue {

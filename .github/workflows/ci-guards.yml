@@ -139,6 +139,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate the bug-fix proof-section warning
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_proof_section.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -193,7 +197,7 @@ jobs:
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' }}
-        run: python3 -m unittest tests/test_lint_feature_flags_scope.py
+        run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py
 
       - name: Validate feature flag review lead-time report
         if: ${{ matrix.group == 'ci' }}
@@ -527,9 +531,12 @@ jobs:
       - name: Lint every workflow
         if: ${{ matrix.group == 'ci' }}
         env:
-          ACTIONLINT_VERSION: "1.7.7"
-          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
-          ACTIONLINT_ASSET_ID: "221573254"
+          # manaflow-ai/actionlint v1.7.12-manaflow.1: upstream main 011a6d15 with the
+          # shellcheck stdin deadlock fix (rhysd/actionlint#651), built
+          # reproducibly; the release notes hold the build recipe.
+          ACTIONLINT_VERSION: "1.7.12-manaflow.1"
+          ACTIONLINT_SHA256: "9446e75901c9bc4447fa6cc1706b7b1b0c1af77fac1586a7c227170c902ecc25"
+          ACTIONLINT_ASSET_ID: "656977422"
           # Warnings and errors gate; informational shellcheck findings do not.
           SHELLCHECK_OPTS: "-S warning"
         run: |
@@ -623,9 +630,21 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate stale agent PR verdicts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_stale_agent_prs.py
+
+      - name: Validate published-in PR comments
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_published_in_comments.py
+
       - name: Validate merge receipts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
+
+      - name: Validate the pull request status comment
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_status.py
 
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ matrix.group == 'ci' }}
@@ -660,7 +679,7 @@ jobs:
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
 
       - name: Validate the golden interactions judge
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_golden.py
 
       - name: Validate the dispatch runner pool's auto pick
@@ -820,6 +839,18 @@ jobs:
       - name: Validate the R2 storage census
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_storage_census.py
+
+      - name: Validate the web test failure census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_failure_census.py
+
+      - name: Validate the web test import-graph check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_test_touches_diff.py
+
+      - name: Validate the web test verdict
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_verdict.py
 
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
@@ -1220,6 +1251,7 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_nightly_promotion_admission.py
+          python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
@@ -1335,6 +1367,10 @@ jobs:
       - name: Validate Sparkle appcast generation without previous archives
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_generate_appcast_no_deltas.sh
+
+      - name: Validate Sparkle key export permissions
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_sparkle_generate_keys_permissions.sh
 
       - name: Validate Sparkle appcast macOS floor
         if: ${{ matrix.group == 'release-notary' }}

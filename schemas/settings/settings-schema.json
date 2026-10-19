@@ -130,6 +130,24 @@
             }
           },
           {
+            "key" : "settings.group.markdownViewer",
+            "rows" : [
+              "markdown.layout.width",
+              "markdown.layout.fullWidth",
+              "markdown.font.size",
+              "markdown.font.preset",
+              "markdown.font.lineHeight",
+              "markdown.spacing.paragraph",
+              "markdown.code.blockSize",
+              "markdown.tables",
+              "markdown.theme"
+            ],
+            "title" : {
+              "key" : "settings.group.markdownViewer",
+              "text" : "Markdown Viewer"
+            }
+          },
+          {
             "key" : "settings.group.files",
             "rows" : [
               "files.textEditor"
@@ -354,6 +372,7 @@
               "sidebar.showProfileControl",
               "sidebar.minimal",
               "sidebar.density",
+              "sidebar.detailedStatusIcons",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -497,6 +516,154 @@
       },
       {
         "actions" : [
+          "editor"
+        ],
+        "aliases" : [
+          "editor"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.editorDefaults",
+            "rows" : [
+              "editor.importFrom"
+            ],
+            "title" : {
+              "key" : "settings.group.editorDefaults",
+              "text" : "Defaults from Other Editors"
+            }
+          },
+          {
+            "key" : "settings.group.editorFont",
+            "rows" : [
+              "editor.fontFamily",
+              "editor.fontSize",
+              "editor.fontWeight",
+              "editor.fontLigatures",
+              "editor.lineHeight",
+              "editor.letterSpacing"
+            ],
+            "title" : {
+              "key" : "settings.group.editorFont",
+              "text" : "Font"
+            }
+          },
+          {
+            "key" : "settings.group.editorText",
+            "rows" : [
+              "editor.tabSize",
+              "editor.insertSpaces",
+              "editor.detectIndentation",
+              "editor.wordWrap",
+              "editor.wordWrapColumn"
+            ],
+            "title" : {
+              "key" : "settings.group.editorText",
+              "text" : "Indentation and Wrapping"
+            }
+          },
+          {
+            "key" : "settings.group.editorDisplay",
+            "rows" : [
+              "editor.lineNumbers",
+              "editor.rulers",
+              "editor.minimap.enabled",
+              "editor.renderWhitespace",
+              "editor.renderControlCharacters",
+              "editor.renderLineHighlight",
+              "editor.bracketPairColorization.enabled",
+              "editor.guides.bracketPairs",
+              "editor.guides.indentation",
+              "editor.matchBrackets",
+              "editor.stickyScroll.enabled",
+              "editor.folding",
+              "editor.scrollBeyondLastLine",
+              "editor.smoothScrolling",
+              "editor.mouseWheelZoom"
+            ],
+            "title" : {
+              "key" : "settings.group.editorDisplay",
+              "text" : "Display"
+            }
+          },
+          {
+            "key" : "settings.group.editorCursor",
+            "rows" : [
+              "editor.cursorStyle",
+              "editor.cursorBlinking",
+              "editor.cursorSmoothCaretAnimation",
+              "editor.cursorSurroundingLines",
+              "editor.multiCursorModifier"
+            ],
+            "title" : {
+              "key" : "settings.group.editorCursor",
+              "text" : "Cursor"
+            }
+          },
+          {
+            "key" : "settings.group.editorEditing",
+            "rows" : [
+              "editor.autoClosingBrackets",
+              "editor.autoClosingQuotes",
+              "editor.linkedEditing",
+              "editor.quickSuggestions",
+              "editor.wordBasedSuggestions",
+              "editor.acceptSuggestionOnEnter",
+              "editor.emptySelectionClipboard",
+              "editor.find.seedSearchStringFromSelection"
+            ],
+            "title" : {
+              "key" : "settings.group.editorEditing",
+              "text" : "Editing"
+            }
+          },
+          {
+            "key" : "settings.group.editorSaving",
+            "rows" : [
+              "editor.autoSave",
+              "editor.autoSaveDelay",
+              "editor.trimTrailingWhitespace",
+              "editor.insertFinalNewline",
+              "editor.formatOnSave"
+            ],
+            "title" : {
+              "key" : "settings.group.editorSaving",
+              "text" : "Saving"
+            }
+          },
+          {
+            "key" : "settings.group.markdownViewer",
+            "rows" : [
+              "markdown.layout.width",
+              "markdown.layout.fullWidth",
+              "markdown.font.size",
+              "markdown.font.preset",
+              "markdown.font.lineHeight",
+              "markdown.spacing.paragraph",
+              "markdown.code.blockSize",
+              "markdown.tables",
+              "markdown.theme"
+            ],
+            "title" : {
+              "key" : "settings.group.markdownViewer",
+              "text" : "Markdown Viewer"
+            }
+          }
+        ],
+        "id" : "editor",
+        "lead" : [
+
+        ],
+        "symbol" : "chevron.left.forwardslash.chevron.right",
+        "title" : {
+          "key" : "settings.section.editor",
+          "text" : "Code Editor"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
 
         ],
         "aliases" : [
@@ -551,6 +718,18 @@
             "title" : {
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
+            }
+          },
+          {
+            "key" : "settings.group.subsessions",
+            "rows" : [
+              "agents.subsessions.enabled",
+              "agents.subsessions.maxChildren",
+              "agents.subsessions.maxDepth"
+            ],
+            "title" : {
+              "key" : "settings.group.subsessions",
+              "text" : "Sub-sessions"
             }
           }
         ],
@@ -3450,7 +3629,7 @@
       },
       "help" : {
         "key" : "settings.updates.showWhatsNew.help",
-        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+        "text" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.showWhatsNew",
@@ -3988,6 +4167,172 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.enabled.help",
+        "text" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.enabled",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "child",
+        "spawn",
+        "parallel",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.enabled",
+        "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        1000,
+        500.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 50,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxChildren.help",
+        "text" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxChildren",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "width",
+        "children",
+        "parallel"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxChildren"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -998,
+        1999,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxChildren",
+        "text" : "Open Sub-sessions per Session"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        100,
+        50.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 10,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxDepth.help",
+        "text" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxDepth",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "depth",
+        "nesting",
+        "levels"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxDepth"
+      ],
+      "range" : {
+        "max" : 100,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -98,
+        199,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxDepth",
+        "text" : "Deepest Nesting"
       },
       "validation" : "portable"
     },
@@ -10298,7 +10643,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "both",
+      "default" : "tabs",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -14032,6 +14377,553 @@
     },
     {
       "accepts" : [
+        40,
+        160,
+        100
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 72,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.width.help",
+        "text" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.layout.width",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "width",
+        "max width",
+        "column",
+        "measure",
+        "line length"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "layout",
+        "width"
+      ],
+      "range" : {
+        "max" : 160,
+        "min" : 40,
+        "placeholder" : 72,
+        "step" : 2,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -80,
+        280,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.width",
+        "text" : "Text Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fullWidth.help",
+        "text" : "Text fills the whole pane instead of the text width."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.layout.fullWidth",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "full",
+        "width",
+        "wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "layout",
+        "fullWidth"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fullWidth",
+        "text" : "Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        8,
+        40,
+        24
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fontSize.help",
+        "text" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.size",
+      "keywords" : [
+        "markdown",
+        "font",
+        "size",
+        "text",
+        "zoom",
+        "viewer",
+        "reading"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 40,
+        "min" : 8,
+        "placeholder" : 16,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        72,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontSize",
+        "text" : "Default Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "system",
+        "serif",
+        "mono"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSerif",
+            "text" : "Serif"
+          },
+          "value" : "serif"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontMono",
+            "text" : "Monospaced"
+          },
+          "value" : "mono"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.preset",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "font",
+        "family",
+        "serif",
+        "monospace",
+        "typeface"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "preset"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontPreset",
+        "text" : "Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        2.4,
+        1.7
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1.6,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.lineHeight",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "line height",
+        "leading",
+        "line spacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 2.4,
+        "min" : 1,
+        "placeholder" : 1.6,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.3999999999999999,
+        3.8,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.lineHeight",
+        "text" : "Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.paragraphSpacing.help",
+        "text" : "The gap after each paragraph, as a share of the text size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.spacing.paragraph",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "paragraph",
+        "spacing",
+        "gap",
+        "margin"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "spacing",
+        "paragraph"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.1,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.paragraphSpacing",
+        "text" : "Paragraph Spacing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        8,
+        32,
+        20
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 14,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.blockSize",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "blockSize"
+      ],
+      "range" : {
+        "max" : 32,
+        "min" : 8,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -16,
+        56,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeSize",
+        "text" : "Code Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "scroll",
+        "wrap"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownTablesScroll",
+            "text" : "Scroll Sideways"
+          },
+          "value" : "scroll"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownTablesWrap",
+            "text" : "Wrap to Fit"
+          },
+          "value" : "wrap"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "scroll",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.tables",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "table",
+        "wrap",
+        "scroll",
+        "wide"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "tables"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.tables",
+        "text" : "Wide Tables"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "app",
+        "light",
+        "dark"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeApp",
+            "text" : "Match App"
+          },
+          "value" : "app"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeLight",
+            "text" : "Light"
+          },
+          "value" : "light"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeDark",
+            "text" : "Dark"
+          },
+          "value" : "dark"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "app",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.theme",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "theme",
+        "light",
+        "dark",
+        "appearance",
+        "paper"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "theme"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.theme",
+        "text" : "Page Theme"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -14135,6 +15027,2688 @@
       "title" : {
         "key" : "settings.terminal.fontSize",
         "text" : "Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.section.terminal",
+        "text" : "Terminal"
+      },
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : {
+        "key" : "settings.editor.fontFamily.help",
+        "text" : "Empty uses the terminal font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontFamily",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "font",
+        "typeface",
+        "monospace",
+        "fontFamily"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontFamily"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.terminal.fontFamily",
+        "text" : "Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        6,
+        72,
+        39
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.section.terminal",
+        "text" : "Terminal"
+      },
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : {
+        "key" : "settings.editor.fontSize.help",
+        "text" : "Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontSize",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "font",
+        "size",
+        "zoom",
+        "fontSize"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontSize"
+      ],
+      "range" : {
+        "max" : 72,
+        "min" : 6,
+        "placeholder" : 13,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -60,
+        138,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.terminal.fontSize",
+        "text" : "Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "normal",
+        "bold",
+        "300",
+        "500",
+        "600"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.normal",
+            "text" : "Normal"
+          },
+          "value" : "normal"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.bold",
+            "text" : "Bold"
+          },
+          "value" : "bold"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.light",
+            "text" : "Light"
+          },
+          "value" : "300"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.medium",
+            "text" : "Medium"
+          },
+          "value" : "500"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.semibold",
+            "text" : "Semibold"
+          },
+          "value" : "600"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "normal",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontWeight",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "font",
+        "weight",
+        "bold",
+        "fontWeight"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontWeight"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.fontWeight",
+        "text" : "Font Weight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.fontLigatures",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "ligatures",
+        "font",
+        "fontLigatures",
+        "calt"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "fontLigatures"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.fontLigatures",
+        "text" : "Font Ligatures"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        150,
+        75
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : {
+        "key" : "settings.editor.lineHeight.help",
+        "text" : "0 computes it from the font size. A value under 8 multiplies the font size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.lineHeight",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "line",
+        "height",
+        "spacing",
+        "lineHeight"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 150,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -150,
+        300,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.lineHeight",
+        "text" : "Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        -5,
+        20,
+        7.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorFont",
+        "text" : "Font"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.letterSpacing",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "letter",
+        "spacing",
+        "tracking",
+        "letterSpacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "letterSpacing"
+      ],
+      "range" : {
+        "max" : 20,
+        "min" : -5,
+        "placeholder" : -5,
+        "step" : 0.1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -30,
+        45,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.letterSpacing",
+        "text" : "Letter Spacing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        16,
+        8.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 4,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.tabSize",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "tab",
+        "indent",
+        "width",
+        "tabSize"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "tabSize"
+      ],
+      "range" : {
+        "max" : 16,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -14,
+        31,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.tabSize",
+        "text" : "Tab Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : {
+        "key" : "settings.editor.insertSpaces.help",
+        "text" : "Tab inserts spaces. Off inserts a tab character."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.insertSpaces",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "spaces",
+        "tabs",
+        "indent",
+        "insertSpaces"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "insertSpaces"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.insertSpaces",
+        "text" : "Insert Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : {
+        "key" : "settings.editor.detectIndentation.help",
+        "text" : "Tab size and spaces follow the file's own indentation."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.detectIndentation",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "indent",
+        "detect",
+        "detectIndentation"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "detectIndentation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.detectIndentation",
+        "text" : "Detect Indentation"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "on",
+        "wordWrapColumn",
+        "bounded"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wrapEdge",
+            "text" : "At the Window Edge"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wrapColumn",
+            "text" : "At the Wrap Column"
+          },
+          "value" : "wordWrapColumn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wrapBounded",
+            "text" : "At the Edge or the Wrap Column"
+          },
+          "value" : "bounded"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : {
+        "key" : "settings.editor.wordWrap.help",
+        "text" : "Opt-Z turns it on and off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.wordWrap",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "wrap",
+        "word wrap",
+        "soft wrap",
+        "wordWrap"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "wordWrap"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.wordWrap",
+        "text" : "Word Wrap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        1000,
+        505
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 80,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorText",
+        "text" : "Indentation and Wrapping"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.wordWrapColumn",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "wrap",
+        "column",
+        "width",
+        "wordWrapColumn"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "wordWrapColumn"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 10,
+        "placeholder" : 10,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -980,
+        1990,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.wordWrapColumn",
+        "text" : "Wrap Column"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "on",
+        "off",
+        "relative",
+        "interval"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.on",
+            "text" : "On"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.relative",
+            "text" : "Relative"
+          },
+          "value" : "relative"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.interval",
+            "text" : "Every 10 Lines"
+          },
+          "value" : "interval"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "on",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.lineNumbers",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "line numbers",
+        "gutter",
+        "relative",
+        "lineNumbers"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "lineNumbers"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.diff.lineNumbers",
+        "text" : "Line Numbers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          1,
+          1000
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : {
+        "key" : "settings.editor.rulers.help",
+        "text" : "Columns where a vertical line shows."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.rulers",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "ruler",
+        "column",
+        "guide",
+        "rulers"
+      ],
+      "kind" : "number_list",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "rulers"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        1,
+        [
+          -998
+        ],
+        [
+          1999
+        ],
+        [
+          "1"
+        ]
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.rulers",
+        "text" : "Rulers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.minimap.enabled",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "minimap",
+        "overview"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "minimap",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.minimap",
+        "text" : "Minimap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "boundary",
+        "selection",
+        "trailing",
+        "all"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.boundary",
+            "text" : "Between Words"
+          },
+          "value" : "boundary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.selection",
+            "text" : "In the Selection"
+          },
+          "value" : "selection"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.trailing",
+            "text" : "At Line Ends"
+          },
+          "value" : "trailing"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "all"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "selection",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.renderWhitespace",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "whitespace",
+        "spaces",
+        "tabs",
+        "invisibles",
+        "renderWhitespace"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "renderWhitespace"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.renderWhitespace",
+        "text" : "Show Whitespace"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.renderControlCharacters",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "control",
+        "characters",
+        "invisible",
+        "renderControlCharacters"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "renderControlCharacters"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.renderControlCharacters",
+        "text" : "Show Control Characters"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "gutter",
+        "line",
+        "all"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.gutter",
+            "text" : "Gutter"
+          },
+          "value" : "gutter"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.line",
+            "text" : "Line"
+          },
+          "value" : "line"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.gutterAndLine",
+            "text" : "Gutter and Line"
+          },
+          "value" : "all"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "line",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.renderLineHighlight",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "highlight",
+        "current line",
+        "renderLineHighlight"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "renderLineHighlight"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.renderLineHighlight",
+        "text" : "Current Line Highlight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.bracketPairColorization.enabled",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "pairs",
+        "color",
+        "rainbow",
+        "bracketPairColorization"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "bracketPairColorization",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.bracketPairColorization",
+        "text" : "Color Bracket Pairs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.guides.bracketPairs",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "guides",
+        "lines"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "guides",
+        "bracketPairs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.bracketPairGuides",
+        "text" : "Bracket Pair Guides"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.guides.indentation",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "indent",
+        "guides",
+        "lines"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "guides",
+        "indentation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.indentGuides",
+        "text" : "Indentation Guides"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "near",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.near",
+            "text" : "Near the Cursor"
+          },
+          "value" : "near"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.matchBrackets",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "match",
+        "matchBrackets"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "matchBrackets"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.matchBrackets",
+        "text" : "Highlight Matching Brackets"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : {
+        "key" : "settings.editor.stickyScroll.help",
+        "text" : "The lines that open the scopes around the top line stay at the top while you scroll."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.stickyScroll.enabled",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "sticky",
+        "scroll",
+        "scope",
+        "stickyScroll"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "stickyScroll",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.stickyScroll",
+        "text" : "Sticky Scroll"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.folding",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "fold",
+        "folding",
+        "collapse"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "folding"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.folding",
+        "text" : "Code Folding"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.scrollBeyondLastLine",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "scroll",
+        "last line",
+        "scrollBeyondLastLine"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "scrollBeyondLastLine"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.scrollBeyondLastLine",
+        "text" : "Scroll Past the Last Line"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.smoothScrolling",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "scroll",
+        "smooth",
+        "smoothScrolling"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "smoothScrolling"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.smoothScrolling",
+        "text" : "Smooth Scrolling"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDisplay",
+        "text" : "Display"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.mouseWheelZoom",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "zoom",
+        "mouse",
+        "wheel",
+        "mouseWheelZoom"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "mouseWheelZoom"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.mouseWheelZoom",
+        "text" : "Zoom with Command and the Scroll Wheel"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "line",
+        "block",
+        "underline",
+        "line-thin",
+        "block-outline",
+        "underline-thin"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.line",
+            "text" : "Line"
+          },
+          "value" : "line"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.block",
+            "text" : "Block"
+          },
+          "value" : "block"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.underline",
+            "text" : "Underline"
+          },
+          "value" : "underline"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.lineThin",
+            "text" : "Thin Line"
+          },
+          "value" : "line-thin"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.blockOutline",
+            "text" : "Block Outline"
+          },
+          "value" : "block-outline"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.underlineThin",
+            "text" : "Thin Underline"
+          },
+          "value" : "underline-thin"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "line",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorStyle",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "caret",
+        "block",
+        "cursorStyle"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorStyle",
+        "text" : "Cursor Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "blink",
+        "smooth",
+        "phase",
+        "expand",
+        "solid"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.blink",
+            "text" : "Blink"
+          },
+          "value" : "blink"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.smooth",
+            "text" : "Smooth"
+          },
+          "value" : "smooth"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.phase",
+            "text" : "Phase"
+          },
+          "value" : "phase"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.expand",
+            "text" : "Expand"
+          },
+          "value" : "expand"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.solid",
+            "text" : "Solid"
+          },
+          "value" : "solid"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "blink",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorBlinking",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "blink",
+        "caret",
+        "cursorBlinking"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorBlinking"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorBlinking",
+        "text" : "Cursor Blinking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "explicit",
+        "on"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.explicit",
+            "text" : "When You Move It"
+          },
+          "value" : "explicit"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "on"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorSmoothCaretAnimation",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "animation",
+        "smooth",
+        "caret",
+        "cursorSmoothCaretAnimation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorSmoothCaretAnimation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorSmoothCaretAnimation",
+        "text" : "Animate Cursor Movement"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        50,
+        25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.cursorSurroundingLines",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "cursor",
+        "scroll",
+        "margin",
+        "cursorSurroundingLines"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "cursorSurroundingLines"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -50,
+        100,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.cursorSurroundingLines",
+        "text" : "Lines Kept Around the Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "alt",
+        "ctrlCmd"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.optionClick",
+            "text" : "Option-Click"
+          },
+          "value" : "alt"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.commandClick",
+            "text" : "Command-Click"
+          },
+          "value" : "ctrlCmd"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "alt",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorCursor",
+        "text" : "Cursor"
+      },
+      "help" : {
+        "key" : "settings.editor.multiCursorModifier.help",
+        "text" : "The key you hold while you click to add a cursor."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.multiCursorModifier",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "multi cursor",
+        "multiple cursors",
+        "click",
+        "multiCursorModifier"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "multiCursorModifier"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.multiCursorModifier",
+        "text" : "Add a Cursor With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoClosingBrackets",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "bracket",
+        "auto close",
+        "pairs",
+        "autoClosingBrackets"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoClosingBrackets"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoClosingBrackets",
+        "text" : "Close Brackets"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoClosingQuotes",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "quote",
+        "auto close",
+        "autoClosingQuotes"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoClosingQuotes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoClosingQuotes",
+        "text" : "Close Quotes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.linkedEditing",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "linked",
+        "tag",
+        "html",
+        "rename",
+        "linkedEditing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "linkedEditing"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.linkedEditing",
+        "text" : "Rename Matching Tags Together"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.quickSuggestions",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "suggest",
+        "autocomplete",
+        "completion",
+        "intellisense",
+        "quickSuggestions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "quickSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.quickSuggestions",
+        "text" : "Suggest While Typing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.wordBasedSuggestions",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "suggest",
+        "words",
+        "completion",
+        "wordBasedSuggestions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "wordBasedSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.wordBasedSuggestions",
+        "text" : "Suggest Words from the File"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "on",
+        "smart",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.on",
+            "text" : "On"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.smart",
+            "text" : "When It Changes the Text"
+          },
+          "value" : "smart"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "on",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.acceptSuggestionOnEnter",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "suggest",
+        "enter",
+        "return",
+        "acceptSuggestionOnEnter"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "acceptSuggestionOnEnter"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.acceptSuggestionOnEnter",
+        "text" : "Return Accepts a Suggestion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.emptySelectionClipboard",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "copy",
+        "cut",
+        "line",
+        "clipboard",
+        "emptySelectionClipboard"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "emptySelectionClipboard"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.emptySelectionClipboard",
+        "text" : "Copy the Line When Nothing Is Selected"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "selection",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.wordAtCursor",
+            "text" : "The Word at the Cursor"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.editor.selectionOnly",
+            "text" : "The Selection Only"
+          },
+          "value" : "selection"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "always",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorEditing",
+        "text" : "Editing"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.find.seedSearchStringFromSelection",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "find",
+        "search",
+        "selection",
+        "seedSearchStringFromSelection"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "find",
+        "seedSearchStringFromSelection"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.findSeed",
+        "text" : "Find Starts With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "afterDelay",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.afterDelay",
+            "text" : "After a Pause"
+          },
+          "value" : "afterDelay"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "afterDelay",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoSave",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "save",
+        "auto save",
+        "autoSave"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoSave"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoSave",
+        "text" : "Save Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        100,
+        60000,
+        30050
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1000,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.autoSaveDelay",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "save",
+        "delay",
+        "autoSaveDelay"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "autoSaveDelay"
+      ],
+      "range" : {
+        "max" : 60000,
+        "min" : 100,
+        "placeholder" : 100,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -59800,
+        119900,
+        "1"
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.autoSaveDelay",
+        "text" : "Pause Before Saving"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.trimTrailingWhitespace",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "trim",
+        "trailing",
+        "whitespace",
+        "save",
+        "trimTrailingWhitespace"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "trimTrailingWhitespace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.trimTrailingWhitespace",
+        "text" : "Remove Trailing Spaces on Save"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "editor.insertFinalNewline",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "final newline",
+        "newline",
+        "save",
+        "insertFinalNewline"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "insertFinalNewline"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.insertFinalNewline",
+        "text" : "End Files with a Newline on Save"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorSaving",
+        "text" : "Saving"
+      },
+      "help" : {
+        "key" : "settings.editor.formatOnSave.help",
+        "text" : "Runs the language's formatter when one is installed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.formatOnSave",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "format",
+        "save",
+        "prettier",
+        "formatOnSave"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "formatOnSave"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.formatOnSave",
+        "text" : "Format on Save"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "vscode",
+        "cursor",
+        "windsurf",
+        "vscodium",
+        "zed",
+        "none"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.editor.firstFound",
+            "text" : "The First Editor Found"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "VS Code"
+          },
+          "value" : "vscode"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cursor"
+          },
+          "value" : "cursor"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Windsurf"
+          },
+          "value" : "windsurf"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "VSCodium"
+          },
+          "value" : "vscodium"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Zed"
+          },
+          "value" : "zed"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.editorDefaults",
+        "text" : "Defaults from Other Editors"
+      },
+      "help" : {
+        "key" : "settings.editor.importFrom.help",
+        "text" : "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "editor.importFrom",
+      "keywords" : [
+        "editor",
+        "code",
+        "monaco",
+        "import",
+        "vscode",
+        "zed",
+        "cursor",
+        "windsurf",
+        "vscodium",
+        "settings",
+        "keybindings"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "editor",
+        "importFrom"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "editor",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.editor.importFrom",
+        "text" : "Take Defaults From"
       },
       "validation" : "portable"
     },
@@ -14989,6 +18563,60 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.detailedStatusIcons.help",
+        "text" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.detailedStatusIcons",
+      "keywords" : [
+        "sidebar",
+        "status",
+        "icons",
+        "badge",
+        "working",
+        "waiting",
+        "input",
+        "error",
+        "done",
+        "agent",
+        "osc 7501"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "detailedStatusIcons"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.detailedStatusIcons",
+        "text" : "Detailed Status Icons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -15630,7 +19258,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1300,
+      "default" : 250,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -20486,6 +24114,55 @@
       "title" : {
         "key" : "settings.browser.showBookmarksBar",
         "text" : "Show Bookmarks Bar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.showAgentCursor.help",
+        "text" : "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.showAgentCursor",
+      "keywords" : [
+        "agent",
+        "cursor",
+        "keystrokes",
+        "typing",
+        "automation",
+        "overlay"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "showAgentCursor"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.showAgentCursor",
+        "text" : "Show Agent Cursor"
       },
       "validation" : "portable"
     },
@@ -25590,7 +29267,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "83792af4a2de800d5ae2c0dbfd6e317b511f10e28f552adfc6a49d5358df4e49",
+  "schema_hash" : "45487313c9cf1309b38f14e8c2c2b4627f2cd3a9b4903a496b7866052af47b57",
   "sections" : [
     {
       "id" : "general",
@@ -25614,6 +29291,14 @@
       "title" : {
         "key" : "settings.section.terminal",
         "text" : "Terminal"
+      }
+    },
+    {
+      "id" : "editor",
+      "symbol" : "chevron.left.forwardslash.chevron.right",
+      "title" : {
+        "key" : "settings.section.editor",
+        "text" : "Code Editor"
       }
     },
     {
