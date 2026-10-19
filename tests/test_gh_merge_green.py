@@ -1339,7 +1339,7 @@ class FreezeRegression(unittest.TestCase):
     def ok_by(self, login):
         return [{"event": "labeled", "label": {"name": "freeze-ok"}, "actor": {"login": login}}]
 
-    def run_with(self, directory, issues, changed_files, *, events=(), extra_args=(), issues_text=None, base="feat-cmux-next"):
+    def run_with(self, directory, issues, changed_files, *, events=(), extra_args=(), issues_text=None, base="feat-cmux-next", full=True, rollup=()):
         directory = Path(directory)
         issues_path = directory / "freeze-issues.json"
         issues_path.write_text(issues_text if issues_text is not None else json.dumps(issues))
@@ -1353,7 +1353,8 @@ class FreezeRegression(unittest.TestCase):
         try:
             marker = directory / "merged"
             result = InstalledHelperRegression.run_helper(
-                self, str(directory), marker, changed_files=changed_files, extra_args=extra_args, base=base)
+                self, str(directory), marker, changed_files=changed_files, extra_args=extra_args, base=base,
+                full=full, rollup=rollup)
         finally:
             for name, value in saved.items():
                 if value is None:
@@ -1431,6 +1432,41 @@ class FreezeRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("#16", result.stderr)
+
+    def test_the_fast_gate_still_refuses_a_frozen_path(self):
+        """The fast gate shortens the wait for checks, never the freeze check (#21957):
+        a feat-cmux-next PR with green fast lanes touching a frozen path refuses,
+        with or without --override."""
+        fast_green = InstalledHelperRegression.FAST_GREEN
+        for extra_args in ((), ("--override", "the red check is a known base failure on this exact head")):
+            with self.subTest(override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                result, marker = self.run_with(
+                    directory, [self.freeze(17, "docs/frozen/")], ("docs/frozen/a.md",),
+                    full=False, rollup=fast_green, extra_args=extra_args)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn("#17", result.stderr)
+                self.assertIn("fast gate", result.stderr)
+
+    def test_the_fast_gate_merges_an_unfrozen_path_and_the_owners_freeze_ok(self):
+        fast_green = InstalledHelperRegression.FAST_GREEN
+        cases = (([self.freeze(18, "docs/frozen/")], ("docs/README.md",), ()),
+                 ([self.freeze(19, "docs/frozen/", owner="freezer")], ("docs/frozen/a.md",), self.ok_by("freezer")))
+        for issues, files, events in cases:
+            with self.subTest(files=files), tempfile.TemporaryDirectory() as directory:
+                result, marker = self.run_with(directory, issues, files, events=events, full=False, rollup=fast_green)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+
+    def test_a_main_merge_without_full_checks_freezes_on_the_full_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with(
+                directory, [self.freeze(20, "docs/frozen/", branch="main")], ("docs/frozen/a.md",),
+                base="main", full=False, rollup=InstalledHelperRegression.FAST_GREEN)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("#20", result.stderr)
+            self.assertIn("full gate", result.stderr)
 
     def test_test_mode_without_freeze_fixtures_refuses(self):
         # GH_MERGE_GREEN_TEST left set in a real shell must not read as "no freezes".
