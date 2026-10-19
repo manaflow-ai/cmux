@@ -73,6 +73,20 @@ import Testing
         #expect(await world.enrollments == 0)
     }
 
+    @Test func aMissingDeviceCheckpointDoesNotCreateAReplacementKey() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, world, _, device) = try await fixture(root: root)
+        _ = try await device.cloudBrokerReply(mint(1))
+        let files = FileManager.default.enumerator(at: root.appendingPathComponent("networks"), includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? []
+        let checkpoint = try #require(files.first { $0.lastPathComponent == "identity.json" })
+        try FileManager.default.removeItem(at: checkpoint)
+        await #expect(throws: (any Error).self) { try await device.cloudBrokerReply(mint(2)) }
+        #expect(!FileManager.default.fileExists(atPath: checkpoint.path))
+        #expect(await world.cloudMints == 1)
+        #expect(await world.enrollments == 1)
+    }
+
     @Test(arguments: ["team", "url", "native_proof", "origin"])
     func callerCannotChooseAuthority(field: String) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
