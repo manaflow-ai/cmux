@@ -36,6 +36,15 @@ beforeAll(async () => {
     "Event",
   ])
     scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
+  // jsdom has no layout: ProseMirror's scroll-into-view and the bubble's anchor read one empty box.
+  const box = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
+  const rects = () => Object.assign([box()], { item: () => box() });
+  for (const prototype of [dom.window.Range.prototype, dom.window.Element.prototype] as unknown as Array<
+    Record<string, unknown>
+  >) {
+    prototype.getClientRects = rects;
+    prototype.getBoundingClientRect = box;
+  }
   ({ MarkdownEditor } = await import("../src/pages/markdown/editor"));
 });
 
@@ -148,7 +157,9 @@ describe("markdown link bubble", () => {
     expect(md.opened).toEqual(["https://docs.cmux.dev/start"]);
     expect(md.copied).toEqual(["https://docs.cmux.dev/start"]);
     const view = md.editor.editorView()!;
-    view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }));
+    view.dom.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", altKey: true, bubbles: true, cancelable: true }),
+    );
     expect(md.opened).toEqual(["https://docs.cmux.dev/start", "https://docs.cmux.dev/start"]);
     // Option-Return opened the link; it typed no line break.
     expect(md.markdown()).toBe("Read [the docs](https://docs.cmux.dev/start) first.\n");
@@ -204,7 +215,8 @@ describe("markdown link bubble", () => {
   test("pasting a URL over selected text links the text", async () => {
     const md = await setup("Ship the release today.\n");
     md.caret("release", 0, "release".length);
-    md.editor.editorView()!.pasteText("https://cmux.dev/releases");
+    // jsdom has no ClipboardEvent; the plain text reaches the paste handlers as the slice.
+    md.editor.editorView()!.pasteText("https://cmux.dev/releases", new Event("paste") as ClipboardEvent);
     expect(md.markdown()).toBe("Ship the [release](https://cmux.dev/releases) today.\n");
   });
 
@@ -238,5 +250,38 @@ describe("markdown link bubble", () => {
     md.bubble()!.edit();
     md.bubble()!.apply("the spec", "https://new.dev/spec");
     expect(md.markdown()).toBe("See [the spec][spec].\n\n[spec]: https://new.dev/spec\n");
+  });
+
+  test("typing inside a link keeps one bubble; Escape hides it until the caret leaves the link", async () => {
+    const md = await setup("Read [the docs](https://docs.cmux.dev/start) first.\n");
+    md.caret("the docs", 3);
+    const first = md.bubble()!.id;
+    md.type("ir");
+    expect(md.bubble()?.id).toBe(first);
+    expect(md.bubble()?.text).toBe("their docs");
+    const view = md.editor.editorView()!;
+    view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(md.bubble()).toBe(null);
+    md.caret("docs", 1);
+    expect(md.bubble()).toBe(null);
+    md.caret("first", 1);
+    md.caret("docs", 1);
+    expect(md.bubble()?.mode).toBe("view");
+  });
+
+  test("Cmd-Z right after an autolink takes the link back and keeps the URL text", async () => {
+    const md = await setup("Notes\n");
+    md.caret("Notes", 5);
+    md.type(" https://cmux.dev ");
+    const { undo } = await import("@milkdown/kit/prose/history");
+    const view = md.editor.editorView()!;
+    undo(view.state, view.dispatch);
+    // Plain text that would read as a URL is written escaped (GFM), so the file keeps it unlinked.
+    expect(md.markdown()).toBe("Notes https\\://cmux.dev\n");
+    let linked = false;
+    view.state.doc.descendants((node) => {
+      if (node.marks.some((mark) => mark.type.name === "link")) linked = true;
+    });
+    expect(linked).toBe(false);
   });
 });
