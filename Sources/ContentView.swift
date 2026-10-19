@@ -11407,7 +11407,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
-    @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
+    private var extensionSidebarDisclosure: SidebarSectionDisclosureStore { .shared }
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     // Per-workspace transient checklist UI state (never persisted): which
     // rows show their expanded checklist, and a monotonically bumped token
@@ -13057,7 +13057,10 @@ struct VerticalTabsSidebar: View, Equatable {
         model: CmuxSidebarProviderRenderModel,
         now: Date
     ) -> some View {
-        GeometryReader { geometryProxy in
+        let collapsedSectionIDs = Set(model.sections.filter {
+            extensionSidebarDisclosure.isCollapsed(providerID: model.providerId, sectionID: $0.id)
+        }.map(\.id))
+        return GeometryReader { geometryProxy in
             ScrollView {
                 if model.presentation == .browserStack {
                     extensionBrowserStackSidebar(model: model, now: now)
@@ -13072,7 +13075,12 @@ struct VerticalTabsSidebar: View, Equatable {
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(model.sections) { section in
-                            extensionSidebarSection(section, providerId: model.providerId, now: now)
+                            extensionSidebarSection(
+                                section,
+                                providerId: model.providerId,
+                                isCollapsed: collapsedSectionIDs.contains(section.id),
+                                now: now
+                            )
                         }
 
                         SidebarEmptyArea(
@@ -14178,9 +14186,9 @@ struct VerticalTabsSidebar: View, Equatable {
     private func extensionSidebarSection(
         _ section: CmuxSidebarProviderSection,
         providerId: String,
+        isCollapsed: Bool,
         now: Date
     ) -> some View {
-        let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
         let canCreateWorktree = section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
@@ -14189,11 +14197,7 @@ struct VerticalTabsSidebar: View, Equatable {
             HStack(spacing: 7) {
                 Button {
                     withAnimation(Self.extensionSidebarDisclosureAnimation) {
-                        if isCollapsed {
-                            collapsedExtensionSidebarSectionIds.remove(section.id)
-                        } else {
-                            collapsedExtensionSidebarSectionIds.insert(section.id)
-                        }
+                        extensionSidebarDisclosure.setCollapsed(!isCollapsed, providerID: providerId, sectionID: section.id)
                     }
                 } label: {
                     CmuxSystemSymbolImage(magnified: isCollapsed ? "folder" : "folder.fill", pointSize: 13, weight: .regular, tint: .primary)
