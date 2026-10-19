@@ -361,13 +361,29 @@ fn strong_name(whole: &[u8]) -> bool {
     [&b"secret"[..], b"passw"].iter().any(|w| lower.windows(w.len()).any(|win| win == *w))
 }
 
-/// Whether a generic match's name says only "key": no secret, password,
-/// token, API, auth, credential or access word.
-fn names_only_a_key(name: &[u8]) -> bool {
-    let lower = name.to_ascii_lowercase();
-    let words: [&[u8]; 8] =
-        [b"secret", b"passw", b"token", b"api", b"auth", b"cred", b"access", b"private"];
-    !words.iter().any(|w| lower.windows(w.len()).any(|win| win == *w))
+/// Whether the name before a value says it is an id (`before` is its line up
+/// to the value): a bare `key`, a cache, restore or idempotency key, an etag
+/// or a commit. Any other key name (`encryption_key`, `DD_APP_KEY`, "the
+/// signing key") may hold a real key, which is often hex.
+fn names_an_id(before: &[u8]) -> bool {
+    let lower = before.to_ascii_lowercase();
+    let end = lower.iter().rposition(|b| !b" \t:=\"'`,>|?".contains(b)).map_or(0, |i| i + 1);
+    let name = &lower[..end];
+    let word = |b: &u8| b.is_ascii_alphanumeric() || b"_.-".contains(b);
+    let start = name.iter().rposition(|b| !word(b)).map_or(0, |i| i + 1);
+    let token: Vec<u8> =
+        name[start..].iter().map(|&b| if b == b'-' || b == b'.' { b'_' } else { b }).collect();
+    match token.as_slice() {
+        b"cache_key" | b"cachekey" | b"restore_key" | b"restorekey" | b"idempotency_key"
+        | b"idempotencykey" | b"etag" | b"commit" | b"commit_sha" | b"commit_id" => true,
+        // A bare key, or the second word of "cache key" and the like.
+        b"key" => {
+            let before = name[..start].trim_ascii_end();
+            let from = before.iter().rposition(|b| !b.is_ascii_alphanumeric()).map_or(0, |i| i + 1);
+            matches!(&before[from..], b"" | b"cache" | b"restore" | b"idempotency")
+        }
+        _ => false,
+    }
 }
 
 /// The line of `text` around `range`.
@@ -428,10 +444,12 @@ pub fn find(text: &str) -> Vec<Found> {
                 continue;
             }
             // Only a bare `NAME=value`, or a generic match behind a name that says
-            // no more than "key" (a cache key), drops an id: a header's, a
-            // token's or an API key's hex is its secret.
+            // it is an id (a cache key, a commit), drops an id: a header's, a
+            // token's or a signing key's hex is its secret.
             let generic = rule.id.starts_with("generic");
-            let id_name = (assignment && !strong) || (generic && names_only_a_key(name));
+            let line_start = line_of(bytes, &secret.range()).start;
+            let id_name = (assignment && !strong)
+                || (generic && names_an_id(&bytes[line_start..secret.start()]));
             if id_name && rules.ids.allows(s, whole.as_bytes(), line) {
                 continue;
             }
