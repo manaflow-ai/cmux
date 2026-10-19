@@ -50,6 +50,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .chatTab: "chatTab"
         case .subagentPane: "subagentPane"
         case .newChatHere: "newChatHere"
+        case .renameChat: "renameChat"
+        case .openFolderIn: "openFolderIn"
         case .checkpointAvailability: "checkpointAvailability"
         case .painted: "painted"
         case .dictation: "dictation"

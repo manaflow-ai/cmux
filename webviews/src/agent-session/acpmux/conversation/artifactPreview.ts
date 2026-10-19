@@ -1,8 +1,9 @@
 // A document a reply carries in a fence (cx-ncc.63, Claude parity): HTML, SVG and Markdown open in the
 // side panel beside the chat (ArtifactPanel.tsx), drawn as they render with their source a tab away.
 import { createContext } from "react";
+import { labOn } from "../labs";
 
-export type ArtifactKind = "html" | "svg" | "markdown";
+export type ArtifactKind = "html" | "svg" | "markdown" | "react";
 export type Artifact = { kind: ArtifactKind; lang: string; code: string };
 
 const KINDS: Record<string, ArtifactKind> = {
@@ -20,6 +21,7 @@ const KINDS: Record<string, ArtifactKind> = {
 /// that holds one SVG image.
 export function artifactKind(lang: string | undefined, code: string): ArtifactKind | undefined {
   const name = (lang ?? "").toLowerCase();
+  if (name === "cmux-react") return labOn("liveRender") ? "react" : undefined;
   const kind = KINDS[name];
   if (kind) return kind;
   if (name === "xml" && /^\s*(<\?xml[^>]*\?>\s*)?<svg[\s>]/i.test(code)) return "svg";
