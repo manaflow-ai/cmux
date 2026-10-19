@@ -40,7 +40,8 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       expect(key).toBeTruthy()
       meshKeys.push(key!)
       if (options.meshCreateStatus) return new Response(null, { status: options.meshCreateStatus })
-      const body = await r.json() as { displayName: string }
+      const body = await r.json() as { displayName: string; labels: Record<string, string> }
+      expect(body.labels).toEqual({ role: "cloud" })
       const created = meshCreations.get(key!) ?? { ...mesh(), displayName: body.displayName }
       meshCreations.set(key!, created)
       if (!meshes.some((m) => m.id === created.id)) meshes.push(created)

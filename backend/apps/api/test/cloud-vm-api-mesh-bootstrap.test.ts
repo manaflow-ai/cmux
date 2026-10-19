@@ -16,7 +16,7 @@ it("creates the first team mesh before allocating and attaching a Cloud VM", asy
 it("persists the original key before I/O and resumes it after losing the mesh response and restarting", async () => {
   await withMeshMachine({ meshes: [], lostMeshCreate: true }, async (f) => {
     f.setMeshCreateHook(async () => {
-      expect(f.meshIntent()).toMatchObject({ version: 1, key: f.meshKeys[0], team: f.team, tenant: f.tenant, origin: "https://vm.test" })
+      expect(f.meshIntent()).toMatchObject({ version: 2, key: f.meshKeys[0], team: f.team, tenant: f.tenant, origin: "https://vm.test", body: { displayName: "Cloud network", labels: { role: "cloud" } } })
       expect(JSON.stringify(f.meshIntent())).not.toContain("test-machine-mesh-key")
     })
     await f.create()
@@ -68,7 +68,7 @@ it.each(["origin", "corrupt"] as const)("does not replace an uncertain mesh inte
   await withMeshMachine({ meshes: [], lostMeshCreate: true }, async (f) => {
     await f.create()
     const before = f.calls.length
-    if (change === "corrupt") f.replaceMeshIntent({ ...f.meshIntent(), version: 2 })
+    if (change === "corrupt") f.replaceMeshIntent({ ...f.meshIntent(), version: 999 })
     await f.restart(change === "origin" ? { CLOUD_VM_API_ORIGIN: "https://another.test" } : {}); await f.retry()
     expect(f.calls).toHaveLength(before)
     expect(f.creates()).toBe(0)

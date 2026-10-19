@@ -8,17 +8,21 @@ const Holder = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128));
 const Identity = { key: Digest, meshId: MeshId };
 const Lease = { ...Identity, holder: Holder };
 const Dispatch = Schema.Struct({ state: Schema.Literal("ready", "sent", "rejected"), token: Schema.String });
+const Labels = Schema.Record({ key: Schema.String, value: Schema.String });
 export const MeshCreationRecord = Schema.Struct({
   version: Schema.Literal(1), fingerprint: Digest, meshId: MeshId,
   createdBy: Schema.String, createdAt: Schema.String, displayName: Schema.NullOr(Schema.String),
   phase: Schema.Literal("prepared", "creating", "done", "cancelling", "deleted"),
   reservationId: Schema.NullOr(Schema.String), context: Schema.NullOr(Digest), dispatch: Dispatch,
   holder: Holder, leaseUntilMs: Schema.Number,
+  labels: Schema.optional(Labels),
 });
 export type MeshCreationRecord = typeof MeshCreationRecord.Type;
 export const MeshCreationCommand = Schema.Union(
   Schema.Struct({ op: Schema.Literal("get"), key: Digest }),
   Schema.Struct({ op: Schema.Literal("begin"), key: Digest, fingerprint: Digest, meshId: MeshId, holder: Holder, createdBy: Schema.String, displayName: Schema.NullOr(Schema.String) }),
+  // A distinct operation makes an older DO reject labelled intents before changing storage.
+  Schema.Struct({ op: Schema.Literal("begin-labelled"), key: Digest, fingerprint: Digest, meshId: MeshId, holder: Holder, createdBy: Schema.String, displayName: Schema.NullOr(Schema.String), labels: Labels }),
   Schema.Struct({ op: Schema.Literal("retain"), ...Lease, reservationId: Schema.String }),
   Schema.Struct({ op: Schema.Literal("context"), ...Lease, context: Digest }),
   Schema.Struct({ op: Schema.Literal("send"), ...Lease, token: Holder }),
@@ -47,13 +51,16 @@ export const meshCreation = async (storage: LedgerStorage, input: MeshCreationCo
     if (raw !== undefined && !checked(raw)) throw new Error("unrecognized mesh creation record");
     const prior = checked(raw) ? raw : null;
     if (input.op === "get") return prior ? reply(prior) : { state: "missing" };
-    if (input.op === "begin") {
+    if (input.op === "begin" || input.op === "begin-labelled") {
       if (prior && prior.fingerprint !== input.fingerprint) return { state: "conflict" };
+      const ordered = (labels: Readonly<Record<string, string>>) => Object.entries(labels).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+      if (prior && JSON.stringify(ordered(prior.labels ?? {})) !== JSON.stringify(ordered(input.op === "begin-labelled" ? input.labels : {}))) return { state: "conflict" };
       if (prior && (["done", "cancelling", "deleted"].includes(prior.phase) || prior.leaseUntilMs > now)) return reply(prior);
       const record: MeshCreationRecord = prior ? { ...prior, holder: input.holder, leaseUntilMs: now + LEASE_MS } : {
         version: 1, fingerprint: input.fingerprint, meshId: input.meshId, createdBy: input.createdBy, displayName: input.displayName,
         createdAt: new Date(now).toISOString(), phase: "prepared", reservationId: null, context: null,
         dispatch: { state: "ready", token: "" }, holder: input.holder, leaseUntilMs: now + LEASE_MS,
+        ...(input.op === "begin-labelled" ? { labels: input.labels } : {}),
       };
       await tx.put(key, record);
       return reply(record, true);

@@ -10,6 +10,7 @@ import { BadRequest, Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceed
 import { InstallPublicKey, Nonce, Signature, SignedAt } from "../mesh/signed-request.ts";
 import { DeviceId, MeshId, TenantId, TunnelId, VmId } from "../lib/ids.ts";
 import { describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders } from "./common.ts";
+import { Labels as ResourceLabels } from "./snapshots.ts";
 
 const EXPERIMENT = "Experiment: answers 404 unless the mesh experiment is enabled for the team.";
 
@@ -31,6 +32,11 @@ export class MeshList extends Schema.Class<MeshList>("MeshList")({ items: Schema
 
 export class CreateMeshRequest extends Schema.Class<CreateMeshRequest>("CreateMeshRequest")({
   displayName: Schema.optional(DisplayName),
+}) {}
+
+export class CreateMeshIntentRequest extends Schema.Class<CreateMeshIntentRequest>("CreateMeshIntentRequest")({
+  displayName: Schema.optional(DisplayName),
+  labels: Schema.optional(ResourceLabels.annotations({ identifier: "MeshLabels", description: "Up to 16 public labels. A service key may create or reach only meshes carrying every one of its required labels. Labels are retained with the original creation intent." })),
 }) {}
 
 const SIGNED =
@@ -381,7 +387,7 @@ const MemberPath = Schema.Struct({ meshId: Schema.String, vmId: Schema.String })
 export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
   .add(
     HttpApiEndpoint.post("createMeshIntent", "/v1/mesh-creations")
-      .setPayload(CreateMeshRequest)
+      .setPayload(CreateMeshIntentRequest)
       .setHeaders(GroupCreationKeyHeaders)
       .addSuccess(Mesh, { status: 201 })
       .addError(NotFound)
