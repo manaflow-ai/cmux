@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/pages/gen-strings.mjs --best-effort",
+    "postinstall": "bun scripts/pages/gen-strings.mjs --best-effort",
     "build": "node scripts/pages/gen-strings.mjs && bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
     "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && vp check && bun run acpmux-protocol:check",
