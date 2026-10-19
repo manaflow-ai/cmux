@@ -41,6 +41,10 @@ extension HomeService {
             cloudLinker?.sessionNeeded(reason: needed.reason, expiresAt: needed.expiresAt)
             return
         }
+        if case .hostReplicaNeeded(let needed) = event {
+            services.cloud.hostReplica.needed(needed)
+            return
+        }
         cloudSource.handle(event)
     }
 }
