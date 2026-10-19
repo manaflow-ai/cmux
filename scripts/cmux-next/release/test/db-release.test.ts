@@ -340,7 +340,7 @@ describe("special files", () => {
   it("an untracked database (applied by hand): plan refuses, adopt records it, apply continues from there", async () => {
     const w = await world()
     const s = await w.owner(w.staging)
-    for (const f of readMigrations(w.root, vm)) await s.query(f.sql)
+    for (const f of readMigrations(w.root, vm).filter((file) => file.number <= 8)) await s.query(f.sql)
     await s.end()
     expect(await w.run("plan", ...S)).toBe(1)
     expect(w.errors.at(-1)).toContain("adopt")
@@ -399,8 +399,10 @@ describe("deploy ordering gate (reads the database)", () => {
     const asWorker = ["--tree", "cmux-vm", "--target", "staging", "--url-env", "WORKER_URL"]
     expect(await w.run("gate", ...asWorker)).toBe(1)
     expect(w.errors.join("\n")).toContain("stack_webhook_events: no INSERT privilege")
+    expect(w.errors.join("\n")).toContain("mesh_overlay_servers: no INSERT privilege")
     expect(w.logs.join("\n")).toContain("cannot read cmux_vm.schema_migrations")
     await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.stack_webhook_events TO "${role}"`)
+    await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.mesh_overlay_servers TO "${role}"`)
     expect(await w.run("gate", ...asWorker)).toBe(0)
     await s.query(`REVOKE ALL ON ALL TABLES IN SCHEMA cmux_vm FROM "${role}"; REVOKE ALL ON SCHEMA cmux_vm FROM "${role}"`)
     await s.end()

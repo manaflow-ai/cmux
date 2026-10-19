@@ -14745,7 +14745,7 @@ impl Client {
     }
     /**Read a server's directed overlay policy
 
-    Read a server's directed overlay policy. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. The server is excluded from source selectors. Answers 404 unless the mesh experiment is enabled for this tenant.
+    Read a server's directed overlay policy. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. The server is excluded from source wildcards; an explicit source-id grant permits device-to-device initiation. Answers 404 unless the mesh experiment is enabled for this tenant.
 
     Sends a `GET` request to `/v1/overlay-servers/{deviceId}/policy`
 

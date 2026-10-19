@@ -16,8 +16,7 @@ const record = (value: unknown): Record<string, unknown> => typeof value === "ob
 const json = async (response: Response) => record(await response.json());
 const idOf = (body: Record<string, unknown>) => { if (typeof body["id"] !== "string") throw new Error("missing id"); return body["id"]; };
 const call = (path: string, method = "GET", body?: unknown, auth = key) => h.request(path, bearer(auth), { method, body });
-const signed = async (purpose: string, target: string, wgPublicKey = "", name = "") => {
-  const signedAt = Date.now();
+const signed = async (purpose: string, target: string, wgPublicKey = "", name = "", signedAt = Date.now()) => {
   const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
   const message = ["cmux-mesh-v1", purpose, target, wgPublicKey, install.publicKey, name, String(signedAt), nonce].join("\n");
   const bytes = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, install.privateKey, new TextEncoder().encode(message)));
@@ -148,5 +147,35 @@ describe("provider-free overlay servers", () => {
     h.mesh.store.devices.push({ ...row, deviceId: newDeviceId(), wgPublicKey: WG1 });
     expect((await policy(server)).status).toBe(503);
     expect((await json(await call(`/v1/devices/${client}/overlay-policy`)))["peers"]).toEqual([]);
+  });
+
+  it("binds signed policy and revocation to their own purpose, key, target and freshness", async () => {
+    const server = idOf(await json(await enroll()));
+    const send = (body: unknown, suffix = "policy") => h.request(`/v1/overlay-servers/${server}/signed/${suffix}`, {}, { method: "POST", body });
+    const request = await signed("overlay-server-policy", server);
+    expect((await send(request, "revoke")).status).toBe(404);
+    expect((await send(request)).status).toBe(200);
+    expect((await send(request)).status).toBe(409);
+    expect((await send(await signed("overlay-server-policy", server, "", "", Date.now() - 180_000))).status).toBe(403);
+    expect((await send(await signed("overlay-server-policy", newDeviceId()))).status).toBe(404);
+    install = await makeInstallKey();
+    expect((await policy(server)).status).toBe(404);
+    expect((await call(`/v1/overlay-servers/${server}`)).status).toBe(200);
+  });
+
+  it("does not reuse a positive membership cache for policy or signed revocation", async () => {
+    h.addMember(TEAM, "user_network");
+    const token = await h.sessionToken("user_network");
+    const response = await h.request(`/v1/meshes/${mesh}/overlay-servers`, { ...bearer(token), "x-cmux-team-id": TEAM }, { method: "POST", body: { name: "server", wgPublicKey: WG1, installPublicKey: install.publicKey, ...await signed("enroll-overlay-server", mesh, WG1, "server") } });
+    expect(response.status).toBe(201);
+    const server = idOf(await json(response));
+    expect((await policy(server)).status).toBe(200);
+    h.failStackFor("user_network");
+    expect((await policy(server)).status).toBe(503);
+    h.failStackFor("user_network", false);
+    h.removeMember(TEAM, "user_network");
+    expect((await policy(server)).status).toBe(404);
+    expect((await h.request(`/v1/overlay-servers/${server}/signed/revoke`, {}, { method: "POST", body: await signed("revoke-overlay-server", server) })).status).toBe(404);
+    expect((await call(`/v1/overlay-servers/${server}`, "DELETE")).status).toBe(204);
   });
 });
