@@ -420,7 +420,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     /// app-host tests can leave a 320-point window behind, which is too narrow
     /// for the minimum-width split admission check. Keep split fixtures at a
     /// realistic size so these tests exercise the shortcut behavior itself.
-    private static func prepareSplitFixture(window: NSWindow, workspace: Workspace) {
+    static func prepareSplitFixture(window: NSWindow, workspace: Workspace) {
         window.setContentSize(splitFixtureContentSize)
         window.contentView?.layoutSubtreeIfNeeded()
         workspace.bonsplitController.setContainerFrame(
@@ -484,69 +484,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
             XCTAssertTrue(browserPanel.webView.performKeyEquivalent(with: event))
             XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
-        }
-    }
-
-    @Test
-    func testDividerDoubleClickEqualizesContainingSplitRun() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
-            let appDelegate = try #require(AppDelegate.shared)
-            let defaults = UserDefaults.standard
-            let key = "equalizeSplitsOnDividerDoubleClick"
-            let saved = defaults.object(forKey: key)
-            defer {
-                if let saved { defaults.set(saved, forKey: key) }
-                else { defaults.removeObject(forKey: key) }
-            }
-            for orientation in [SplitOrientation.horizontal, .vertical] {
-                let windowId = appDelegate.createMainWindow()
-                defer { self.closeWindow(withId: windowId) }
-                let window = try #require(self.window(withId: windowId))
-                let workspace = try #require(appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace)
-                Self.prepareSplitFixture(window: window, workspace: workspace)
-                let first = try #require(workspace.focusedPanelId)
-                let cross: SplitOrientation = orientation == .horizontal ? .vertical : .horizontal
-                let other = try #require(workspace.newTerminalSplit(from: first, orientation: cross))
-                let second = try #require(workspace.newTerminalSplit(from: first, orientation: orientation))
-                _ = try #require(workspace.newTerminalSplit(from: second.id, orientation: orientation))
-                let controller = workspace.bonsplitController
-                let nodes = self.shortcutRoutingSplitNodes(in: controller.treeSnapshot())
-                for node in nodes {
-                    #expect(controller.setDividerPosition(0.25, forSplit: try #require(UUID(uuidString: node.id))))
-                }
-                let axis = orientation == .horizontal ? "horizontal" : "vertical"
-                let clicked = try #require(nodes.last { $0.orientation == axis })
-                let splitId = try #require(UUID(uuidString: clicked.id))
-                let untouched = try #require(nodes.first { $0.orientation != axis })
-                let panes = controller.allPaneIds
-                let tabs = controller.allTabIds
-                controller.focusPane(try #require(workspace.paneId(forPanelId: other.id)))
-                let delegate: any BonsplitDelegate = workspace
-                defaults.set(false, forKey: key)
-                #expect(!delegate.splitTabBar(controller, didDoubleClickDivider: splitId))
-                #expect(self.shortcutRoutingSplitNodes(in: controller.treeSnapshot()).allSatisfy {
-                    abs($0.dividerPosition - 0.25) < 0.0001
-                })
-                defaults.removeObject(forKey: key)
-                #expect(!delegate.splitTabBar(BonsplitController(), didDoubleClickDivider: splitId))
-                #expect(!delegate.splitTabBar(controller, didDoubleClickDivider: UUID()))
-                workspace.isRemoteTmuxMirror = true
-                #expect(!delegate.splitTabBar(controller, didDoubleClickDivider: splitId))
-                workspace.isRemoteTmuxMirror = false
-                #expect(delegate.splitTabBar(controller, didDoubleClickDivider: splitId))
-                let result = self.shortcutRoutingSplitNodes(in: controller.treeSnapshot())
-                #expect(result.first { $0.id == untouched.id }?.dividerPosition == 0.25)
-                let run = result.filter { $0.orientation == axis }
-                #expect(run.count == 2)
-                #expect(abs(try #require(run.first).dividerPosition - 1.0 / 3.0) < 0.0001)
-                #expect(run.last?.dividerPosition == 0.5)
-                #expect(controller.allPaneIds == panes)
-                #expect(controller.allTabIds == tabs)
-                let published = await self.shortcutRoutingAwaitPublishedLayout(workspace) {
-                    $0.panes == controller.layoutSnapshot().panes
-                }
-                #expect(published != nil)
-            }
         }
     }
 
@@ -8086,7 +8023,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
         }
     }
-    private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         switch node {
         case .pane:
             return []
@@ -8206,7 +8143,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     ///
     /// The deadline bounds the failure path only: a publish that lands
     /// promptly returns on the first drain.
-    private func shortcutRoutingAwaitPublishedLayout(
+    func shortcutRoutingAwaitPublishedLayout(
         _ workspace: Workspace,
         timeout: Duration = .seconds(3),
         until predicate: (LayoutSnapshot) -> Bool
@@ -8309,11 +8246,11 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
         body()
     }
-    private func window(withId windowId: UUID) -> NSWindow? {
+    func window(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
-    private func closeWindow(withId windowId: UUID) {
+    func closeWindow(withId windowId: UUID) {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
