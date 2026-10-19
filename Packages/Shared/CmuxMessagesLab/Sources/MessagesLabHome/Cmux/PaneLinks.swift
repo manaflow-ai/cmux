@@ -19,7 +19,10 @@ extension ChatController {
     /// The link under `p` in its bubble, or nil when the point is on no link.
     func linkTarget(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> PaneLinkTarget? {
         let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
-        if let md = hit.row.markdown, let s = md.link(at: local) { return .text(MarkdownLinkPolicy.url(s)) }
+        // A markdown layout is body-local (its frags already sit at the padding,
+        // MarkdownLayout.swift); a TextLayout is text-local.
+        let bodyLocal = CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY)
+        if let md = hit.row.markdown, let s = md.link(at: bodyLocal) { return .text(MarkdownLinkPolicy.url(s)) }
         if let tl = hit.row.text, let s = tl.link(at: local) { return .text(MarkdownLinkPolicy.url(s)) }
         if case let .link(url, _, _, _, _) = hit.row.part { return .card(url, MarkdownLinkPolicy.url(url)) }
         return nil
