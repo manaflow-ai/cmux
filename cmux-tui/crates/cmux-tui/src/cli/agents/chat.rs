@@ -294,15 +294,28 @@ pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
     let chat = scoped_chat(global, target)?;
+    let (transcript, more, cursor) =
+        load(after, limit, |cursor| acp::events(&chat, cursor, EVENT_PAGE)).map_err(|error| {
+            not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
+        })?;
+    Ok(transcript.page(&chat, after, limit, more, cursor))
+}
+
+/// The transcript of the events after `after`, read a page at a time from
+/// `events` (the page after a cursor), whether events remain past it, and
+/// the last event read.
+fn load(
+    after: u64,
+    limit: usize,
+    mut events: impl FnMut(u64) -> Result<Value, String>,
+) -> Result<(Transcript, bool, u64), String> {
     let mut transcript = Transcript::default();
     // From the event before `after`, so the item `after` names is rebuilt
     // whole and its continuation is not read as a new item.
     let mut cursor = after.saturating_sub(1);
     let mut more = true;
     for _ in 0..MAX_EVENT_PAGES {
-        let page = acp::events(&chat, cursor, EVENT_PAGE).map_err(|error| {
-            not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
-        })?;
+        let page = events(cursor)?;
         let events = page["events"].as_array().cloned().unwrap_or_default();
         for event in &events {
             transcript.apply(event);
@@ -315,7 +328,7 @@ fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<V
             break;
         }
     }
-    Ok(transcript.page(&chat, after, limit, more, cursor))
+    Ok((transcript, more, cursor))
 }
 
 /// One transcript item as a read returns it.
@@ -565,7 +578,7 @@ mod acp {
 
 #[cfg(test)]
 mod tests {
-    use super::Transcript;
+    use super::{MAX_EVENT_PAGES, Transcript, load};
     use serde_json::{Value, json};
 
     fn update(seq: u64, update: Value) -> Value {
@@ -583,6 +596,94 @@ mod tests {
             transcript.apply(event);
         }
         transcript
+    }
+
+    /// An event source serving `events` one page of `per_page` at a time,
+    /// then, when `live`, one new answer chunk per request forever (a chat
+    /// still writing its turn); `loads` counts the requests.
+    fn source(
+        events: Vec<Value>,
+        per_page: usize,
+        live: bool,
+        loads: &mut usize,
+    ) -> impl FnMut(u64) -> Result<Value, String> + '_ {
+        move |cursor| {
+            *loads += 1;
+            let rest: Vec<Value> = events
+                .iter()
+                .filter(|event| event["seq"].as_u64() > Some(cursor))
+                .cloned()
+                .collect();
+            if rest.is_empty() && live {
+                let chunk = update(
+                    cursor + 1,
+                    json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "."}}),
+                );
+                return Ok(json!({"events": [chunk], "hasMore": true}));
+            }
+            let page: Vec<Value> = rest.iter().take(per_page).cloned().collect();
+            Ok(json!({"events": page, "hasMore": live || rest.len() > per_page}))
+        }
+    }
+
+    fn running_tool(seq: u64, id: &str) -> Value {
+        update(
+            seq,
+            json!({"sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute", "status": "in_progress"}),
+        )
+    }
+
+    #[test]
+    fn a_read_of_a_live_turn_with_a_running_tool_stops_soon_after_it_is_full() {
+        // The tool holds `next_after`, and its turn is still being written:
+        // no turn end can settle it, so the read must not load page after
+        // page looking for one.
+        let events = vec![
+            mux(1, "user_message", json!({"text": "run it"})),
+            running_tool(2, "t1"),
+            update(3, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "a"}})),
+        ];
+        let mut loads = 0;
+        let (transcript, more, cursor) = load(0, 2, source(events, 3, true, &mut loads)).unwrap();
+        assert!(loads <= 3, "{loads} pages loaded for a read full after the first");
+        assert!(loads < MAX_EVENT_PAGES);
+        let page = transcript.page("c", 0, 2, more, cursor);
+        assert_eq!(page["items"][1]["partial"], true, "{page}");
+        assert_eq!(page["next_after"], 1, "{page}");
+        assert_eq!(page["has_more"], true);
+    }
+
+    #[test]
+    fn a_running_tool_past_the_items_a_read_returns_does_not_extend_it() {
+        let events = vec![
+            mux(1, "user_message", json!({"text": "one"})),
+            mux(2, "user_message", json!({"text": "two"})),
+            running_tool(3, "t1"),
+        ];
+        let mut loads = 0;
+        let (transcript, more, cursor) = load(0, 1, source(events, 3, true, &mut loads)).unwrap();
+        assert_eq!(loads, 1);
+        let page = transcript.page("c", 0, 1, more, cursor);
+        assert_eq!(page["next_after"], 1, "{page}");
+        assert_eq!(page["has_more"], true);
+    }
+
+    #[test]
+    fn a_read_loads_on_to_the_turn_end_that_settles_a_tool_it_returns() {
+        let events = vec![
+            mux(1, "user_message", json!({"text": "run it"})),
+            running_tool(2, "t1"),
+            update(3, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "a"}})),
+            update(4, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "b"}})),
+            mux(5, "turn_result", json!({"status": "cancelled"})),
+        ];
+        let mut loads = 0;
+        let (transcript, more, cursor) = load(0, 2, source(events, 3, false, &mut loads)).unwrap();
+        assert_eq!(loads, 2);
+        let page = transcript.page("c", 0, 2, more, cursor);
+        assert_eq!(page["items"][1]["partial"], Value::Null, "{page}");
+        assert_eq!(page["next_after"], 2, "{page}");
+        assert_eq!(page["has_more"], true);
     }
 
     #[test]
