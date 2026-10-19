@@ -57,7 +57,7 @@ class MediaTagLockTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         tour = text[text.index("\n  tour:\n"):text.index("\n  publish:\n")]
         timeout = re.search(r"^    timeout-minutes: (\d+)$", tour, re.M)
-        wait = re.search(r"media_tag_lock\.py\b.*?\"\$lock\" hold --tag \"\$TOUR_TAG\" --wait (\d+)", tour, re.S)
+        wait = re.search(r"(?:media_tag_lock\.py\"?|\"\$lock\") hold --tag \"\$TOUR_TAG\" --wait (\d+)", tour)
         self.assertIsNotNone(timeout, "the tour job has a timeout-minutes")
         self.assertIsNotNone(wait, "the tour holds its tag with an explicit --wait")
         self.assertGreaterEqual(int(wait.group(1)), int(timeout.group(1)) * 60)

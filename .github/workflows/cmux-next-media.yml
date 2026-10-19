@@ -211,8 +211,9 @@ jobs:
       # a merge tour beside a dispatch could otherwise build into the same
       # DerivedData at once. Other tags never wait.
       # A pull request branched before the lock existed checks out a head
-      # without the script; this step comes from the merge ref, so it takes
-      # the script from that commit.
+      # without the lock script, and with a prune that ignores held tags; this
+      # step comes from the merge ref, so it takes both from that commit and
+      # hands the prune step their dir (MEDIA_CI_SCRIPTS).
       # A tour waits for its tag as long as the holder's job can run (this
       # job's timeout-minutes): a merge tour holds feat-cmux-next for up to an
       # hour warm and longer cold, and the holder lets go when its job ends.
@@ -220,13 +221,17 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         run: |
           set -euo pipefail
-          lock=scripts/ci/media_tag_lock.py
-          if [ ! -f "$lock" ]; then
+          ci=scripts/ci
+          if [ ! -f "$ci/media_tag_lock.py" ] || ! grep -q -- '--lock-dir' "$ci/prune_media_derived_data.py"; then
             git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
-            git show "$GITHUB_SHA:$lock" > "$RUNNER_TEMP/media_tag_lock.py"
-            lock="$RUNNER_TEMP/media_tag_lock.py"
+            ci="$RUNNER_TEMP/media-ci"
+            mkdir -p "$ci"
+            for script in media_tag_lock.py prune_media_derived_data.py; do
+              git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
+            done
           fi
-          python3 "$lock" hold --tag "$TOUR_TAG" --wait 7200
+          echo "MEDIA_CI_SCRIPTS=$ci" >> "$GITHUB_ENV"
+          python3 "$ci/media_tag_lock.py" hold --tag "$TOUR_TAG" --wait 7200
 
       # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
@@ -236,7 +241,7 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         continue-on-error: true
         run: |
-          python3 scripts/ci/prune_media_derived_data.py \
+          python3 "${MEDIA_CI_SCRIPTS:-scripts/ci}/prune_media_derived_data.py" \
             --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
 
       - name: Download pre-built GhosttyKit.xcframework for both revisions
