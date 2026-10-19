@@ -205,7 +205,8 @@ enum WorkspaceGroupHandlers {
 
     private static func move(_ invocation: ActionInvocation, by offset: Int, _ context: AppActionContext) throws {
         let group = try context.group(invocation)
-        let ordered = context.roomGroups
+        // A group moves among its siblings: the top-level groups, or the groups nested in its own parent.
+        let ordered = context.roomGroups.filter { $0.parentGroup == group.parentGroup }
         guard let index = ordered.firstIndex(where: { $0 === group }) else { return }
         let target = min(max(index + offset, 0), ordered.count - 1)
         guard target != index else { return }

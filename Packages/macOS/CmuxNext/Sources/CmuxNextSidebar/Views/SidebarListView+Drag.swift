@@ -27,6 +27,12 @@ extension SidebarListViewComponents {
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
             for member in groups[group]?.items ?? [] { hidden.insert(.item(member.item.id)) }
+            // Its nested groups go with it, every level (`workspace-group-nest-v1`).
+            for inner in SidebarGroup.descendants(of: group, in: groups.values) {
+                hidden.insert(.group(inner))
+                for ws in groups[inner]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
+                for member in groups[inner]?.items ?? [] { hidden.insert(.item(member.item.id)) }
+            }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
         case let .item(item):
             // A listed document item drags only on the document.
@@ -56,9 +62,10 @@ extension SidebarListViewComponents {
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
-        if rows.first?.group != nil { // the gutter comes back only for a drop into a group (morphLift)
-            drag.restFrame.origin.x -= SidebarStyle.groupGutter
-            drag.restFrame.size.width += SidebarStyle.groupGutter
+        if let first = rows.first, first.group != nil { // the gutter comes back only for a drop into a group (morphLift)
+            let gutter = SidebarStyle.groupGutter * CGFloat(max(1, first.depth))
+            drag.restFrame.origin.x -= gutter
+            drag.restFrame.size.width += gutter
         }
         drag.morphs = rows.count == 1
         if case .group = payload { drag.groupHeadHeight = rows.first?.height }
@@ -217,9 +224,11 @@ extension SidebarListViewComponents {
         } else if drag.tileSource != nil || drag.restShaped == false {
             shape = NSRect(x: inset, y: 0, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
         }
-        if rest, case let .position(position)? = drag.target, position.group != nil {
-            shape.origin.x = inset + SidebarStyle.groupGutter
-            shape.size.width = max(0, bounds.width - inset * 2 - SidebarStyle.groupGutter)
+        if rest, case let .position(position)? = drag.target, let group = position.group {
+            // A member's place: one gutter right of its group's header, at every level.
+            let gutter = SidebarStyle.groupGutter * CGFloat((displayed.row(for: .group(group))?.depth ?? 0) + 1)
+            shape.origin.x = inset + gutter
+            shape.size.width = max(0, bounds.width - inset * 2 - gutter)
         }
         let old = drag.lift.frame
         guard shape.size != old.size || (rest && shape.minX != old.minX) else { return }

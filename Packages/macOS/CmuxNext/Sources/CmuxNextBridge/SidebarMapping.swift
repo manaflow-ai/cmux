@@ -86,13 +86,14 @@ public struct SidebarMapping {
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
+                    parent: group.parentGroup.map { GroupID($0.rawValue) },
                     workspaces: rows
                 )))
             } else {
                 nodes += rows.map(SidebarNode.workspace)
             }
         }
-        return [SidebarRowSection(kind: .machine(machine), nodes: nodes)]
+        return [SidebarRowSection(kind: .machine(machine), nodes: nodes.fillingNestedWorkspaces())]
     }
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).

@@ -86,7 +86,8 @@ extension SidebarBridge {
             // commands are not used, so the daemon can drop them. Before personal state loads it waits.
             if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
-            let members = (model.group(group)?.workspaces ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
+            // Close All in Group closes the workspaces of its nested groups too (`workspace-group-nest-v1`).
+            let members = (model.group(group).map { $0.workspaces + $0.nestedWorkspaces } ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
                 .compactMap { workspace, daemon in workspace.key.map { (daemon, $0, WorkspaceClose.closing(workspace, on: daemon)) } }
             model.apply(intent)
             for (daemon, key, terminals) in members {

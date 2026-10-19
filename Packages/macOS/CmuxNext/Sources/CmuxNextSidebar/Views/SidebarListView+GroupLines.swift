@@ -37,8 +37,12 @@ extension SidebarGroupLine {
         var last: [GroupID: SidebarRow] = [:]
         for row in rows {
             switch row.key {
-            case let .group(id): headers.append((id, row))
-            case .workspace, .tab, .item: if let group = row.group { last[group] = row }
+            case let .group(id):
+                headers.append((id, row))
+                for outer in row.groupPath { last[outer] = row } // a nested group's header continues each line it sits in
+            case .workspace, .tab, .item:
+                if let group = row.group { last[group] = row }
+                for outer in row.groupPath { last[outer] = row }
             default: break
             }
         }

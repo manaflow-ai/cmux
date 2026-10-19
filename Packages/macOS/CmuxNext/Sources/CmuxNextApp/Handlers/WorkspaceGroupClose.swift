@@ -19,10 +19,10 @@ import Foundation
 enum WorkspaceGroupClose {
     static let toastID = "workspace-group-closed"
 
-    /// The open workspaces the sidebar shows in `group`, with their daemons.
+    /// The open workspaces the sidebar shows in `group` and the groups nested in it, with their daemons.
     static func members(of group: WorkspaceGroupModel, _ context: AppActionContext) -> [(WorkspaceModel, DaemonService)] {
-        guard let sidebar = try? context.sidebar() else { return [] }
-        let rows = sidebar.model.group(CmuxNextSidebar.GroupID(group.id.rawValue))?.workspaces ?? []
+        guard let sidebar = try? context.sidebar(), let shown = sidebar.model.group(CmuxNextSidebar.GroupID(group.id.rawValue)) else { return [] }
+        let rows = shown.workspaces + shown.nestedWorkspaces
         return rows.compactMap { context.services.machines.workspace(id: $0.id.rawValue) }
     }
 
