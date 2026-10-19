@@ -6,8 +6,8 @@ import type { ReadResult } from "./owner-do.ts"
 import { signInRules, ssoRefusal, withSsoSession } from "./policy-gate.ts"
 
 const TEAM_ID = /^team_[0-9a-f]{20}$/
-type Membership = { role: string; display_name: string; kind: "personal" | "stack"; stack_team?: string } | null
-type UserTeam = { id: string; display_name: string; kind: "personal" | "stack"; stack_team?: string; role: string; sso_required: boolean }
+type Membership = { role: string; display_name: string; kind: "personal" | "stack"; stack_team?: string; authority_version?: string } | null
+type UserTeam = { id: string; display_name: string; kind: "personal" | "stack"; stack_team?: string; role: string; authority_version?: string; sso_required: boolean }
 /** Teams one user.teams.list checks at once (each is a TeamDO membership call, plus its sign-in rules). */
 const LIST_CONCURRENCY = 10
 
@@ -55,9 +55,19 @@ export const listUserTeams = async (env: Env, p: Principal): Promise<ReadResult>
   let incomplete = index.length > candidates.length
   const own = await membershipOf(env, personal, user)
   if (own === "unreachable") incomplete = true
+  let personalAuthority = own && own !== "unreachable" ? own.authority_version : undefined
+  if (own === null) {
+    try {
+      personalAuthority = (await env.TEAM_DO.get(env.TEAM_DO.idFromName(personal)).personalScopeAuthority(personal, user)) ?? undefined
+    } catch (e) {
+      incomplete = true
+      logged("personal team authority unreachable", e)
+    }
+  }
+  const authority = personalAuthority ? { authority_version: personalAuthority } : {}
   // The personal team's SSO rule binds every request already (ssoGate), so it is never the picker's to flag.
   const teams: Array<UserTeam> = [
-    own && own !== "unreachable" ? { id: personal, display_name: own.display_name, kind: "personal", role: own.role, sso_required: false } : { id: personal, display_name: "", kind: "personal", role: "owner", sso_required: false }
+    own && own !== "unreachable" ? { id: personal, display_name: own.display_name, kind: "personal", role: own.role, ...authority, sso_required: false } : { id: personal, display_name: "", kind: "personal", role: "owner", ...authority, sso_required: false }
   ]
   for (let i = 0; i < candidates.length; i += LIST_CONCURRENCY) {
     const batch = candidates.slice(i, i + LIST_CONCURRENCY)
@@ -70,7 +80,7 @@ export const listUserTeams = async (env: Env, p: Principal): Promise<ReadResult>
     batch.forEach((team, j) => {
       const { m, sso } = answers[j]!
       if (m === "unreachable" || sso === "unreachable") incomplete = true
-      else if (m) teams.push({ id: team, display_name: m.display_name, kind: m.kind, ...(m.stack_team ? { stack_team: m.stack_team } : {}), role: m.role, sso_required: sso })
+      else if (m) teams.push({ id: team, display_name: m.display_name, kind: m.kind, ...(m.stack_team ? { stack_team: m.stack_team } : {}), role: m.role, ...(m.authority_version ? { authority_version: m.authority_version } : {}), sso_required: sso })
     })
   }
   return { ok: true, value: { teams, incomplete }, revision: "0" }

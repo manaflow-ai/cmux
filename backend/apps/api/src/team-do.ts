@@ -7,6 +7,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
 import { can, firstOwner, homeCoMembersOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { teamAuthorityVersion } from "./domains/team-authority.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -615,13 +616,21 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** RPC from the Worker (team-select.ts): the user's role in this live team with its name and kind, or null. Never creates a team. */
-  async membership(entity: string, user: string): Promise<{ role: string; display_name: string; kind: "personal" | "stack"; stack_team?: string } | null> {
+  async membership(entity: string, user: string): Promise<{ role: string; display_name: string; kind: "personal" | "stack"; stack_team?: string; authority_version: string } | null> {
     const state = this.isBound(entity) ? this.bind(entity).currentState : undefined
     const role = state?.team?.id === entity && state.team.deleted_at === undefined ? roleOf(state, this.rows, user) : undefined
     if (!role || !state?.team) return null
     const stackTeam = state.team.kind === "stack" ? state.team.stack_team : undefined
     const reference = stackTeam && stackTeamIdFor(this.env.STACK_PROJECT_ID, stackTeam) === entity ? { stack_team: stackTeam } : {}
-    return { role, display_name: state.team.display_name, kind: state.team.kind, ...reference }
+    const authority_version = teamAuthorityVersion(entity, user, role, state.team.kind, currentPolicy(state).version, this.rows)
+    return { role, display_name: state.team.display_name, kind: state.team.kind, ...reference, authority_version }
+  }
+  /** Read-only sign-in checks may bind empty storage; created or deleted membership never falls back. */
+  async personalScopeAuthority(entity: string, user: string): Promise<string | null> {
+    if (entity !== personalTeamIdFor(user)) return null
+    const engine = this.isBound(entity) ? this.bind(entity) : undefined
+    if (!engine || (engine.currentSeq === 0 && !engine.currentState.team && currentPolicy(engine.currentState).version === 0)) return teamAuthorityVersion(entity, user, "owner", "personal", 0)
+    return (await this.membership(entity, user))?.authority_version ?? null
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)

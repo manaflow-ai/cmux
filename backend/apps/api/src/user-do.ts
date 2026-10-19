@@ -20,6 +20,7 @@ import { SecondaryStream } from "./secondary-stream.ts"
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
+import { readInstallAuthority } from "./user-install-authority.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -336,6 +337,13 @@ export class UserDO extends OwnerDO<UserState> {
     if (op === "user.text_confirm.get" || op === "user.presence_key.list") return confirmRead(op, state, principal, () => admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()))
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
+  }
+
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    if (op !== "install.authority") return super.readOp(entity, principal, op, params)
+    if (!this.isBound(entity)) return { ok: false, code: "auth.forbidden", message: "no active install owner" }
+    const engine = this.bind(entity)
+    return readInstallAuthority(this.env, entity, principal, params, () => engine.currentState, () => String(engine.currentSeq))
   }
 
   /** Device push tokens reach only the user's session and the install that owns each token. */

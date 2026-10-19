@@ -1278,6 +1278,7 @@ export type UserTeam = {
   readonly kind: "personal" | "stack"
   readonly stack_team?: string | null
   readonly role: TeamRole
+  readonly authority_version?: string | null
   readonly sso_required: boolean
 }
 

@@ -694,6 +694,8 @@ pub struct UserTeam {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub stack_team: Option<Option<String>>,
     pub role: TeamRole,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub authority_version: Option<Option<String>>,
     pub sso_required: bool,
 }
 

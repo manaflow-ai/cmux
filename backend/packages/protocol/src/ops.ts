@@ -37,6 +37,7 @@ import { teamMemberOps } from "./team-member-ops.ts"
 import { teamSshOps } from "./team-ssh-ops.ts"
 import { cloudMachineOps } from "./cloud-machine-ops.ts"
 import { cloudVmOps } from "./cloud-vm-ops.ts"
+import { InstallAuthority } from "./install-authority-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -231,6 +232,7 @@ export const cloudOps = [
   InstallRevoke,
   InstallSignOut,
   InstallList,
+  InstallAuthority,
   UserTeamsList,
   TeamDirectory,
   TeamMembersList,
