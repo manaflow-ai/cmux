@@ -43,7 +43,7 @@ final class NewTabButtonView: NSView {
     }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {

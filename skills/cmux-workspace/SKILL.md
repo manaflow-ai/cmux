@@ -59,6 +59,21 @@ For auxiliary output (preview apps, TUIs, logs, one-off shells, browser checks),
 
 Repeated "open it" requests add tabs to the existing helper pane, not more splits.
 
+An agent in a chat tab: `cmux --json identify` names its chat (`caller.pane`) and the column right of it (`beside.pane`, or `"placement": "new_column"` when there is none). `cmux open URL` opens a page there and makes the column when needed. For a file, use `cmux action run file.open --target <beside.pane> --path FILE --where tab`. With no column yet, make it once with `cmux pane <caller.pane> split --right --viewport-width 0.5` (a chat dock takes no plain split).
+
+## Sidebar groups
+
+Keep the sidebar sorted by topic so the user is not overwhelmed. Each workspace you create or adopt (a subagent's, a moved session, a new task) goes into a group named by its topic, for example "Agents & routing" or "cmux-next app":
+
+```bash
+cmux --json workspace group list                         # reuse a matching group
+cmux workspace group create --name "cmux-next app"       # once 2+ related workspaces have none
+cmux workspace group <group> add --workspace ws_…
+cmux workspace group <group> update --collapse           # its work is done or stale
+```
+
+Home stays on top and ungrouped. Grouping never closes or renames the user's workspaces. Groups are personal: they live in this Mac's home session.
+
 ## Caller terminal
 
 Text is written literally. Add `\n` yourself, or send `enter` as a key.
