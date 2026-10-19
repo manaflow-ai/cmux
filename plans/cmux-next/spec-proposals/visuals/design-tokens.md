@@ -29,7 +29,7 @@ Every source line below is in `ThemeTokens.derive` (`ThemeTokens.swift`) unless 
 | textTertiary | textPrimary mixed toward bg, up to 0.55, keeping 3:1 | :157 |
 | hoverFill | fg @ 0.06 / 0.05 | :148 |
 | selectionFill | fg @ 0.10 / 0.08; with appearance.accent: accent @ 0.26 / 0.16 | :150 |
-| secondarySelectionFill | fg @ 0.07 / 0.055 | :196 |
+| secondarySelectionFill | fg @ 0.07 / 0.055; with appearance.accent: accent @ 0.18 / 0.11 | :196 |
 | pressedFill | fg @ 0.14 / 0.11 | :151 |
 | badgeFill | fg @ 0.14 / 0.10 | :198 |
 | separator | fg @ 0.08 / 0.07; clear under borders none | :199; Palette.swift:66 (`Palette.separator`) |
@@ -211,7 +211,7 @@ Every listed surface draws through `OverlaySurfaceView`: the drop overlay, drop 
 
 The "older macOS" column cannot run in the macOS app today: `Packages/macOS/CmuxNext/Package.swift` requires macOS 26. Ports on a platform without Liquid Glass use the vibrancy row where the platform has a blur, else the opaque fallback.
 
-The overlay tint strength Debug tunable (default 1, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
+The overlay tint strength Debug tunable (default 1.25, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
 
 ## 5. Motion
 
