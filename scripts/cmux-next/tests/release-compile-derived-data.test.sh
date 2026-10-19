@@ -112,8 +112,8 @@ status=0
 RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/cmux-next-x/../other" >"$TMP/out" 2>&1 || status=$?
 [[ $status -eq 2 && -d "$RT/other/Build" ]] || fail "a .. path escaped the guard (exit $status)"
 
-# 6. The guard gates an rm -rf. A RUNNER_TEMP that is empty, / or a top-level
-#    directory accepts nothing, and a path is judged where it resolves: a link
+# 6. The guard gates an rm -rf. A RUNNER_TEMP that is empty, /, a top-level
+#    directory or a home directory accepts nothing, and a path is judged where it resolves: a link
 #    named like a lane's DerivedData cannot aim the clear elsewhere. Every path
 #    here is under $RT or does not exist, so a broken guard removes nothing real.
 clear_at() {
@@ -125,7 +125,9 @@ victim="$RT/victim"; mkdir -p "$victim/Build"
 top="/$(printf '%s' "$RT" | cut -d/ -f2)"
 missing="cmux-next-guard-test-$$-missing"
 [[ ! -e "/$missing" && ! -e "$top/$missing" ]] || fail "test paths /$missing or $top/$missing exist"
-for spec in "RUNNER_TEMP=/|/$missing" "RUNNER_TEMP=$top|$top/$missing" "RUNNER_TEMP=|$RT/cmux-next-release-compile" \
+home="/$(printf '%s' "$HOME" | cut -d/ -f2-3)"
+[[ ! -e "$home/$missing" ]] || fail "test path $home/$missing exists"
+for spec in "RUNNER_TEMP=/|/$missing" "RUNNER_TEMP=$top|$top/$missing" "RUNNER_TEMP=$home|$home/$missing" "RUNNER_TEMP=|$RT/cmux-next-release-compile" \
   "RUNNER_TEMP=relative|relative/cmux-next-release-compile"; do
   path=${spec#*|}; clear_at "${spec%%|*}"
   [[ $status -eq 2 ]] || fail "${spec%%|*} accepted $path (exit $status)"
