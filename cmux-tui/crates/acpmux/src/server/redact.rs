@@ -63,6 +63,14 @@ fn hide_harness_contents(reply: &mut Value) {
                 .is_some_and(|v| !v.is_empty());
             profile.remove("modelsCommand");
             profile.insert("hasModelsCommand".into(), Value::Bool(has_models_command));
+            let has_sessions = profile.remove("sessions").is_some_and(|value| !value.is_null());
+            profile.insert("hasSessions".into(), Value::Bool(has_sessions));
+            if profile.remove("unavailable").is_some() {
+                profile.insert("unavailable".into(), Value::String("unavailable".into()));
+            }
+            if profile.remove("probeError").is_some() {
+                profile.insert("probeError".into(), Value::String("unavailable".into()));
+            }
         }
     }
     if let Some(defaults) = reply.get_mut("defaults").and_then(Value::as_object_mut) {
