@@ -38,6 +38,8 @@ parser.add_argument("--seconds", type=float, default=1.2)
 parser.add_argument("--speed", default="fast", help="debug.motion speed for the run (fast is the default setting)")
 parser.add_argument("--layout", action="append", default=[], help="close, row, grid, strip, springs, splits, perf (default: all)")
 parser.add_argument("--reduce-motion", action="store_true")
+parser.add_argument("--no-pixels", action="store_true",
+                    help="no window record in any scenario: the trace runs at the display's rate (the record's per-frame JPEG loads the main thread)")
 parser.add_argument("--video", action="store_true", help="also record the display through the capture daemon (--cua-socket)")
 parser.add_argument("--cua-socket", default=os.path.expanduser("~/Library/Application Support/cmux/agent-capture/run/cua.sock"))
 parser.add_argument("--app-name", default="", help="the app's name (cmux DEV <tag>), to find its window in the display video")
@@ -272,9 +274,10 @@ def record(name, trigger, seconds=None, pixels=True):
         started_video = cua("start_recording", {"output_dir": video, "record_video": True})
         print(name, "video", json.dumps(started_video)[:160], flush=True)
         settle(0.4)
-    rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "dividers", "zoom"]})
+    rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "dividers", "zoom", "strip_edges"]})
     rpc("debug.motion", {"action": "start"})
     t0 = time.monotonic()
+    pixels = pixels and not opts.no_pixels
     started = rpc("debug.window_record", {"dir": directory, "seconds": seconds}) if pixels else {"pixels": False}
     t_started = time.monotonic() - t0
     time.sleep(0.15)  # test harness: still frames before the change

@@ -62,11 +62,14 @@ extension ScreenContentView {
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []
+        let scale = self.scale
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
-            let placed = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
+            // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
+            // apart (a pane and the divider beside it, both on the one spring) stay that far apart.
+            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: scrolls ? restStrip : 0, dy: -rowOffset(of: pane))
             host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
@@ -86,7 +89,7 @@ extension ScreenContentView {
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
-            view.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: kind))
+            view.frame = frame.rect.pixelEdges(scale).offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: kind))
             view.alphaValue = frame.alpha.value
             // A strip divider under a docked column must not take its clicks.
             let hidden = scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5
@@ -111,4 +114,14 @@ extension ScreenContentView {
     }
     var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
     var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
+}
+
+extension CGRect {
+    /// This rect with each edge on the nearest device pixel (`scale` pixels per point).
+    func pixelEdges(_ scale: CGFloat) -> CGRect {
+        guard scale > 0 else { return self }
+        let minX = (self.minX * scale).rounded() / scale, maxX = (self.maxX * scale).rounded() / scale
+        let minY = (self.minY * scale).rounded() / scale, maxY = (self.maxY * scale).rounded() / scale
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
 }

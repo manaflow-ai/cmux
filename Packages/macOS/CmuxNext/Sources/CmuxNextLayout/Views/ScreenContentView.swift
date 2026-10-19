@@ -81,7 +81,7 @@ final class ScreenContentView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    fileprivate var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+    var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size

@@ -21,7 +21,8 @@ extension ScreenContentView {
     /// Each pane row goes on with what its content is laid out at: the host's frame
     /// `[fx, fy, fwidth, fheight]` (window points, top-left origin), the content view's size
     /// `[cwidth, cheight]`, and `header`, the share of the content's header (its tab strip)
-    /// that shows (1: all of it; 0 without a header).
+    /// that shows (1: all of it; 0 without a header), then the content view in the window
+    /// `[cx, cy, cwidth, cheight]`.
     static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let screen = view as? ScreenContentView else { return nil }
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor else { return [:] }
@@ -42,6 +43,7 @@ extension ScreenContentView {
                 let headerShare = header.width * header.height > 0 && !shownHeader.isNull
                     ? Double(shownHeader.width * shownHeader.height / (header.width * header.height)) : 0
                 let laidOut = topLeft(host.frame, in: screen) + [Double(host.content.frame.width), Double(host.content.frame.height), (headerShare * 1000).rounded() / 1000]
+                    + topLeft(host.content.bounds, in: host.content)
                 let row: [Any] = [host.pane.rawValue as Any] + topLeft(rect, in: screen).map { $0 as Any } + [Double(host.alphaValue) as Any, index as Any]
                     + laidOut.map { $0 as Any }
                 panes.append(row)

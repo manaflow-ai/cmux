@@ -20,14 +20,25 @@ public struct TabStripDebug {
     public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }
 
     /// `debug.motion` `trace_*` (a `MotionFrameTrace` sampler): each tab cell of a strip as
-    /// `[id, x, width, opacity]` in the tab row, and the strip's width; nil for another view.
+    /// `[id, x, width, opacity]` in the tab row, the strip's width, and `strip_edges`: the strip
+    /// in its window as `[minX, maxX, top, pillsMaxX]` (points, top-left origin; `pillsMaxX` the
+    /// right edge of its last tab cell as shown), so a split's frames can be checked against the
+    /// divider; nil for another view.
     public static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let strip = view as? TabStripView else { return nil }
         // What shows on this frame: the presentation layer, with every Core Animation move in flight.
-        return ["tabs": strip.cells.map { id, cell in
+        var pills = -Double.infinity
+        let tabs: [Any] = strip.cells.map { id, cell in
             let shown = cell.layer.presentation() ?? cell.layer
+            pills = max(pills, Double(strip.tabsClip.convert(CGPoint(x: shown.frame.maxX, y: 0), to: nil).x))
             return [id.rawValue, Double(shown.frame.minX), Double(shown.frame.width), Double(shown.opacity)] as [Any]
-        },
-                "strip": [Double(strip.bounds.width)]]
+        }
+        var sample: [String: [Any]] = ["tabs": tabs, "strip": [Double(strip.bounds.width)]]
+        if let window = strip.window {
+            let frame = strip.convert(strip.bounds, to: nil)
+            let edges = [frame.minX, frame.maxX, window.frame.height - frame.maxY].map { (Double($0) * 100).rounded() / 100 }
+            sample["strip_edges"] = [edges + [pills.isFinite ? (pills * 100).rounded() / 100 : 0]]
+        }
+        return sample
     }
 }
