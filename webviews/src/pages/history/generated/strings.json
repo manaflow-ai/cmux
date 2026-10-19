@@ -47,7 +47,12 @@
     "range.week": "Last 7 Days",
     "row.current": "Current",
     "row.offline": "Offline",
-    "row.running": "Running"
+    "row.running": "Running",
+    "titlebarHistory.browser": "Browser",
+    "titlebarHistory.chatsAndPages": "Chats and Pages",
+    "titlebarHistory.otherWorkspaces": "Other Workspaces",
+    "titlebarHistory.showAll": "Show All History",
+    "titlebarHistory.terminals": "Terminals"
   },
   "ar": {
     "cookieBackups.confirm.delete": "حذف النسخ الاحتياطية",
@@ -97,7 +102,12 @@
     "range.week": "آخر 7 أيام",
     "row.current": "الحالي",
     "row.offline": "غير متصل",
-    "row.running": "قيد التشغيل"
+    "row.running": "قيد التشغيل",
+    "titlebarHistory.browser": "المتصفح",
+    "titlebarHistory.chatsAndPages": "المحادثات والصفحات",
+    "titlebarHistory.otherWorkspaces": "مساحات عمل أخرى",
+    "titlebarHistory.showAll": "عرض كل السجل",
+    "titlebarHistory.terminals": "الطرفيات"
   },
   "bs": {
     "cookieBackups.confirm.delete": "Obriši kopije",
@@ -147,7 +157,12 @@
     "range.week": "Posljednjih 7 dana",
     "row.current": "Trenutno",
     "row.offline": "Van mreže",
-    "row.running": "Radi"
+    "row.running": "Radi",
+    "titlebarHistory.browser": "Preglednik",
+    "titlebarHistory.chatsAndPages": "Razgovori i stranice",
+    "titlebarHistory.otherWorkspaces": "Drugi radni prostori",
+    "titlebarHistory.showAll": "Prikaži cijelu historiju",
+    "titlebarHistory.terminals": "Terminali"
   },
   "da": {
     "cookieBackups.confirm.delete": "Slet sikkerhedskopier",
@@ -197,7 +212,12 @@
     "range.week": "Seneste 7 dage",
     "row.current": "Aktuel",
     "row.offline": "Offline",
-    "row.running": "Kører"
+    "row.running": "Kører",
+    "titlebarHistory.browser": "Browser",
+    "titlebarHistory.chatsAndPages": "Chats og sider",
+    "titlebarHistory.otherWorkspaces": "Andre arbejdsområder",
+    "titlebarHistory.showAll": "Vis al historik",
+    "titlebarHistory.terminals": "Terminaler"
   },
   "de": {
     "cookieBackups.confirm.delete": "Sicherungen löschen",
@@ -247,7 +267,12 @@
     "range.week": "Letzte 7 Tage",
     "row.current": "Aktuell",
     "row.offline": "Offline",
-    "row.running": "Läuft"
+    "row.running": "Läuft",
+    "titlebarHistory.browser": "Browser",
+    "titlebarHistory.chatsAndPages": "Chats und Seiten",
+    "titlebarHistory.otherWorkspaces": "Andere Arbeitsbereiche",
+    "titlebarHistory.showAll": "Gesamten Verlauf anzeigen",
+    "titlebarHistory.terminals": "Terminals"
   },
   "es": {
     "cookieBackups.confirm.delete": "Eliminar copias",
@@ -297,7 +322,12 @@
     "range.week": "Últimos 7 días",
     "row.current": "Actual",
     "row.offline": "Sin conexión",
-    "row.running": "En curso"
+    "row.running": "En curso",
+    "titlebarHistory.browser": "Navegador",
+    "titlebarHistory.chatsAndPages": "Chats y páginas",
+    "titlebarHistory.otherWorkspaces": "Otros espacios de trabajo",
+    "titlebarHistory.showAll": "Mostrar todo el historial",
+    "titlebarHistory.terminals": "Terminales"
   },
   "fr": {
     "cookieBackups.confirm.delete": "Supprimer les sauvegardes",
@@ -347,7 +377,12 @@
     "range.week": "7 derniers jours",
     "row.current": "Actuel",
     "row.offline": "Hors ligne",
-    "row.running": "En cours"
+    "row.running": "En cours",
+    "titlebarHistory.browser": "Navigateur",
+    "titlebarHistory.chatsAndPages": "Discussions et pages",
+    "titlebarHistory.otherWorkspaces": "Autres espaces de travail",
+    "titlebarHistory.showAll": "Afficher tout l’historique",
+    "titlebarHistory.terminals": "Terminaux"
   },
   "it": {
     "cookieBackups.confirm.delete": "Elimina backup",
@@ -397,7 +432,12 @@
     "range.week": "Ultimi 7 giorni",
     "row.current": "Attuale",
     "row.offline": "Offline",
-    "row.running": "In esecuzione"
+    "row.running": "In esecuzione",
+    "titlebarHistory.browser": "Browser",
+    "titlebarHistory.chatsAndPages": "Chat e pagine",
+    "titlebarHistory.otherWorkspaces": "Altre aree di lavoro",
+    "titlebarHistory.showAll": "Mostra tutta la cronologia",
+    "titlebarHistory.terminals": "Terminali"
   },
   "ja": {
     "cookieBackups.confirm.delete": "バックアップを削除",
@@ -447,7 +487,12 @@
     "range.week": "過去7日間",
     "row.current": "現在",
     "row.offline": "オフライン",
-    "row.running": "実行中"
+    "row.running": "実行中",
+    "titlebarHistory.browser": "ブラウザ",
+    "titlebarHistory.chatsAndPages": "チャットとページ",
+    "titlebarHistory.otherWorkspaces": "ほかのワークスペース",
+    "titlebarHistory.showAll": "すべての履歴を表示",
+    "titlebarHistory.terminals": "ターミナル"
   },
   "km": {
     "cookieBackups.confirm.delete": "លុបការបម្រុងទុក",
@@ -497,7 +542,12 @@
     "range.week": "7 ថ្ងៃចុងក្រោយ",
     "row.current": "បច្ចុប្បន្ន",
     "row.offline": "ក្រៅបណ្ដាញ",
-    "row.running": "កំពុងដំណើរការ"
+    "row.running": "កំពុងដំណើរការ",
+    "titlebarHistory.browser": "កម្មវិធីរុករក",
+    "titlebarHistory.chatsAndPages": "ការជជែក និងទំព័រ",
+    "titlebarHistory.otherWorkspaces": "កន្លែងធ្វើការផ្សេងទៀត",
+    "titlebarHistory.showAll": "បង្ហាញប្រវត្តិទាំងអស់",
+    "titlebarHistory.terminals": "ស្ថានីយ"
   },
   "ko": {
     "cookieBackups.confirm.delete": "백업 삭제",
@@ -547,7 +597,12 @@
     "range.week": "지난 7일",
     "row.current": "현재",
     "row.offline": "오프라인",
-    "row.running": "실행 중"
+    "row.running": "실행 중",
+    "titlebarHistory.browser": "브라우저",
+    "titlebarHistory.chatsAndPages": "채팅 및 페이지",
+    "titlebarHistory.otherWorkspaces": "다른 작업 공간",
+    "titlebarHistory.showAll": "전체 기록 보기",
+    "titlebarHistory.terminals": "터미널"
   },
   "nb": {
     "cookieBackups.confirm.delete": "Slett sikkerhetskopier",
@@ -597,7 +652,12 @@
     "range.week": "Siste 7 dager",
     "row.current": "Nåværende",
     "row.offline": "Frakoblet",
-    "row.running": "Kjører"
+    "row.running": "Kjører",
+    "titlebarHistory.browser": "Nettleser",
+    "titlebarHistory.chatsAndPages": "Chatter og sider",
+    "titlebarHistory.otherWorkspaces": "Andre arbeidsområder",
+    "titlebarHistory.showAll": "Vis all historikk",
+    "titlebarHistory.terminals": "Terminaler"
   },
   "pl": {
     "cookieBackups.confirm.delete": "Usuń kopie",
@@ -647,7 +707,12 @@
     "range.week": "Ostatnie 7 dni",
     "row.current": "Bieżące",
     "row.offline": "Offline",
-    "row.running": "Działa"
+    "row.running": "Działa",
+    "titlebarHistory.browser": "Przeglądarka",
+    "titlebarHistory.chatsAndPages": "Czaty i strony",
+    "titlebarHistory.otherWorkspaces": "Inne obszary robocze",
+    "titlebarHistory.showAll": "Pokaż całą historię",
+    "titlebarHistory.terminals": "Terminale"
   },
   "pt-BR": {
     "cookieBackups.confirm.delete": "Apagar backups",
@@ -697,7 +762,12 @@
     "range.week": "Últimos 7 dias",
     "row.current": "Atual",
     "row.offline": "Offline",
-    "row.running": "Em execução"
+    "row.running": "Em execução",
+    "titlebarHistory.browser": "Navegador",
+    "titlebarHistory.chatsAndPages": "Chats e páginas",
+    "titlebarHistory.otherWorkspaces": "Outros espaços de trabalho",
+    "titlebarHistory.showAll": "Mostrar todo o histórico",
+    "titlebarHistory.terminals": "Terminais"
   },
   "ru": {
     "cookieBackups.confirm.delete": "Удалить копии",
@@ -747,7 +817,12 @@
     "range.week": "Последние 7 дней",
     "row.current": "Текущее",
     "row.offline": "Не в сети",
-    "row.running": "Выполняется"
+    "row.running": "Выполняется",
+    "titlebarHistory.browser": "Браузер",
+    "titlebarHistory.chatsAndPages": "Чаты и страницы",
+    "titlebarHistory.otherWorkspaces": "Другие рабочие пространства",
+    "titlebarHistory.showAll": "Показать всю историю",
+    "titlebarHistory.terminals": "Терминалы"
   },
   "th": {
     "cookieBackups.confirm.delete": "ลบข้อมูลสำรอง",
@@ -797,7 +872,12 @@
     "range.week": "7 วันที่ผ่านมา",
     "row.current": "ปัจจุบัน",
     "row.offline": "ออฟไลน์",
-    "row.running": "กำลังทำงาน"
+    "row.running": "กำลังทำงาน",
+    "titlebarHistory.browser": "เบราว์เซอร์",
+    "titlebarHistory.chatsAndPages": "แชทและหน้า",
+    "titlebarHistory.otherWorkspaces": "พื้นที่ทำงานอื่น",
+    "titlebarHistory.showAll": "แสดงประวัติทั้งหมด",
+    "titlebarHistory.terminals": "เทอร์มินัล"
   },
   "tr": {
     "cookieBackups.confirm.delete": "Yedekleri sil",
@@ -847,7 +927,12 @@
     "range.week": "Son 7 gün",
     "row.current": "Geçerli",
     "row.offline": "Çevrimdışı",
-    "row.running": "Çalışıyor"
+    "row.running": "Çalışıyor",
+    "titlebarHistory.browser": "Tarayıcı",
+    "titlebarHistory.chatsAndPages": "Sohbetler ve Sayfalar",
+    "titlebarHistory.otherWorkspaces": "Diğer Çalışma Alanları",
+    "titlebarHistory.showAll": "Tüm Geçmişi Göster",
+    "titlebarHistory.terminals": "Terminaller"
   },
   "uk": {
     "cookieBackups.confirm.delete": "Видалити копії",
@@ -897,7 +982,12 @@
     "range.week": "Останні 7 днів",
     "row.current": "Поточне",
     "row.offline": "Не в мережі",
-    "row.running": "Виконується"
+    "row.running": "Виконується",
+    "titlebarHistory.browser": "Браузер",
+    "titlebarHistory.chatsAndPages": "Чати й сторінки",
+    "titlebarHistory.otherWorkspaces": "Інші робочі простори",
+    "titlebarHistory.showAll": "Показати всю історію",
+    "titlebarHistory.terminals": "Термінали"
   },
   "vi": {
     "cookieBackups.confirm.delete": "Xóa bản sao lưu",
@@ -947,7 +1037,12 @@
     "range.week": "7 ngày qua",
     "row.current": "Hiện tại",
     "row.offline": "Ngoại tuyến",
-    "row.running": "Đang chạy"
+    "row.running": "Đang chạy",
+    "titlebarHistory.browser": "Trình duyệt",
+    "titlebarHistory.chatsAndPages": "Cuộc trò chuyện và trang",
+    "titlebarHistory.otherWorkspaces": "Không gian làm việc khác",
+    "titlebarHistory.showAll": "Hiện toàn bộ lịch sử",
+    "titlebarHistory.terminals": "Thiết bị đầu cuối"
   },
   "zh-Hans": {
     "cookieBackups.confirm.delete": "删除备份",
@@ -997,7 +1092,12 @@
     "range.week": "过去 7 天",
     "row.current": "当前",
     "row.offline": "离线",
-    "row.running": "运行中"
+    "row.running": "运行中",
+    "titlebarHistory.browser": "浏览器",
+    "titlebarHistory.chatsAndPages": "聊天和页面",
+    "titlebarHistory.otherWorkspaces": "其他工作区",
+    "titlebarHistory.showAll": "显示全部历史记录",
+    "titlebarHistory.terminals": "终端"
   },
   "zh-Hant": {
     "cookieBackups.confirm.delete": "刪除備份",
@@ -1047,6 +1147,11 @@
     "range.week": "過去 7 天",
     "row.current": "目前",
     "row.offline": "離線",
-    "row.running": "執行中"
+    "row.running": "執行中",
+    "titlebarHistory.browser": "瀏覽器",
+    "titlebarHistory.chatsAndPages": "聊天與頁面",
+    "titlebarHistory.otherWorkspaces": "其他工作區",
+    "titlebarHistory.showAll": "顯示所有歷史記錄",
+    "titlebarHistory.terminals": "終端機"
   }
 }
