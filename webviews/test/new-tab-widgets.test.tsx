@@ -144,14 +144,14 @@ test("New Tab draws the widget cards only when they are on; a pick, an open and 
     showAllChats: noop,
     runShell: noop,
   });
-  const render = (root: Root, widgets: boolean) =>
+  const render = (root: Root, widgets: boolean, cwd = "/Users/you") =>
     act(async () =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
           <NewTabScreen
             snapshot={noChat(sessions)}
             lastAgent="claude"
-            cwd="/Users/you"
+            cwd={cwd}
             projects={projects}
             machineName="cosmic-gray"
             widgets={widgets}
@@ -196,11 +196,28 @@ test("New Tab draws the widget cards only when they are on; a pick, an open and 
   } finally {
     act(() => root.unmount());
   }
-  // The dismiss holds on the next New Tab.
+  // The dismiss holds on the next New Tab, and a dismiss there keeps the one made here (both read
+  // the shared storage).
   root = createRoot(host);
   try {
     await render(root, true);
     expect(host.querySelectorAll(".nt-widget-chat").length).toBe(3);
+    window.localStorage.setItem(
+      DISMISSED_STORAGE_KEY,
+      JSON.stringify([...JSON.parse(window.localStorage.getItem(DISMISSED_STORAGE_KEY)!), "elsewhere@1"]),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>(".nt-widget-dismiss")!.click());
+    const kept = JSON.parse(window.localStorage.getItem(DISMISSED_STORAGE_KEY)!) as string[];
+    expect(kept.some((key) => key.startsWith("failed@"))).toBe(true);
+    expect(kept).toContain("elsewhere@1");
+  } finally {
+    act(() => root.unmount());
+  }
+  // The folder the tab inherited is no pick (the chat would not start there): the card leaves it out.
+  root = createRoot(host);
+  try {
+    await render(root, true, "/Users/you/src/cmux");
+    expect([...host.querySelectorAll(".nt-widget-row")].map((row) => row.textContent)).toEqual(["cosmic-gray", "web"]);
   } finally {
     act(() => root.unmount());
     window.localStorage.removeItem(DISMISSED_STORAGE_KEY);

@@ -688,6 +688,8 @@ export function NewTabScreen(props: Props) {
           sessions={snapshot.sessions}
           projects={props.projects ?? []}
           {...(askFolder ? { folder: askFolder } : {})}
+          {...(props.cwd ? { inherited: props.cwd } : {})}
+          attention={!allChats}
           {...(props.machineName ? { machineName: props.machineName } : {})}
           onProject={pickProject}
           onOpen={openCard}

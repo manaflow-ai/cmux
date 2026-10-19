@@ -15,6 +15,8 @@ export function WidgetCards({
   sessions,
   projects,
   folder,
+  inherited,
+  attention = true,
   machineName,
   onProject,
   onOpen,
@@ -23,6 +25,11 @@ export function WidgetCards({
   projects: readonly Project[];
   /// The folder a prompt starts in (the location strip's), checked in the Projects card.
   folder?: string;
+  /// The folder the tab inherited: a pick of it is no pick (NewTabScreen's askFolder), so the card
+  /// lists it only when it is the folder a prompt starts in.
+  inherited?: string;
+  /// false: no Needs you card (the All chats templates list those chats themselves).
+  attention?: boolean;
   machineName?: string;
   onProject(cwd: string): void;
   onOpen(sessionId: string): void;
@@ -30,10 +37,18 @@ export function WidgetCards({
   const nt = useNt();
   const t = useT();
   const [dismissed, setDismissed] = useState(loadDismissed);
-  const shownProjects = useMemo(() => recentProjects(projects, sessions), [projects, sessions]);
-  const chats = useMemo(() => attentionChats(sessions, dismissed), [sessions, dismissed]);
+  const shownProjects = useMemo(
+    () =>
+      recentProjects(
+        projects.filter((project) => project.cwd !== inherited || project.cwd === folder),
+        sessions,
+      ),
+    [projects, sessions, inherited, folder],
+  );
+  const chats = useMemo(() => (attention ? attentionChats(sessions, dismissed) : []), [attention, sessions, dismissed]);
   const dismiss = (chat: AttentionChat) => {
-    const next = new Set(dismissed);
+    // Read again: another New Tab page may have dismissed a chat since this one opened.
+    const next = loadDismissed();
     next.add(chat.key);
     saveDismissed(next);
     setDismissed(next);
@@ -81,12 +96,7 @@ export function WidgetCards({
                   </span>
                 }
               >
-                <button
-                  type="button"
-                  className="nt-widget-chat-open"
-                  aria-label={nt("card.open", { title: chat.title })}
-                  onClick={() => onOpen(chat.sessionId)}
-                >
+                <button type="button" className="nt-widget-chat-open" onClick={() => onOpen(chat.sessionId)}>
                   <span className="nt-widget-state">{stateLabel(chat)}</span>
                   <span className="nt-widget-title">{chat.title}</span>
                 </button>

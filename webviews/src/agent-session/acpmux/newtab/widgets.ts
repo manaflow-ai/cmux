@@ -67,7 +67,8 @@ export function recentProjects(
     .map((entry) => entry.project);
 }
 
-/// Where dismissed chats are kept: this page's storage, so a dismiss holds on every New Tab.
+/// Where dismissed chats are kept: the pages' shared storage, so a dismiss holds on every New Tab
+/// until cmux quits (agent pages use a non-persistent data store).
 export const DISMISSED_STORAGE_KEY = "cmux.newTab.widgets.dismissed";
 /// The dismisses kept; the oldest go first.
 const DISMISSED_LIMIT = 200;
