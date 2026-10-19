@@ -1,41 +1,41 @@
-import CmuxNextSettings
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 
 /// The repository a diff tab shows, from the session host's `git.status` of
 /// the tab's folder: its root, the checked-out branch, and the daemon's base
 /// branch (origin's default branch, else origin/main, origin/master, main,
 /// master; nil when it has none).
-nonisolated struct DiffRepository: Sendable, Equatable {
-    let root: String
-    let branch: String?
-    let base: String?
+public nonisolated struct DiffRepository: Sendable, Equatable {
+    public let root: String
+    public let branch: String?
+    public let base: String?
 
     /// From a `git.status` result; nil without a root.
-    init?(status: JSONValue) {
+    public init?(status: JSONValue) {
         guard let root = status["root"]?.stringValue, !root.isEmpty else { return nil }
         self.root = root
         branch = status["branch"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         base = status["base"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    init(root: String, branch: String?, base: String?) {
+    public init(root: String, branch: String?, base: String?) {
         self.root = root
         self.branch = branch
         self.base = base
     }
 
-    var name: String { URL(fileURLWithPath: root).lastPathComponent }
+    public var name: String { URL(fileURLWithPath: root).lastPathComponent }
 }
 
 /// What a diff tab compares first (the page can switch afterwards).
-nonisolated enum DiffOpenSource: Sendable, Hashable {
+public nonisolated enum DiffOpenSource: Sendable, Hashable {
     /// The branch against `base`; nil is the daemon's base branch.
     case branch(base: String?)
     case unstaged
     case staged
 
     /// The branch against the daemon's base.
-    static let `default` = DiffOpenSource.branch(base: nil)
+    public static let `default` = DiffOpenSource.branch(base: nil)
 }
 
 /// What `cmux.diff.config` answers (webviews/src/diff/page.ts): the viewer
