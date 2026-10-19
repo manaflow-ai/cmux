@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextHomeEngine
 
 /// The Chief tab's one-tap switch (Lawrence 2026-10-19): "Chief" (the Hosted
