@@ -539,7 +539,10 @@ struct CmuxAgentChatConfigTests {
             ContentView.commandPaletteLaunchCodexTeamsCommandID,
             ContentView.commandPaletteLaunchOpenCodeCommandID,
         ])
-        #expect(allProviders[2].title(localContext) == "OpenCode")
+        #expect(
+            allProviders[2].title(localContext)
+                == String(localized: "agentSession.provider.opencode", defaultValue: "OpenCode")
+        )
         #expect(allProviders[2].subtitle(localContext) == "cmux omo")
         #expect(ContentView.commandPaletteAgentLauncherContributions(availableProviders: []).isEmpty)
 
