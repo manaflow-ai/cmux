@@ -1187,6 +1187,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mux2"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "libc",
+]
+
+[[package]]
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
