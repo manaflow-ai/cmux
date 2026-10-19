@@ -26,6 +26,8 @@ nonisolated enum AcpmuxPaneMethods {
         // read by cursor after watch's first page.
         "_acpmux/sessions",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+        // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
+        "_acpmux/watch_take_over",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
@@ -215,7 +217,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/watch_take_over",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
