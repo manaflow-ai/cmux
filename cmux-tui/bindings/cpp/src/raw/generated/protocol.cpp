@@ -33790,6 +33790,56 @@ Result<CloudConversationTypingEvent> Codec<CloudConversationTypingEvent>::decode
     return result;
 }
 
+Result<Json> Codec<CloudHostReplicaNeededEvent>::encode(const CloudHostReplicaNeededEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("cloud-host-replica-needed")));
+    if (!value.expires_at.is_absent()) {
+        auto encoded = encode_value(value.expires_at);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("expires_at", std::move(encoded).value());
+    }
+    auto encoded_reason = encode_value(value.reason);
+    if (!encoded_reason) return std::move(encoded_reason).error();
+    object.emplace("reason", std::move(encoded_reason).value());
+    return Json(std::move(object));
+}
+
+Result<CloudHostReplicaNeededEvent> Codec<CloudHostReplicaNeededEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloudHostReplicaNeededEvent result{};
+    const Json* field_expires_at = value.find("expires_at");
+    if (field_expires_at) {
+        if (field_expires_at->is_null()) {
+            result.expires_at = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_expires_at);
+            if (!decoded) return std::move(decoded).error();
+            result.expires_at = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_reason = value.find("reason");
+    if (!field_reason) {
+        return make_error(ErrorCode::decode, "missing required field 'reason'");
+    }
+    if (field_reason) {
+        auto decoded = decode_value<std::string>(*field_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.reason = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("cloud-host-replica-needed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<CloudInboxChangedEvent>::encode(const CloudInboxChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -40386,6 +40436,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "cloud-host-replica-needed") {
+        auto decoded = decode_value<CloudHostReplicaNeededEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "cloud-inbox-changed") {
         auto decoded = decode_value<CloudInboxChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -41224,7 +41279,7 @@ constexpr std::array<CommandMetadata, 277> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 86> kEvents{{
+constexpr std::array<EventMetadata, 87> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -41243,6 +41298,7 @@ constexpr std::array<EventMetadata, 86> kEvents{{
     {"cloud-conversation-resynced", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-conversation-run-changed", 12U, "cloud-conversation-runs-v1", "subscribe", "emitted"},
     {"cloud-conversation-typing", 12U, "cloud-conversation-typing-v1", "subscribe", "emitted"},
+    {"cloud-host-replica-needed", 12U, "cloud-host-replica-v1", "subscribe", "emitted"},
     {"cloud-inbox-changed", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-inbox-reset", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-mux-resynced", 12U, "cloud-conversations-v1", "subscribe", "emitted"},

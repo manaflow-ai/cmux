@@ -144,8 +144,10 @@ fn a_reply_is_refused_when_the_foreground_cannot_be_read() {
     wait_for_foreground(&server, surface, "the shell", |name| !name.ends_with("cat"));
     send(&server, surface, "exit\n");
     let deadline = Instant::now() + Duration::from_secs(10);
-    while raw_request(&server, serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}))
-        ["data"]["foreground_executable"]
+    while raw_request(
+        &server,
+        serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}),
+    )["data"]["foreground_executable"]
         .is_string()
     {
         assert!(Instant::now() < deadline, "the shell never exited");
