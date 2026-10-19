@@ -287,6 +287,24 @@ async fn start(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Valu
             meta[field] = json!(value);
         }
     }
+    // A host's own guard settles a remote session's mode; here, the harness
+    // profiles this daemon starts, so no child runs laxer than this chat.
+    let profiles = if host.is_none() {
+        let view = daemon
+            .request(method::MUX_HARNESSES, json!({}))
+            .await
+            .map_err(|e| format!("the harness profiles could not be read: {e:#}"))?;
+        view["harnesses"].clone()
+    } else {
+        Value::Null
+    };
+    let caller_full = host.is_some() || full_access(&me, &profiles).is_some();
+    if !caller_full
+        && let Some(name) = text_arg(args, "harness")?
+        && let Some(why) = profile_full_access(&profiles, name)
+    {
+        return Err(laxer_refusal(&why));
+    }
     let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
     if let Some(cwd) = &cwd {
         params["cwd"] = json!(cwd);
@@ -301,7 +319,14 @@ async fn start(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Valu
     }
     let set = json!({crate::hub::views::SPAWNED_BY_TAG: id_of(&me)});
     let _ = daemon.request(method::MUX_TAG, json!({"sessionId": child, "set": set})).await;
-    let fresh = info(daemon, &child).await.unwrap_or_else(|_| created.clone());
+    let fresh = if caller_full {
+        info(daemon, &child).await.unwrap_or_else(|_| created.clone())
+    } else {
+        hold_to_caller(daemon, &me, &child, &profiles).await.map_err(|e| {
+            let made = made.as_ref().map(|w| format!(" (the worktree {} stays)", w.root.display()));
+            format!("{e}{}", made.unwrap_or_default())
+        })?
+    };
     if let Some(policy) = stricter_policy(&me, &fresh) {
         let params = json!({"sessionId": child, "policy": policy});
         daemon.request(method::MUX_SET_POLICY, params).await.map_err(|e| {
@@ -351,14 +376,136 @@ fn leniency(policy: &str) -> Option<u8> {
 }
 
 /// The caller's policy when the child's lets more run without asking (or is
-/// unknown), else `None`.
+/// unknown), else `None`. A caller policy this does not know counts as `ask`.
 fn stricter_policy<'a>(caller: &'a Value, child: &Value) -> Option<&'a str> {
-    let mine = policy_of(caller)?;
+    let mine = policy_of(caller).filter(|p| leniency(p).is_some()).unwrap_or("ask");
     let own = leniency(mine)?;
     match policy_of(child).and_then(leniency) {
         Some(theirs) if theirs <= own => None,
         _ => Some(mine),
     }
+}
+
+/// A session's current harness mode: its ACP mode, else its `mode` option.
+fn mode_of(info: &Value) -> Option<&str> {
+    info["currentModeId"]
+        .as_str()
+        .or_else(|| info["modes"]["currentModeId"].as_str())
+        .or_else(|| config_value(info, |id| id == "mode"))
+}
+
+/// The current value of the first config option whose id `pick` takes.
+fn config_value(info: &Value, pick: impl Fn(&str) -> bool) -> Option<&str> {
+    info["configOptions"].as_array()?.iter().find_map(|o| {
+        o["id"].as_str().filter(|id| pick(id))?;
+        o["currentValue"].as_str()
+    })
+}
+
+/// Why a harness `argv` runs with no permission check or no sandbox: Claude
+/// Code's skip flags or `--permission-mode bypassPermissions`, Codex's bypass
+/// flags, `--yolo`, or a `danger-full-access` sandbox (`--sandbox`, `-s`,
+/// `-c sandbox_mode=`).
+fn argv_full_access(argv: &[String]) -> Option<String> {
+    const SKIPS: [&str; 3] =
+        ["--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox", "--yolo"];
+    let value = |i: usize, flag: &str| -> Option<String> {
+        let a = &argv[i];
+        if a == flag {
+            argv.get(i + 1).cloned()
+        } else {
+            a.strip_prefix(&format!("{flag}=")).map(str::to_owned)
+        }
+    };
+    for (i, a) in argv.iter().enumerate() {
+        if SKIPS.contains(&a.as_str()) {
+            return Some(format!("its command runs {a}"));
+        }
+        if value(i, "--permission-mode").is_some_and(|m| m == "bypassPermissions") {
+            return Some("its command runs --permission-mode bypassPermissions".into());
+        }
+        let sandbox = value(i, "--sandbox").or_else(|| value(i, "-s"));
+        let config = value(i, "-c").or_else(|| value(i, "--config"));
+        let config_sandbox = config.as_deref().is_some_and(|c| {
+            c.trim_start().starts_with("sandbox_mode") && c.contains("danger-full-access")
+        });
+        if sandbox.is_some_and(|m| m == "danger-full-access") || config_sandbox {
+            return Some("its command runs with no sandbox (danger-full-access)".into());
+        }
+    }
+    None
+}
+
+/// Why session `info` runs in full access, if it does: a harness mode that
+/// skips every approval (`start_mode::FULL_ACCESS_MODES`), a
+/// `danger-full-access` sandbox option, or its profile's command
+/// (`profiles`, the `_acpmux/harnesses` map).
+fn full_access(info: &Value, profiles: &Value) -> Option<String> {
+    if let Some(mode) = mode_of(info)
+        && crate::hub::start_mode::FULL_ACCESS_MODES.contains(&mode)
+    {
+        return Some(format!("its mode is {mode}"));
+    }
+    if config_value(info, |id| id.contains("sandbox")) == Some("danger-full-access") {
+        return Some("its sandbox is danger-full-access".into());
+    }
+    profile_full_access(profiles, info["harness"].as_str()?)
+}
+
+/// Why the harness profile `name` runs in full access, if it does.
+fn profile_full_access(profiles: &Value, name: &str) -> Option<String> {
+    let argv: Vec<String> = profiles[name]["argv"]
+        .as_array()?
+        .iter()
+        .filter_map(|a| a.as_str().map(str::to_owned))
+        .collect();
+    argv_full_access(&argv).map(|why| format!("harness {name}: {why}"))
+}
+
+/// The refusal for a new session in full access from a caller that is not.
+fn laxer_refusal(why: &str) -> String {
+    format!(
+        "the new session would run in full access ({why}), and this chat does not: a session started here never asks less than this chat. Pick another harness, or ask the user to start it."
+    )
+}
+
+/// Holds the new session `child` to the caller's harness mode when its own
+/// skips every approval and the caller's does not: the caller's mode where
+/// the child's harness offers it, else its first mode that is not full
+/// access (`session/set_mode`; acpmux lets only the person widen one). A
+/// child that still runs in full access, or whose command does, is closed.
+async fn hold_to_caller(
+    daemon: &Client,
+    me: &Value,
+    child: &str,
+    profiles: &Value,
+) -> Result<Value, String> {
+    let mut fresh = info(daemon, child).await?;
+    if let Some(why) = full_access(&fresh, profiles)
+        && profile_full_access(profiles, fresh["harness"].as_str().unwrap_or_default()).is_none()
+    {
+        let offered: Vec<&str> = fresh["modes"]["availableModes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m["id"].as_str())
+            .collect();
+        let target = mode_of(me).filter(|m| offered.contains(m)).or_else(|| {
+            offered.iter().copied().find(|m| !crate::hub::start_mode::FULL_ACCESS_MODES.contains(m))
+        });
+        if let Some(mode) = target {
+            let params = json!({"sessionId": child, "modeId": mode});
+            if daemon.request(method::SESSION_SET_MODE, params).await.is_ok() {
+                fresh = info(daemon, child).await.unwrap_or(fresh);
+            }
+        }
+        tracing::debug!(child, why, "held a new session to its caller's mode");
+    }
+    if let Some(why) = full_access(&fresh, profiles) {
+        let _ = daemon.request(method::SESSION_CLOSE, json!({"sessionId": child})).await;
+        return Err(laxer_refusal(&why));
+    }
+    Ok(fresh)
 }
 
 /// Refuses a folder the person marked untrusted (`acp.trust.get`).
