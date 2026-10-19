@@ -11,11 +11,13 @@ extension SidebarView {
             SidebarSessionTree.shared.reveal(id)
             self?.model.click(id)
         }
-        // After the list's own patch handler: a status tick that patches one row updates the tray too.
+        // After the list's own patch handler: a status tick that patches one row updates the tray too,
+        // once per burst (every tick walks every section and the tree order otherwise).
         let listPatch = model.onRowsPatched
         model.onRowsPatched = { [weak self] rows in
             listPatch?(rows)
-            self?.refreshNeedsYou()
+            guard let self, SidebarSessionTree.shared.state != nil || self.needsYouTray.preferredHeight > 0 else { return }
+            self.needsYouRefresh.scheduleIfIdle(after: .milliseconds(100)) { @MainActor [weak self] in self?.refreshNeedsYou() }
         }
     }
 

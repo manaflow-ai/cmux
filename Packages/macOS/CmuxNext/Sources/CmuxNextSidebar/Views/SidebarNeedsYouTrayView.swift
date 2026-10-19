@@ -122,7 +122,7 @@ final class SidebarNeedsYouTrayView: NSView {
         let chip = NSRect(x: header.frame.maxX + Metrics.space2, y: y + (Self.headerHeight - c.height - 2) / 2,
                           width: ceil(c.width) + 2 * Metrics.space2, height: c.height + 2)
         countFill.frame = chip
-        countFill.cornerRadius = chip.height / 2
+        countFill.cornerRadius = Metrics.chipCornerRadius(height: chip.height)
         count.frame = NSRect(x: chip.minX + Metrics.space2, y: chip.minY + 1, width: ceil(c.width), height: c.height)
         y += Self.headerHeight
         for row in rows where !row.isHidden {
@@ -186,6 +186,7 @@ private final class TrayLine: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard onClick != nil else { return } // a footnote with nowhere to go does not press
         layer?.backgroundColor = Palette.badgeFill.cgColor
     }
 
