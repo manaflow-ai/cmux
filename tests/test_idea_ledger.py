@@ -70,6 +70,7 @@ BEADS = [
     {"id": "cx-idea1", "title": "Chat-only idea", "status": "open", "assignee": "", "updated_at": FRESH},
     {"id": "cx-build1", "title": "Being built", "status": "in_progress", "assignee": "lane-x", "updated_at": FRESH},
     {"id": "cx-done1", "title": "Dropped", "status": "closed", "assignee": "", "updated_at": OLD},
+    {"id": "cx-umb1", "title": "An umbrella many PRs name", "status": "open", "assignee": "", "updated_at": FRESH},
 ]
 
 FAKE_GH = """#!/usr/bin/env python3
@@ -81,32 +82,36 @@ if sys.argv[1:2] == ["api"] and "/commits?sha=" in path:
 raise SystemExit("unexpected gh call: " + " ".join(sys.argv[1:]))
 """
 FAKE_BD = """#!/usr/bin/env python3
-import json, sys
+import json, os, sys
 args = sys.argv[1:]
 assert "--readonly" in args, args
 for word in ("create", "close", "update", "comment"):
     assert word not in args, args
+if "--all" in args and os.environ.get("BD_FAIL_ALL"):
+    raise SystemExit("the closed list timed out")
 print(json.dumps(json.loads(open(%(beads)r).read())))
 """
 
 
 class IdeaLedgerTest(unittest.TestCase):
-    def run_ledger(self, *extra):
+    def run_ledger(self, *extra, raw=None, env_extra=None):
         temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (temp / "bin").mkdir()
         (temp / "bin/gh").write_text(FAKE_GH % {"shipped": SHIPPED_SHA})
         (temp / "beads.json").write_text(json.dumps(BEADS))
         (temp / "bd").write_text(FAKE_BD % {"beads": str(temp / "beads.json")})
-        (temp / "raw.json").write_text(json.dumps(RAW))
+        (temp / "raw.json").write_text(json.dumps(raw or RAW))
         for tool in ("bin/gh", "bd"):
             (temp / tool).chmod(0o755)
         env = {**os.environ, "PATH": f"{temp / 'bin'}:{os.environ['PATH']}", "BEADS_BD_COMMAND": str(temp / "bd")}
         env.pop("BEADS_SSH_HOST", None)
+        env.update(env_extra or {})
         result = subprocess.run([sys.executable, str(SCRIPT), "--out", str(temp / "out"), "--replay",
                                  str(temp / "raw.json"), "--no-model", "--now", NOW, *extra],
                                 cwd=temp, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         ledger = json.loads((temp / "out/ledger.json").read_text())
+        self.markdown = (temp / "out/ledger.md").read_text()
         return {tuple(item["prs"]) or tuple(item["beads"]) or ("issue", *item["issues"]): item
                 for item in ledger["items"]}, ledger, (temp / "out/index.html").read_text()
 
@@ -159,6 +164,38 @@ class IdeaLedgerTest(unittest.TestCase):
         items, _, _ = self.run_ledger("--replay", str(temp / "raw.json"))
         self.assertEqual(items[(4,)]["beads"], ["cx-font1"])
         self.assertEqual(items[(3,)]["beads"], ["cx-np1"])
+
+    def test_an_umbrella_bead_does_not_chain_its_pull_requests(self):
+        raw = json.loads(json.dumps(RAW))
+        for pr in raw["open"][4:9]:
+            pr["title"] += " (cx-umb1)"
+        items, _, _ = self.run_ledger(raw=raw)
+        for pr in raw["open"][4:9]:
+            self.assertIn((pr["number"],), items)
+            self.assertEqual(items[(pr["number"],)]["fold"], [])
+
+    def test_a_pull_request_joins_only_its_first_cluster(self):
+        temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "clusters.json").write_text(json.dumps([{"name": "a", "prs": [100, 101]},
+                                                        {"name": "b", "prs": [101, 102]}]))
+        items, _, _ = self.run_ledger("--clusters", str(temp / "clusters.json"))
+        self.assertEqual(items[(100, 101)]["cluster"]["name"], "a")
+        self.assertIn((102,), items)
+
+    def test_a_title_cannot_hide_the_issue_body(self):
+        raw = json.loads(json.dumps(RAW))
+        raw["open"][4]["title"] = "<!-- folded 0 --> sneaky <!--"
+        raw["open"][4]["createdAt"] = "2026-10-10T00:00:00Z"
+        raw["open"][4]["commits"]["nodes"][0]["commit"]["committedDate"] = "2026-10-10T00:00:00Z"
+        self.run_ledger(raw=raw)
+        self.assertNotIn("<!-- folded 0 --> sneaky", self.markdown)
+        self.assertIn("&lt;!-- folded 0 --&gt; sneaky", self.markdown)
+        self.assertNotIn("<!--", self.markdown.replace("<!-- folded", ""))
+
+    def test_a_failed_closed_list_keeps_the_open_beads(self):
+        items, ledger, _ = self.run_ledger(env_extra={"BD_FAIL_ALL": "1"})
+        self.assertIn(("cx-idea1",), items)
+        self.assertEqual(ledger["meta"]["beads_source"], "board")
 
     def test_curated_clusters_win(self):
         temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
