@@ -213,7 +213,7 @@ fn ages_use_one_compact_unit() {
 
 fn list_plan(view: AgentRosterView) -> RequestPlan {
     RequestPlan {
-        operation: WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::AgentList),
+        operation: WireOperation::Typed(ResourceOperation::AgentList),
         params: json!({}),
         idempotency_key: None,
         stream: false,
