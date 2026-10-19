@@ -1,0 +1,70 @@
+.running-dots-stage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px;
+  color: var(--cmux-app-text, CanvasText);
+}
+.running-dots-panel {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.running-dots-panel figcaption {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--cmux-app-text-secondary, GrayText);
+}
+.running-dots-sidebar {
+  width: 240px;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--cmux-app-sidebar, var(--cmux-app-content, Canvas));
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.running-dots-row {
+  height: 28px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.running-dots-row[data-session] {
+  padding-inline-start: 24px;
+  font-size: var(--text-detail);
+}
+.running-dots-slot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  display: inline-flex;
+}
+.running-dots-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The Codex-like work mark before: the app's shared grey spinner, an open arc. */
+.running-dots-spinner {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--cmux-app-text, CanvasText) 66%, transparent);
+  border-inline-end-color: transparent;
+  animation: running-dots-spin 0.9s linear infinite;
+}
+@keyframes running-dots-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.running-dots-zoom {
+  justify-items: center;
+}

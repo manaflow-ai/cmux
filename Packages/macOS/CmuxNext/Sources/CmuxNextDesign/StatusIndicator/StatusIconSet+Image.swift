@@ -95,6 +95,13 @@ enum StatusGlyphArt {
             context.fillPath()
         case .mark(let mark):
             StatusMarkArt.draw(mark, in: context, rect: rect)
+        case .orbit:
+            // Where a turn starts: four dots spread on the axes.
+            let side = rect.width * StatusIndicatorLayer.orbitDotShare
+            for index in 0..<StatusIndicatorLayer.orbitCount {
+                let center = StatusIndicatorLayer.orbitPoint(turn: CGFloat(index) / CGFloat(StatusIndicatorLayer.orbitCount), in: rect)
+                context.fillEllipse(in: CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side))
+            }
         }
         return context.makeImage()
     }

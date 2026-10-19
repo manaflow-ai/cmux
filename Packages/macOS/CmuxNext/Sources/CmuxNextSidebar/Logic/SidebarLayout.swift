@@ -224,7 +224,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                                 key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
                                 group: nil, workspace: ws.id, siblingIndex: 0, parentIndex: nil,
                                 isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                groupColor: nil, tabKind: tab.kind
+                                groupColor: nil, tabKind: tab.kind, tabShowsWorking: content.showsWorking
                             ))
                             y += m.tabRowHeight + m.rowSpacing
                         }
@@ -306,7 +306,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                                     key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
                                     group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
                                     isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                    groupColor: group.color, tabKind: tab.kind
+                                    groupColor: group.color, tabKind: tab.kind, tabShowsWorking: content.showsWorking
                                 ))
                                 y += m.tabRowHeight + m.rowSpacing
                             }

@@ -1,0 +1,50 @@
+/* The Orbit set's working mark (OrbitDots.tsx), in the app's geometry: dots a quarter (0.26) of
+   the slot wide, spread to touch its edge, drawn in to 0.18 of it, where they about touch. One turn
+   takes two Motion pulse periods (3.6 s) and each regroup one (1.8 s). */
+.orbit-dots {
+  --orbit-dots-dot: calc(var(--orbit-dots-size) * 0.26);
+  --orbit-dots-outer: calc(var(--orbit-dots-size) / 2 - var(--orbit-dots-dot) / 2);
+  --orbit-dots-inner: calc(var(--orbit-dots-size) * 0.18);
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: orbit-dots-turn 3.6s linear infinite;
+}
+.orbit-dots__arm {
+  position: absolute;
+  inset: 0;
+}
+.orbit-dots__dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--orbit-dots-dot);
+  height: var(--orbit-dots-dot);
+  margin: calc(var(--orbit-dots-dot) / -2) 0 0 calc(var(--orbit-dots-dot) / -2);
+  border-radius: 50%;
+  background: var(--orbit-dots-color);
+  transform: translateY(calc(var(--orbit-dots-outer) * -1));
+  animation: orbit-dots-regroup 1.8s ease-in-out infinite;
+}
+.orbit-dots[data-still] {
+  animation: none;
+}
+.orbit-dots[data-still] .orbit-dots__dot {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-dots,
+  .orbit-dots__dot {
+    animation: none;
+  }
+}
+@keyframes orbit-dots-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes orbit-dots-regroup {
+  50% {
+    transform: translateY(calc(var(--orbit-dots-inner) * -1));
+  }
+}

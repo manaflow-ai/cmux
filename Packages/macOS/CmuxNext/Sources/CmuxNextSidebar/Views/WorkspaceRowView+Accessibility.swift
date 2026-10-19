@@ -38,7 +38,8 @@ extension WorkspaceRowView {
         case .dot: parts.append(Strings.unreadDot)
         default: break
         }
-        if let text = Strings.activity(content.activity) { parts.append(text) }
+        // The state the row draws: with the status icon, the most urgent one (`rowStatus`).
+        if let text = Strings.activity(statusSide == nil ? content.activity : rowStatus(ws, activity: content.activity)) { parts.append(text) }
         if ws.muted { parts.append(Strings.muted) }
         if !presenceDots.isHidden { parts += presenceDots.presence.map(Strings.presenceLine) }
         return parts.joined(separator: ", ")

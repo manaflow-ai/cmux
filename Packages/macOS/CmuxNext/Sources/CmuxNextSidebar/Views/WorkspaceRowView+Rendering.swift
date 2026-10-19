@@ -82,7 +82,8 @@ extension WorkspaceRowView {
         let (th, sh, top, cy) = textMetrics(head: b)
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
-        let leading = SidebarStyle.horizontalInset + indent
+        // The `.status` row badge on the left takes a fixed slot first (WorkspaceRowView+StatusGlyph).
+        let leading = layoutLeadingStatus(at: SidebarStyle.horizontalInset + indent, centerY: cy)
         let side: CGFloat
         switch iconKind {
         case nil: side = 0 // text only: no kind glyph or agent brand (WORKSPACE-ROWS-NO-DEFAULT-ICON)
@@ -145,12 +146,12 @@ extension WorkspaceRowView {
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         trailing = layoutRowBadge(style: rowBadgeStyle, trailing: trailing, cy: cy)
-        let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
+        let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus && statusSide == nil
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
             agentMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = agentMark.frame.minX - Metrics.space2
-        } else if activity.showsGlyph {
+        } else if activity.showsGlyph, statusSide != .left {
             activity.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
             trailing = activity.frame.minX - Metrics.space2
         }
@@ -178,7 +179,7 @@ extension WorkspaceRowView {
                                       width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
         // The marquee fades glyphs out across the padding left of them.
         let inset = Self.labelInset
-        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
+        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : leading - SidebarStyle.horizontalInset)
         title.fadeWidth = SidebarStyle.titleFadeWidth
         let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)

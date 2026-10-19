@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CmuxNextIcons
 import Foundation
 
@@ -37,14 +38,17 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var brand: String?
     /// A browser tab's page favicon, drawn as is in the kind icon's place (cx-d0d.8).
     public var favicon: SidebarFavicon?
+    /// The session's merged status (`StatusMapping.summary`): its row's running mark.
+    public var activity: StatusIndicatorState
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
-                favicon: SidebarFavicon? = nil) {
+                favicon: SidebarFavicon? = nil, activity: StatusIndicatorState = .idle) {
         self.id = id
         self.title = title
         self.kind = kind
         self.isUnread = isUnread
         self.brand = brand
         self.favicon = favicon
+        self.activity = activity
     }
 }

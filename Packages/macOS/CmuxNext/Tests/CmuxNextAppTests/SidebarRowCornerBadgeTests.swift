@@ -18,7 +18,7 @@ import Testing
     private static let custom = WorkspaceID("ws-custom")
     private static let now = Date()
 
-    private static func sidebar(_ style: SidebarRowBadgeStyle? = nil) -> SidebarView {
+    private static func sidebar(_ style: SidebarRowBadgeStyle? = .corner) -> SidebarView { // the corner look, not the default (`status`)
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let agentRow = SidebarWorkspace(id: agent, title: "cmux-next", lastActivity: now.addingTimeInterval(-180),
                                         kind: .harness, kindBrand: "claude", unread: .count(1), activity: .success, agentBrand: "claude")
