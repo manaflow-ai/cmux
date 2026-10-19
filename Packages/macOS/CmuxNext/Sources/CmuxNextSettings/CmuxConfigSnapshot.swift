@@ -122,7 +122,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
-    /// `appearance.focusIndicator`; "both" when unset or invalid.
+    /// `appearance.focusIndicator`; "tabs" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
