@@ -262,7 +262,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
         let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
-                                                defaultIndex: snapshot.defaultIndex, hidden: hidden)
+                                                defaultIndex: snapshot.defaultIndex, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs) }
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         if selectNew {
