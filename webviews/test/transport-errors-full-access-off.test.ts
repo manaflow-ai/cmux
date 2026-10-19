@@ -4,6 +4,8 @@
 // refusal, and both count as a host refusal a queued mode pick reports.
 import { expect, test } from "bun:test";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
+import { HarnessSwitch } from "../src/agent-session/acpmux/harnessSwitch";
 import { errorMessage, isHostRefusal } from "../src/agent-session/acpmux/transportErrors";
 
 const daemon = Object.assign(new Error("full-access modes are turned off in cmux Settings"), {
@@ -22,4 +24,37 @@ test("both refusals count as host refusals; other failures do not", () => {
   expect(isHostRefusal(pane)).toBe(true);
   expect(isHostRefusal(Object.assign(new Error("x"), { code: -32000, reason: "trust.pending" }))).toBe(false);
   expect(isHostRefusal(new Error("x"))).toBe(false);
+});
+
+// The switch boundary: a mode picked while a new chat starts goes out once it opens; acpmux
+// refuses it (the error as direct.ts rejects it) and the pane says why instead of staying quiet.
+test("a queued full-access pick that acpmux refuses shows the refusal", async () => {
+  const notices: string[] = [];
+  const store = new HarnessSwitch();
+  store.setHandlers({ notice: (text: string) => notices.push(text) });
+  store.connect({
+    turnRunning: () => false,
+    shown: () => undefined,
+    create: async () => "s1",
+    leave: () => undefined,
+    open: async (sessionId: string) => sessionId,
+    send: async () => undefined,
+    setModel: async () => undefined,
+    setMode: async () => {
+      throw new AcpmuxRpcError({
+        code: -32000,
+        message: "full-access modes are turned off in cmux Settings (sessions.allowFullAccess)",
+        data: { reason: "full_access_off" },
+      });
+    },
+    setConfig: async () => undefined,
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  } as never);
+  const opened = store.switchTo("claude", "/Users/dev");
+  store.pickMode("bypassPermissions");
+  expect(await opened).toBe("s1");
+  await new Promise((done) => setTimeout(done, 0));
+  expect(notices).toEqual([translate("transport.fullAccessOff")]);
 });
