@@ -90,7 +90,7 @@ import Testing
     }
 
     /// Only an agent's notice, or one whose poster asked for a reply (`notify --reply`), takes typed
-    /// text, as a banner does: an OSC 9/777 line from a remote shell or a log must not open a box that
+    /// text (like a `--reply` banner): an OSC 9/777 line from a remote shell or a log must not open a box that
     /// types into whatever runs there.
     @Test func onlyAgentsAndAskedForRepliesTakeTypedText() throws {
         let harness = Harness()

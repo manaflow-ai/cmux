@@ -27,7 +27,7 @@ extension NotificationCenterService {
 
     /// The notice as the banner reads: the program's or poster's title (else the tab's), and one line of
     /// its text (else the subtitle, else the workspace). A terminal takes a typed reply only for an
-    /// agent's notice or one whose poster asked for it (`notify --reply`), as a banner does; any other
+    /// agent's notice or one whose poster asked for it (like a `notify --reply` banner); any other
     /// opens its tab (an OSC 9/777 line from a remote shell or a log must not type into what runs there).
     /// An agent chat opens.
     static func chiefPetNotice(_ notification: DaemonNotification, tab: TabModel, workspace: String?, programTitle: String?, body: String) -> ChiefPetNotice {
