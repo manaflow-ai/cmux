@@ -2384,6 +2384,12 @@
       "title" : "Section Look",
       "type" : "string"
     },
+    "sidebar.sessionTree" : {
+      "default" : false,
+      "description" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.",
+      "title" : "Session Tree",
+      "type" : "boolean"
+    },
     "sidebar.showChats" : {
       "default" : true,
       "description" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.",
