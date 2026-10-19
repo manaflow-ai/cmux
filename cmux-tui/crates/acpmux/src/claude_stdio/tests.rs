@@ -161,7 +161,7 @@ async fn compact_ends_its_prompt_and_reports_the_compaction() {
                         updates.push(u.clone());
                     }
                 }
-                Message::Response { id, result: Some(r), .. } if id == Value::from(4) => {
+                Message::Response { id, result: Some(r), .. } if id == 4 => {
                     ended = r["stopReason"] == "end_turn";
                 }
                 _ => {}
