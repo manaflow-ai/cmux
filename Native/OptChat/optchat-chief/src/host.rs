@@ -1378,6 +1378,10 @@ fn start(
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
+    // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
+    brain.set_max_live(crate::subagents::live_limit(
+        env(crate::subagents::MAX_LIVE_ENV).as_deref(),
+    ));
     // Finished subagents' workspaces stay with a done mark unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     if let Some(describer) = describer {
