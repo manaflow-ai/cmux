@@ -1,9 +1,13 @@
 import type { Event } from "@sentry/nextjs";
 
 const SECRET_KEY_MARKER =
-  /(?:^|_)(?:auth|authorization|body|completion|content|cookie|credentials?|email|handoff|lease|output|password|passwd|prompt|provider_account|response|secret|session|token)(?:_|$)/;
+  /(?:^|_)(?:auth|authorization|body|completion|content|cookie|credentials?|email|handoff|lease|output|password|passwd|prompt|provider_account|pwd|response|secret|session|token)(?:_|$)/;
 const SECRET_KEY_SHAPE =
   /(?:^|_)(?:(?:api|access|private|client)_?key|ciphertext|encrypted_data_key)(?:_|$)/;
+const SAFE_METRIC_KEY = /^(?:completion|prompt)_tokens$/;
+const SECRET_QUERY_KEY =
+  /^(?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|authorization|password|passwd|pwd|secret)$/i;
+const QUERY_ASSIGNMENT = /(^|[?&;])([^=?&#;\s]+)=([^&#;\s]*)/g;
 const ROUTE_TOKEN = /\b(?:crt|crk)_[A-Za-z0-9_-]{32,}\b/g;
 const HANDOFF_LEASE = /\bcrh_[A-Za-z0-9_-]{32,}\b/g;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
@@ -14,10 +18,8 @@ const URL_CREDENTIALS = /([A-Za-z][A-Za-z0-9+.\-]*:\/\/)[^/?#\s]+@/g;
 const EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
 const CREDENTIAL_HEADER =
   /\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+/gi;
-const SECRET_QUERY =
-  /([?&](?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|password|secret)=)[^&#\s"']+/gi;
 const SECRET_ASSIGNMENT =
-  /\b([A-Za-z0-9_]*(?:password|passwd|secret|token|credentials?|auth|authorization|cookie|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/gi;
+  /\b([A-Za-z_][A-Za-z0-9_-]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/g;
 
 /**
  * Defense in depth for telemetry. Product code must still avoid attaching
@@ -27,6 +29,10 @@ const SECRET_ASSIGNMENT =
 export function scrubSentryEvent<T extends Event>(event: T): T {
   scrubValue(event);
   if (event.request) {
+    const request = event.request as unknown as Record<string, unknown>;
+    if ("query_string" in request) {
+      request.query_string = scrubQueryString(request.query_string);
+    }
     delete event.request.data;
     delete event.request.cookies;
     delete event.request.headers;
@@ -78,17 +84,7 @@ function scrubValue(value: unknown): void {
       continue;
     }
     if (typeof child === "string") {
-      (value as Record<string, unknown>)[childKey] = child
-        .replace(URL_CREDENTIALS, "$1[Filtered credentials]@")
-        .replace(CREDENTIAL_HEADER, "$1$2[Filtered]")
-        .replace(SECRET_QUERY, "$1[Filtered]")
-        .replace(ROUTE_TOKEN, "[Filtered route token]")
-        .replace(HANDOFF_LEASE, "[Filtered handoff lease]")
-        .replace(BEARER_TOKEN, "Bearer [Filtered]")
-        .replace(JWT, "[Filtered JWT]")
-        .replace(PROVIDER_SECRET, "[Filtered provider secret]")
-        .replace(SECRET_ASSIGNMENT, "$1$2[Filtered]")
-        .replace(EMAIL, "[Filtered email]");
+      (value as Record<string, unknown>)[childKey] = scrubString(child);
     } else {
       scrubValue(child);
     }
@@ -96,11 +92,71 @@ function scrubValue(value: unknown): void {
 }
 
 function isSensitiveKey(key: string): boolean {
-  const normalized = key
+  const normalized = normalizedKey(key);
+  if (SAFE_METRIC_KEY.test(normalized)) return false;
+  return SECRET_KEY_MARKER.test(normalized) || SECRET_KEY_SHAPE.test(normalized);
+}
+
+function normalizedKey(key: string): string {
+  return key
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[^A-Za-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .toLowerCase();
-  return SECRET_KEY_MARKER.test(normalized) || SECRET_KEY_SHAPE.test(normalized);
+}
+
+function scrubString(value: string): string {
+  return value
+    .replace(URL_CREDENTIALS, "$1[Filtered credentials]@")
+    .replace(CREDENTIAL_HEADER, "$1$2[Filtered]")
+    .replace(ROUTE_TOKEN, "[Filtered route token]")
+    .replace(HANDOFF_LEASE, "[Filtered handoff lease]")
+    .replace(BEARER_TOKEN, "Bearer [Filtered]")
+    .replace(JWT, "[Filtered JWT]")
+    .replace(PROVIDER_SECRET, "[Filtered provider secret]")
+    .replace(SECRET_ASSIGNMENT, (match, key: string, separator: string) =>
+      isSensitiveKey(key) ? `${key}${separator}[Filtered]` : match,
+    )
+    .replace(QUERY_ASSIGNMENT, (match, prefix: string, key: string) =>
+      isSensitiveQueryKey(key) ? `${prefix}${key}=[Filtered]` : match,
+    )
+    .replace(EMAIL, "[Filtered email]");
+}
+
+function scrubQueryString(value: unknown): unknown {
+  if (typeof value === "string") {
+    return scrubString(value).replace(
+      QUERY_ASSIGNMENT,
+      (match, prefix: string, key: string) =>
+        isSensitiveQueryKey(key) ? `${prefix}${key}=[Filtered]` : match,
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => {
+      if (Array.isArray(entry) && typeof entry[0] === "string" && entry.length >= 2) {
+        return isSensitiveQueryKey(entry[0])
+          ? [entry[0], "[Filtered]", ...entry.slice(2)]
+          : entry;
+      }
+      return scrubQueryString(entry);
+    });
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        isSensitiveQueryKey(key) ? "[Filtered]" : scrubQueryString(child),
+      ]),
+    );
+  }
+  return value;
+}
+
+function isSensitiveQueryKey(key: string): boolean {
+  try {
+    return SECRET_QUERY_KEY.test(decodeURIComponent(key.replace(/\+/g, " ")));
+  } catch {
+    return SECRET_QUERY_KEY.test(key);
+  }
 }
