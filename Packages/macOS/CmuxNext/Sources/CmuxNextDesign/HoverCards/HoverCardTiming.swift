@@ -6,14 +6,14 @@ public import Foundation
 /// chrome/browser/ui/views/tabs/hovercard/tab_hover_card_controller.cc `GetShowDelay`:
 /// `kMaximumTriggerDelay` 800 ms plus `kTabHoverCardAdditionalMaxWidthDelay` 500 ms). On
 /// 2026-10-18 he found that too slow ("hover on tab/workspace takes too long to show the card"),
-/// so the cold delay is now about a macOS tooltip's, and the warm rules below keep the next card
+/// so the cold delay is now short (250 ms, msg 1754), and the warm rules below keep the next card
 /// instant.
 public nonisolated struct HoverCardTiming {
     public nonisolated init() {}
     /// The cold delay: how long the pointer rests on a row or a tab before the first card opens.
     /// Rows and tabs wait the same (no width scaling). `sidebar.hoverCards.delay` overrides it
     /// (`DesignSettings.hoverCardDelay`).
-    public static let showDelay: Duration = .milliseconds(300)
+    public static let showDelay: Duration = .milliseconds(250)
     /// Warm mode: after a card goes, a hover this soon shows the next one at once (like macOS
     /// tooltips). While a card shows, the next target's card replaces it at once and the card
     /// slides over (`HoverCardPanel`).
