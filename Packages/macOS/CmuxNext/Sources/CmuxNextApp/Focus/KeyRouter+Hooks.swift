@@ -121,8 +121,14 @@ extension KeyRouter {
         guard let services, let window else { return (nil, .other) }
         let controllers = services.windows.controllers
         if let controller = controllers.first(where: { $0.window === window }) { return (controller, .content) }
+        // A popup window (or the Chromium page window in it) gates menu
+        // chords like a panel over the window that opened it.
+        if let popup = services.popups.window(containing: window) {
+            let opener = services.popups.openerWindow(of: popup)
+            return (controllers.first { $0.window === opener }, .textPanel)
+        }
         let owner = window.parent ?? window.sheetParent
-        // A Chromium page window in a popup panel: the panel's window gates
+        // A Chromium page window in a panel: the panel's window gates
         // menu chords like a panel (content chords stay with the page).
         if let panel = owner as? NSPanel, let grand = panel.parent,
            let controller = controllers.first(where: { $0.window === grand }) { return (controller, .textPanel) }
