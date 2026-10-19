@@ -76,7 +76,7 @@ pub fn tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "prompt": {"type": "string", "description": "The new session's first message: the whole task, with the files, constraints and how to check the result. It starts with none of this chat's history."},
-                    "title": {"type": "string", "description": "A few words naming the task, e.g. \"Fix the flaky upload test\". It names the worktree too."},
+                    "title": {"type": "string", "description": "A few words naming the task, e.g. \"Fix the flaky upload test\". It names the worktree; cmux titles the session itself from its work."},
                     "harness": {"type": "string", "description": "The agent to run it: claude, codex, opencode, or a profile name from list_sessions' harnesses. Default: the user's default agent."},
                     "model": {"type": "string", "description": "The model, e.g. opus or gpt-5.5. Default: the harness's default."},
                     "host": {"type": "string", "description": "A host from list_sessions' hosts, to run it on that machine. Default: this machine."},
