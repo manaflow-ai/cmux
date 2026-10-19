@@ -51,7 +51,7 @@ pub struct Options {
     pub instructions: bool,
     /// Run the program with a terminal as its stdout and controlling
     /// terminal (stdin stays the prompt pipe), for a program that prints
-    /// only to a terminal: unii writes to /dev/tty.
+    /// only to a terminal.
     pub tty: bool,
 }
 
@@ -354,7 +354,11 @@ async fn run_prompt(
     // The terminal's other end now lives only in the child: its exit ends the reads.
     drop(cmd);
     if let Some(mut stdin) = child.stdin.take() {
-        let text = prompt.clone();
+        // A line-reading program (unii) ignores input without a final newline.
+        let mut text = prompt.clone();
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
         tokio::spawn(async move {
             let _ = stdin.write_all(text.as_bytes()).await;
             let _ = stdin.shutdown().await;

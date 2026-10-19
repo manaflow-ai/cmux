@@ -82,6 +82,7 @@ fn cli_agent_a_prompt_runs_the_program_and_streams_its_output() {
     }}));
     let (done, text) = agent.until(3);
     assert_eq!(done.pointer("/result/stopReason"), Some(&json!("end_turn")));
+    // The prompt gets a final newline: a line-reading program needs it.
     assert_eq!(text, "view\nhello cli\n");
 }
 

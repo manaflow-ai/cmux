@@ -2,8 +2,7 @@
 # acpmux's generic CLI adapter (`acpmux cli-agent`) makes it an ACP harness:
 # each prompt runs `unii` once with the prompt on stdin and streams its reply.
 # --last-block sends only a Chief turn's new messages (unii remembers the
-# rest itself); --after-echo drops the history unii prints before its reply;
-# --tty gives it a terminal (unii writes its reply to /dev/tty, never a pipe).
+# rest itself); --after-echo drops the history unii prints before its reply.
 # Install: see `unii help`; sign in with `unii login`.
 schema = 1
 id = "unii"
@@ -12,7 +11,7 @@ icon = "generic"
 family = "unii"
 protocol = "acp"
 command = "acpmux"
-args = ["cli-agent", "--tty", "--last-block", "--after-echo", "--", "unii"]
+args = ["cli-agent", "--last-block", "--after-echo", "--", "unii"]
 
 [capabilities]
 resume = true
