@@ -174,6 +174,9 @@ jobs:
       - name: Snapshot capture storage survives an older ledger
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-snapshot-capture-compat.ts
+      - name: Snapshot key fences survive the previous capture engine
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-snapshot-key-fence-compat.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg

@@ -1,5 +1,6 @@
 /** Capture admission and recovery share the durable operation; source contents are never captured twice. */
 import { name, type Named } from "@gdp-ts/core";
+import { scopedSnapshotKey } from "../auth/idempotency-key.ts";
 import { Clock, Effect, Option } from "effect";
 import { CreateSnapshotRequest, Snapshot, SnapshotCreationList, SnapshotCreationStatus, SnapshotSummary } from "../api/snapshots.ts";
 import { SnapshotStore } from "../db/snapshots.ts";
@@ -82,7 +83,7 @@ export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequ
   if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
   return yield* name(parsed.value, (vm) => Effect.gen(function* () {
     const limits = yield* TenantLimits, id = newSnapshotId();
-    const key = yield* digest(["key", rawKey ?? id]);
+    const key = yield* scopedSnapshotKey(rawKey ?? id);
     const fingerprint = yield* digest({ operation: "createSnapshot", vmId: vm.value, displayName: payload.displayName ?? null,
       labels: Object.fromEntries(Object.entries(payload.labels ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)),
       ttlSeconds: payload.ttlSeconds ?? null, autoDeleteSeconds: payload.autoDeleteSeconds ?? null });
@@ -137,7 +138,7 @@ const withCapture = <A, E, R>(rawId: string, f: <C, S>(caller: Named<C, Principa
   }));
 
 export const inspectSnapshotCaptureByKey = (key: string) => withCaller("snapshot:read", "read", (caller) => Effect.gen(function* () {
-  const found = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "inspect", key: yield* digest(["key", key]) }).pipe(Effect.mapError(() => unavailable()));
+  const found = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "inspect", key: yield* scopedSnapshotKey(key) }).pipe(Effect.mapError(() => unavailable()));
   if (found.state === "legacyDone") return yield* legacySnapshotCaptureStatus(caller, found.id);
   if (found.state === "fenced") {
     if (!snapshotFenceAllowed(caller.value, found.fence)) return yield* Effect.fail(snapshotNotFound());

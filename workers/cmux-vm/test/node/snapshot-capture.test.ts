@@ -18,6 +18,13 @@ const fixture = () => {
 };
 
 describe("durable snapshot capture", () => {
+  it("atomically fences only the inspected capture and never turns a missing-key fence into allocation", async () => {
+    const f = fixture(); await f.begin();
+    expect(await f.run({ op: "fence", key: "key", expectedId: null, createdBy: "key:owner", labels: {} })).toMatchObject({ state: "record", granted: false });
+    expect(await f.run({ op: "fence", key: "key", expectedId: f.intent.id, createdBy: "key:owner", labels: {} })).toMatchObject({ state: "record", granted: true, record: { state: "cancelled" } });
+    expect(await f.run({ op: "fence", key: "empty", expectedId: null, createdBy: "key:owner", labels: {} })).toMatchObject({ state: "fenced", granted: true });
+    expect(await f.run({ op: "begin", key: "empty", intent: f.intent, fingerprint: "late", nonce: "late" }, 99_000_000)).toMatchObject({ state: "fenced" });
+  });
   it("grants one send across retries, process reconstruction and the former TTL", async () => {
     const f = fixture(); await f.prepare();
     expect(await f.run({ op: "send", id: f.intent.id, token: "send" })).toMatchObject({ state: "record", granted: true });

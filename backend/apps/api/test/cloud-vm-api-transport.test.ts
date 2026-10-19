@@ -98,10 +98,57 @@ describe("Cloud transport ownership", () => {
     expect(rows.get<SnapshotRow>(TABLE_SNAPSHOT, snapshot)?.row.status).toBe("failed");
   });
 
+  it("keeps quota through pending snapshot deletion and ignores a late capture result", () => {
+    const { rows, state } = created(), domain = cloudDomain(config);
+    const capture = domain.reduce(state, "cloud.snapshot.create", { machine }, context(rows, "capture-cancel"));
+    if (!capture.ok) throw new Error(capture.code);
+    rows.apply(capture.writes ?? []);
+    const original = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 20 }).find((r) => r.row.op === "snapshot")!;
+    const deleting = domain.reduce(capture.state as CloudState, "cloud.snapshot.delete", { snapshot }, context(rows, "delete-capture"));
+    if (!deleting.ok) throw new Error(deleting.code);
+    rows.apply(deleting.writes ?? []);
+    let current = deleting.state as CloudState;
+    expect(current.saved).toBe(1);
+    expect(current.pending[original.key]).toBeUndefined();
+    expect(rows.get<LedgerRow>(TABLE_LEDGER, original.key)?.row.state).toBe("cancelled");
+    const late = domain.reduce(current, "cloud.driver_result", { key: original.key, ok: true, provider_id: "late-capture" }, context(rows, "late-success"));
+    if (!late.ok) throw new Error(late.code);
+    rows.apply(late.writes ?? []); current = late.state as CloudState;
+    expect(rows.get<SnapshotRow>(TABLE_SNAPSHOT, snapshot)?.row.status).toBe("deleting");
+    const deletion = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 20 }).find((r) => r.row.op === "snapshot_delete")!;
+    for (let i = 0; i < 7; i++) {
+      const pending = domain.reduce(current, "cloud.driver_result", { key: deletion.key, ok: false, final: true }, context(rows, `delete-result-${i}`));
+      if (!pending.ok) throw new Error(pending.code);
+      rows.apply(pending.writes ?? []); current = pending.state as CloudState;
+      expect(current.saved).toBe(1);
+    }
+    const closed = domain.reduce(current, "cloud.driver_result", { key: deletion.key, ok: true }, context(rows, "cleanup-complete"));
+    if (!closed.ok) throw new Error(closed.code);
+    rows.apply(closed.writes ?? []);
+    expect((closed.state as CloudState).saved).toBe(0);
+    expect(rows.get(TABLE_SNAPSHOT, snapshot)).toBeUndefined();
+  });
+
+  it("accounts for cleanup of an older failed snapshot until the outcome is verified", () => {
+    const { rows, state } = created(), domain = cloudDomain(config);
+    rows.apply([{ table: TABLE_SNAPSHOT, op: "upsert", key: snapshot, n: 2, row: { id: snapshot, machine, name: null, size_mb: 16384,
+      status: "failed", created_at: 1000, revision: "2", provider_name: "cmuxnp-test-cld-snap-cccccccccccccccccccc", creator: user, size, transport: "vm-api" } }]);
+    const deleting = domain.reduce({ ...state, saved: 0 }, "cloud.snapshot.delete", { snapshot }, context(rows, "old-failure-delete"));
+    if (!deleting.ok) throw new Error(deleting.code);
+    expect((deleting.state as CloudState).saved).toBe(1);
+    rows.apply(deleting.writes ?? []);
+    const deletion = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 20 }).find((r) => r.row.op === "snapshot_delete")!;
+    const done = domain.reduce(deleting.state as CloudState, "cloud.driver_result", { key: deletion.key, ok: true }, context(rows, "old-failure-cleaned"));
+    if (!done.ok) throw new Error(done.code);
+    expect((done.state as CloudState).saved).toBe(0);
+  });
+
   it("keeps private transport fields out of public machine and snapshot projections", () => {
     const { rows } = created()
     expect(publicMachine(rows.get<MachineRow>(TABLE_MACHINE, machine)!.row)).not.toHaveProperty("transport")
-    const row: SnapshotRow = { id: snapshot, machine, name: null, size_mb: 16384, status: "ready", created_at: 1000, revision: "2", provider_name: "private", creator: user, size, transport: "vm-api" }
+    const row: SnapshotRow = { id: snapshot, machine, name: null, size_mb: 16384, status: "ready", created_at: 1000, revision: "2", provider_name: "private", creator: user, size, transport: "vm-api", capture_protocol: 1, saved_reserved: true }
     expect(publicSnapshot(row)).not.toHaveProperty("transport")
+    expect(publicSnapshot(row)).not.toHaveProperty("capture_protocol")
+    expect(publicSnapshot(row)).not.toHaveProperty("saved_reserved")
   })
 })

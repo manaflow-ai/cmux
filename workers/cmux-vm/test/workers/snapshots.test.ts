@@ -446,6 +446,60 @@ describe("capture controls", () => {
     expect(h.upstream.snapshots.size).toBe(0);
   });
 
+  it("refuses stale or resource-limited key cancellation without deleting a capture", async () => {
+    const { id, headers, vmId } = await pending("compared-key");
+    for (const expectedSnapshotId of [null, `snap_${"2".repeat(26)}`]) {
+      expect((await h.request("/v1/snapshot-creations/by-key/cancel", headers, { method: "POST", body: { expectedSnapshotId } })).status).toBe(409);
+    }
+    const restricted = await h.addKey(TENANT_A, ["snapshot:write"], { allowlist: [vmId] });
+    expect((await h.request("/v1/snapshot-creations/by-key/cancel", { ...bearer(restricted), "idempotency-key": "compared-key" }, { method: "POST", body: { expectedSnapshotId: id } })).status).toBe(403);
+    expect(h.upstream.snapshots.size).toBe(1);
+    expect(h.upstream.callsTo("DELETE", /\/snapshots\//)).toHaveLength(0);
+  });
+
+  it("repairs a lost deletion acknowledgement using canonical ownership", async () => {
+    const { id, headers } = await pending("lost-delete-ack");
+    const original = h.upstream.fetch;
+    let lost = false;
+    h.upstream.fetch = async (r) => {
+      const response = await original(r);
+      if (!lost && r.method === "DELETE" && new URL(r.url).pathname.startsWith("/v5/snapshots/")) { lost = true; throw new TypeError("lost delete reply"); }
+      return response;
+    };
+    const cancel = () => h.request("/v1/snapshot-creations/by-key/cancel", headers, { method: "POST", body: { expectedSnapshotId: id } });
+    expect((await cancel()).status).toBe(503);
+    expect(h.upstream.snapshots.size).toBe(0);
+    expect(await (await cancel()).json()).toMatchObject({ state: "cancelled", id });
+    expect(h.s3a.snapshotRows(TENANT_A)).toHaveLength(0);
+  });
+
+  it("reserves absent-key fences only for entitled teams and replays existing fences after plan loss", async () => {
+    const { vmId } = h.addVm(TENANT_A);
+    const token = await h.addKey(TENANT_A, ["snapshot:write"]);
+    const headers = { ...bearer(token), "idempotency-key": "fence-entitlement" };
+    const cancel = () => h.request("/v1/snapshot-creations/by-key/cancel", headers, { method: "POST", body: { expectedSnapshotId: null } });
+    h.setBilling(TENANT_A, false);
+    expect((await cancel()).status).toBe(402);
+    h.setBilling(TENANT_A, true);
+    expect(await (await cancel()).json()).toMatchObject({ state: "fenced", id: null });
+    h.setBilling(TENANT_A, false);
+    expect(await (await cancel()).json()).toMatchObject({ state: "fenced", id: null });
+    expect((await create(vmId, headers)).status).toBe(409);
+    expect(h.upstream.calls).toHaveLength(0);
+  });
+
+  it("keeps a service's fence private to its current actor and labels", async () => {
+    const options = { scopes: ["snapshot:write" as const], labels: { role: "cloud" } };
+    const one = await h.addServiceKey({ ...options, id: "cloud-one" });
+    const two = await h.addServiceKey({ ...options, id: "cloud-two" });
+    const cancel = (token: string) => h.request("/v1/snapshot-creations/by-key/cancel", { ...bearer(token), "x-cmux-team-id": TENANT_A, "idempotency-key": "service-fence" }, { method: "POST", body: { expectedSnapshotId: null } });
+    expect((await cancel(one)).status).toBe(200);
+    expect((await cancel(two)).status).toBe(404);
+    const rotated = await h.addServiceKey({ ...options, id: "cloud-one" });
+    expect(await (await cancel(rotated)).json()).toMatchObject({ state: "fenced", id: null });
+    expect(h.upstream.calls).toHaveLength(0);
+  });
+
   it("looks up a keyed capture without source access or a provider request", async () => {
     const { vmId, id, headers } = await pending("cloud-snapshot:base");
     expect((await h.request(`/v1/vms/${vmId}`, headers, { method: "DELETE" })).status).toBe(204);

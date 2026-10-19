@@ -22,10 +22,11 @@ export class VmApiSnapshotCaptures {
   private async request<R>(work: () => Promise<R>): Promise<R> {
     try { return await work() } catch { throw new VmApiSnapshotOutcome("pending") }
   }
-  private validate(value: Capture | undefined, name: string, expected: { machine?: string; source?: string }, id?: string): Capture {
-    const receipt = value?.receipt
+  private validate(value: Capture | undefined, name: string, expected: { machine?: string; source?: string | null }, id?: string, allowMissingSource = false): Capture {
+    const receipt = value?.receipt, source = receipt?.sourceVmId
+    const validSource = (allowMissingSource && source === null) || (typeof source === "string" && VM.test(source))
     if (!value || !receipt || !SNAPSHOT.test(value.id) || receipt.id !== value.id || (id !== undefined && value.id !== id)
-      || !receipt.sourceVmId || !VM.test(receipt.sourceVmId) || (expected.source !== undefined && receipt.sourceVmId !== expected.source)
+      || !validSource || (expected.source !== undefined && source !== expected.source)
       || receipt.displayName !== name || receipt.labels?.role !== "cloud" || receipt.labels.cmux_next_team !== this.team
       || receipt.labels["cmux/name"] !== name || !receipt.labels.cmux_next_machine
       || (expected.machine !== undefined && receipt.labels.cmux_next_machine !== expected.machine)
@@ -81,7 +82,7 @@ export class VmApiSnapshotCaptures {
   async cancel(name: string, tag: VmTag, allowEmptyFence: boolean): Promise<void> {
     if (tag.team !== this.team) throw new DriverError("cloud.provider.name_conflict", "VM API: wrong Cloud team", true)
     const found = await this.request(() => this.client.GET("/v1/snapshot-creations/by-key", { params: { header: { "idempotency-key": `cloud-snapshot:${name}` } } }))
-    const original = found.response.status === 200 ? this.validate(found.data, name, { machine: tag.machine }) : undefined
+    const original = found.response.status === 200 ? this.validate(found.data, name, { machine: tag.machine }, undefined, true) : undefined
     if (original === undefined && found.response.status !== 404 && found.response.status !== 409) throw new VmApiSnapshotOutcome("pending")
     const answer = await this.request(() => this.client.POST("/v1/snapshot-creations/by-key/cancel", {
       params: { header: { "idempotency-key": `cloud-snapshot:${name}` } }, body: { expectedSnapshotId: original?.id ?? null },
@@ -100,7 +101,7 @@ export class VmApiSnapshotCaptures {
     }
     if (!original || !result.receipt || result.id === null || (result.state !== "cancelled" && result.state !== "cancelling")) throw new VmApiSnapshotOutcome("pending", "unconfirmed capture cancellation")
     this.validate({ id: result.id, state: result.state === "cancelled" ? "deleted" : "pending", receipt: result.receipt },
-      name, { machine: tag.machine, source: original.receipt.sourceVmId! }, original.id)
+      name, { machine: tag.machine, source: original.receipt.sourceVmId }, original.id, true)
     if (result.state !== "cancelled") throw new VmApiSnapshotOutcome("pending")
   }
 

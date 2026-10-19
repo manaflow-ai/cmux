@@ -1,5 +1,6 @@
 /** Compare the inspected id before fencing: a stale lookup must never delete a different capture. */
 import { name } from "@gdp-ts/core";
+import { scopedSnapshotKey } from "../auth/idempotency-key.ts";
 import { Clock, Effect, Option } from "effect";
 import { SnapshotKeyCancellation } from "../api/snapshots.ts";
 import { SnapshotStore } from "../db/snapshots.ts";
@@ -15,16 +16,12 @@ import { audited, withCaller } from "./common.ts";
 import { reconcileCapturedSnapshot } from "./snapshot-capture.ts";
 
 const changed = () => new Conflict({ message: "The capture changed; inspect this key before cancelling it" });
-const digest = (key: string) => Effect.promise(async () => {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(["key", key])));
-  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
-});
 
 export const cancelSnapshotCaptureKey = (rawKey: string, expectedId: SnapshotId | null) => audited("snapshot.create.cancel", null,
   withCaller("snapshot:write", "write", (caller, scope) => Effect.gen(function* () {
     const principal = caller.value;
     if (principal.resourceAllowlist !== null) return yield* Effect.fail(new Forbidden({ message: "A key limited to specific resources must use id-addressed capture controls" }));
-    const limits = yield* TenantLimits, key = yield* digest(rawKey);
+    const limits = yield* TenantLimits, key = yield* scopedSnapshotKey(rawKey);
     const found = yield* limits.snapshotCapture(principal.tenantId, { op: "inspect", key }).pipe(Effect.mapError(() => unavailable()));
     if (found.state === "absent" && !(yield* (yield* Entitlements).mayCreate(principal.tenantId, "snapshot").pipe(Effect.mapError(() => unavailable()))))
       return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include new capture key reservations" }));

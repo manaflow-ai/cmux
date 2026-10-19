@@ -7,7 +7,7 @@ import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, mayManage, next, n
 /**
  * Snapshots (state-placement.md 7 item 4; CLOUDDO-MONEY-OPS). A snapshot row is private; the public
  * view is CloudSnapshot. The provider slug is `<prefix>snap-<20 hex>` (the guard checks it); only the
- * slug recorded here is ever deleted. `saved` counts creating and ready snapshots against max_saved.
+ * slug recorded here is ever deleted. `saved` also reserves uncertain VM API deletions until cleanup is verified.
  */
 
 export interface SnapshotRow {
@@ -88,9 +88,9 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
     delete pending[k]
     cancelled.push(upsertLedger({ ...original.row, state: "cancelled", cancel: true, updated_at: ctx.now }, original.n))
   }
-  const hold = r.transport === "vm-api" && counted(r) > 0
+  const hold = r.transport === "vm-api"
   const row: SnapshotRow = { ...r, status: "deleting", revision: String(rev), ...(hold ? { saved_reserved: true } : {}) }
-  const s = next(state, { saved: state.saved - (hold ? 0 : counted(r)), pending: { ...pending, [key]: { machine: r.machine, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: r.machine, removed: false, snapshot: r.id })
+  const s = next(state, { saved: state.saved + (hold ? 1 - counted(r) : -counted(r)), pending: { ...pending, [key]: { machine: r.machine, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: r.machine, removed: false, snapshot: r.id })
   return { ok: true, state: s, value: { deleted: true }, writes: [...cancelled, upsertLedger(ledger, rev), upsertSnapshot(row, stored.n)] }
 }
 
