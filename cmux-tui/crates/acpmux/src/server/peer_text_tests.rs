@@ -127,3 +127,16 @@ fn only_an_untrusted_peer_gets_masked_text() {
     assert!(!sends_raw(Origin::Peer, &[one("huge-blue"), one("huge-blue")].concat(), &trusted));
     assert!(!sends_raw(Origin::Peer, &one(""), &["".to_owned()]));
 }
+
+#[test]
+fn a_huge_prompt_is_cut_for_a_peer_after_it_is_masked() {
+    let token = github_token();
+    let mut s = summary(&token);
+    // The token straddles the cut: masked first, so no part of it is left.
+    s["lastPrompt"] = json!(format!("{}{token} {}", "x ".repeat(8_190), "y".repeat(4_000_000)));
+    let out = result(&masked(&Message::ok(json!(1), json!({"sessions": [s]}))).expect("masked"));
+    let prompt = out["sessions"][0]["lastPrompt"].as_str().unwrap();
+    assert!(!prompt.contains("ghp_"), "{}", &prompt[16_000..]);
+    assert!(prompt.ends_with("[Git…"), "{}", &prompt[16_000..]);
+    assert_eq!(prompt.chars().count(), 16_385);
+}
