@@ -127,7 +127,15 @@ export function Phone({
 }
 
 /** A glass circle button of the iOS toolbar (44 pt), with an SF-Symbol-like glyph. */
-export function GlassCircle({ glyph, label }: { glyph: "back" | "menu" | "more" | "compose" | "close"; label: string }) {
+export function GlassCircle({
+  glyph,
+  label,
+  onClick,
+}: {
+  glyph: "back" | "menu" | "more" | "compose" | "close";
+  label: string;
+  onClick?: () => void;
+}) {
   const paths: Record<typeof glyph, string> = {
     back: "M14 5 7 12l7 7",
     menu: "M5 8h14M5 12h14M5 16h14",
@@ -136,7 +144,7 @@ export function GlassCircle({ glyph, label }: { glyph: "back" | "menu" | "more" 
     close: "M6 6l12 12M18 6 6 18",
   };
   return (
-    <button type="button" className="sa-glass" aria-label={label}>
+    <button type="button" className="sa-glass" aria-label={label} onClick={onClick}>
       <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
         <path d={paths[glyph]} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>

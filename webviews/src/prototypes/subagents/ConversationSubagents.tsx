@@ -35,7 +35,14 @@ export function ConversationSubagents({ platform, design, count, phase = "live",
   const kids = childrenOf(nodes, parent.id);
   const [open, setOpen] = useState<AgentNode | null>(opened ? (kids[0] ?? null) : null);
   const transcript = open ? (
-    <ChildView child={open} parent={parent} nodes={nodes} onBack={() => setOpen(null)} platform={platform} />
+    <ChildView
+      child={open}
+      parent={nodes.find((node) => node.id === open.parentId) ?? parent}
+      nodes={nodes}
+      onBack={() => setOpen(null)}
+      onOpen={setOpen}
+      platform={platform}
+    />
   ) : (
     <Transcript platform={platform} parent={parent} kids={kids} nodes={nodes} design={design} onOpen={setOpen} phase={phase} />
   );
@@ -44,10 +51,10 @@ export function ConversationSubagents({ platform, design, count, phase = "live",
       <Phone
         toolbar={
           <>
-            <GlassCircle glyph="back" label="Back" />
+            <GlassCircle glyph="back" label="Back" onClick={open ? () => setOpen(null) : undefined} />
             <span className="sa-phone-title">
               <strong>{open ? open.name : parent.name}</strong>
-              <span className="sa-muted">{open ? `Subagent of ${parent.name}` : `Claude · ${parent.workspace}`}</span>
+              <span className="sa-muted">{open ? `Subagent of ${open.startedBy}` : `Claude · ${parent.workspace}`}</span>
             </span>
             <GlassCircle glyph="more" label="More" />
           </>
@@ -299,12 +306,14 @@ function ChildView({
   parent,
   nodes,
   onBack,
+  onOpen,
   platform,
 }: {
   child: AgentNode;
   parent: AgentNode;
   nodes: readonly AgentNode[];
   onBack: () => void;
+  onOpen: (node: AgentNode) => void;
   platform: Platform;
 }) {
   const kids = childrenOf(nodes, child.id);
@@ -323,7 +332,7 @@ function ChildView({
         {child.task}
       </div>
       <p className="sa-prose">I read the call sites first, then I’ll split the edit and the check into two subagents.</p>
-      {kids.length > 0 && <SpawnBlock design="chips" kids={kids} nodes={nodes} onOpen={() => undefined} platform={platform} />}
+      {kids.length > 0 && <SpawnBlock design="chips" kids={kids} nodes={nodes} onOpen={onOpen} platform={platform} />}
       <p className="sa-prose sa-muted">{child.state === "running" ? <Shimmer>{child.lastEvent}</Shimmer> : child.lastEvent}</p>
     </>
   );

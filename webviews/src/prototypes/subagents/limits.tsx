@@ -150,7 +150,12 @@ export function LimitsSettings({ platform }: { platform: Platform }) {
       </div>
       <div className="sa-settings-group">
         <label className="sa-radio">
-          <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+          <input
+            type="checkbox"
+            aria-label="Agents can start subagents"
+            checked={enabled}
+            onChange={(event) => setEnabled(event.target.checked)}
+          />
           Agents can start subagents
         </label>
       </div>

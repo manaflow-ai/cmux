@@ -48,6 +48,7 @@ export function EntryOptions({
             <label key={option.id} className="gallery-option gallery-option-toggle" data-edited={edited || undefined}>
               <input
                 type="checkbox"
+                aria-label={option.label}
                 checked={value === "on"}
                 onChange={(event) => set(option, event.target.checked ? "on" : "off")}
               />

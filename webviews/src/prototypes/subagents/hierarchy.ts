@@ -226,9 +226,22 @@ export function buildForest(options: ForestOptions): AgentNode[] {
   return nodes;
 }
 
+/** Children by parent id, built once per forest (a wide, deep forest has thousands of nodes). */
+const CHILDREN = new WeakMap<readonly AgentNode[], Map<string | null, AgentNode[]>>();
+
 /** Children of `id`, in start order. */
 export function childrenOf(nodes: readonly AgentNode[], id: string | null): AgentNode[] {
-  return nodes.filter((node) => node.parentId === id);
+  let index = CHILDREN.get(nodes);
+  if (!index) {
+    index = new Map();
+    for (const node of nodes) {
+      const siblings = index.get(node.parentId);
+      if (siblings) siblings.push(node);
+      else index.set(node.parentId, [node]);
+    }
+    CHILDREN.set(nodes, index);
+  }
+  return index.get(id) ?? [];
 }
 
 /** The chain from the root to `id`. */
