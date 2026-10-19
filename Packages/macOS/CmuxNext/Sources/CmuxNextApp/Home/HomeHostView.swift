@@ -44,6 +44,8 @@ final class HomeHostView: NSView {
     /// The settings panel shows a paired server's brain (a cloud Chief).
     private var showsCloud = false
     private var isWorking = false
+    /// "Chief" or "Chief (Mac mini)": shown while both cloud Chiefs exist.
+    private let chiefSwitch: HomeChiefSwitch
 
     init(services: AppServices, conversation: String) {
         let service = services.home
@@ -51,6 +53,7 @@ final class HomeHostView: NSView {
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         sidebar = HomeChiefSidebar(muxHome: control.brainHome, source: control.engineSource())
+        chiefSwitch = HomeChiefSwitch(service: service, conversation: conversation)
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         sidebar.isHidden = true
@@ -174,6 +177,7 @@ final class HomeHostView: NSView {
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
+        addSubview(chiefSwitch)
         // Above the transcript, so it slides in over it.
         addSubview(sidebar)
         // task-owner: lives as long as this view; event-driven (Observation)
@@ -238,6 +242,9 @@ final class HomeHostView: NSView {
         message.preferredMaxLayoutWidth = width
         let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
+        // Top right, under the window's title area (this view is not flipped).
+        let size = chiefSwitch.fittingSize
+        chiefSwitch.frame = NSRect(x: max(0, bounds.width - size.width - 12), y: bounds.height - size.height - 56, width: size.width, height: size.height)
     }
 
     /// The header avatar's click: the sidebar slides in from the right
