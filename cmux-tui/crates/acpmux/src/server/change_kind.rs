@@ -26,6 +26,7 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "tags"
         | "turn_started"
         | "turn_result"
+        | "subsession"
         | "watch_started"
         | "watch_taken_over" => record_kind,
         k if k == "dequeued" || k.starts_with("queue") => "queue",

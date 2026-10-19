@@ -8378,7 +8378,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Mark Tab as Unread",
+      "title" : "Mark Tab Unread",
       "title_key" : "action.palette.toggleTabUnread",
       "title_table" : "ActionCatalog"
     },
@@ -12934,7 +12934,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "=",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -14447,6 +14458,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "browser import-cookies",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.importCookies",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import Cookies from Browser…",
+      "title_key" : "action.browser.importCookies",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "browser back-to-pinned-page",
       "context_menu" : "offered",
       "context_menus" : [
@@ -15618,6 +15657,34 @@
       "palette_suggested" : null,
       "title" : "Editor: Run Editor Action",
       "title_key" : "action.fileEditorAction",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "undeclared",
+      "cli_name" : "settings import-editor-settings",
+      "context_menu" : "undeclared",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileEditor.importEditorSettings",
+      "main_menu" : null,
+      "mcp" : "undeclared",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Settings from VS Code or Zed",
+      "title_key" : "action.fileEditor.importEditorSettings",
       "title_table" : "ActionCatalog"
     },
     {
@@ -18032,7 +18099,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Unread",
+      "title" : "Toggle Tab Unread",
       "title_key" : "action.toggleUnread",
       "title_table" : "ActionCatalog"
     },
