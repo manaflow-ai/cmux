@@ -4,6 +4,7 @@
 // `ready` answer's draft and new-chat fields, and the snapshot.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import type { SessionPullRequest } from "./sessionList";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 // Three prompts waiting for the running turn.
@@ -18,6 +19,22 @@ const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
   return { ...running, summary: { ...running.summary!, steering: steers } };
 };
+
+// A new chat in CWD beside a recent chat there with a PR (the suggested prompt's source).
+const suggesting = (pr: Pick<SessionPullRequest, "state" | "checks">) =>
+  noChat(
+    [
+      session({
+        sessionId: "older",
+        title: "Retry failed uploads",
+        cwd: CWD,
+        updatedAt: Date.now() - 60 * 60 * 1000,
+        turnCount: 6,
+        pullRequest: { number: 4182, title: "Retry failed uploads with backoff", ...pr } as SessionPullRequest,
+      }),
+    ],
+    { summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" } },
+  );
 
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
@@ -146,6 +163,23 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    // Leo 2026-10-18: an idle new chat suggests the open PR another chat in this checkout made, Tab
+    // to take it (promptSuggestion.ts).
+    "new-chat-suggest-open": {
+      note: "A new chat beside a chat with an open PR: the empty prompt suggests continuing it, with a Tab keycap.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: suggesting({ state: "open", checks: "passing" }),
+    },
+    "new-chat-suggest-failing": {
+      note: "The same PR with failing checks: the suggestion is to fix them.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: suggesting({ state: "open", checks: "failing" }),
+    },
+    "new-chat-suggest-draft": {
+      note: "A draft PR: the suggestion is to finish it.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: suggesting({ state: "draft", checks: "pending" }),
     },
     "new-chat-reasoning": {
       note: "Play: a new chat on a harness no chat has shown here yet names the level acpmux starts it on (Medium) before its session reports, never nothing.",

@@ -71,6 +71,7 @@ import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
+import { promptSuggestion, type PromptSuggestion } from "./promptSuggestion";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -85,6 +86,11 @@ export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
   placeholderSteer: "composer.placeholderSteer",
+  suggestFailing: "composer.suggestFailing",
+  suggestDraft: "composer.suggestDraft",
+  suggestOpen: "composer.suggestOpen",
+  suggestionKey: "composer.suggestionKey",
+  suggestionHint: "composer.suggestionHint",
   placeholderInterrupt: "composer.placeholderInterrupt",
   add: "composer.add",
   mention: "composer.mention",
@@ -305,6 +311,8 @@ export function Composer({
   // The @ file picker (MentionMenu.tsx): its highlight, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
+  // The suggested prompt Esc put away: its chat and PR, so it stays away for this chat only.
+  const [suggestionDismissed, setSuggestionDismissed] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -773,6 +781,18 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
+    // it away for this chat (and still does whatever Esc does there).
+    if (suggested && plain && event.key === "Tab") {
+      event.preventDefault();
+      if (field.current) field.current.type(suggested);
+      else {
+        setText(suggested);
+        setCaret(suggested.length);
+      }
+      return;
+    }
+    if (suggested && plain && event.key === "Escape") setSuggestionDismissed(suggestionKey);
     // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
     // Quick Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
@@ -924,6 +944,39 @@ export function Composer({
       : steerKind === "steer"
         ? COMPOSER_LABELS.placeholderSteer
         : COMPOSER_LABELS.placeholderInterrupt;
+  // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
+  // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
+  const cwd = snapshot.summary?.cwd;
+  const branch = snapshot.summary?.branch;
+  const suggestion = useMemo<PromptSuggestion | undefined>(
+    () =>
+      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blocked
+        ? promptSuggestion(snapshot.sessions, { sessionId: snapshot.sessionId, cwd, branch }, Date.now())
+        : undefined,
+    [
+      shell,
+      snapshot.isWorking,
+      snapshot.rows.length,
+      remote.canSend,
+      blocked,
+      snapshot.sessions,
+      snapshot.sessionId,
+      cwd,
+      branch,
+    ],
+  );
+  const suggestionKey = suggestion && `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}`;
+  const suggested =
+    suggestion && suggestionKey !== suggestionDismissed && !text.trim() && attachments.length === 0
+      ? t(
+          suggestion.kind === "failing"
+            ? COMPOSER_LABELS.suggestFailing
+            : suggestion.kind === "draft"
+              ? COMPOSER_LABELS.suggestDraft
+              : COMPOSER_LABELS.suggestOpen,
+          { number: String(suggestion.number), title: suggestion.title },
+        )
+      : undefined;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1134,8 +1187,10 @@ export function Composer({
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
             value={text}
-            placeholder={t(placeholder)}
+            placeholder={suggested ?? t(placeholder)}
+            placeholderKey={suggested ? t(COMPOSER_LABELS.suggestionKey) : undefined}
             attributes={{
+              "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
               "aria-multiline": "true",

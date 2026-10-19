@@ -23,6 +23,17 @@
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   pointer-events: none;
 }
+/* The key that takes a suggested placeholder (the composer's "Tab"): a quiet keycap after it. */
+.acpmux-md-placeholder-key {
+  margin-left: 8px;
+  padding: 0 5px;
+  border: 1px solid var(--agent-border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  vertical-align: 1px;
+}
 .acpmux-md {
   min-height: var(--text-title--line-height, 22px);
   outline: none;
