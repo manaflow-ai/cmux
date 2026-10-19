@@ -37,8 +37,8 @@ final class FilePageOpener: FileOpening {
         open(file, in: pane, userChose: true)
     }
 
-    /// `userChose` false for an agent's or a script's open (`cmux file open`): the document shows,
-    /// and is writable only inside a root the user chose.
+    /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document
+    /// is writable all the same; another document is writable only inside a root the user chose.
     func open(_ file: URL, in pane: PaneController?, userChose: Bool) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
