@@ -6,12 +6,25 @@
  *       Production config gate (deploy-worker.sh runs it before every production deploy): every
  *       secret named in production-approvals.json `required_secrets` is set on cmux-api, and
  *       HOME_INVITES_SEND "on" needs HOME_INVITE_FROM. Names only, never values.
- *   bun prod-promote.ts gates [--github-output FILE]
+ *   bun prod-promote.ts gates [--candidate SHA] [--github-output FILE]
  *       Picks the staging-proven candidate and runs G1-G7. Exit 0 = promote (writes
  *       candidate=<sha> to FILE); exit 3 = nothing to do or a gate holds (the reason is printed).
+ *       --candidate (40 hex; the exact-SHA promote): G1 must prove exactly that commit (its own
+ *       green staging deploy, soaked, no red one in its soak window) instead of the newest one.
  *   bun prod-promote.ts recheck --candidate SHA
  *       Right before the deploy: hold released, spacing, and production's commit a strict ancestor
  *       of SHA (a re-run never downgrades). Exit 0 = deploy; 3 = hold.
+ *   bun prod-promote.ts serving
+ *       Prints the full source commit of the code production serves (from its version tag).
+ *   bun prod-promote.ts rollback [--execute] [--force] [--wrangler BIN]
+ *       The one-command rollback: production back to the version served before its current code
+ *       deployment (`wrangler rollback`). Refuses (exit 3) across a Durable Object lifecycle change
+ *       (env.production.migrations differ between the two source commits): Cloudflare cannot roll
+ *       back across one, so that is fix forward, and for the Chief brain the off switch
+ *       (backend.yml target=chief-off). Without --execute it prints the command and changes nothing.
+ *       Refuses when production already serves a rollback (a re-run would redeploy what the first
+ *       one removed) unless --force. After a rollback or the off switch, `gates` holds every
+ *       automatic promote; only an exact-SHA promote (--candidate) moves production forward.
  *   bun prod-promote.ts stale [--issue]
  *       Exit 1 = stale (no source tag, a staging-proven commit older than STALE_HOURS missing, or
  *       more than STALE_COMMITS backend commits behind); 0 = current, proven by at least one green
@@ -21,7 +34,8 @@
  *
  * Environment: CLOUDFLARE_API_TOKEN (read: scripts, versions, deployments, secret names),
  * GITHUB_TOKEN or GH_TOKEN and GITHUB_REPOSITORY (read: Actions runs; issues for --issue),
- * CMUX_NEXT_PRODUCTION_HOLD (G6; only "released" releases). Runs from the repo root, except
+ * CMUX_NEXT_PRODUCTION_HOLD (G6: "released" releases every candidate, "released:<40 hex>" only that
+ * commit, the one-shot release of an exact-SHA promote; anything else holds). Runs from the repo root, except
  * `config`, which reads the approvals next to this file.
  */
 import { execFileSync } from "node:child_process"
@@ -38,6 +52,11 @@ const APPROVALS = "scripts/cmux-next/release/production-approvals.json"
 const APPROVALS_ON_DISK = join(import.meta.dir, "production-approvals.json")
 /** G6: the hold releases only on exactly this value; empty, missing or anything else holds (lead, 2026-10-13). */
 export const HOLD_RELEASED = "released"
+/** G6 for one commit: "released" releases every commit, "released:<sha>" only that one (one-shot exact-SHA release). */
+export const holdReleases = (hold: string | undefined, sha: string | undefined): boolean =>
+  hold === HOLD_RELEASED || (sha !== undefined && /^[0-9a-f]{40}$/.test(sha) && hold === `${HOLD_RELEASED}:${sha}`)
+/** The commit a one-shot hold value releases, or undefined. */
+export const holdPinned = (hold: string | undefined): string | undefined => /^released:([0-9a-f]{40})$/.exec(hold ?? "")?.[1]
 /** A hold value as safe log text: no workflow commands, no newlines. */
 export const holdText = (v: string | undefined) => (v ?? "<unset>").replace(/[^A-Za-z0-9 ._()'-]/g, "?").slice(0, 120)
 /** G1: a candidate's staging deploy must be this old, with no red staging deploy after it in that window. */
@@ -133,7 +152,7 @@ const fileAt = (sha: string, path: string) => git("show", `${sha}:${path}`)
  * changed. A secret-only deployment (`wrangler secret put`) makes a new version of the same code
  * without the tag, so the tag comes from the newest code deployment.
  */
-export const serving = async (script: string): Promise<{ version: string; sourceTag?: string; codeDeployedAt?: number }> => {
+export const serving = async (script: string): Promise<{ version: string; sourceTag?: string; codeDeployedAt?: number; heldBack?: string }> => {
   const deps = [...((await cf(`/workers/scripts/${script}/deployments`)) as { deployments: Array<any> }).deployments].sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))
   const top = deps[0]
   if (!top || top.versions.length !== 1 || top.versions[0].percentage !== 100) throw new Error(`${script}: no single version at 100%`)
@@ -142,7 +161,37 @@ export const serving = async (script: string): Promise<{ version: string; source
   const codeVersion = code && code.versions.length === 1 ? (code.versions[0].version_id as string) : undefined
   const v = codeVersion ? await cf(`/workers/scripts/${script}/versions/${codeVersion}`) : undefined
   const tag = v?.annotations?.["workers/tag"] as string | undefined
-  return { version, ...(tag && /^[0-9a-f]{12}$/.test(tag) ? { sourceTag: tag } : {}), ...(code ? { codeDeployedAt: Date.parse(code.created_on) } : {}) }
+  // An operator stepped production back (a rollback, or the Chief off switch): no automatic promote undoes it.
+  const message = String(v?.annotations?.["workers/message"] ?? "")
+  const heldBack = code?.annotations?.["workers/triggered_by"] === "rollback" ? "production serves a rollback" : / chief-off( |$)/.test(message) ? "production serves the Chief off switch" : undefined
+  return { version, ...(tag && /^[0-9a-f]{12}$/.test(tag) ? { sourceTag: tag } : {}), ...(code ? { codeDeployedAt: Date.parse(code.created_on) } : {}), ...(heldBack ? { heldBack } : {}) }
+}
+
+/**
+ * The rollback target: the version that served before production's current code deployment (a later
+ * secret-only deployment of the same code does not count as new code), with both source commits.
+ */
+export const rollbackPlan = async (script: string, force = false): Promise<{ fromVersion: string; fromSha?: string; toVersion: string; toSha?: string } | { refused: string }> => {
+  const deps = [...((await cf(`/workers/scripts/${script}/deployments`)) as { deployments: Array<any> }).deployments].sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))
+  const single = (d: any): string | undefined => (d && d.versions.length === 1 && d.versions[0].percentage === 100 ? (d.versions[0].version_id as string) : undefined)
+  const fromVersion = single(deps[0])
+  if (!fromVersion) return { refused: `${script}: no single version at 100%` }
+  const codeAt = deps.findIndex((d) => d.annotations?.["workers/triggered_by"] !== "secret")
+  // A second rollback would step onto the version the first one left (a re-run must not redeploy the bad code).
+  if (!force && deps[codeAt]?.annotations?.["workers/triggered_by"] === "rollback") return { refused: `${script} already serves a rollback; roll forward with an exact-SHA promote, or pass --force to step back once more` }
+  if (codeAt < 0 || codeAt + 1 >= deps.length) return { refused: `${script}: no deployment before the current code` }
+  const toVersion = single(deps[codeAt + 1])
+  if (!toVersion) return { refused: `${script}: the deployment before the current code is not a single version at 100%` }
+  const tagOf = async (version: string | undefined): Promise<string | undefined> => {
+    if (!version) return undefined
+    const tag = (await cf(`/workers/scripts/${script}/versions/${version}`))?.annotations?.["workers/tag"] as string | undefined
+    return tag && /^[0-9a-f]{12}$/.test(tag) ? fullSha(tag) : undefined
+  }
+  // The target's code is the newest code deployment at or before it (it may be a secret-only deployment).
+  const toCode = deps.slice(codeAt + 1).find((d) => d.annotations?.["workers/triggered_by"] !== "secret")
+  const fromSha = await tagOf(single(deps[codeAt]))
+  const toSha = await tagOf(single(toCode))
+  return { fromVersion, toVersion, ...(fromSha ? { fromSha } : {}), ...(toSha ? { toSha } : {}) }
 }
 
 interface StagingRun { sha: string; at: number; green: boolean }
@@ -202,15 +251,28 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
   }
   if (cmd === "gates") {
     const hold = (n: string, why: string) => (console.log(`prod-promote: HOLD (${n}) ${why}`), 3)
-    // G6 first: a hold switch stops everything, even the reads.
-    if (process.env.CMUX_NEXT_PRODUCTION_HOLD !== HOLD_RELEASED) return hold("G6", `hold switch: ${holdText(process.env.CMUX_NEXT_PRODUCTION_HOLD)}`)
+    const holdValue = process.env.CMUX_NEXT_PRODUCTION_HOLD
+    const asked = opt("--candidate") || undefined
+    if (asked !== undefined && !/^[0-9a-f]{40}$/.test(asked)) {
+      console.error("prod-promote: --candidate must be exactly 40 lowercase hex")
+      return 2
+    }
+    const pinned = holdPinned(holdValue)
+    // G6 first: a hold switch stops everything, even the reads. A one-shot release names its one commit.
+    if (holdValue !== HOLD_RELEASED && !pinned) return hold("G6", `hold switch: ${holdText(holdValue)}`)
+    if (pinned && asked !== undefined && asked !== pinned) return hold("G6", `the hold releases only ${pinned.slice(0, 12)}, not ${asked.slice(0, 12)}`)
+    const want = asked ?? pinned
     const now = Date.now()
     const prod = await serving(PRODUCTION)
     if (!prod.sourceTag) return hold("source", `production version ${prod.version} has no source tag; the first promotion is the hand rail with Lawrence's go`)
+    // After a rollback or the off switch only an operator's exact-SHA promote (--candidate) moves production forward.
+    if (prod.heldBack && asked === undefined) return hold("rolled-back", `${prod.heldBack}; promote an exact fixed commit with --candidate (target=promote, candidate=<sha>)`)
     if (prod.codeDeployedAt && now - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold("spacing", `production code changed less than ${SPACING_HOURS} h ago`)
     const prodSha = fullSha(prod.sourceTag)
-    const cand = pickCandidate(await stagingRuns(), now)
-    if (!cand) return hold("G1", `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
+    const runs = await stagingRuns()
+    // Exact SHA: only that commit's green runs compete; every red run still counts against its soak window.
+    const cand = pickCandidate(want ? runs.filter((r) => !r.green || r.sha === want) : runs, now)
+    if (!cand) return hold("G1", want ? `${want.slice(0, 12)} has no green staging deploy (tests, push guard, deploy and smoke) older than ${SOAK_MINUTES} min without a red one after it, among the last ${runs.length} staging runs` : `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
     if (!isAncestor(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
     // G2: an open regression issue (P0/P1) blocks; the chief applies the label or the hold.
@@ -237,8 +299,8 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
   }
   if (cmd === "recheck") {
     const hold = (why: string) => (console.log(`prod-promote recheck: HOLD ${why}`), 3)
-    if (process.env.CMUX_NEXT_PRODUCTION_HOLD !== HOLD_RELEASED) return hold(`hold switch: ${holdText(process.env.CMUX_NEXT_PRODUCTION_HOLD)}`)
     const cand = opt("--candidate")
+    if (!holdReleases(process.env.CMUX_NEXT_PRODUCTION_HOLD, cand)) return hold(`hold switch: ${holdText(process.env.CMUX_NEXT_PRODUCTION_HOLD)}`)
     // Exactly 40 lowercase hex, nothing else (the value came through a workflow output).
     if (cand === undefined || !/^[0-9a-f]{40}$/.test(cand)) return hold("--candidate must be exactly 40 lowercase hex")
     const prod = await serving(PRODUCTION)
@@ -249,6 +311,41 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (prodSha === cand || !isAncestor(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
     console.log(`prod-promote recheck: ok, ${prodSha.slice(0, 12)} -> ${cand.slice(0, 12)}`)
     return 0
+  }
+  if (cmd === "serving") {
+    const prod = await serving(PRODUCTION)
+    if (!prod.sourceTag) {
+      console.error(`prod-promote serving: production version ${prod.version} has no source tag`)
+      return 1
+    }
+    console.log(fullSha(prod.sourceTag))
+    return 0
+  }
+  if (cmd === "rollback") {
+    const refuse = (why: string) => (console.log(`prod-promote rollback: REFUSED ${why}`), 3)
+    const plan = await rollbackPlan(PRODUCTION, rest.includes("--force"))
+    if ("refused" in plan) return refuse(plan.refused)
+    const label = `${plan.toSha ? plan.toSha.slice(0, 12) : "untagged"}`
+    // A DO lifecycle change between the two versions: Cloudflare refuses the rollback, and old code would meet new classes.
+    if (plan.fromSha && plan.toSha) {
+      const from = productionEnv(fileAt(plan.fromSha, WRANGLER)).migrations
+      const to = productionEnv(fileAt(plan.toSha, WRANGLER)).migrations
+      if (JSON.stringify(from) !== JSON.stringify(to)) {
+        const tags = from.filter((m) => !to.some((t) => JSON.stringify(t) === JSON.stringify(m))).map((m) => m.tag)
+        return refuse(`${plan.fromSha.slice(0, 12)} -> ${label} crosses a Durable Object lifecycle change (${tags.join(", ") || "migrations differ"}); Cloudflare cannot roll back across it. Fix forward; to turn the Chief brain off on the serving code: gh workflow run backend.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f target=chief-off`)
+      }
+    } else return refuse(`cannot read both source commits (serving ${plan.fromSha ?? "untagged"}, target ${label}); roll back by hand: wrangler rollback ${plan.toVersion} --name ${PRODUCTION}`)
+    const args = ["rollback", plan.toVersion, "--name", PRODUCTION, "-y", "--message", `rollback ${plan.fromSha.slice(0, 12)} -> ${label} (prod-promote)`]
+    const wrangler = opt("--wrangler") ?? "wrangler"
+    console.log(`prod-promote rollback: ${plan.fromVersion} (${plan.fromSha.slice(0, 12)}) -> ${plan.toVersion} (${label})`)
+    if (!rest.includes("--execute")) {
+      console.log(`dry run; run with --execute, or: ${wrangler} ${args.join(" ")}`)
+      return 0
+    }
+    execFileSync(wrangler, args, { stdio: "inherit" })
+    const after = await serving(PRODUCTION)
+    console.log(`prod-promote rollback: production serves ${after.version}${after.sourceTag ? ` (${after.sourceTag})` : ""}`)
+    return after.version === plan.toVersion ? 0 : 1
   }
   if (cmd === "stale") {
     const now = Date.now()
@@ -289,7 +386,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     }
     return stale ? 1 : state === "unknown" ? 4 : 0
   }
-  console.error("usage: prod-promote.ts config|gates|stale (see the header)")
+  console.error("usage: prod-promote.ts config|gates|recheck|serving|rollback|stale (see the header)")
   return 2
 }
 

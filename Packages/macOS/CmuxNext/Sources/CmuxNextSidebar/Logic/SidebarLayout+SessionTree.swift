@@ -7,11 +7,11 @@ nonisolated extension SidebarLayout {
     /// any depth (who started whom). Siblings keep the list's order. A parent in another list leaves
     /// the row a root, and so does a cycle. The descendants of a `collapsed` parent do not draw (the
     /// parent shows their roll-up). `ids` are the entries' workspaces (nil: a group or an item).
-    /// Without `parents` the order is the model's.
+    /// Without `parents` the order is the model's. `children`: `treeChildren`, when the caller has it.
     static func treeOrder(_ ids: [WorkspaceID?], parents: [WorkspaceID: WorkspaceID]?,
-                          collapsed: Set<WorkspaceID> = []) -> [(index: Int, depth: Int)] {
+                          collapsed: Set<WorkspaceID> = [], children known: [WorkspaceID: [Int]]? = nil) -> [(index: Int, depth: Int)] {
         guard let parents, !parents.isEmpty else { return ids.indices.map { ($0, 0) } }
-        let children = treeChildren(ids, parents: parents)
+        let children = known ?? treeChildren(ids, parents: parents)
         let nested = Set(children.values.joined())
         var order: [(index: Int, depth: Int)] = []
         order.reserveCapacity(ids.count)
@@ -26,16 +26,24 @@ nonisolated extension SidebarLayout {
 
     /// Each workspace's children among `ids`, as model indices in the list's order. A child whose
     /// parent is not in the list, or whose parents run in a cycle, is nobody's child (a root).
+    /// One pass: each workspace's answer is remembered, so a chain is walked once, not once per link.
     static func treeChildren(_ ids: [WorkspaceID?], parents: [WorkspaceID: WorkspaceID]) -> [WorkspaceID: [Int]] {
         let present = Set(ids.compactMap { $0 })
+        var rooted: [WorkspaceID: Bool] = [:]
         func reachesRoot(_ id: WorkspaceID) -> Bool {
-            var seen: Set<WorkspaceID> = [id]
+            var path: [WorkspaceID] = []
+            var onPath: Set<WorkspaceID> = []
             var current = id
-            while let parent = parents[current], present.contains(parent) {
-                guard seen.insert(parent).inserted else { return false }
+            var answer = true
+            while true {
+                if let known = rooted[current] { answer = known; break }
+                guard onPath.insert(current).inserted else { answer = false; break } // a cycle
+                path.append(current)
+                guard let parent = parents[current], present.contains(parent) else { break } // a root
                 current = parent
             }
-            return true
+            for node in path { rooted[node] = answer }
+            return answer
         }
         var children: [WorkspaceID: [Int]] = [:]
         for (index, id) in ids.enumerated() {

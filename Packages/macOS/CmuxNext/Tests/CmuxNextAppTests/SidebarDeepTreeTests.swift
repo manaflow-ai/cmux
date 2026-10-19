@@ -83,6 +83,38 @@ import Testing
         #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1))
     }
 
+    /// A filter opens every fold (search finds a session a fold hides), so a folded parent that
+    /// matches draws open: no collapsed chevron and no roll-up above its own children.
+    @Test func aFilterDrawsAFoldedParentOpen() {
+        let a = WorkspaceID("a"), b = WorkspaceID("b")
+        let sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+            .workspace(SidebarWorkspace(id: a, title: "a")), .workspace(SidebarWorkspace(id: b, title: "b")),
+        ])]
+        var options = SidebarLayoutOptions()
+        options.sessionTree = SidebarSessionTreeState(parents: [b: a], states: [b: .blocked], collapsed: [a])
+        options.filterMatches = [a, b]
+        let rows = Dictionary(uniqueKeysWithValues: SidebarLayout.make(sections: sections, metrics: .standard, options: options).rows.compactMap { row in
+            if case let .workspace(id) = row.key, let content = row.content { (id, content) } else { nil }
+        })
+        #expect(Set(rows.keys) == [a, b])
+        #expect(rows[a]?.treeFold == .expanded)
+        #expect(rows[a]?.rollUp == nil)
+    }
+
+    /// A long chain resolves in one pass: every node finds its root once, not once per ancestor.
+    @Test func treeChildrenOfADeepChainKeepsEveryLink() {
+        let ids = (0..<2000).map { WorkspaceID("c\($0)") }
+        var parents: [WorkspaceID: WorkspaceID] = [:]
+        for n in 1..<ids.count { parents[ids[n]] = ids[n - 1] }
+        let children = SidebarLayout.treeChildren(ids.map(Optional.some), parents: parents)
+        #expect(children.count == ids.count - 1)
+        #expect(children[ids[0]] == [1])
+        // A cycle hanging off the chain stays rootless.
+        let x = WorkspaceID("x"), y = WorkspaceID("y")
+        let cyclic = SidebarLayout.treeChildren([ids[0], x, y], parents: [x: y, y: x])
+        #expect(cyclic.isEmpty)
+    }
+
     @Test func aWorkspaceWithoutALaneReadsItsRowStrictly() {
         var ws = SidebarWorkspace(id: WorkspaceID("w"), title: "w")
         #expect(SidebarAgentState.of(ws, lane: nil) == .idle)

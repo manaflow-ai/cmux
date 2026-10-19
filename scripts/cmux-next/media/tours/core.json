@@ -29,6 +29,8 @@
      "cmux": ["notify", "--title", "Tour", "--body", "Rows move when they need you"], "wait": 2,
      "optional": "an app from before sidebar.rowOrder"},
     {"title": "Back to Keep Rows in Place", "cmux": ["settings", "set", "sidebar.rowOrder", "stable"], "shot": false,
-     "optional": "an app from before sidebar.rowOrder"}
+     "optional": "an app from before sidebar.rowOrder"},
+    {"title": "Session tree back off for later tours", "cmux": ["settings", "set", "sidebar.sessionTree", "false"], "shot": false,
+     "optional": "an app from before sidebar.sessionTree"}
   ]
 }

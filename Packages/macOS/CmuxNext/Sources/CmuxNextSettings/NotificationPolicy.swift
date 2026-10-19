@@ -108,7 +108,8 @@ public nonisolated struct NotificationPolicy: Sendable {
             decision.sound = sound
         }
         if mode == .timeout { decision.timeout = prefs.timeoutSeconds }
-        if decision.alerts, !arrival.appActive, prefs.dockBounce != .off { decision.bounce = prefs.dockBounce }
+        // A poster asking for no banner (`notify --desktop false`) gets no bounce either.
+        if decision.desktop, !arrival.appActive, prefs.dockBounce != .off { decision.bounce = prefs.dockBounce }
         return decision
     }
 }

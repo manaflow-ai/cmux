@@ -253,12 +253,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                     }
                     let groupCollapsed = group.isCollapsed && !filtering
-                    var header = SidebarRow(
+                    let header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: groupCollapsed, childCount: members.count, groupColor: group.color
                     )
-                    header.isThinHeader = o.minimal
                     rows.append(header)
                     y += m.groupHeaderHeight + m.rowSpacing
                     if groupCollapsed {
@@ -332,15 +331,21 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
                 let ids = Self.workspaceIDs(nodes.map { $0.node })
-                let drawn = Self.treeOrder(ids, parents: o.sessionTree?.parents, collapsed: filtering ? [] : o.sessionTree?.collapsed ?? [])
-                let children = o.sessionTree.map { Self.treeChildren(ids, parents: $0.parents) } ?? [:]
+                // A filter opens every fold: the order and the chevrons both draw it open.
+                let tree = o.sessionTree.map { live in
+                    var tree = live
+                    if filtering { tree.collapsed = [] }
+                    return tree
+                }
+                let children = tree.map { Self.treeChildren(ids, parents: $0.parents) } ?? [:]
+                let drawn = Self.treeOrder(ids, parents: tree?.parents, collapsed: tree?.collapsed ?? [], children: children)
                 let listed = nodes
                 let state: (Int) -> SidebarAgentState = { i in
                     guard case let .workspace(ws) = listed[i].node else { return .idle }
                     return SidebarAgentState.of(ws, lane: o.sessionTree?.states[ws.id])
                 }
                 for (index, depth) in drawn {
-                    emit(index, nodes[index], depth: depth, fold: Self.treeFold(index, ids, tree: o.sessionTree, children: children, states: state))
+                    emit(index, nodes[index], depth: depth, fold: Self.treeFold(index, ids, tree: tree, children: children, states: state))
                 }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
