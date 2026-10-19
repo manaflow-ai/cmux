@@ -17,6 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::time::Instant;
 
+use cmux_mux2::net::Stream;
 use cmux_mux2::{self as proto};
 
 fn die(msg: impl std::fmt::Display) -> ! {
@@ -25,13 +26,18 @@ fn die(msg: impl std::fmt::Display) -> ! {
 }
 
 /// Connects, starting `mux2d` (next to this binary) when no server listens.
+/// With `MUX2_CONNECT=ADDR:PORT` it connects to that TCP listener instead
+/// and starts nothing.
 // The server outlives this client on purpose (it leaves our session with
 // setsid); it is only waited for when it fails to start.
 #[allow(clippy::zombie_processes)]
-fn connect() -> UnixStream {
+fn connect() -> Stream {
+    if let Some(addr) = proto::net::connect_addr() {
+        return Stream::connect_tcp(&addr).unwrap_or_else(|e| die(format!("connect {addr}: {e}")));
+    }
     let path = proto::socket_path();
     if let Ok(s) = UnixStream::connect(&path) {
-        return s;
+        return Stream::Unix(s);
     }
     let exe = std::env::current_exe().unwrap_or_else(|e| die(e));
     let daemon = exe.with_file_name("mux2d");
@@ -65,10 +71,10 @@ fn connect() -> UnixStream {
         let _ = child.wait();
         die("server failed to start");
     }
-    UnixStream::connect(&path).unwrap_or_else(|e| die(format!("connect: {e}")))
+    Stream::Unix(UnixStream::connect(&path).unwrap_or_else(|e| die(format!("connect: {e}"))))
 }
 
-fn call(s: &mut UnixStream, kind: u8, payload: &[u8]) -> Vec<u8> {
+fn call(s: &mut Stream, kind: u8, payload: &[u8]) -> Vec<u8> {
     proto::write_frame(s, kind, payload).unwrap_or_else(|e| die(e));
     loop {
         let (k, body) = proto::read_frame(s).unwrap_or_else(|e| die(e));
@@ -122,7 +128,7 @@ fn term_size() -> (u16, u16) {
     }
 }
 
-fn create_from_args(s: &mut UnixStream, args: &[String]) -> u32 {
+fn create_from_args(s: &mut Stream, args: &[String]) -> u32 {
     let (mut cols, mut rows) = term_size();
     let mut cwd =
         std::env::current_dir().map(|p| p.as_os_str().as_bytes().to_vec()).unwrap_or_default();
@@ -163,7 +169,7 @@ fn pct(xs: &mut [f64], f: f64) -> f64 {
     xs[((xs.len() - 1) as f64 * f) as usize]
 }
 
-fn bench(s: &mut UnixStream, args: &[String]) {
+fn bench(s: &mut Stream, args: &[String]) {
     let n: usize = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(100);
     let mut lat = Vec::with_capacity(n);
     match args.first().map(String::as_str) {
@@ -236,7 +242,7 @@ fn resize_payload(t: u32) -> Vec<u8> {
     p
 }
 
-fn attach(s: UnixStream, t: u32) -> i32 {
+fn attach(s: Stream, t: u32) -> i32 {
     // SIGWINCH is handled by a sigwait thread; block it everywhere first.
     // SAFETY: building and applying a signal mask before threads exist.
     let mut winch: libc::sigset_t = unsafe { std::mem::zeroed() };
@@ -248,7 +254,7 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     // Frames from different threads must not interleave on the socket.
     let writer =
         std::sync::Arc::new(std::sync::Mutex::new(s.try_clone().unwrap_or_else(|e| die(e))));
-    let send = |w: &std::sync::Mutex<UnixStream>, kind: u8, payload: &[u8]| {
+    let send = |w: &std::sync::Mutex<Stream>, kind: u8, payload: &[u8]| {
         proto::write_frame(&mut *w.lock().expect("writer"), kind, payload).is_ok()
     };
     send(&writer, proto::RESIZE, &resize_payload(t));

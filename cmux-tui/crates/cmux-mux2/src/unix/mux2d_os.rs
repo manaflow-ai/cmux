@@ -202,6 +202,16 @@ pub(super) fn listen_socket(path: &std::path::Path) -> io::Result<RawFd> {
     }
 }
 
+/// The MUX2_LISTEN socket: one explicit address, never a wildcard.
+pub(super) fn tcp_listen_socket(value: &str) -> io::Result<RawFd> {
+    use std::os::fd::IntoRawFd as _;
+    let addr = proto::net::parse_listen_addr(value)?;
+    // std sets SO_REUSEADDR, so an upgraded server can bind again at once.
+    let fd = std::net::TcpListener::bind(addr)?.into_raw_fd();
+    set_nonblock_cloexec(fd)?;
+    Ok(fd)
+}
+
 pub(super) fn raise_nofile() {
     // SAFETY: get/setrlimit with a valid struct.
     unsafe {

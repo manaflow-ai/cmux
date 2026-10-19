@@ -1,6 +1,7 @@
 //! The in-place upgrade state file: format and dry-run parsing.
 
 use super::*;
+use std::os::unix::ffi::OsStringExt as _;
 
 pub(super) const STATE_MAGIC: &[u8] = b"MUX2S2";
 
@@ -192,9 +193,21 @@ impl Server {
             conn.front_sent = 0;
             conn.queued = 0;
         }
-        // SAFETY: execv with a null-terminated argv of live CStrings. Client
-        // sockets and the event loop are close-on-exec.
-        unsafe { libc::execv(cexe.as_ptr(), argv.as_ptr()) };
+        // The environment, plus the listener settings main took out of it.
+        let envs: Vec<CString> = std::env::vars_os()
+            .chain(self.listen_env.iter().map(|(n, v)| (std::ffi::OsString::from(n), v.clone())))
+            .filter_map(|(k, v)| {
+                let mut kv = k.into_vec();
+                kv.push(b'=');
+                kv.extend_from_slice(v.as_bytes());
+                CString::new(kv).ok()
+            })
+            .collect();
+        let envp: Vec<*const libc::c_char> =
+            envs.iter().map(|e| e.as_ptr()).chain(std::iter::once(std::ptr::null())).collect();
+        // SAFETY: execve with null-terminated argv and envp of live CStrings.
+        // Client sockets and the event loop are close-on-exec.
+        unsafe { libc::execve(cexe.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
         let err = io::Error::last_os_error();
         for &fd in &keep {
             // SAFETY: restoring close-on-exec after the failed exec.
