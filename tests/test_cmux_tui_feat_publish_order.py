@@ -161,7 +161,8 @@ def main():
         ("push", "refs/heads/main"),
         ("push", "refs/heads/codex/opted-in-lane"),
         ("workflow_dispatch", "refs/heads/cmux-tui-pin-0123456789ab"),
-        ("pull_request_target", "refs/heads/feat-cmux-next"),
+        # No pull_request_target case: 17bb49cc0b9 removed the dead
+        # publish-pr-tree job; PR trees publish from cmux-tui-pin-* pushes.
     ]
     for event, ref in tested_refs:
         for result in (None, "failure", "cancelled", "skipped", "success"):

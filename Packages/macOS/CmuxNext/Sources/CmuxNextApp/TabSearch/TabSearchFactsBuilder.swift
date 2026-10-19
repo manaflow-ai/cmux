@@ -10,7 +10,8 @@ enum TabSearchFactsBuilder {
         ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: closed(services))
     }
 
-    private static func lastActive(_ services: AppServices) -> [String: Date] {
+    /// When the user last settled on each tab (the location trail), by tab id.
+    static func lastActive(_ services: AppServices) -> [String: Date] {
         var result: [String: Date] = [:]
         for entry in services.locationTrail.trail.entries {
             let tab = entry.location.key.tab
@@ -25,7 +26,7 @@ enum TabSearchFactsBuilder {
     /// pane of every workspace: the control publisher calls it on each
     /// publish, and the old walk read every workspace's tree inside its
     /// tracking (O(workspaces) per publish).
-    private static func closing(_ services: AppServices) -> Set<String> {
+    static func closing(_ services: AppServices) -> Set<String> {
         var result = Set<String>()
         for controller in services.windows.controllers {
             guard let content = controller.content else { continue }

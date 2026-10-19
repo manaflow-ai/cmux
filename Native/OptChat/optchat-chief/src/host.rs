@@ -1397,6 +1397,31 @@ fn start(
     ));
     // Finished subagents' workspaces stay with a done mark unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
+    // Subagents that stop on a model or network error continue on their own
+    // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
+    brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);
+    // Agent CLIs in cmux terminals (Claude Code, Codex) that stop on an
+    // error continue the same way (terminal_watch.rs);
+    // OPTCHAT_TERMINAL_RESUME=off turns only that off.
+    if let Some(policy) = crate::auto_resume::ResumePolicy::from_env(env)
+        && !matches!(
+            env("OPTCHAT_TERMINAL_RESUME").as_deref(),
+            Some("off" | "0" | "false" | "no")
+        )
+    {
+        crate::terminal_watch::spawn(
+            policy,
+            Arc::new(crate::terminal_watch::CliTerminals::from_env(env)),
+            Arc::new(crate::auto_resume::TcpProbe::from_env(
+                env,
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .as_deref(),
+            )),
+            tx.clone(),
+            brain_log.clone(),
+        );
+    }
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }

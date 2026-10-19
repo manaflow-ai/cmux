@@ -357,3 +357,21 @@ test("Add from a Link downloads an image and sets it; a refused link says why; y
   expect(runs(page, "cmux.settings.backdrop.image.reveal").length).toBe(1);
   page.unmount();
 });
+
+test("A wallpaper tile whose thumbnail fails shows an empty frame, not a broken image", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?focus=appearance.background",
+    mock: { values: { "appearance.background": "starryNight" } },
+  });
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  await act(async () => tile.querySelector("img")!.dispatchEvent(new window.Event("error")));
+  await settle();
+  expect(tile.querySelector("img")).toBeNull();
+  expect(tile.querySelector("[data-thumb-missing]")).not.toBeNull();
+  // The tile still chooses its wallpaper.
+  await act(async () => tile.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "starryNight" });
+  page.unmount();
+});
