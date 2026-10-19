@@ -180,7 +180,7 @@ final class PaneHostView: NSView, RestingPlacement {
         guard mask.frame != rect || mask.cutouts != cutouts || mask.backgroundColor == nil && cutouts.isEmpty else { return false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        mask.place(rect, cutouts: cutouts)
+        mask.place(rect, cutouts: cutouts, scale: layer.contentsScale)
         CATransaction.commit()
         return true
     }

@@ -54,12 +54,12 @@ struct PaneMotionVariantTests {
         for _ in 0..<120 {
             screen.step()
             let shown = try #require(screen.view.paneFrames["p1"]?.rect)
-            #expect(screen.context.hosts["p1"]?.frame == shown, "the expanding pane is not laid out at its spring rect")
+            #expect(screen.context.hosts["p1"]?.frame == screen.view.displayedFrame(of: "p1"), "the expanding pane is not laid out at its spring rect")
             sizes.insert(shown.width)
         }
         #expect(sizes.count >= 5, "the expanding pane laid out \(sizes.count) widths")
         #expect(screen.view.paneFrames["p1"]?.rect == target)
-        #expect(screen.context.hosts["p1"]?.frame == target)
+        #expect(screen.context.hosts["p1"]?.frame == screen.view.displayedFrame(of: "p1"))
         #expect(screen.view.zoomMotion.covered.isEmpty)
         #expect(!screen.step(), "a settled pane prototype kept requesting animation frames")
     }
@@ -74,7 +74,7 @@ struct PaneMotionVariantTests {
         for _ in 0..<120 {
             screen.step()
             let shown = try #require(screen.view.paneFrames["p1"]?.rect)
-            #expect(screen.context.hosts["p1"]?.frame == shown, "the growing pane is not laid out at its spring rect")
+            #expect(screen.context.hosts["p1"]?.frame == screen.view.displayedFrame(of: "p1"), "the growing pane is not laid out at its spring rect")
             sizes.insert(shown.width)
         }
         #expect(sizes.count >= 5, "the growing pane laid out \(sizes.count) widths")

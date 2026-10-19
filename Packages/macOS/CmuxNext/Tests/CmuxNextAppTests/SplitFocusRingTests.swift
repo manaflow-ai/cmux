@@ -43,6 +43,10 @@ import CmuxNextFocus
     @Test func theRingMovesToTheSplitsNewPaneInTheApplyThatMountsIt() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        // The ring marks focus only with `appearance.focusIndicator` border or both (the default is tabs).
+        let indicator = DesignSettings.shared.focusIndicator
+        DesignSettings.shared.focusIndicator = .both
+        defer { DesignSettings.shared.focusIndicator = indicator }
         let store = services.daemon.store
         store.connectionState = .connected(try Self.connected())
         store.apply(snapshot: Self.tree(split: false))
