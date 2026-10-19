@@ -197,6 +197,26 @@ impl ReliableSession {
         self.shared.state.lock().unwrap().outbound(lane).next_sequence
     }
 
+    /// The highest outbound sequence on `lane` the peer has acknowledged.
+    /// The peer acknowledges a frame only after its session returned it to
+    /// the reader, so every frame at or below this sequence is ordered ahead
+    /// of anything sent on any lane from now on.
+    pub fn acknowledged(&self, lane: Lane) -> u64 {
+        self.shared.state.lock().unwrap().outbound(lane).acknowledged
+    }
+
+    /// Waits until the peer has acknowledged `sequence` on `lane`.
+    pub async fn wait_acknowledged(&self, lane: Lane, sequence: u64) {
+        loop {
+            // Created before the check: notify_waiters wakes it either way.
+            let progress = self.shared.outbound_progress[lane_index(lane)].notified();
+            if self.acknowledged(lane) >= sequence || self.closed.load(Ordering::Acquire) {
+                return;
+            }
+            progress.await;
+        }
+    }
+
     /// Compatibility hook for callers that reserved a sequence before an
     /// unscheduled failure. `send` already performs this rollback for queue
     /// admission failures; reconnectable failures stay in replay.
@@ -617,6 +637,7 @@ impl ReliabilityState {
                 next_sequence: outbound.next_sequence,
             });
         }
+        outbound.acknowledged = outbound.acknowledged.max(acknowledgement);
         let delivery_len = outbound.delivery.len();
         while outbound.delivery.front().is_some_and(|entry| entry.sequence <= acknowledgement) {
             let entry = outbound.delivery.pop_front().unwrap();
@@ -661,6 +682,8 @@ impl ReliabilityState {
 #[derive(Clone)]
 struct OutboundLane {
     next_sequence: u64,
+    /// Highest sequence the peer has acknowledged (never moves back).
+    acknowledged: u64,
     delivery: VecDeque<DeliveryEntry>,
     delivery_bytes: usize,
     replay: VecDeque<ReplayEntry>,
@@ -705,6 +728,7 @@ impl Default for OutboundLane {
     fn default() -> Self {
         Self {
             next_sequence: 1,
+            acknowledged: 0,
             delivery: VecDeque::new(),
             delivery_bytes: 0,
             replay: VecDeque::new(),

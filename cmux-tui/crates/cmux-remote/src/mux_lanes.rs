@@ -163,6 +163,18 @@ impl MuxLaneTracker {
     }
 }
 
+/// The surface a client `send` line writes to.
+pub(crate) fn input_surface(line: &[u8]) -> Option<u64> {
+    #[derive(Deserialize)]
+    struct Send<'a> {
+        #[serde(borrow)]
+        cmd: Option<MuxName<'a>>,
+        surface: Option<u64>,
+    }
+    let send: Send<'_> = serde_json::from_slice(line).ok()?;
+    (send.cmd.as_ref().map(MuxName::as_str) == Some("send")).then_some(send.surface).flatten()
+}
+
 pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
     let Ok(envelope) = parse_envelope(line) else { return Lane::Control };
     match envelope.cmd.as_ref().map(MuxName::as_str) {

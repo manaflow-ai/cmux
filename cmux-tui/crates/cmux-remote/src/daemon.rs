@@ -331,6 +331,17 @@ impl ServerConnection {
         *self.generation.borrow()
     }
 
+    /// See [`ReliableSession::acknowledged`].
+    pub async fn acknowledged(&self, lane: Lane) -> u64 {
+        self.session.read().await.acknowledged(lane)
+    }
+
+    /// See [`ReliableSession::wait_acknowledged`].
+    pub async fn wait_acknowledged(&self, lane: Lane, sequence: u64) {
+        let session = self.session.read().await.clone();
+        session.wait_acknowledged(lane, sequence).await;
+    }
+
     pub async fn snapshot(&self) -> ServerConnectionSnapshot {
         let diagnostics =
             self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1304,6 +1315,8 @@ impl Listener for LimitedTcpListener {
                 Ok((inner, address)) => {
                     self.accept_backoff.reset();
                     let _ = inner.set_nodelay(true);
+                    #[cfg(unix)]
+                    crate::mux_echo::set_notsent_lowat(&inner);
                     return (
                         AdmissionIo {
                             inner,

@@ -290,6 +290,17 @@ impl ClientConnection {
         self.generation.subscribe()
     }
 
+    /// See [`ReliableSession::acknowledged`].
+    pub async fn acknowledged(&self, lane: Lane) -> u64 {
+        self.session.read().await.acknowledged(lane)
+    }
+
+    /// See [`ReliableSession::wait_acknowledged`].
+    pub async fn wait_acknowledged(&self, lane: Lane, sequence: u64) {
+        let session = self.session.read().await.clone();
+        session.wait_acknowledged(lane, sequence).await;
+    }
+
     /// Returns a consistent, credential-free view of the last published
     /// transport. Reconnect replay holds the group and session publication
     /// locks, so generation and topology are cached separately and never wait

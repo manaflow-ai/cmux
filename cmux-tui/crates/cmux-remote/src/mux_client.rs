@@ -48,7 +48,8 @@ impl std::fmt::Debug for MuxLineClient {
 impl MuxLineClient {
     /// Open the mux control service and wait until every lane is ready.
     pub async fn open(multiplexer: &Arc<ServiceMultiplexer>) -> Result<Self, BridgeError> {
-        let stream = multiplexer.open(Service::MuxControl, Default::default()).await?;
+        let stream =
+            multiplexer.open(Service::MuxControl, crate::mux_echo::client_metadata()).await?;
         let opened = match await_opened(&stream).await {
             Ok(opened) => opened,
             Err(error) => {
