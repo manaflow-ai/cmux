@@ -37,6 +37,18 @@ import PackageDescription
 // grid until the owner announces it (ghostty_surface_set_reflow_preview),
 // and reports the grid its last frame drew (ghostty_surface_drawn_grid;
 // PR 39).
+// Since e4831af81 cells keep the source of each color and a config color
+// change blends on the GPU with the surface's transition
+// (ghostty_surface_set_color_transition), and the renderer reports its
+// frame counters (ghostty_surface_render_counters; PR 40).
+// Since e6a27a1fb a config change of colors only rebuilds no cells, and the
+// render counters report full rebuilds by cause (PR 41).
+// Since a19c884fa a released drawable keeps its pixels while another owner
+// holds it (the layer's presented frame, an evicted terminal's last frame;
+// cmux marks those volatile while hidden; PR 42).
+// Since ced99dcde a new drawn terminal (a restore, the reflow preview) keeps
+// rows whose content is the same (PR 43) and the renderer's cell size
+// follows its font grid only (PR 44), so a font change rebuilds once.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -61,8 +73,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c5926d664798b4ad09428b095a9baa3cbdc6a766-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "417f084918804fccfe5724e5052888f7c92aa6b2531a41dd2d184acacfc04714"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-ced99dcde2f11df0e9f9e4a3d768c2a8ff62d903-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "1b63ad807de22b8c51489c3bf1640dbc2b8582beca9f74a516471f59ac0e63ed"
         ),
     ]
 )

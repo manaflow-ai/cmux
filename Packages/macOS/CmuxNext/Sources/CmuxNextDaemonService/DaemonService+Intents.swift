@@ -13,7 +13,7 @@ extension DaemonService {
     /// or when `body` throws. Returns the body's value, or nil on failure.
     public func intend<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                              _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
-        let ticket = openTicket()
+        let ticket = openTicket(label)
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
@@ -67,7 +67,7 @@ extension DaemonService {
     /// reports it (no intent to show). Returns the body's value, or nil
     /// when it failed (logged).
     public func request<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
-        let ticket = openTicket()
+        let ticket = openTicket(label)
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
@@ -87,7 +87,7 @@ extension DaemonService {
     /// `request` for callers that handle the failure themselves: it still
     /// goes to the action scope (ticket, barrier, failure), and is rethrown.
     public func perform<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async throws -> T {
-        let ticket = openTicket()
+        let ticket = openTicket(label)
         guard let connection else {
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
             throw DaemonError.notConnected

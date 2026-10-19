@@ -33,8 +33,7 @@ import Testing
 
         host.hide()
         #expect(panel.isVisible, "closed in one frame")
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(!panel.isVisible)
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
     static func menu(_ ids: [String]) throws -> WebPopupHost.Model {
@@ -66,8 +65,7 @@ import Testing
         let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
         host.hide()
         host.update(try Self.menu(["a", "b", "c"]))
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(!panel.isVisible, "the closed menu opened again")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the closed menu opened again")
         #expect(host.shownFrame == nil)
     }
 
@@ -84,8 +82,7 @@ import Testing
         host?.hide()
         host = nil
         #expect(gone == nil)
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(!panel.isVisible, "a dead host's menu stayed on its window")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "a dead host's menu stayed on its window")
         #expect(panel.parent == nil)
     }
 }

@@ -112,6 +112,10 @@ class HomeInboxKind(str, Enum):
     CHANNEL = 'channel'
     GROUP = 'group'
 
+class NameSource(str, Enum):
+    USER = 'user'
+    AUTO = 'auto'
+
 class NotificationLevel(str, Enum):
     INFO = 'info'
     WARNING = 'warning'
@@ -675,6 +679,7 @@ class ConversationTabSplit:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabSplit'
     direction: str
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    split_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -942,7 +947,10 @@ class IdentifyResult:
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
+    machine_capabilities: Union[List[str], MissingType] = field(default=MISSING)
+    machine_id: Union[str, MissingType] = field(default=MISSING)
     machine_name: Union[str, MissingType] = field(default=MISSING)
+    machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -989,6 +997,7 @@ class LayoutSplit:
     ratio: float
     type: Literal['split']
     split: Union[Id, MissingType] = field(default=MISSING)
+    split_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1048,6 +1057,13 @@ class LivePane:
 class MachineListeningTcpResult:
     __cmux_schema_path__: ClassVar[str] = 'types/MachineListeningTcpResult'
     stdout: str
+
+
+@dataclass(frozen=True)
+class MachinePlatform:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachinePlatform'
+    arch: str
+    os: str
 
 
 @dataclass(frozen=True)
@@ -2036,6 +2052,8 @@ class Workspace:
     name: str
     screens: List[Screen]
     key: Union[str, MissingType] = field(default=MISSING)
+    name_revision: Union[str, MissingType] = field(default=MISSING)
+    name_source: Union[NameSource, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -3339,7 +3357,7 @@ class HomeInboxResult:
 @dataclass(frozen=True)
 class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
-    pass
+    machine_metadata: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4093,6 +4111,9 @@ class RenameWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    expected_name_revision: Union[str, None, MissingType] = field(default=MISSING)
+    release: Union[bool, MissingType] = field(default=MISSING)
+    source: Union[NameSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4506,6 +4527,7 @@ class SplitRequest:
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    split_id: Union[str, None, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -4805,6 +4827,26 @@ class AgentChangedEvent(EventBase):
     agent: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class AgentInventoryChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-inventory-changed/payload'
+    event: Literal['agent-inventory-changed']
+    machine: str
+    revision: int
+    watch_id: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class AgentInventoryWatchEndedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/agent-inventory-watch-ended/payload'
+    event: Literal['agent-inventory-watch-ended']
+    machine: str
+    reason: str
+    watch_id: str
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5712,7 +5754,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5736,6 +5778,7 @@ __all__ = [
     'FrontendFocusTarget',
     'HomeChiefState',
     'HomeInboxKind',
+    'NameSource',
     'NotificationLevel',
     'NotificationSource',
     'PaneDirection',
@@ -5829,6 +5872,7 @@ __all__ = [
     'ListTerminalsResult',
     'LivePane',
     'MachineListeningTcpResult',
+    'MachinePlatform',
     'MachineUsage',
     'MachineUsageResult',
     'MintTerminalRendererResult',
@@ -6253,6 +6297,8 @@ __all__ = [
     'ZoomPaneRequest',
     'ActivityChangedEvent',
     'AgentChangedEvent',
+    'AgentInventoryChangedEvent',
+    'AgentInventoryWatchEndedEvent',
     'AgentPresenceChangedEvent',
     'BellEvent',
     'BookmarksChangedEvent',

@@ -87,5 +87,5 @@ final class SiteDataWindow: PageInfoWindow {
 
 /// Scroll document laid out from the top.
 final class FlippedDocumentView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }

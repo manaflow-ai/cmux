@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
 import Observation
@@ -50,7 +51,7 @@ public final class AgentPaneView: NSView {
     /// Shown instead of reloading once the page keeps crashing.
     var crashNotice: NSView?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
-    var otherInstallNotice: NSTextField?
+    var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -154,6 +155,8 @@ public final class AgentPaneView: NSView {
                 configuration.userContentController.addUserScript(
                     WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             }
+            // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
+            ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             #if DEBUG
@@ -232,7 +235,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Motion.speed }) {
+            for await _ in ObservationStream({ (Motion.speed, DesignSettings.shared.statusIndicator.animation) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
