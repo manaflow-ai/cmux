@@ -30,7 +30,7 @@
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 
-use super::{Control, Hub, PromptOptions, Session, SessionStatus};
+use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
@@ -182,6 +182,27 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
         );
     }
     Some(delays)
+}
+
+impl TurnInfo {
+    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq.
+    pub(super) fn prompted(
+        client: &str,
+        text: &str,
+        turn_id: &str,
+        prompt_id: &str,
+        control: Control,
+    ) -> Self {
+        TurnInfo {
+            started_at: super::now_ms(),
+            client: client.to_owned(),
+            prompt_preview: super::short_text(text, 200),
+            turn_id: turn_id.to_owned(),
+            prompt_id: prompt_id.to_owned(),
+            turn_seq: 0,
+            control,
+        }
+    }
 }
 
 impl Hub {
