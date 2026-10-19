@@ -186,6 +186,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.isCLI = descriptor.cli
         info.waitsForResult = descriptor.waitsForResult
         info.waitsForPerson = descriptor.waitsForPerson
+        info.waitsForKeyedCreate = descriptor.waitsForKeyedCreate
         info.focuses = descriptor.focuses
         return info
     }

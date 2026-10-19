@@ -243,6 +243,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudHostReplicaClear(CloudHostReplicaClearRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_HOST_REPLICA_CLEAR, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudHostReplicaSet(CloudHostReplicaSetRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_HOST_REPLICA_SET, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudHostReplicaStatus() throws CmuxException {
+        Object result = execute(Commands.CLOUD_HOST_REPLICA_STATUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudInboxList(CloudInboxListRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_INBOX_LIST, request.toWire());
         return Wire.immutableJson(result);

@@ -131,6 +131,20 @@ describe("host read replica (object-sync phase 3)", () => {
     const welcome = await back.until((f) => f.t === "welcome")
     expect(back.frames[welcome].heads).toEqual({ [stream]: 4 })
     await late.until((f) => f.t === "owner.status" && f.status === "online")
+
+    // The host's off switch: the replica forgets every stream; readers see no cached copy.
+    const before = late.frames.length
+    back.send({ t: "replica.purge" })
+    await back.until((f) => f.t === "replica.purged")
+    const cleared = await late.until((f) => f.t === "owner.status" && f.cached_seq === undefined, before)
+    expect(late.frames[cleared]).toMatchObject({ stream, status: "online" })
+    const fresh = opened(await socket(host, owner.session))
+    fresh.send({ t: "subscribe", stream })
+    // A frame the reader does not know answers an error after everything the subscribe sent.
+    fresh.send({ t: "nothing" })
+    const end = await fresh.until((f) => f.t === "error")
+    expect(fresh.frames.slice(0, end).find((f) => f.t === "owner.status").cached_seq).toBeUndefined()
+    expect(fresh.frames.slice(0, end).some((f) => f.t === "snapshot" || f.t === "event")).toBe(false)
   })
 
   it("drops the replica when the host is removed: open sockets close and no new socket opens", async () => {

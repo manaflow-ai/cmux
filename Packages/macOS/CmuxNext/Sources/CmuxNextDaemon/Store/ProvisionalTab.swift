@@ -53,11 +53,20 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard case .tabAdded(let delta) = event,
               let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
               entry.createdSurface != delta.surface, // `matched` paired it already
-              case .createTab(_, let provisional) = entry.kind, let tab = store.tabsBySurface[delta.surface] else { return }
+              let provisional = createdTab(of: entry.kind), let tab = store.tabsBySurface[delta.surface] else { return }
         store.intentLog.noteCreated(transaction, surface: delta.surface)
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""
         if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+    }
+
+    /// The provisional tab a create intent shows: a created tab's, or a new workspace's first tab.
+    private static func createdTab(of intent: Intent) -> TabSnapshot? {
+        switch intent {
+        case .createTab(_, let provisional): provisional
+        case .createWorkspace(let provisional, _): provisional.tab
+        default: nil
+        }
     }
 
     /// The daemon's pane of a conversation tab's split (`conversation-tab-split-v1`) arrived
