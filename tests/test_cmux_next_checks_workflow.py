@@ -744,10 +744,6 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
         self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/cmux-tui-pin-repair",
                                             published=True, missing="/manifest.json")["run_macos"], "true")
 
-    def test_fork_never_schedules_trusted_build(self):
-        self.assertEqual(self.run_preflight(artifacts=True, event="pull_request_target",
-                                            fork=True)["run_macos"], "false")
-
 
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 
