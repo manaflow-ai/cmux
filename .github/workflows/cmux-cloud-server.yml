@@ -32,5 +32,7 @@ jobs:
         run: cargo fmt --manifest-path first-party-apps/cloud/server/Cargo.toml --check
       - name: Lint
         run: cargo clippy --manifest-path first-party-apps/cloud/server/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Scope regressions
+        run: bash scripts/ci/cargo-test-selected.sh --manifest-path first-party-apps/cloud/server/Cargo.toml --locked --all-targets cloud_scope
       - name: Test
-        run: bash scripts/ci/cargo-test-selected.sh --manifest-path first-party-apps/cloud/server/Cargo.toml --locked --all-targets
+        run: bash scripts/ci/cargo-test-selected.sh --manifest-path first-party-apps/cloud/server/Cargo.toml --locked --all-targets --no-fail-fast
