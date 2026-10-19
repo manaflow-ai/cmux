@@ -96,7 +96,7 @@ extension DaemonStore {
                     store.indexed(existing)
                 } else {
                     let index = min(max(delta.index ?? store.workspaces.count, 0), store.workspaces.count)
-                    let workspace = WorkspaceModel(delta.entity)
+                    let workspace = store.confirmedWorkspace(delta.entity)
                     store.workspaces.insert(workspace, at: index)
                     store.indexed(workspace)
                 }

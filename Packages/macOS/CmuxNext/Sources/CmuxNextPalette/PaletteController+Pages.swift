@@ -35,6 +35,7 @@ extension PaletteController {
             scope: .root
         )
         page.mergesSectionsWhenTyping = true
+        page.queryItems = goToRows()
         return previewingActions(page)
     }
 
@@ -113,7 +114,16 @@ extension PaletteController {
             showsRecent: true
         )
         page.mergesSectionsWhenTyping = sources.navigation != nil
+        page.queryItems = goToRows()
         return page
+    }
+
+    /// Open and Ask Agent rows for a typed path or web address, first in
+    /// Cmd-P and Cmd-Shift-P; nil without a go-to source.
+    func goToRows() -> (@MainActor (String) -> [PaletteItem])? {
+        guard sources.goTo != nil else { return nil }
+        let rows = GoToPaletteRows()
+        return { [weak self] query in rows.items(query, source: self?.sources.goTo) }
     }
 
     public func tabsPage() -> PalettePageSpec? {
