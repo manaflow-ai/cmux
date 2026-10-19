@@ -46,6 +46,8 @@ export default defineConfig({
       miniflare: {
         bindings: {
           ENVIRONMENT: "test",
+          // Pairing's request-scoped Native calls are intercepted by its HTTP tests; no service key.
+          CLOUD_VM_API_ORIGIN: "https://vm.test",
           // The hand classifier answers from the fake model (its reply shapes: chief-brain/fake.ts).
           HAND_CLASSIFIER_MODEL: "fake",
           // Automation hard cap ceiling per team per month (USD); tests set it explicitly.

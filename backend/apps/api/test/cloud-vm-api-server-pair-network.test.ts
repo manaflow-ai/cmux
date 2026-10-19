@@ -1,17 +1,16 @@
 import { env } from "cloudflare:workers"
-import { describe, expect, it } from "vitest"
+import { fetchMock } from "cloudflare:test"
+import { afterEach, describe, expect, it } from "vitest"
 import type { Env } from "../src/env.ts"
 import { pairApprove } from "../src/pair-routes.ts"
-import { beginPairing, op, read, sessionPrincipal, sessionToken, testEnv, userSubmit, waitFor } from "./pairing-harness.ts"
+import { beginPairing, call, op, read, sessionPrincipal, sessionToken, testEnv, userSubmit, waitFor } from "./pairing-harness.ts"
+import { rolesTeam } from "./team-roles-support.ts"
 
 const MESH = "mesh_00000000000000000000000000"
 const DEVICE = "dev_00000000000000000000000000"
 const NATIVE = "native_team_network"
 const CODE = "msc_00000000000000000000000000"
-type Transport = { session: string; fetch: typeof fetch }
-// The old route ignores the extra transport context; the regression still
-// executes its real approval path before checking the missing delivery.
-const approveNetwork = pairApprove as (...args: [...Parameters<typeof pairApprove>, Transport]) => ReturnType<typeof pairApprove>
+afterEach(() => { fetchMock.deactivate() })
 
 const fixture = async () => {
   const token = await sessionToken(`stack-network-${crypto.randomUUID()}`)
@@ -19,13 +18,16 @@ const fixture = async () => {
   const team = (await read(token, "team.directory", {})).json.value.team as string
   const user = (await read(token, "install.list", {})).json.value.user.id as string
   const begun = await beginPairing(Date.now(), false, crypto.randomUUID())
-  const publicKey = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", begun.pair.publicKey))))
+  const rawKey = await crypto.subtle.exportKey("raw", begun.pair.publicKey)
+  if (!(rawKey instanceof ArrayBuffer)) throw new Error("unexpected public key encoding")
+  const publicKey = btoa(String.fromCharCode(...new Uint8Array(rawKey)))
   const binding = { name: "Studio", wgPublicKey: begun.wg, installPublicKey: publicKey }
   const grant = { code: CODE, deviceId: DEVICE, meshId: MESH, tenantId: NATIVE, expiresAt: new Date(Date.now() + 600_000).toISOString(), binding }
   const owner = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)) as any
   const calls: Request[] = []
   let response: unknown = grant
   let unavailable = false
+  let target = { team, tenant: NATIVE, project: testEnv.STACK_PROJECT_ID }
   const fetchFn: typeof fetch = async (input, init) => {
     const request = new Request(input, init); calls.push(request)
     if (unavailable) throw new Error("Native response lost")
@@ -36,15 +38,37 @@ const fixture = async () => {
     get: () => ({
       canEnrollServer: (...args: unknown[]) => owner.canEnrollServer(...args),
       enrollServer: (...args: unknown[]) => owner.enrollServer(...args),
-      vmApiTenant: async () => ({ team, tenant: NATIVE, project: testEnv.STACK_PROJECT_ID })
+      vmApiTenant: async () => target
     })
   } } as unknown as Env
   const frame = { op: "server.pair.approve", params: { code: begun.res.json.code, team, name: "Studio", mesh: MESH }, idempotency_key: "network-approval" }
-  const approve = (params = frame.params, submit = userSubmit) => approveNetwork(e, sessionPrincipal(user, team), { ...frame, params }, submit as never, { session: token, fetch: fetchFn })
-  return { token, team, user, begun, binding, grant, calls, e, frame, approve, setResponse: (value: unknown) => { response = value }, setUnavailable: (value: boolean) => { unavailable = value } }
+  const approve = (params = frame.params, submit = userSubmit) => pairApprove(e, sessionPrincipal(user, team), { ...frame, params }, submit as never, { session: token, fetch: fetchFn })
+  return { token, team, user, begun, binding, grant, calls, e, frame, approve, setTarget: (value: typeof target) => { target = value }, setResponse: (value: unknown) => { response = value }, setUnavailable: (value: boolean) => { unavailable = value } }
 }
 
 describe("network enrollment over approved server pairing", () => {
+  it("forwards the authenticated HTTP session through the authoritative shared-team mapping", async () => {
+    const team = await rolesTeam()
+    const begun = await beginPairing(Date.now(), false, crypto.randomUUID())
+    const raw = await crypto.subtle.exportKey("raw", begun.pair.publicKey)
+    if (!(raw instanceof ArrayBuffer)) throw new Error("unexpected public key encoding")
+    const binding = { name: "Studio", wgPublicKey: begun.wg, installPublicKey: btoa(String.fromCharCode(...new Uint8Array(raw))) }
+    const grant = { code: CODE, deviceId: DEVICE, meshId: MESH, tenantId: team.stackTeam, expiresAt: new Date(Date.now() + 600_000).toISOString(), binding }
+    fetchMock.activate(); fetchMock.disableNetConnect()
+    fetchMock.get("https://vm.test").intercept({ path: `/v1/meshes/${MESH}/overlay-server-codes`, method: "POST", headers: { authorization: `Bearer ${team.creator.token}`, "x-cmux-team-id": team.stackTeam }, body: JSON.stringify(binding) })
+      .reply(201, JSON.stringify(grant), { headers: { "content-type": "application/json" } })
+    const waiter = await waitFor(begun.res.json.code, begun.res.json.collect_secret)
+    await waiter.until(() => waiter.frames.length > 0)
+    const approved = await call("/v1/ops", team.creator.token, { op: "server.pair.approve", params: { code: begun.res.json.code, team: team.team, name: "Studio", mesh: MESH }, idempotency_key: "http-network", origin: "user" }, { "x-cmux-team": team.team })
+    expect(approved.status).toBe(200)
+    expect(approved.json).toMatchObject({ ok: true, value: { network: { tenant: team.stackTeam, mesh: MESH, device: DEVICE } } })
+    fetchMock.assertNoPendingInterceptors()
+    await waiter.until(() => waiter.frames.some((frame) => frame.t === "paired"))
+    expect(waiter.frames.find((frame) => frame.t === "paired")).toMatchObject({ network_enrollment: { origin: "https://vm.test", ...grant } })
+    expect(JSON.stringify(approved.json)).not.toContain(CODE)
+    expect(JSON.stringify(waiter.frames)).not.toContain(team.creator.token)
+  })
+
   it("uses the authoritative Native tenant and delivers a pinned code only to the collect socket", async () => {
     const f = await fixture()
     const waiter = await waitFor(f.begun.res.json.code, f.begun.res.json.collect_secret)
@@ -106,11 +130,21 @@ describe("network enrollment over approved server pairing", () => {
     expect(f.calls).toHaveLength(2)
   })
 
+  it.each(["project", "team"])("refuses a wrong owner routing %s before forwarding the human session", async (field) => {
+    const f = await fixture()
+    f.setTarget({ team: field === "team" ? "team_wrong_owner" : f.team, tenant: NATIVE, project: field === "project" ? "wrong-project" : testEnv.STACK_PROJECT_ID })
+    expect((await f.approve()).ok).toBe(false)
+    expect(f.calls).toHaveLength(0)
+  })
+
   it("reuses a durably stored grant after install registration loses its response", async () => {
     const f = await fixture()
     const lost: typeof userSubmit = async (...args) => { await userSubmit(...args); throw new Error("install response lost") }
     await expect(f.approve(f.frame.params, lost)).rejects.toThrow("install response lost")
     expect(f.calls).toHaveLength(1)
+    const preview = await read(f.token, "server.pair.preview", { code: f.begun.res.json.code })
+    expect(preview.status).toBe(200)
+    expect(JSON.stringify(preview.json)).not.toContain(CODE)
     expect((await f.approve()).ok).toBe(true)
     expect(f.calls).toHaveLength(1)
     expect((await read(f.token, "install.list", {})).json.value.installs.filter((item: any) => item.kind === "daemon")).toHaveLength(1)

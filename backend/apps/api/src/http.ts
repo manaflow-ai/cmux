@@ -264,8 +264,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
+          // Authorization already verified this exact request's Stack session. It is never an op param,
+          // owner command or durable field; only the Native API receives it for the requested approval.
+          const header = (yield* HttpServerRequest.HttpServerRequest).headers.authorization
+          const session = typeof header === "string" ? /^Bearer\s+(\S+)$/i.exec(header)?.[1] : undefined
           return yield* Effect.tryPromise({
-            try: () => pairApprove(env, submitter, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
+            try: () => pairApprove(env, submitter, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f)), { session }),
             catch: unreachable
           })
         }

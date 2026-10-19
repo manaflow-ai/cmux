@@ -56,10 +56,10 @@ export const ServerPairApprove = def({
   risk: "mutate-shared",
   target: "pairing",
   principals: ["session"],
-  params: Schema.Struct({ code: PairingCode, team: TeamId, name: DisplayName }),
-  result: Schema.Struct({ host: HostId, team: TeamId, user: UserId, install: InstallId }),
+  params: Schema.Struct({ code: PairingCode, team: TeamId, name: DisplayName, mesh: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^mesh_[0-9a-hjkmnp-tv-z]{26}$/))) }),
+  result: Schema.Struct({ host: HostId, team: TeamId, user: UserId, install: InstallId, network: Schema.optionalKey(Schema.Struct({ tenant: Schema.String, mesh: Schema.String, device: Schema.String })) }),
   errors: [...mutationErrors, "selector.not_found"],
-  docs: "Approve a pairing code: register the server's install key under you and add the server to the team directory.",
+  docs: "Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.",
   cli: { path: "servers add", visible: true },
   mcp: { expose: "never", group: "servers" }
 })
