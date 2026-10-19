@@ -4,8 +4,8 @@
 //! `title`) and draws it as a render card above the turn's answer, in a
 //! sandboxed frame of its own origin that allows no connection
 //! (webviews/src/agent-session/acpmux/conversation/renderCall.ts). The
-//! result is the receipt, so the agent needs no screenshot to know what the
-//! chat shows. A client other than the cmux chat shows a plain tool call.
+//! result is a receipt. Use render_preview first to inspect a screenshot and
+//! diagnostics from the same frame runtime. A client other than the cmux chat shows a plain tool call.
 
 use serde_json::{Map, Value, json};
 
@@ -19,13 +19,13 @@ pub(super) fn descriptor() -> Value {
     json!({
         "name": NAME,
         "title": "Show a page in the chat",
-        "description": "Show an HTML page live in the cmux chat, above your answer: a chart, a diagram, a three.js scene or a small interactive tool. Pass one complete, self-contained page in html, with a <title>. Scripts and styles go inline or load from cdn.jsdelivr.net, unpkg.com or cdnjs.cloudflare.com; the page cannot fetch, open frames or submit forms. A page with no CSS already matches the chat: cmux adds a base stylesheet in the chat's light or dark theme, and your own styles override it. Theme variables: colors --cmux-text, --cmux-muted, --cmux-bg, --cmux-card, --cmux-border, --cmux-accent, --cmux-control, --cmux-control-hover; fonts --cmux-font, --cmux-mono; sizes --cmux-size-caption, --cmux-size-detail, --cmux-size-body, --cmux-size-title, --cmux-size-heading; --cmux-radius; spacing --cmux-space-1, --cmux-space-2, --cmux-space-3, --cmux-space-4 (4, 8, 12, 16px). Rely on these instead of hardcoding colors, fonts or sizes. The card takes the page's height, and the user presses Run to start it.",
+        "description": "Show self-contained HTML live inline in the cmux chat. It runs automatically and streams as it arrives; scripts run when the page closes. Check it with render_preview, then show it with render. Fenced cmux-render HTML (or cmux-react with function App(), React 18 global) is the fast streaming reply path. Use fluid width and content height, never 100vh. No outer card, banner or background. Built-in native defaults and classes: .stack, .row, .grid, .panel, .stat (strong + small), .badge, .muted, .segmented. Use the theme's variables, never hardcoded colors or sizes: --cmux-text, --cmux-on-accent, --cmux-canvas, --cmux-muted, --cmux-bg, --cmux-card, --cmux-border, --cmux-accent, --cmux-control, --cmux-control-hover, --cmux-font, --cmux-mono, --cmux-chat-size, --cmux-line-height, --cmux-size-caption, --cmux-size-detail, --cmux-size-body, --cmux-size-title, --cmux-size-heading, --cmux-radius, --cmux-space-1, --cmux-space-2, --cmux-space-3, --cmux-space-4; the kit adds --cmux-success, --cmux-warning, --cmux-danger, --cmux-font-mono, --cmux-chart-1, --cmux-chart-2, --cmux-chart-3, --cmux-chart-4, --cmux-chart-5, --cmux-chart-6. cmux.chart(element,{type:'line'|'area'|'bar'|'donut'|'pie',height:220,labels:[],series:[{name,values:[]}]}) or data-cmux-chart='JSON'. Buttons with data-cmux-prompt or data-cmux-prefill request confirmed chat follow-ups. window.cmux also provides prefill, sendPrompt, copy, openLink, theme, onTheme and per-render state.get/set. Catch rejected actions. Scripts/styles may load from cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com; Google Fonts supported. No fetch, remote images, frames or forms. At most 1 MiB of HTML; never include secrets.",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
             "required": ["html"],
             "properties": {
-                "html": {"type": "string", "minLength": 1, "description": "At most 1 MiB of UTF-8."},
+                "html": {"type": "string", "minLength": 1, "description": "At most 1 MiB of UTF-8. Pass it inline; no file needed unless the user asked for one."},
                 "title": {"type": "string", "maxLength": MAX_TITLE_CHARS}
             }
         },
@@ -58,6 +58,6 @@ pub(super) fn receipt(arguments: &Map<String, Value>) -> Result<Value, String> {
         "rendered": true,
         "bytes": html.len(),
         "title": title,
-        "message": "The cmux chat shows this page as a card above your answer; the user presses Run to start it.",
+        "message": "The cmux chat draws this page inline automatically while liveRender is enabled. Scripts run when the page closes.",
     }))
 }

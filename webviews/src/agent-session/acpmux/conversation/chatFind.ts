@@ -6,6 +6,8 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { expandPrompt } from "./promptCollapse";
+import { ChatSessionContext } from "./viewIdentity";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -149,6 +151,7 @@ export type FindRevealTarget = {
   rowId: string;
   card: boolean;
   needle: string;
+  occurrence?: number;
   repaint: () => void;
   /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
    * the running line, WorkingFor.tsx). */
@@ -166,6 +169,19 @@ const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.m
 /** Whether `row` is the one `reveal` names. */
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
   row.id === reveal.rowId && Boolean(row.ended) === reveal.card;
+
+/// Find opens the prompt holding its match before the highlights paint (Lucas 2026-10-18).
+export function usePromptFindReveal(row: AcpmuxRow, enabled: boolean): void {
+  const reveal = useContext(FindReveal);
+  const sessionId = useContext(ChatSessionContext);
+  const id = row.id;
+  const hit = enabled && reveal !== undefined && isRevealRow(row, reveal);
+  useLayoutEffect(() => {
+    if (!hit || !reveal) return;
+    expandPrompt(id, true, sessionId);
+    reveal.repaint();
+  }, [hit, id, reveal, sessionId]);
+}
 
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
  * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */

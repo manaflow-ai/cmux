@@ -98,6 +98,14 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
+    /// Ends every motion where it was going: a hidden workspace shows none, and its clock stops,
+    /// so a spring left mid-flight (a column collapsing as the workspace hides) would park its
+    /// pane off screen until the next resize (Lucas 2026-10-19).
+    func settleMotion() {
+        guard hasMotion else { return }
+        reconcileAndScroll()
+    }
+
     /// A window resize: frames snap, and the scroll keeps the focused column
     /// in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll() {

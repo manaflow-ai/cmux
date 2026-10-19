@@ -14,6 +14,8 @@ import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode } from "./StreamingCode";
 import { OpenPreview } from "./OpenPreview";
 import { languageLabel, type CodeBlockProps } from "./CodeBlock";
+import { useLab } from "../labs";
+import { useCodeWrap } from "./codeWrap";
 
 /// Pierre's line height: a line of the card's body.
 const LINE_HEIGHT = 20;
@@ -46,7 +48,9 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
-  const [wrap, setWrap] = useState(false);
+  const sharedWrap = useLab("codeWrap");
+  const [wrap, toggleWrap] = useCodeWrap(sharedWrap);
+  const rendererWrap = !sharedWrap && wrap;
   // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
   const name = `snippet-${useId()}`;
   const [tooSlow, setTooSlow] = useState(false);
@@ -62,7 +66,14 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
         disableFileHeader: true,
         disableLineNumbers: true,
         overflow: "scroll",
-        unsafeCSS: codeUnsafeCSS,
+        unsafeCSS:
+          codeUnsafeCSS +
+          (sharedWrap
+            ? `
+:host([data-wrap="true"]) [data-code] { --diffs-code-grid: var(--diffs-grid-number-column-width) minmax(0, 1fr); overflow-x: hidden; }
+:host([data-wrap="true"]) [data-line] { white-space: pre-wrap; overflow-wrap: anywhere; }
+`
+            : ""),
         tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
       },
       paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text"),
@@ -78,18 +89,18 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
       file.cleanUp();
       el.shadowRoot?.replaceChildren();
     };
-  }, [lang]);
+  }, [lang, sharedWrap]);
   useLayoutEffect(() => {
     const el = host.current;
     const file = view.current;
     if (!el || !file) return;
-    file.setOptions({ ...file.options, overflow: wrap ? "wrap" : "scroll" });
+    file.setOptions({ ...file.options, overflow: rendererWrap ? "wrap" : "scroll" });
     // Shiki throws for a language the bundle does not ship; those draw as plain text.
     file.render({
       fileContainer: el,
       file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
-  }, [code, lang, wrap, name]);
+  }, [code, lang, rendererWrap, sharedWrap, name]);
   if (tooSlow) return <PlainCode code={code} lang={lang} />;
   return (
     <div className="cv-codeblock" ref={menuPartRef({ code })}>
@@ -104,7 +115,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
             aria-pressed={wrap}
             aria-label={t("changes.wrapLines")}
             title={t("changes.wrapLines")}
-            onClick={() => setWrap((value) => !value)}
+            onClick={toggleWrap}
           >
             <WrapLines />
           </button>
@@ -116,6 +127,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
       <DiffsHost
         ref={host}
         className="cv-codeblock__body selectable"
+        data-wrap={sharedWrap ? String(wrap) : undefined}
         style={{ minHeight: code.replace(/\n$/, "").split("\n").length * LINE_HEIGHT }}
       />
     </div>
