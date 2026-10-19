@@ -10,10 +10,15 @@ extension AgentPaneModel {
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
         let picks = await onChooseAttachments()
         guard !picks.isEmpty else { return AgentPaneReply.success() }
-        let items: [[String: Any]] = picks.map { url in
-            let folder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? url.hasDirectoryPath
-            return ["path": url.path, "folder": folder]
-        }
+        // Whether each pick is a folder reads the file system: off the main actor. The panel's URLs
+        // are not relied on for a trailing slash.
+        let kinds = await Task.detached(priority: .userInitiated) {
+            picks.map { url in
+                let folder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? url.hasDirectoryPath
+                return (path: url.path, folder: folder)
+            }
+        }.value
+        let items: [[String: Any]] = kinds.map { ["path": $0.path, "folder": $0.folder] }
         return AgentPaneReply.success(["items": items])
     }
 }
