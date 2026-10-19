@@ -60692,25 +60692,25 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ para poner en cola, ⌘↵ para redirigir"
+            "value": "↵ para poner en cola, ⌘↵ para dirigir"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ pour mettre en file, ⌘↵ pour réorienter"
+            "value": "↵ pour mettre en file, ⌘↵ pour orienter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ per mettere in coda, ⌘↵ per indirizzare"
+            "value": "↵ per mettere in coda, ⌘↵ per guidare"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ でキューに追加、⌘↵ で今すぐ指示"
+            "value": "↵ でキューに追加、⌘↵ でステア"
           }
         },
         "km": {
@@ -60722,7 +60722,7 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ 대기열에 추가, ⌘↵ 지금 방향 지시"
+            "value": "↵ 대기열에 추가, ⌘↵ 조정"
           }
         },
         "nb": {
@@ -60764,7 +60764,7 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ — у чергу, ⌘↵ — спрямувати зараз"
+            "value": "↵ — у чергу, ⌘↵ — скерувати зараз"
           }
         },
         "vi": {

@@ -915,10 +915,11 @@ export function Composer({
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
   const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
   // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
-  // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, so it only queues.
+  // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
+  // typed text, so with only attachments staged it says just that Return queues.
   const placeholder = !queues
     ? COMPOSER_LABELS.placeholder
-    : onOpenInWindow
+    : onOpenInWindow || attachments.length > 0
       ? COMPOSER_LABELS.placeholderQueued
       : steerKind === "steer"
         ? COMPOSER_LABELS.placeholderSteer
