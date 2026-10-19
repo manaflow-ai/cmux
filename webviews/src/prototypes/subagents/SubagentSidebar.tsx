@@ -63,7 +63,12 @@ export function SubagentSidebar({
   focusDepth,
 }: SubagentSidebarProps) {
   const nodes = useMemo(
-    () => buildForest({ children: fanout, depth, limits: { width: limitWidth, depth: limitDepth } }),
+    () =>
+      buildForest({
+        children: fanout,
+        depth,
+        ...((limitWidth !== 50 || limitDepth !== 10) && { limits: { width: limitWidth, depth: limitDepth } }),
+      }),
     [fanout, depth, limitWidth, limitDepth],
   );
   // Columns start on the widest levels (the root's children in the first full column); a deep
@@ -75,18 +80,24 @@ export function SubagentSidebar({
   const root = path[0] ?? nodes[0]!;
   const family = descendants(nodes, root.id);
   const deepest = Math.max(0, ...family.map((node) => node.depth));
-  const queued = family.filter((node) => node.blocked === "width").length;
+  const refused = root.refused ?? 0;
   const header = (
     <div className="sa-limit-wrap">
       <LimitLine
         used={childrenOf(nodes, root.id).length}
         depth={deepest}
         limits={root.limits}
-        queued={queued}
+        refused={refused}
         open={panel}
         onOpen={() => setPanel((open) => !open)}
       />
-      {panel && <LimitsPanel session={root} platform={platform} />}
+      {panel && (
+        <LimitsPanel
+          session={root}
+          platform={platform}
+          finished={childrenOf(nodes, root.id).filter((node) => node.state === "done" || node.state === "stopped").length}
+        />
+      )}
     </div>
   );
   const select = (node: AgentNode) => setPath(pathTo(nodes, node.id));

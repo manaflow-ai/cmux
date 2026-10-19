@@ -88,7 +88,7 @@ export default componentEntry<SubagentSidebarProps>({
       props: { platform: "mac", layout: "digest", fanout: 12, depth: 4 },
     },
     "at-width-limit": {
-      note: "80 asked, limit 50: 30 wait for a slot; the limit panel is open.",
+      note: "80 asked, limit 50 open: 30 starts refused (PROTOCOL.md width_limit); the limit panel is open.",
       props: { platform: "mac", layout: "columns", fanout: 80, depth: 3, limitsOpen: true },
     },
     "at-depth-limit": {

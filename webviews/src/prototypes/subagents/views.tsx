@@ -129,7 +129,7 @@ export function ColumnsView({ nodes, platform, path, onSelect, header, visible }
               {platform === "iphone" && path[index] && <span className="sa-strip-name">{path[index]!.name}</span>}
             </button>
           );
-        const used = level.items.filter((item) => !item.blocked).length;
+        const used = level.items.filter((item) => item.state !== "done" && item.state !== "stopped").length;
         return (
           <section key={level.parent?.id ?? "roots"} className="sa-column" data-platform={platform} aria-label={level.parent?.name ?? "Sessions"}>
             <header className="sa-column-header">

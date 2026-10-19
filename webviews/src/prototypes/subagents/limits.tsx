@@ -11,14 +11,14 @@ export function LimitLine({
   used,
   depth,
   limits,
-  queued,
+  refused,
   onOpen,
   open,
 }: {
   used: number;
   depth: number;
   limits: Limits;
-  queued: number;
+  refused: number;
   onOpen: () => void;
   open: boolean;
 }) {
@@ -27,7 +27,7 @@ export function LimitLine({
     <div className="sa-limit-line" data-near={near || undefined}>
       <span>
         {Math.min(used, limits.width)} of {limits.width} subagents · depth {depth} of {limits.depth}
-        {queued > 0 && <strong> · {queued} waiting for a slot</strong>}
+        {refused > 0 && <strong> · {refused} starts refused</strong>}
       </span>
       <button type="button" className="sa-text-button" aria-expanded={open} onClick={onOpen}>
         Limits
@@ -68,13 +68,24 @@ function Stepper({
 }
 
 /** The panel under the header: raise this session's limits. */
-export function LimitsPanel({ session, platform }: { session: AgentNode; platform: Platform }) {
+const SOURCE_LABEL: Record<AgentNode["limitsSource"], string> = {
+  session: "set on this session",
+  inherited: "from a parent session",
+  settings: "from Settings",
+  default: "the default",
+};
+
+/** The panel under the header: raise this session's limits (the person path, `_acpmux/subsession/limits`). */
+export function LimitsPanel({ session, platform, finished }: { session: AgentNode; platform: Platform; finished: number }) {
   const [limits, setLimits] = useState(session.limits);
   const changed = limits.width !== session.limits.width || limits.depth !== session.limits.depth;
   return (
     <section className="sa-limits-panel" data-platform={platform} aria-label="Subagent limits">
       <h3>Limits for “{session.name}”</h3>
-      <p className="sa-muted">Agents in this session can start subagents up to these limits. A subagent past a limit waits for a slot.</p>
+      <p className="sa-muted">
+        Agents in this session can start subagents up to these limits ({SOURCE_LABEL[session.limitsSource]}). Past a
+        limit the start is refused and the agent is told why. A closed subagent frees its slot.
+      </p>
       <Stepper
         label="Subagents per agent"
         value={limits.width}
@@ -88,6 +99,11 @@ export function LimitsPanel({ session, platform }: { session: AgentNode; platfor
         <button type="button" className="sa-text-button" onClick={() => setLimits({ width: limits.width * 2, depth: limits.depth })}>
           Double subagents
         </button>
+        {finished > 0 && (
+          <button type="button" className="sa-text-button">
+            Close {finished} finished
+          </button>
+        )}
         <span className="sa-spacer" />
         <button type="button" className="sa-button" disabled={!changed} onClick={() => setLimits(session.limits)}>
           Reset
@@ -97,8 +113,8 @@ export function LimitsPanel({ session, platform }: { session: AgentNode; platfor
         </button>
       </div>
       <p className="sa-muted sa-small">
-        This session only. New sessions use {DEFAULT_LIMITS.width} and {DEFAULT_LIMITS.depth} (Settings › Agents ›
-        Subagents).
+        This session and its subagents. New sessions use {DEFAULT_LIMITS.width} and {DEFAULT_LIMITS.depth} (Settings ›
+        Agents › Subagents). The ceiling is 1000 and 100.
       </p>
     </section>
   );
@@ -108,8 +124,7 @@ export function LimitsPanel({ session, platform }: { session: AgentNode; platfor
 export function LimitsSettings({ platform }: { platform: Platform }) {
   const [width, setWidth] = useState(DEFAULT_LIMITS.width);
   const [depth, setDepth] = useState(DEFAULT_LIMITS.depth);
-  const [atLimit, setAtLimit] = useState<"queue" | "ask" | "refuse">("queue");
-  const [askRaise, setAskRaise] = useState(true);
+  const [enabled, setEnabled] = useState(true);
   return (
     <section className="sa-settings" data-platform={platform} aria-label="Subagent settings">
       <h2>Subagents</h2>
@@ -119,26 +134,15 @@ export function LimitsSettings({ platform }: { platform: Platform }) {
         <Stepper label="Depth" value={depth} step={1} min={1} max={50} onChange={setDepth} />
       </div>
       <div className="sa-settings-group">
-        <span className="sa-stepper-label">At a limit</span>
-        {(
-          [
-            ["queue", "Queue the subagent until a slot frees"],
-            ["ask", "Ask me"],
-            ["refuse", "Refuse, and tell the agent"],
-          ] as const
-        ).map(([value, label]) => (
-          <label key={value} className="sa-radio">
-            <input type="radio" name={`at-limit-${platform}`} checked={atLimit === value} onChange={() => setAtLimit(value)} />
-            {label}
-          </label>
-        ))}
-      </div>
-      <div className="sa-settings-group">
         <label className="sa-radio">
-          <input type="checkbox" checked={askRaise} onChange={(event) => setAskRaise(event.target.checked)} />
-          Agents may ask to raise a session’s limit
+          <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+          Agents can start subagents
         </label>
       </div>
+      <p className="sa-muted sa-small">
+        Past a limit the start is refused and the agent is told how to get more: close a finished subagent, or ask you to
+        raise the session’s limit. Changes apply at once.
+      </p>
     </section>
   );
 }

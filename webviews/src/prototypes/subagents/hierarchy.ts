@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery prototype fixtures (sample agent names and tasks), not shipped UI.
 // The session hierarchy the subagent prototypes draw: agents start subagents, which start their
 // own. The shape follows the fields the acpmux spawn tools will carry (plans/cmux-next/subagents,
-// interim until PROTOCOL.md lands): id, parentId, name, startedBy, depth, harness, state, lastEvent,
+// depth, children; status and indicator; subsessionLimits with their source) through the brief's fields: id, parentId, name, startedBy, depth, harness, state, lastEvent,
 // childCount, limits {width, depth}. Everything here is deterministic (no Math.random, no clock),
 // so a screenshot of a variant is the same on every run.
 
@@ -36,8 +36,12 @@ export type AgentNode = {
   limits: Limits;
   /** The workspace (a repo) it works in. */
   workspace: string;
-  /** A limit held it back: `width` (its parent is at its child limit) or `depth` (it may not start any). */
-  blocked?: "width" | "depth";
+  /** It asked for subagents past the depth limit, and the daemon refused (subsessions.depth_limit). */
+  blocked?: "depth";
+  /** Starts the daemon refused at the width limit (subsessions.width_limit); a closed child frees a slot. */
+  refused?: number;
+  /** Where the limits come from (PROTOCOL.md `maxChildrenSource`). */
+  limitsSource: "session" | "inherited" | "settings" | "default";
 };
 
 /** The user setting: every new session starts with these limits. */
@@ -167,9 +171,6 @@ export function buildForest(options: ForestOptions): AgentNode[] {
     if (parent && parentState === "failed" && seed % 3 === 0) state = "failed";
     if (parent && depth === maxDepth && state === "queued") state = "running";
     const sessionLimits = parent ? parent.limits : root === ROOTS[0] ? limits : DEFAULT_LIMITS;
-    // Past the width limit a subagent waits for a slot; the session shows the queue.
-    const overWidth = parent !== null && index >= sessionLimits.width;
-    if (overWidth) state = "queued";
     const elapsed = 20 + (seed % 900);
     const node: AgentNode = {
       id,
@@ -181,21 +182,27 @@ export function buildForest(options: ForestOptions): AgentNode[] {
       state,
       kind: pick?.kind ?? "plan",
       task: parent ? `${pick!.name} for “${parent.name}”` : root.task,
-      lastEvent: overWidth ? `Waiting for a slot (limit ${sessionLimits.width})` : (pick?.event ?? root.task),
+      lastEvent: pick?.event ?? root.task,
       lastEventAgo: state === "running" ? seed % 40 : 60 + (seed % 3000),
       elapsed,
       startedAgo: elapsed + (state === "running" ? 0 : 30 + (seed % 600)),
       childCount: 0,
       limits: sessionLimits,
       workspace: root.workspace,
-      ...(overWidth && { blocked: "width" as const }),
+      limitsSource: parent ? "inherited" : root === ROOTS[0] && options.limits ? "session" : "settings",
     };
     nodes.push(node);
     const tapered = depth === 0 ? width : Math.max(spine ? 1 : 0, inner - (depth >> 1) - (seed % 2));
-    if (depth < maxDepth && depth < sessionLimits.depth && !overWidth) {
-      for (let child = 0; child < tapered; child += 1)
+    if (depth < maxDepth && depth < sessionLimits.depth) {
+      // Width counts open children: starts past the limit are refused, not queued.
+      const open = Math.min(tapered, sessionLimits.width);
+      for (let child = 0; child < open; child += 1)
         add(node, root, child, depth + 1, maxDepth, width, spine && child === 0);
-      node.childCount = tapered;
+      node.childCount = open;
+      if (tapered > open) {
+        node.refused = tapered - open;
+        node.lastEvent = `${tapered - open} starts refused (limit ${sessionLimits.width} open)`;
+      }
     } else if (spine && depth >= sessionLimits.depth && depth < maxDepth) {
       // It asked for subagents past the depth limit: none start, and the row says why.
       node.blocked = "depth";
