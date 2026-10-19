@@ -34,7 +34,8 @@ public struct TabStripDebug {
             return [id.rawValue, Double(shown.frame.minX), Double(shown.frame.width), Double(shown.opacity)] as [Any]
         }
         var sample: [String: [Any]] = ["tabs": tabs, "strip": [Double(strip.bounds.width)]]
-        if let window = strip.window {
+        // Shown strips only: a hidden workspace's panes stay in the window.
+        if let window = strip.window, !strip.isHiddenOrHasHiddenAncestor {
             let frame = strip.convert(strip.bounds, to: nil)
             let edges = [frame.minX, frame.maxX, window.frame.height - frame.maxY].map { (Double($0) * 100).rounded() / 100 }
             sample["strip_edges"] = [edges + [pills.isFinite ? (pills * 100).rounded() / 100 : 0]]

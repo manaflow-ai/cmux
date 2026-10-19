@@ -344,9 +344,11 @@ def moving_panes(directory, zooming):
 
 
 def check_live(directory, colors, focus_pane=None):
-    """The live-layout, header and frame-time checks (module doc: live, header, work)."""
+    """The live-layout, header and frame-time checks (module doc: live, header, work). A pane a
+    split adds grows from no height, shorter than its tab strip at first: its header is not checked."""
     samples = [s for s in trace_samples(directory) if s.get("panes")]
     moving = moving_panes(directory, focus_pane)
+    before_ids = {p["pane"] for p in panes_of(load(os.path.join(directory, "before.json")))[0]}
     rows = {}
     for sample in samples:
         for row in sample["panes"]:
@@ -384,7 +386,7 @@ def check_live(directory, colors, focus_pane=None):
             failures.append(f"{label}: content did not follow its rect in {frozen} samples")
         if end_jump is not None and len(changes) > 1 and end_jump > 0.5:
             failures.append(f"{label}: content jumped at the end ({end_jump * 100:.0f}% of its change in one step)")
-        if header is not None and header < 0.999:
+        if header is not None and header < 0.999 and (focus_pane or pane in before_ids):
             failures.append(f"{label}: its tab strip showed only {header * 100:.0f}% in a frame")
     result["live"] = live
     work = (load(os.path.join(directory, "work.json"), {}) or {}).get("work") or {}
