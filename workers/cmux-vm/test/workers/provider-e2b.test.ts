@@ -145,7 +145,7 @@ describe("E2B provider adapter", () => {
     expect(result.deletedVm).toBe("deleted");
     expect(result.refusedResize).toMatchObject({ _tag: "UpstreamError", status: 400, unsupported: expect.any(String) });
     expect(fake.calls.some((call) => call.url.endsWith("/process.Process/Start") && call.headers.get("x-access-token") === "envd-sbx-1")).toBe(true);
-    expect(fake.calls.some((call) => call.url.endsWith("/process.Process/SendInput") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes("aGk=")).toBe(true);
+    expect(fake.calls.some((call) => call.url.endsWith("/process.Process/SendInput") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes("aGk="))).toBe(true);
     expect(fake.calls.some((call) => call.url.endsWith("/v2/sandboxes/sbx-1/connect") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes('"timeout":3600'))).toBe(true);
     expect(fake.calls.some((call) => call.url.endsWith("/v2/sandboxes") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes('"timeout":3600'))).toBe(true);
     expect(fake.calls.some((call) => call.url.endsWith("/v2/sandboxes") && call.headers.get("x-api-key") === "e2b-test-key")).toBe(true);
