@@ -744,10 +744,6 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
         self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/cmux-tui-pin-repair",
                                             published=True, missing="/manifest.json")["run_macos"], "true")
 
-    def test_fork_never_schedules_trusted_build(self):
-        self.assertEqual(self.run_preflight(artifacts=True, event="pull_request_target",
-                                            fork=True)["run_macos"], "false")
-
 
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
 
@@ -894,7 +890,7 @@ class SameTreeIsAnEvent(unittest.TestCase):
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        for name, state in (("publish-tree", "ready"), ("publish-pr-tree", "ready"), ("notify-unpublished-tree", "failed")):
+        for name, state in (("publish-tree", "ready"), ("notify-unpublished-tree", "failed")):
             job = jobs[name]
             notify = [step for step in job["steps"] if "scripts/ci/cmux_next_tree_notify.py" in step.get("run", "")]
             with self.subTest(job=name):

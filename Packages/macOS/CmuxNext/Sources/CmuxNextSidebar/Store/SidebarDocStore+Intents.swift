@@ -40,12 +40,16 @@ extension SidebarDocStore {
         switch intent {
         case .reorder(let ids, let position):
             let moving = items(ids)
-            guard let target = drag.target(position, moving: moving, model: model) else { return false }
-            move(moving, to: target, title: title)
+            guard let anchored = drag.anchoredTarget(position, moving: moving, model: model) else { return false }
+            // An anchor this client has no item for is adopted in the same `sidebar.apply`, before the move.
+            adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
+            move(moving, to: anchored.target, title: title)
         case .reorderGroup(let group, let index):
             guard let section = model.sections.first(where: { $0.nodes.contains { $0.id == .group(group) } }),
-                  let target = drag.target(DropPosition(section: section.id, index: index), moving: [group.rawValue], model: model) else { return false }
-            move([group.rawValue], to: target, title: title)
+                  let anchored = drag.anchoredTarget(DropPosition(section: section.id, index: index), moving: [group.rawValue], model: model)
+            else { return false }
+            adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
+            move([group.rawValue], to: anchored.target, title: title)
         case .move(let ids, let group):
             guard let section = records.items[group.rawValue]?.section else { return false }
             move(items(ids), to: SidebarDocTarget(section: section, parent: group.rawValue), title: title)

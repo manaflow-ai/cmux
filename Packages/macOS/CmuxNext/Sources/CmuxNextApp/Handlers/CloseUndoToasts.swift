@@ -49,6 +49,15 @@ final class CloseUndoToasts {
     private weak var services: AppServices?
     /// The presenter (tests replace it with a headless one).
     var toasts: CmuxToastCenter = .shared
+    /// At most one new close toast per id in its gap (tab and workspace closes); joins are not counted.
+    var rateLimit = UndoToastRateLimit()
+    /// The time the rate limit reads (tests pass their own).
+    var now: @MainActor () -> ContinuousClock.Instant = { .now }
+
+    /// Whether a new close toast `id` may show now (`rateLimit`).
+    func allowsNewToast(_ id: String) -> Bool {
+        rateLimit.allows(id, at: now())
+    }
     private var expected: [Expected] = []
     private var seenDaemonItems: Set<String> = []
     /// For `debug.filepages` (nxdog47): user closes announced, announcements
@@ -230,6 +239,9 @@ final class CloseUndoToasts {
             tabs += previous.tabs
             let earlier = previous.reopen
             action = { reopen(); earlier() }
+        } else if !allowsNewToast(Self.toastID) {
+            // Too soon after the last close toast: Reopen Closed and History still bring it back.
+            return
         }
         let message = tabs > 1 ? MiscHandlerStrings.tabsClosed(tabs)
             : MiscHandlerStrings.tabClosed(close.title.isEmpty ? MiscHandlerStrings.untitledTab : close.title)

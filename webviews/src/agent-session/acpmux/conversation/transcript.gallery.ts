@@ -2,7 +2,8 @@
 // The transcript's row kinds and states (conversation/*, App.tsx VirtualTranscript), each as the
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import { SUBAGENTS } from "../subagents/subagentFold";
 import type { PlayContext } from "../../../gallery/play";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
@@ -729,6 +730,42 @@ export default agentPaneEntry({
             ],
             1.5,
           ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "working-counts": {
+      note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
+      snapshot: chat(
+        [
+          user("Start the dev server", 9),
+          activity(
+            [
+              tool("npm run dev", "execute", "completed", {
+                command: "npm run dev",
+                inputSummary: JSON.stringify({ command: "npm run dev", run_in_background: true }),
+              }),
+            ],
+            8.9,
+          ),
+          assistant("The dev server is up on port 5173.", 8.8),
+          summary(8.8, { status: "completed" }),
+          user(prompt, 3),
+          row(SUBAGENTS, 2.8, {
+            subagents: [
+              { id: "agent-retries", parent: null, name: "Retry policy", state: "running", startedAt: minutesAgo(2.8) },
+              { id: "agent-tests", parent: null, name: "Test coverage", state: "running", startedAt: minutesAgo(2.8) },
+              {
+                id: "agent-errors",
+                parent: null,
+                name: "Error parsing",
+                state: "completed",
+                startedAt: minutesAgo(2.8),
+                endedAt: minutesAgo(1.6),
+              },
+            ],
+          }),
+          activity([tool("Read client.ts", "read", "in_progress")], 1.5),
         ],
         { isWorking: true },
       ),
