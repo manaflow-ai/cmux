@@ -25,10 +25,13 @@ struct SidebarSpacePagingTests {
         sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.1)
         #expect(sidebar.spacePaging.pendingTarget == ProfileKey("space1"))
 
+        // A direct selection shows space2 before the swipe's own switch arrives.
+        model.activeProfileID = ProfileKey("space2")
         #expect(!sidebar.spacePaging.modelDidSwitch(to: ProfileKey("space2")))
         #expect(sidebar.spacePaging.pendingTarget == nil)
 
-        sidebar.spacePaging.page(by: 1)
-        #expect(model.activeProfileID == ProfileKey("space2"))
+        // Wheel paging works again: one space back from the one shown.
+        sidebar.spacePaging.page(by: -1)
+        #expect(model.activeProfileID == ProfileKey("space1"))
     }
 }
