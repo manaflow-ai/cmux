@@ -1,8 +1,8 @@
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextHomeEngine
-import Foundation
-import Observation
+public import CmuxNextHomeEngine
+public import Foundation
+public import Observation
 import os
 
 /// The Hosted Chief in Home (Lawrence 2026-10-19): Cloud Chief is the default

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// One of the user's cloud chiefs (`chief.list`, `HomeChief`), the fields the
 /// app reads. `brainPlace` names the paired server whose install answers as
