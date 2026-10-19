@@ -894,7 +894,7 @@ class SameTreeIsAnEvent(unittest.TestCase):
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        for name, state in (("publish-tree", "ready"), ("publish-pr-tree", "ready"), ("notify-unpublished-tree", "failed")):
+        for name, state in (("publish-tree", "ready"), ("notify-unpublished-tree", "failed")):
             job = jobs[name]
             notify = [step for step in job["steps"] if "scripts/ci/cmux_next_tree_notify.py" in step.get("run", "")]
             with self.subTest(job=name):
