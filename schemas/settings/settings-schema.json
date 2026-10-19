@@ -546,7 +546,8 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.allowFullAccess"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -3815,6 +3816,56 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
       },
       "validation" : "portable"
     },
@@ -14026,6 +14077,64 @@
       "title" : {
         "key" : "settings.diff.expandUnchanged",
         "text" : "Expand Unchanged Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        8,
+        40,
+        24
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fontSize.help",
+        "text" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.size",
+      "keywords" : [
+        "markdown",
+        "font",
+        "size",
+        "text",
+        "zoom",
+        "viewer"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 40,
+        "min" : 8,
+        "placeholder" : 16,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        72,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontSize",
+        "text" : "Default Font Size"
       },
       "validation" : "portable"
     },
@@ -25589,7 +25698,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "83792af4a2de800d5ae2c0dbfd6e317b511f10e28f552adfc6a49d5358df4e49",
+  "schema_hash" : "fc4ca77625ff6063949aab3d5d6962d2c3b2c732afb0781ba294b7e08904c7a0",
   "sections" : [
     {
       "id" : "general",
