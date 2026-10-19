@@ -63,10 +63,20 @@ struct AcpmuxOfferToolsTests {
         #expect(fixture.launches == ["1"], "acpmux started without ACPMUX_OFFER_TOOLS=1: \(fixture.launches)")
     }
 
-    @Test func byDefaultTheDaemonGetsNoOfferTools() async throws {
+    /// Suggested tasks are on by default (Leo 2026-10-19).
+    @Test func byDefaultTheDaemonGetsTheOfferTools() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let host = Self.host(fixture.environment, Self.tunables(nil))
+
+        await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
+        #expect(fixture.launches == ["1"], "acpmux started without ACPMUX_OFFER_TOOLS=1: \(fixture.launches)")
+    }
+
+    @Test func turnedOffTheDaemonGetsNoOfferTools() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let host = Self.host(fixture.environment, Self.tunables(false))
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         #expect(fixture.launches == ["unset"], "acpmux started with ACPMUX_OFFER_TOOLS: \(fixture.launches)")
