@@ -3,6 +3,7 @@
 // ends, so nothing remounts when it settles.
 import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal } from "../streamReveal";
+import { useLab } from "../labs";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
 
@@ -106,8 +107,20 @@ function Revealed({
   githubRepository?: string;
 }) {
   const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
+  const live = useLab("liveRender");
+  // A finished transport can still have unrevealed tokens. Keep its frame until the fence draws
+  // its closing line too (Lucas 2026-10-18).
+  const revealing = streaming || (live && visible.length < text.length);
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
+    <Markdown
+      streaming={revealing}
+      turnStreaming={streaming}
+      receivedText={live ? text : undefined}
+      fresh={fresh}
+      now={now}
+      waiting={settled}
+      githubRepository={githubRepository}
+    >
       {visible}
     </Markdown>
   );

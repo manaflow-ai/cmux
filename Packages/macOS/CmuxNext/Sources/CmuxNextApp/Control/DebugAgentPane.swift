@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextResources
 import CmuxNextSettings
 import ObjectiveC
@@ -33,6 +34,8 @@ import WebKit
 /// `models` (the harness's models), `set_model` (`model`, `effort`),
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
+/// `preview_theme` (`mode`: light, dark or reset) temporarily overrides the pane's scope for
+/// preview evidence without editing Ghostty configuration; reset returns it to inheritance;
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on), or `inspector` (`open` sets its visibility;
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
@@ -85,6 +88,19 @@ enum DebugAgentPane {
         let action = params["action"]?.stringValue ?? ""
         keepRenderingWhenCovered(view.webView)
         actAsUser(action, gestures: view.model.transport.gestures)
+        if action == "preview_theme" {
+            // A controlled pane theme for native preview evidence despite fixed Ghostty colors.
+            let mode = params["mode"]?.stringValue ?? "reset"
+            guard ["light", "dark", "reset"].contains(mode) else {
+                return .object(["error": .string("mode must be light, dark or reset")])
+            }
+            var input = view.themeScope.input
+            input.background = mode == "light" ? ThemeRGB(red: 0.98, green: 0.98, blue: 0.98) : ThemeRGB(red: 0.1, green: 0.1, blue: 0.1)
+            input.foreground = mode == "light" ? ThemeRGB(red: 0.1, green: 0.1, blue: 0.1) : ThemeRGB(red: 0.9, green: 0.9, blue: 0.9)
+            view.themeScope.setOverride(mode == "reset" ? nil : ThemeSpec("preview-fixture"), input: mode == "reset" ? nil : input, animated: false)
+            view.applyTheme()
+            return .object(["pane": .string(pane), "mode": .string(mode)])
+        }
         if action == "pid" {
             guard let pid = WebContentProcess.identifier(of: view.webView) else {
                 return .object(["pane": .string(pane), "error": .string("no WebContent process")])
@@ -211,6 +227,7 @@ enum DebugAgentPane {
         }
         const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
         return JSON.stringify({
+          page_url: location.href,
           body_text_length: bodyText.length,
           transcript_rows: transcriptRows,
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,

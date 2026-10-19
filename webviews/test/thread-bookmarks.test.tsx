@@ -97,7 +97,7 @@ async function mount() {
       createElement(ThreadMinimap, {
         rows,
         sessionId: "chat-1",
-        layout,
+        getLayout: () => layout,
         scroller,
         scrollTop: 0,
         viewportHeight: 600,
