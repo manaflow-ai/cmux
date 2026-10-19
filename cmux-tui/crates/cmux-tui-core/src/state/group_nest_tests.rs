@@ -172,7 +172,7 @@ fn move_orders_a_group_among_its_siblings() {
     };
     assert_eq!(children(&mux), [one.clone(), two.clone(), three.clone()]);
     mutate(&mux, "workspace_group.move", json!({"workspace_group": three, "index": 0}), "three");
-    assert_eq!(children(&mux), [three.clone(), one.clone(), two.clone()]);
+    assert_eq!(children(&mux), [three, one, two]);
     // Top-level groups keep their order.
     let tops: Vec<Value> =
         groups(&mux).into_iter().filter(|group| group["parent_group"].is_null()).collect();

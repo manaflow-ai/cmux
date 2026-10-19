@@ -390,11 +390,8 @@ fn sync_row(
     if let Some(parent) = parent.as_deref()
         && anchor_item.is_none()
     {
-        anchor_item = doc
-            .list(&section, Some(parent))
-            .filter(|child| child.body.is_group())
-            .next_back()
-            .cloned();
+        anchor_item =
+            doc.list(&section, Some(parent)).rfind(|child| child.body.is_group()).cloned();
         has_neighbor |= anchor_item.is_some();
     }
     let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), has_neighbor);
