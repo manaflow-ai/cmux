@@ -125,9 +125,11 @@ test("a rewrite sends the whole replacement into the same frame", async () => {
   expect(host.querySelector("iframe")).toBe(frame);
 });
 
-test("a whole tool page posts done immediately after the runtime is ready", async () => {
+test("a whole tool page waits for Run and posts done when the runtime is ready", async () => {
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   act(() => root!.render(<RenderCard call={{ html: "<p>Whole</p>" }} />));
+  expect(host.querySelectorAll("iframe").length).toBe(0);
+  act(() => host.querySelector<HTMLButtonElement>(".acpmux-render-card-head button")!.click());
   const { posted } = messages();
   await wait(65);
   expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>Whole</p>", done: true });
@@ -160,7 +162,9 @@ test("ordinary fences keep code, interrupted render fences keep their partial pa
   draw("const count = 1", { lang: "js" });
   expect(host.querySelector(".acpmux-render-card")).toBeNull();
   draw("<p>Interrupted", { streaming: false });
-  expect(host.querySelector("iframe") !== null).toBe(true);
+  expect(host.querySelectorAll("iframe").length).toBe(0);
+  act(() => host.querySelector<HTMLButtonElement>(".acpmux-render-card-head button")!.click());
+  expect(host.querySelectorAll("iframe").length).toBe(1);
   draw("function App() {", { streaming: false, lang: "cmux-react" });
   expect(host.textContent).toBe("");
   expect(host.querySelector("iframe") === null).toBe(true);
@@ -206,6 +210,8 @@ test.each([
 
 test("a completed React fence does not send an eager prepare request", () => {
   draw("function App() { return null; }", { lang: "cmux-react", closed: true, streaming: false });
+  expect(host.querySelectorAll("iframe").length).toBe(0);
+  act(() => host.querySelector<HTMLButtonElement>(".acpmux-render-card-head button")!.click());
   const { posted } = messages();
   expect(posted.some((message) => message.type === "cmux-render-react-prepare")).toBe(false);
   expect(posted.at(-1)?.done).toBe(true);

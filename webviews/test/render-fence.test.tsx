@@ -15,6 +15,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
+  addEventListener: dom.window.addEventListener.bind(dom.window),
+  removeEventListener: dom.window.removeEventListener.bind(dom.window),
   document: dom.window.document,
   location: dom.window.location,
   navigator: dom.window.navigator,
@@ -64,7 +66,7 @@ const button = (label: string) =>
     (element) => element.getAttribute("aria-label") === label || element.textContent === label,
   );
 
-async function draw(markdown: string, streaming = false, open?: (artifact: unknown) => void) {
+async function draw(markdown: string, streaming = false, open?: (artifact: unknown) => void, plainCode = false) {
   const { createRoot } = await import("react-dom/client");
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
   const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
@@ -73,7 +75,7 @@ async function draw(markdown: string, streaming = false, open?: (artifact: unkno
   act(() =>
     root!.render(
       <ArtifactContext.Provider value={open}>
-        <Markdown streaming={streaming}>{markdown}</Markdown>
+        <Markdown streaming={streaming} plainCode={plainCode}>{markdown}</Markdown>
       </ArtifactContext.Provider>,
     ),
   );
@@ -129,3 +131,20 @@ test("a page a reply rewrites under the same title is its next version in the si
     page("<p>v2</p>"),
   ]);
 });
+
+for (const [name, markdown] of [
+  ["quote", `> review:\n> \`\`\`cmux-render\n> ${PAGE}\n> \`\`\``],
+  ["list", `- review:\n  \`\`\`cmux-render\n  ${PAGE}\n  \`\`\``],
+]) {
+  test(`plainCode keeps a render fence in a ${name} as code`, async () => {
+    document.documentElement.setAttribute("data-lab-live-render", "on");
+    try {
+      await draw(markdown!, false, undefined, true);
+      expect(host.querySelector(".acpmux-render-card") === null).toBe(true);
+      expect(host.querySelector("iframe") === null).toBe(true);
+      expect(host.textContent).toContain(PAGE);
+    } finally {
+      document.documentElement.setAttribute("data-lab-live-render", "off");
+    }
+  });
+}

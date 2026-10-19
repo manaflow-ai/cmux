@@ -45,6 +45,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+document.documentElement.setAttribute("data-lab-live-render", "off");
 
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
@@ -101,8 +102,9 @@ async function frameMessage(theme: typeof LIGHT, html: string): Promise<{ html: 
   act(() => {
     globalThis.dispatchEvent(ready);
   });
-  expect(sent).toHaveLength(1);
-  return sent[0] as { html: string; css: string };
+  const pages = sent.filter((message) => (message as { type?: string }).type === "cmux-render");
+  expect(pages).toHaveLength(1);
+  return pages[0] as { html: string; css: string };
 }
 
 /// The frame's page, as AgentPaneRenderFrame.swift builds it: the HTML, then the card's styles first in its head.
