@@ -6075,13 +6075,15 @@ jobs:
   # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
   # that release.yml also writes for stable releases
   # (scripts/ci/published_in_comments.py). The span is the one the release
-  # body's "PRs in this build" list uses: the previous published commit to
-  # this build's. No secrets; a comment failure never fails the nightly.
+  # body's "PRs in this build" list uses (the previous published commit to
+  # this build's), first-parent, so main's PRs arriving through a sync merge
+  # are not claimed. No secrets; a comment failure never fails the nightly.
   published-in:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     runs-on: ${{ contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
-    timeout-minutes: 15
+    # Writes are paced at 7.5 s under GitHub's hourly content limit.
+    timeout-minutes: 60
     continue-on-error: true
     permissions:
       contents: read
