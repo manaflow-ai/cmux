@@ -714,50 +714,6 @@ impl Hub {
         Some(to)
     }
 
-    /// Build a plain-text transcript from the log for rehydration.
-    pub(super) fn transcript(&self, session: &Session, max_chars: usize) -> Option<String> {
-        let events = self.store.events(&session.id, 0, 200_000).ok()?;
-        let mut lines: Vec<String> = Vec::new();
-        let mut agent_buf = String::new();
-        let flush = |agent_buf: &mut String, lines: &mut Vec<String>| {
-            if !agent_buf.trim().is_empty() {
-                lines.push(format!("assistant: {}", agent_buf.trim()));
-            }
-            agent_buf.clear();
-        };
-        for e in events {
-            match e.kind.as_str() {
-                "user_message" => {
-                    flush(&mut agent_buf, &mut lines);
-                    if let Some(t) = e.msg.get("text").and_then(Value::as_str) {
-                        lines.push(format!("user: {t}"));
-                    }
-                }
-                "agent_message_chunk" => {
-                    if let Some(t) =
-                        e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
-                    {
-                        agent_buf.push_str(t);
-                    }
-                }
-                _ => {}
-            }
-        }
-        flush(&mut agent_buf, &mut lines);
-        if lines.is_empty() {
-            return None;
-        }
-        let mut text = lines.join("\n\n");
-        if text.chars().count() > max_chars {
-            let skip = text.chars().count() - max_chars;
-            text = format!(
-                "[… {skip} earlier characters omitted …]\n{}",
-                text.chars().skip(skip).collect::<String>()
-            );
-        }
-        Some(text)
-    }
-
     /// Pass a session-scoped request to the child, rewriting the session id.
     pub async fn forward(
         self: &Arc<Self>,
