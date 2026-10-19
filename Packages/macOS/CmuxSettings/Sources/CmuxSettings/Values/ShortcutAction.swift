@@ -33,6 +33,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case openFolder
     case reopenPreviousSession
     case goToWorkspace
+    /// Opens the command palette in Go to File mode for the focused workspace.
+    case goToFile
     case commandPalette
     case agentInbox
     case commandPaletteNext

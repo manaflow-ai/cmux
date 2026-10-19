@@ -801,6 +801,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": false,
           "description": "Hide the workspace title bar and move controls into the sidebar."
         },
+        "showTitlebarFileSearch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a Search files field in the workspace title bar that opens Go to File."
+        },
         "keepWorkspaceOpenWhenClosingLastSurface": {
           "type": "boolean",
           "default": false,
@@ -2549,6 +2554,7 @@ enum CmuxEmbeddedConfigSchema {
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
+              "goToFile",
               "commandPalette",
               "agentInbox",
               "commandPaletteNext",

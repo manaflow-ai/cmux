@@ -928,6 +928,7 @@ struct ContentView: View {
     /// the window backdrop plan).
     @State private var displayAccessibility = DisplayAccessibilityOptions.current
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
+    @AppStorage(SettingCatalog().app.showTitlebarFileSearch.userDefaultsKey) private var showTitlebarFileSearch = SettingCatalog().app.showTitlebarFileSearch.defaultValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(RightSidebarWidthSettings.minimumWidthKey) private var rightSidebarMinimumWidthSetting = RightSidebarWidthSettings.minimumWidth
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -2142,43 +2143,71 @@ struct ContentView: View {
                 .allowsHitTesting(false)
 
             SidebarWidthReader(layout: sidebarLayout) { width in
-                HStack(spacing: 8) {
-                    if isFullScreen && !sidebarState.isVisible {
-                        // Reserve the controls' width so the title flows to their right.
-                        // The visible controls are rendered once in the band overlay (see
-                        // `workspaceTitlebarBand`) so their position never depends on
-                        // sidebar visibility.
-                        Color.clear
-                            .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
-                            .allowsHitTesting(false)
+                GeometryReader { proxy in
+                    let titleLeadingPadding = Self.customTitlebarLeadingPadding(
+                        isFullScreen: isFullScreen,
+                        isSidebarVisible: sidebarState.isVisible,
+                        sidebarWidth: width,
+                        minimumSidebarWidth: minimumSidebarWidth,
+                        titlebarLeadingInset: titlebarLeadingInset
+                    )
+                    let fileSearchRegion = TitlebarFileSearchFieldLayout.region(
+                        titlebarWidth: proxy.size.width,
+                        titleLeadingPadding: titleLeadingPadding,
+                        reservedLeadingWidth: isFullScreen && !sidebarState.isVisible ? fullscreenControlsWidth + 8 : 0
+                    )
+                    let fileSearchWidth = showTitlebarFileSearch
+                        ? TitlebarFileSearchFieldLayout.width(regionWidth: fileSearchRegion.width)
+                        : nil
+                    ZStack(alignment: .topLeading) {
+                        HStack(spacing: 8) {
+                            if isFullScreen && !sidebarState.isVisible {
+                                // Reserve the controls' width so the title flows to their right.
+                                // The visible controls are rendered once in the band overlay (see
+                                // `workspaceTitlebarBand`) so their position never depends on
+                                // sidebar visibility.
+                                Color.clear
+                                    .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
+                                    .allowsHitTesting(false)
+                            }
+
+                            // Draggable folder icon + focused command name
+                            if let directory = focusedDirectory {
+                                DetachedFolderDragIcon(directory: directory)
+                                    .frame(width: 16, height: 16)
+                                    .padding(.leading, -6)
+                            }
+
+                            Text(titlebarText)
+                                .cmuxFont(size: 13, weight: .bold)
+                                .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                                .lineLimit(1)
+                                .allowsHitTesting(false)
+
+                            Spacer()
+
+                        }
+                        .frame(height: titlebarContentHeight)
+                        .padding(.top, 2)
+                        .padding(.leading, titleLeadingPadding)
+                        // Keep a long title from running under the centered file search field.
+                        .padding(.trailing, TitlebarFileSearchFieldLayout.titleTrailingPadding(
+                            regionWidth: fileSearchRegion.width,
+                            fieldWidth: fileSearchWidth
+                        ))
+
+                        if let fileSearchWidth {
+                            TitlebarFileSearchField(textColor: fakeTitlebarTextColor(appearance: appearance)) {
+                                AppDelegate.shared?.requestGoToFile(preferredWindow: observedWindow, source: "titlebar.fileSearch")
+                            }
+                            .frame(width: fileSearchWidth)
+                            .titlebarInteractiveControl()
+                            .frame(width: fileSearchRegion.width, height: titlebarContentHeight)
+                            .padding(.top, 2)
+                            .padding(.leading, fileSearchRegion.leading)
+                        }
                     }
-
-                    // Draggable folder icon + focused command name
-                    if let directory = focusedDirectory {
-                        DetachedFolderDragIcon(directory: directory)
-                            .frame(width: 16, height: 16)
-                            .padding(.leading, -6)
-                    }
-
-                    Text(titlebarText)
-                        .cmuxFont(size: 13, weight: .bold)
-                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                        .lineLimit(1)
-                        .allowsHitTesting(false)
-
-                    Spacer()
-
                 }
-                .frame(height: titlebarContentHeight)
-                .padding(.top, 2)
-                .padding(.leading, Self.customTitlebarLeadingPadding(
-                    isFullScreen: isFullScreen,
-                    isSidebarVisible: sidebarState.isVisible,
-                    sidebarWidth: width,
-                    minimumSidebarWidth: minimumSidebarWidth,
-                    titlebarLeadingInset: titlebarLeadingInset
-                ))
-                .padding(.trailing, 8)
             }
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
@@ -3115,6 +3144,17 @@ struct ContentView: View {
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
             }
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .goToFileRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            handleGoToFileRequest()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
@@ -10238,6 +10278,26 @@ struct ContentView: View {
     private var goToFileSelectedIndex: Int {
         guard !goToFileResults.isEmpty else { return 0 }
         return min(commandPaletteSelectedResultIndex, goToFileResults.count - 1)
+    }
+
+    /// Entry point for the Go to File shortcut, menu item and titlebar search field:
+    /// opens the palette straight into Go to File, or closes it if Go to File is showing.
+    private func handleGoToFileRequest() {
+        if isCommandPalettePresented, case .goToFile = commandPaletteMode {
+            dismissCommandPalette()
+            return
+        }
+        let wasPresented = isCommandPalettePresented
+        if !wasPresented {
+            presentCommandPalette(initialQuery: "")
+        }
+        openGoToFilePalette()
+        // A workspace without a local folder beeps instead of entering Go to File;
+        // don't leave a palette behind that the user never asked for.
+        if case .goToFile = commandPaletteMode { return }
+        if !wasPresented {
+            dismissCommandPalette()
+        }
     }
 
     private func openGoToFilePalette() {

@@ -972,6 +972,10 @@ struct cmuxApp: App {
                     NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
                 }
 
+                splitCommandButton(title: String(localized: "commandPalette.goToFile.title", defaultValue: "Go to File…"), shortcut: menuShortcut(for: .goToFile)) {
+                    AppDelegate.shared?.requestGoToFile(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow, source: "menu.goToFile")
+                }
+
                 splitCommandButton(title: String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…"), shortcut: menuShortcut(for: .commandPalette)) {
                     let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
                     NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)

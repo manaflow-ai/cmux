@@ -19,6 +19,7 @@ General app preferences from Settings > App.
 | `app.goToWorkspaceOrder` | `"sidebar"` or `"recent"` | `"sidebar"` | Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces. |
 | `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead. |
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
+| `app.showTitlebarFileSearch` | boolean | `true` | Show a Search files field in the workspace title bar that opens Go to File. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
 | `app.focusPaneOnFirstClick` | boolean | `false` | When cmux is inactive, the first click can activate and focus the clicked pane. |
 | `app.preferredEditor` | string | `""` | Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default. |

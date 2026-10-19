@@ -1,6 +1,506 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "titlebar.fileSearch.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i filer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i filer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquisar arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук файлів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋檔案"
+          }
+        }
+      }
+    },
+    "settings.app.showTitlebarFileSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show File Search in Title Bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار البحث في الملفات في شريط العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži pretragu datoteka u naslovnoj traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis filsøgning i titellinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateisuche in der Titelleiste anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar búsqueda de archivos en la barra de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la recherche de fichiers dans la barre de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la ricerca file nella barra del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーにファイル検索を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការស្វែងរកឯកសារនៅរបារចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 표시줄에 파일 검색 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis filsøk i tittellinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż wyszukiwanie plików na pasku tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar busca de arquivos na barra de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать поиск файлов в заголовке окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการค้นหาไฟล์ในแถบชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık çubuğunda dosya aramayı göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати пошук файлів у рядку заголовка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在标题栏中显示文件搜索"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在標題列中顯示檔案搜尋"
+          }
+        }
+      }
+    },
+    "settings.app.showTitlebarFileSearch.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Search files field in the title bar opens Go to File. Hidden in Minimal Mode."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح حقل «البحث في الملفات» في شريط العنوان «الانتقال إلى ملف». مخفي في الوضع البسيط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polje „Pretraži datoteke” u naslovnoj traci otvara „Idi na datoteku”. Skriveno u minimalnom načinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et felt til filsøgning i titellinjen åbner Gå til fil. Skjult i minimal tilstand."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Feld „Dateien suchen“ in der Titelleiste öffnet „Gehe zu Datei“. Im Minimalmodus ausgeblendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un campo «Buscar archivos» en la barra de título abre «Ir al archivo». Oculto en el modo minimalista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un champ « Rechercher des fichiers » dans la barre de titre ouvre « Accéder au fichier ». Masqué en mode minimal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un campo «Cerca file» nella barra del titolo apre «Vai al file». Nascosto in modalità minima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーの「ファイルを検索」欄から「ファイルへ移動」を開きます。ミニマルモードでは非表示です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាល «ស្វែងរកឯកសារ» នៅរបារចំណងជើង បើក «ទៅកាន់ឯកសារ»។ លាក់នៅក្នុងរបៀបតិចតួច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 표시줄의 파일 검색 필드로 파일로 이동을 엽니다. 미니멀 모드에서는 숨겨집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et filsøkfelt i tittellinjen åpner Gå til fil. Skjult i minimal modus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pole „Szukaj plików” na pasku tytułu otwiera „Przejdź do pliku”. Ukryte w trybie minimalnym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um campo \"Pesquisar arquivos\" na barra de título abre \"Ir para o arquivo\". Oculto no modo mínimo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поле «Поиск файлов» в заголовке окна открывает «Перейти к файлу». Скрыто в минимальном режиме."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ช่อง \"ค้นหาไฟล์\" ในแถบชื่อเรื่องจะเปิด \"ไปที่ไฟล์\" ซ่อนอยู่ในโหมดมินิมอล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık çubuğundaki \"Dosya ara\" alanı \"Dosyaya git\"i açar. Minimal modda gizlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поле «Пошук файлів» у рядку заголовка відкриває «Перейти до файлу». Приховано в мінімальному режимі."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题栏中的“搜索文件”字段会打开“转到文件”。在极简模式下隐藏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題列中的「搜尋檔案」欄位會開啟「前往檔案」。在極簡模式下隱藏。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.titlebar-file-search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open شريط العنوان بحث ملف الانتقال إلى ملف فتح سريع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open naslovna traka pretraga datoteka idi na datoteku brzo otvaranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open titellinje søg fil gå til fil hurtig åbning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open titelleiste dateisuche datei suchen gehe zu datei schnell öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open barra de título buscar archivo ir al archivo apertura rápida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open barre de titre recherche fichier accéder au fichier ouverture rapide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open barra del titolo cerca file vai al file apertura rapida"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open タイトルバー ファイル 検索 ファイルへ移動 クイックオープン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open របារចំណងជើង ស្វែងរក ឯកសារ ទៅកាន់ឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open 제목 표시줄 파일 검색 파일로 이동 빠른 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open tittellinje søk fil gå til fil hurtigåpning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open pasek tytułu szukaj plików przejdź do pliku szybkie otwieranie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open barra de título pesquisar arquivo ir para o arquivo abertura rápida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open заголовок окна поиск файлов перейти к файлу быстрое открытие"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open แถบชื่อเรื่อง ค้นหาไฟล์ ไปที่ไฟล์ เปิดด่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open başlık çubuğu dosya ara dosyaya git hızlı aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open рядок заголовка пошук файлів перейти до файлу швидке відкриття"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open 标题栏 搜索文件 转到文件 快速打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showTitlebarFileSearch titlebar title bar file search go to file quick open 標題列 搜尋檔案 前往檔案 快速開啟"
+          }
+        }
+      }
+    },
     "commandPalette.goToFile.empty": {
       "extractionState": "manual",
       "localizations": {
