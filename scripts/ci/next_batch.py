@@ -64,6 +64,8 @@ MAX_CULPRITS = 3
 # nothing new, so a group that did not land waits for a push or the hour.
 GROUP_TRIED: dict[tuple[tuple[int, str], ...], float] = {}
 GROUP_RETRY_SECONDS = 60 * 60
+# A group outcome that says the next cycle should validate it again, the hour notwithstanding.
+REVALIDATE = "revalidate next cycle"
 # GitHub refuses a merge right after another lands ("Base branch was modified").
 MERGE_RETRIES = 3
 POLL_SECONDS = 90
@@ -1276,23 +1278,33 @@ class Controller:
 
     def start_base_probe(self) -> None:
         if self.base_probe is None:
-            self.base_probe = threading.Thread(target=self.probe_base, name="base-probe", daemon=True)
+            # The batch's first base keeps the plain -base branch; a later one (reset_base) gets its own.
+            self.first_base = getattr(self, "first_base", "") or self.base_sha
+            # The probe keeps its own base, result and stop: reset_base swaps
+            # the controller's while an old probe may still be finishing.
+            self.base_probe = threading.Thread(
+                target=self.probe_base, args=(self.base_sha, self.base_probe_result, self.base_probe_stop),
+                name="base-probe", daemon=True)
             self.base_probe.start()
 
-    def probe_base(self) -> None:
+    def probe_base(self, sha: str | None = None, result: dict | None = None,
+                   stop: threading.Event | None = None) -> None:
         """Run every cmux-next tier on the base head, the way a stack runs them,
         with one rerun of failed jobs. Its failures are the batch's inherited reds."""
-        branch = f"{BRANCH_PREFIX}{self.batch_id}-base"
+        sha = sha or self.base_sha
+        result = self.base_probe_result if result is None else result
+        stop = self.base_probe_stop if stop is None else stop
+        branch = f"{BRANCH_PREFIX}{self.batch_id}-base" + ("" if sha == getattr(self, "first_base", sha) else f"-{sha[:12]}")
         try:
-            self.push(self.base_sha, branch)
-            self.base_probe_result["branch"] = branch
+            self.push(sha, branch)
+            result["branch"] = branch
             dispatched = now()
             self.gh.dispatch(HEAVY_WORKFLOW, branch)
-            heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == self.base_sha, dispatched)
-            self.base_probe_result["url"] = heavy["html_url"]
-            self.base_probe_result["run"] = heavy["id"]
+            heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == sha, dispatched)
+            result["url"] = heavy["html_url"]
+            result["run"] = heavy["id"]
             log(f"base probe: {heavy['html_url']}")
-            if self.base_probe_stop.is_set():
+            if stop.is_set():
                 # The batch ended while this looked for its run: stop_base_probe had no run to cancel.
                 self.gh.gh("run", "cancel", str(heavy["id"]), "-R", self.args.repo, check=False)
                 if not getattr(self.args, "keep_branches", False):
@@ -1302,7 +1314,7 @@ class Controller:
             if run["status"] != "completed":
                 raise RuntimeError("the base probe did not finish")
             failed = self.failed_jobs(heavy["id"], detail=True)
-            if self.base_probe_stop.is_set() or run.get("conclusion") == "cancelled":
+            if stop.is_set() or run.get("conclusion") == "cancelled":
                 return  # the batch ended and cancelled it: no rerun, no result
             if failed:
                 self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
@@ -1312,7 +1324,9 @@ class Controller:
                     log("base probe: its rerun did not finish; no result")
                     return
                 failed = self.failed_jobs(heavy["id"], detail=True)
-            self.base_probe_result["failed"] = set(failed)
+            if stop.is_set():
+                return  # the base was dropped meanwhile: its reds are no one's now
+            result["failed"] = set(failed)
             log("base probe: " + (", ".join(failed) or "green"))
         except Exception as error:  # the base runs' own record is the fallback
             log(f"base probe: {type(error).__name__}: {error}")
@@ -2015,7 +2029,7 @@ class Controller:
         files = {path for pr in included for path in self.member_files(pr, validation.stack.base)}
         base = self.current_base()
         if base != validation.stack.base and self.base_moved_onto(validation.stack.base, base, files):
-            return [(pr, f"not landed: {BASE} changed the group's files since validation; revalidate next cycle")
+            return [(pr, f"not landed: {BASE} changed the group's files since validation; {REVALIDATE}")
                     for pr in included]
         fresh = self.fresh_members(included)
         outcome: list[tuple[PullRequest, str]] = []
@@ -2086,7 +2100,7 @@ class Controller:
             log(f"group {name}: " + " ".join(f"#{pr.number}" for pr in ordered))
             result = self.run_group(name, ordered)
             outcome += result
-            if not all(text.startswith("waiting") for _, text in result):
+            if not all(text.startswith("waiting") or text.endswith(REVALIDATE) for _, text in result):
                 GROUP_TRIED[heads] = time.time()
             if any(text == "landed" for _, text in result):
                 # The base moved: the next group is validated next cycle, on top of this one.
@@ -2116,6 +2130,7 @@ class Controller:
             self.delete_branch(self.base_probe_result["branch"])
         self.base_sha = ""
         self.base_failures = None
+        self.base_tree_waited = False
         self.base_probe = None
         self.base_probe_result = {}
         self.base_probe_stop = threading.Event()
