@@ -14,7 +14,7 @@ import CmuxNextWakeups
 /// card hides; nothing is sampled while no card is pending or shown.
 final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
-    /// Hover time before a card shows: Chrome's tab hover card delay, or
+    /// Hover time before a card shows: `HoverCardTiming.showDelay`, or
     /// `sidebar.hoverCards.delay` (cx-23e1f), so a sweep down the list shows
     /// none and leaving a row cancels its pending card. Once a card shows,
     /// moving down the list slides it over at once.
@@ -341,17 +341,21 @@ final class WorkspaceHoverCardView: NSView {
     }
 
     /// Every text an embedded view shows, by its accessibility (a SwiftUI scene has no labels).
+    /// Depth first, a parent before its children, children in order. An explicit stack, not a
+    /// recursive local function: Swift 6.3.3's SendNonSendable pass crashed now and then on the
+    /// local function's capture of the result (Release compile, CmuxNextSidebar).
     private static func texts(in view: NSView) -> [String] {
         var out: [String] = []
-        func walk(_ element: Any) {
-            guard let object = element as? any NSAccessibilityProtocol else { return }
+        var pending: [Any] = [view]
+        while let element = pending.popLast() {
+            guard let object = element as? any NSAccessibilityProtocol else { continue }
             if let role = object.accessibilityRole(), role == .staticText,
                let value = object.accessibilityValue() as? String ?? object.accessibilityLabel(), !value.isEmpty {
                 out.append(value)
             }
-            for child in object.accessibilityChildren() ?? [] { walk(child) }
+            // Reversed, so the first child pops first.
+            pending.append(contentsOf: (object.accessibilityChildren() ?? []).reversed())
         }
-        walk(view)
         return out
     }
 

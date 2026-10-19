@@ -48,9 +48,20 @@ pub const SPAWN_TAG: &str = "optchat.spawn";
 pub const SUBAGENT_TAG: &str = "optchat.subagent";
 /// Most tasks one spawn starts.
 pub const MAX_TASKS: usize = 8;
-/// Most subagents at work at once; a spawn over it queues the rest, which
-/// start as others finish.
-pub const MAX_LIVE: usize = 16;
+/// The environment variable that caps how many subagents work at once
+/// (`live_limit`). Unset, empty or `0`: no cap.
+pub const MAX_LIVE_ENV: &str = "OPTCHAT_MAX_LIVE_SUBAGENTS";
+
+/// How many subagents may work at once: the value of [`MAX_LIVE_ENV`], or
+/// None (no cap, the default; 2026-10-18 the user: a fixed cap of 16 left
+/// subagents queued while the Mac had room for them). Over the cap a spawn
+/// queues the rest, which start as others finish.
+pub fn live_limit(value: Option<&str>) -> Option<usize> {
+    value
+        .map(str::trim)
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+}
 /// Longest `spawn` waits for the view to settle (section 6), as a turn does
 /// (a user turn never waits more than SETTLE_BOUND, 1 s, on compaction):
 /// then the subagent gets the view with the lines still building as the
@@ -60,13 +71,28 @@ pub const SETTLE_LIMIT: Duration = crate::brain::SETTLE_BOUND;
 /// other prompt in its session is the user's (typed into its chat).
 pub const PROMPT_PREFIX: &str = "optchat-";
 
+/// acpmux errors of a session whose agent host failed to come up, which a
+/// second `session/new` usually gets past (acpmux agent_host/link.rs).
+const TRANSIENT_START_FAILURES: [&str; 3] = [
+    "agent host did not answer hello",
+    "agent host closed the connection during hello",
+    "agent host exited before it was ready",
+];
+
+/// Whether `error` (a failed `session/new`) is worth one more try.
+pub fn is_transient_start_failure(error: &str) -> bool {
+    TRANSIENT_START_FAILURES.iter().any(|t| error.contains(t))
+}
+
 /// What one spawn was given: its id and its subagents' ids.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnPlan {
     pub spawn: String,
     pub ids: Vec<String>,
-    /// The ids over `MAX_LIVE`: they wait for a free slot.
+    /// The ids over the cap (`live_limit`): they wait for a free slot.
     pub queued: Vec<String>,
+    /// The cap in force, when there is one.
+    pub limit: Option<usize>,
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
@@ -100,7 +126,8 @@ pub struct SubagentSettings {
     pub harness: String,
     pub policy: String,
     pub model: Option<String>,
-    /// How hard the subagents think (`spawn`'s effort, else the turn's).
+    /// How hard the subagents think (`spawn`'s effort, else the turn's, else
+    /// this one: `OPTCHAT_SUBAGENT_EFFORT`, else medium on Claude and codex).
     pub effort: Option<String>,
     /// The subagent preset (required: never a fallback to the turn preset).
     pub preset: Option<String>,
@@ -123,6 +150,22 @@ pub fn tags(parent: &str, spawn: &str, id: &str) -> BTreeMap<String, String> {
         (SPAWN_TAG.to_owned(), spawn.to_owned()),
         (SUBAGENT_TAG.to_owned(), id.to_owned()),
     ])
+}
+
+/// What the brain sends the queue starter: a queued subagent and what its
+/// record keeps of its launch, so it starts even after the host restarted
+/// (the launch in `Spawner::waiting` lives in memory only).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct QueuedStart {
+    pub id: String,
+    pub spawn: String,
+    /// The saved launch (None: a record from before it was saved).
+    pub launch: Option<crate::state::QueuedLaunch>,
+    /// The engine of now, for a launch that must be rebuilt.
+    pub engine: Option<SpawnEngine>,
+    /// Messages the Chief told it while it was queued: they go in after
+    /// its task.
+    pub extra: Option<String>,
 }
 
 /// A queued subagent's launch.
@@ -336,7 +379,19 @@ impl Spawner {
                 s.cwd.display()
             ));
         }
-        let session = self.agents.new_session(&spec)?;
+        let session = match self.agents.new_session(&spec) {
+            // acpmux's agent host can miss its 5 s startup handshake while
+            // the machine is busy (a10, 2026-10-13: "agent host did not
+            // answer hello within 5s"; the same spawn started at once
+            // after). acpmux now replaces such a host once itself
+            // (cx-7gs9r), but not for a remote-origin chain or a host it
+            // could not end. One more try before the subagent counts as failed.
+            Err(e) if is_transient_start_failure(&e) => {
+                (self.log)(&format!("subagent {id}: {e}; starting it once more"));
+                self.agents.new_session(&spec)?
+            }
+            other => other?,
+        };
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
             .map_err(|reason| {
                 let _ = self.agents.end_session(&session);
@@ -365,6 +420,7 @@ impl Spawner {
             &prompt_id,
             tx,
         )?;
+        let _ = self.send(Input::SubagentPrompted { id: id.to_owned() });
         self.forward_answer(id, rx);
         self.trace.emit(
             "subagent.start",
@@ -493,15 +549,15 @@ impl Spawner {
 impl Spawner {
     /// The queue starter: the brain sends a queued subagent's id when a slot
     /// frees, and it starts here with the view of that moment and its task.
-    pub fn queue_starter(self: &Arc<Self>) -> Sender<String> {
-        let (tx, rx) = channel::<String>();
+    pub fn queue_starter(self: &Arc<Self>) -> Sender<QueuedStart> {
+        let (tx, rx) = channel::<QueuedStart>();
         let me = Arc::downgrade(self);
         std::thread::Builder::new()
             .name("subagent-queue".into())
             .spawn(move || {
-                while let Ok(id) = rx.recv() {
+                while let Ok(queued) = rx.recv() {
                     let Some(me) = me.upgrade() else { return };
-                    me.start_waiting(&id);
+                    me.start_waiting(&queued);
                 }
             })
             .ok();
@@ -527,7 +583,8 @@ impl Spawner {
         Ok(())
     }
 
-    fn start_waiting(&self, id: &str) {
+    fn start_waiting(&self, queued: &QueuedStart) {
+        let id = queued.id.as_str();
         let waiting = self
             .waiting
             .lock()
@@ -547,17 +604,75 @@ impl Spawner {
         if let Some(e) = refused {
             return fail(&e);
         }
-        let Some(w) = waiting else {
-            return fail("the Chief host restarted while it waited for a free slot");
+        let w = match waiting {
+            Some(w) => w,
+            // The host restarted while it waited: its launch comes from its
+            // record, or from the spawn call in the log (a record saved
+            // before launches were).
+            None => match self.rebuild_waiting(queued) {
+                Ok(w) => {
+                    (self.log)(&format!(
+                        "subagent {id}: the host restarted while it waited; starting it from its saved task"
+                    ));
+                    w
+                }
+                Err(e) => return fail(&e),
+            },
         };
         if let Err(e) = self.settle_view() {
             return fail(&e);
         }
         let view = self.chat.render_view().text;
-        match self.start_one(&w.spawn, id, &w.task, &view, w.floor.as_deref(), &w.launch) {
+        let task = match &queued.extra {
+            Some(extra) => format!(
+                "{}\n\nThe Chief sent this while you were queued:\n\n{extra}",
+                w.task
+            ),
+            None => w.task.clone(),
+        };
+        match self.start_one(&w.spawn, id, &task, &view, w.floor.as_deref(), &w.launch) {
             Ok(note) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
             Err(e) => fail(&e),
         }
+    }
+
+    /// A queued subagent's launch after a restart: its saved launch, else its
+    /// spawn call in the log; the harness is the engine of now. A launch
+    /// from the log has no saved floor: the floor of now applies.
+    fn rebuild_waiting(&self, queued: &QueuedStart) -> Result<Waiting, String> {
+        let (saved, from_log) = match queued.launch.clone() {
+            Some(saved) => (saved, false),
+            None => {
+                let count = self.chat.status().messages;
+                let saved = recover_launch(
+                    &queued.id,
+                    (0..count).rev().filter_map(|k| self.chat.message(k)),
+                )
+                .ok_or_else(|| {
+                    "the Chief host restarted while it waited for a free slot, and its task was not saved".to_owned()
+                })?;
+                (saved, true)
+            }
+        };
+        let run = self.engine_settings(queued.engine.as_ref());
+        let (dir, _) = self.run_dir(saved.cwd.as_deref(), &run);
+        let floor = if from_log {
+            self.spawn_floor()
+        } else {
+            saved.floor
+        };
+        Ok(Waiting {
+            spawn: queued.spawn.clone(),
+            task: saved.task,
+            floor,
+            launch: SubagentSettings {
+                cwd: dir,
+                effort: saved
+                    .effort
+                    .or_else(|| queued.engine.as_ref().and_then(|e| e.effort.clone())),
+                ..run
+            },
+        })
     }
 
     /// Subagent `id`'s whole chat, one page of `page` characters from `at`.
@@ -731,7 +846,9 @@ impl Orchestrator for Spawner {
         // How hard they think: as asked, else as hard as the calling turn.
         let launch = SubagentSettings {
             cwd: dir.clone(),
-            effort: effort.or_else(|| plan.engine.as_ref().and_then(|e| e.effort.clone())),
+            effort: effort
+                .or_else(|| plan.engine.as_ref().and_then(|e| e.effort.clone()))
+                .or_else(|| run.effort.clone()),
             ..run.clone()
         };
         let mut started = Vec::new();
@@ -762,6 +879,16 @@ impl Orchestrator for Spawner {
                 continue;
             }
             if plan.queued.contains(id) {
+                // Saved in its record too: a restarted host still starts it.
+                let _ = self.send(Input::SubagentQueued {
+                    id: id.clone(),
+                    launch: crate::state::QueuedLaunch {
+                        task: task.clone(),
+                        cwd: Some(dir.display().to_string()),
+                        effort: launch.effort.clone(),
+                        floor: floor.clone(),
+                    },
+                });
                 self.waiting
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -774,8 +901,9 @@ impl Orchestrator for Spawner {
                             launch: launch.clone(),
                         },
                     );
+                let at_work = plan.limit.map_or_else(String::new, |n| format!("{n} "));
                 lines.push(format!(
-                    "- {id}: queued ({MAX_LIVE} subagents are at work, the most at once; it starts when one finishes)"
+                    "- {id}: queued ({at_work}subagents are at work, the most this Chief runs at once ({MAX_LIVE_ENV}); it starts when one finishes)"
                 ));
                 continue;
             }
@@ -815,16 +943,72 @@ impl Orchestrator for Spawner {
     }
 
     fn tell(&self, id: &str, message: &str) -> Result<String, String> {
+        self.tell_keyed(id, message, None)
+    }
+
+    fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
         let (reply, answer) = channel();
         self.send(Input::Tell {
             id: id.to_owned(),
             message: message.to_owned(),
+            key: key.map(str::to_owned),
             reply,
         })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
+
+    fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::Control { request, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+}
+
+/// Queued subagent `id`'s launch from the log, `messages` newest first: the
+/// spawn answer that queued it (`- a<N>: queued`) and the spawn call logged
+/// before it (`<tool> {"tasks": [...], "cwd": ..., "effort": ...}`), whose
+/// task at `id`'s place among the answer's ids is its own. No floor: the
+/// log does not keep it.
+pub fn recover_launch(
+    id: &str,
+    messages: impl Iterator<Item = (optchat_core::Kind, String)>,
+) -> Option<crate::state::QueuedLaunch> {
+    use optchat_core::Kind;
+    let mine = format!("- {id}: queued");
+    let mut index = None;
+    for (kind, text) in messages {
+        match (kind, index) {
+            (Kind::Echo, None) if text.lines().any(|l| l.starts_with(&mine)) => {
+                let ids: Vec<&str> = text
+                    .lines()
+                    .filter_map(|l| l.strip_prefix("- ")?.split(':').next())
+                    .collect();
+                index = ids.iter().position(|i| *i == id);
+            }
+            (Kind::Tool, Some(k)) => {
+                let (name, input) = text.split_once(' ')?;
+                if !name.ends_with("spawn") {
+                    return None;
+                }
+                let input: Value = serde_json::from_str(input).ok()?;
+                return Some(crate::state::QueuedLaunch {
+                    task: input.get("tasks")?.get(k)?.as_str()?.to_owned(),
+                    cwd: input.get("cwd").and_then(Value::as_str).map(str::to_owned),
+                    effort: input
+                        .get("effort")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    floor: None,
+                });
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// The answer of a prompt to a subagent: its token use and cost.
@@ -843,4 +1027,55 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use optchat_core::Kind;
+
+    #[test]
+    fn no_cap_unless_one_is_set() {
+        assert_eq!(live_limit(None), None);
+        assert_eq!(live_limit(Some("")), None);
+        assert_eq!(live_limit(Some("0")), None);
+        assert_eq!(live_limit(Some("many")), None);
+        assert_eq!(live_limit(Some(" 32 ")), Some(32));
+    }
+
+    #[test]
+    fn a_queued_launch_comes_back_from_its_spawn_call() {
+        // Newest first, as the host reads the log.
+        let log = vec![
+            (Kind::User, "[a37] report".to_owned()),
+            (
+                Kind::Echo,
+                "Queued a47, a48.\n- a46: started\n- a47: queued (16 subagents are at work)\n- a48: queued (16 subagents are at work)\nTell the user".to_owned(),
+            ),
+            (
+                Kind::Tool,
+                r#"mcp__optchat__spawn {"cwd":"~/fun/cmux","effort":"medium","tasks":["one","two","three"]}"#.to_owned(),
+            ),
+        ];
+        let got = recover_launch("a48", log.clone().into_iter()).expect("a48");
+        assert_eq!(got.task, "three");
+        assert_eq!(got.cwd.as_deref(), Some("~/fun/cmux"));
+        assert_eq!(got.effort.as_deref(), Some("medium"));
+        assert_eq!(got.floor, None);
+        assert_eq!(
+            recover_launch("a47", log.clone().into_iter()).unwrap().task,
+            "two"
+        );
+        // a46 started: it was never queued.
+        assert_eq!(recover_launch("a46", log.into_iter()), None);
+    }
+
+    #[test]
+    fn no_launch_when_the_call_before_is_not_a_spawn() {
+        let log = vec![
+            (Kind::Echo, "Queued a9.\n- a9: queued".to_owned()),
+            (Kind::Tool, r#"Bash {"command":"ls"}"#.to_owned()),
+        ];
+        assert_eq!(recover_launch("a9", log.into_iter()), None);
+    }
 }

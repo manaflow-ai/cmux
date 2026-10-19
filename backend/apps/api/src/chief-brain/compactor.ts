@@ -18,6 +18,8 @@ export interface CallRecord {
   readonly usage: Usage | undefined;
   readonly stop: string;
   readonly error?: string;
+  /** Time spent waiting for a prefix another compaction was writing, before the first try. */
+  readonly waitMs?: number;
 }
 
 export interface CompactorDeps {
@@ -66,19 +68,20 @@ async function buildWith(deps: Omit<CompactorDeps, "fallback">, l: number, i: nu
   const req = deps.memory.compactRequest(l, i, deps.prompt, deps.agent);
   const context = req.context ? blockPieces(req.context) : [];
   const names = prefixNames(`${deps.model.provider}/${deps.model.id}\n${req.system}`, context);
+  const asked = Date.now();
   const lead = deps.cache
     ? await deps.cache.acquire(names, viewWrite(context))
     : { plan: { read: undefined, write: viewWrite(context), names }, begun: () => undefined, end: () => undefined };
   const headers = { ...(context.length > 0 ? { [CACHE_BLOCKS_HEADER]: marksHeader(lead.plan) } : {}) };
   try {
-    return await sizeLoop(deps, req, context, headers, lead.begun, l, i);
+    return await sizeLoop(deps, req, context, headers, lead.begun, l, i, Date.now() - asked);
   } finally {
     // A call that never got an event (failed before the model answered) leaves no entry: forget it.
     lead.end();
   }
 }
 
-async function sizeLoop(deps: Omit<CompactorDeps, "fallback">, req: ReturnType<Memory["compactRequest"]>, context: string[], headers: Record<string, string>, begun: () => void, l: number, i: number): Promise<string> {
+async function sizeLoop(deps: Omit<CompactorDeps, "fallback">, req: ReturnType<Memory["compactRequest"]>, context: string[], headers: Record<string, string>, begun: () => void, l: number, i: number, waitMs = 0): Promise<string> {
   const messages: Message[] = [
     {
       role: "user",
@@ -112,6 +115,7 @@ async function sizeLoop(deps: Omit<CompactorDeps, "fallback">, req: ReturnType<M
       latencyMs: Date.now() - started,
       usage: reply.usage,
       stop: reply.stopReason,
+      ...(tries.length === 0 && waitMs > 0 ? { waitMs } : {}),
       ...(failed ? { error: refused ? `refusal: ${reply.errorMessage ?? ""}` : (reply.errorMessage ?? "error") } : {}),
     });
     if (refused) throw new Refused(`${deps.model.provider}/${deps.model.id} refused: ${reply.errorMessage ?? "refusal"}`);

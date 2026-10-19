@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691.
+// cmux-tui mux protocol 12, IR b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -717,12 +717,54 @@ pub type CloudConversationThreadResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationTypingRequest {
+    pub conversation: String,
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationTypingResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationUnsubscribeRequest {
     pub conversation: String,
 }
 
 #[rustfmt::skip]
 pub type CloudConversationUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudHostReplicaClearRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub purge: Option<bool>,
+}
+
+#[rustfmt::skip]
+pub type CloudHostReplicaClearResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudHostReplicaSetRequest {
+    pub api_base_url: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client_version: Optional<String>,
+    pub expires_at: u64,
+    pub host_name: String,
+    pub install_token: String,
+}
+
+#[rustfmt::skip]
+pub type CloudHostReplicaSetResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudHostReplicaStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudHostReplicaStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -3204,6 +3246,8 @@ pub struct SetColumnDockRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub permanent: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pinned: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<u64>,
@@ -4226,8 +4270,24 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_THREAD_METADATA, &request)
     }
 
+    pub fn cloud_conversation_typing(&mut self, request: CloudConversationTypingRequest) -> Result<CloudConversationTypingResult> {
+        self.execute(&CLOUD_CONVERSATION_TYPING_METADATA, &request)
+    }
+
     pub fn cloud_conversation_unsubscribe(&mut self, request: CloudConversationUnsubscribeRequest) -> Result<CloudConversationUnsubscribeResult> {
         self.execute(&CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_host_replica_clear(&mut self, request: CloudHostReplicaClearRequest) -> Result<CloudHostReplicaClearResult> {
+        self.execute(&CLOUD_HOST_REPLICA_CLEAR_METADATA, &request)
+    }
+
+    pub fn cloud_host_replica_set(&mut self, request: CloudHostReplicaSetRequest) -> Result<CloudHostReplicaSetResult> {
+        self.execute(&CLOUD_HOST_REPLICA_SET_METADATA, &request)
+    }
+
+    pub fn cloud_host_replica_status(&mut self, request: CloudHostReplicaStatusRequest) -> Result<CloudHostReplicaStatusResult> {
+        self.execute(&CLOUD_HOST_REPLICA_STATUS_METADATA, &request)
     }
 
     pub fn cloud_inbox_list(&mut self, request: CloudInboxListRequest) -> Result<CloudInboxListResult> {
@@ -5179,6 +5239,10 @@ impl CmuxClient {
     }
 
     pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        if !request.pinned.is_missing() {
+            self.require_protocol_field("set-column-dock", 12)?;
+            self.require_capability_field("set-column-dock", "pinned-dock-v1")?;
+        }
         if !request.role.is_missing() {
             self.require_protocol_field("set-column-dock", 12)?;
             self.require_capability_field("set-column-dock", "dock-column-role-v1")?;

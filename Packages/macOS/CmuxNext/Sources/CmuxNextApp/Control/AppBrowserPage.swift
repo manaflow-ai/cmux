@@ -41,8 +41,15 @@ enum AppBrowserPage {
         // `cmux browser open` waits for it, bounded (cx-qncg).
         var made = entry?.tab
         if made == nil { made = await awaitPage(tabID, services: services, within: actionWait) }
-        guard let page = made else {
+        guard var page = made else {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
+        }
+        // A hibernated tab answers `state` and takes navigation as it is;
+        // anything else wakes it in the background and runs on the restored page.
+        services.cache.hibernation?.noteAgentUse(tabID)
+        if !answersWhileHibernated(operation) {
+            guard let live = await awakePage(tabID, page: page, cache: services.cache, within: actionWait) else { throw wakeFailed }
+            page = live
         }
         try rebuildStale(stale, tabID: tabID, for: operation, services: services)
         var target: URL?
@@ -61,7 +68,7 @@ enum AppBrowserPage {
         case .forward: page.goForward()
         case .reload: page.reload()
         case .state:
-            return ["url": .string(page.state.url?.absoluteString ?? "about:blank"), "title": .string(page.state.title ?? "")]
+            return stateResult(page)
         case .evaluate(let script):
             try await ensureBrowser(page)
             // The page's pending navigation (the first load after open) ends
