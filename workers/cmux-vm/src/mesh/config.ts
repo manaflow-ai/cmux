@@ -11,6 +11,7 @@
  */
 import { Context, Layer } from "effect";
 import type { TenantId } from "../lib/ids.ts";
+import { DEFAULT_OVERLAY_RULES_PER_DEVICE, DEFAULT_OVERLAY_RULES_PER_MESH } from "./acl.ts";
 
 export interface MeshBudgets {
   /** Meshes per tenant (`mesh.perTenant`). */
@@ -25,6 +26,10 @@ export interface MeshBudgets {
    * 1.4 Q3); 180 keeps 10 % headroom.
    */
   readonly rulesPerResource: number;
+  /** Directed overlay rules; independent of provider firewall capacity. */
+  readonly overlayRulesPerMesh: number;
+  /** Counts both incoming and outgoing overlay permissions. */
+  readonly overlayRulesPerDevice: number;
   /** ACL applies per mesh per minute (`aclApply.perMeshPerMinute`). */
   readonly aclAppliesPerMinute: number;
   /** Least time between two changes of one device's published IPv6 address (each change reconciles the mesh). */
@@ -38,6 +43,8 @@ export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
   devicesPerMesh: 50,
   rulesPerMesh: 500,
   rulesPerResource: 180,
+  overlayRulesPerMesh: DEFAULT_OVERLAY_RULES_PER_MESH,
+  overlayRulesPerDevice: DEFAULT_OVERLAY_RULES_PER_DEVICE,
   aclAppliesPerMinute: 10,
   addressChangeIntervalMs: 10_000,
   enrollmentCodesPerHour: 20,

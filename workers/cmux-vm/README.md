@@ -42,6 +42,27 @@ key's actor. Creator references remain private. Arbitrary actor selectors are
 rejected. The operator CLI sends this filter with `cmux-vm list --created-by-me`
 and `cmux-vm snapshot list --created-by-me`.
 
+## Device overlay policy
+
+Mesh ACL destinations accept device IDs and `device:*` as well as VM
+selectors. Device edges are directed and omit self connections. They compile
+separately from provider firewall rules, with limits of 2,500 directed rules
+per mesh and 180 incoming plus outgoing rules per device.
+
+`GET /v1/devices/{deviceId}/overlay-policy` requires `mesh:join` and the
+device's enrolling principal or a tenant admin. A device can instead use
+`POST /v1/devices/{deviceId}/signed/overlay-policy`, signing the existing
+eight-line `cmux-mesh-v1` message with the distinct purpose `overlay-policy`.
+The operator CLI exposes the credential read as
+`cmux-vm device overlay-policy dev_…` (`--json` preserves the response).
+
+The response includes public install and WireGuard keys and separate inbound
+and outbound permissions for relevant peers whose owners remain valid. Its
+digest identifies the projection even when a key changes at the same ACL
+version; it does not prove freshness. Reads are serialized with mesh changes.
+This contract does not activate transport, push updates, admit HostDO relay
+sessions or grant command execution; those integrations remain separate.
+
 ## gdp-ts proofs
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,

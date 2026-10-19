@@ -26,14 +26,23 @@ async fn device_overlay_policy_is_a_single_authorized_read_with_direction_preser
         .and(authorized())
         .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
         .expect(2)
-        .mount(&server).await;
+        .mount(&server)
+        .await;
     let output = cli(&server, &["--json", "device", "overlay-policy", device]).await;
     assert_eq!(output.code, exit::OK, "{}", output.stderr);
     assert_eq!(json_stdout(&output), receipt);
     let human = cli(&server, &["device", "overlay-policy", device]).await;
     assert_eq!(human.code, exit::OK, "{}", human.stderr);
-    assert!(human.stdout.contains("outbound tcp:4100"), "{}", human.stdout);
-    assert!(!human.stdout.contains("inbound tcp:4100"), "{}", human.stdout);
+    assert!(
+        human.stdout.contains("outbound tcp:4100"),
+        "{}",
+        human.stdout
+    );
+    assert!(
+        !human.stdout.contains("inbound tcp:4100"),
+        "{}",
+        human.stdout
+    );
     let invalid = cli(&server, &["device", "overlay-policy", "vm_not_a_device"]).await;
     assert_eq!(invalid.code, exit::USAGE);
     assert_eq!(server.received_requests().await.unwrap().len(), 2);

@@ -22,6 +22,35 @@ impl<'a> Printer<'a> {
         Self { json, out }
     }
 
+    pub fn overlay_policy(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let policy: cmux_vm_client::types::OverlayPolicy = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!("device {}", policy.device_id.as_str()))?;
+        self.line(&format!("ACL version {}", policy.acl_version))?;
+        self.line(&format!("policy {}", policy.policy_digest.as_str()))?;
+        if policy.peers.is_empty() {
+            return self.line("no permitted device peers");
+        }
+        for peer in policy.peers {
+            for (direction, allowed) in [("inbound", peer.inbound), ("outbound", peer.outbound)] {
+                for rule in allowed {
+                    let port = rule
+                        .port
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "*".into());
+                    self.line(&format!(
+                        "{} {direction} {}:{port}",
+                        peer.device_id.as_str(),
+                        rule.protocol
+                    ))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn vm(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);

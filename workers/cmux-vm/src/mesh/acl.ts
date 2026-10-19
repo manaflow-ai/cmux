@@ -5,9 +5,9 @@
  * A document is a list of allow rules, default deny:
  *   { "src": ["dev_..." | "device:*"], "dst": ["vm_..." | "vm:*"], "allow": ["tcp:8080", "udp:53", "tcp:*", "icmp", "*"] }
  * Each (device, VM, port) becomes one provider rule `{tunnel} -> {vm, protocol, port}`
- * (the provider takes one port per rule). Device-to-device and VM-to-device
- * rules do not exist in M1: the provider does not forward tunnel to tunnel
- * (DESIGN.md 1.4 Q1), and replies to a device's connection are stateful (Q5).
+ * (the provider takes one port per rule). Device destinations compile into
+ * separate directed overlay rules: the provider does not forward tunnel to
+ * tunnel (DESIGN.md 1.4 Q1). VM sources remain unsupported (Q5).
  *
  * Address rules (transport.md 7 and 13.6): a device that published its current
  * global IPv6 address also gets, for each VM it may reach by any rule, one
@@ -46,6 +46,18 @@ export interface DesiredRule {
   readonly cidr: string | null;
 }
 
+/** A directed overlay permission, never a provider firewall rule. */
+export interface DesiredOverlayRule {
+  readonly key: string;
+  readonly sourceDeviceId: string;
+  readonly destinationDeviceId: string;
+  readonly protocol: MeshProtocol | null;
+  readonly port: number | null;
+}
+
+export const DEFAULT_OVERLAY_RULES_PER_MESH = 2500;
+export const DEFAULT_OVERLAY_RULES_PER_DEVICE = 180;
+
 export interface CompileInput {
   readonly document: AclDocument;
   /** Live devices of this mesh. */
@@ -58,13 +70,17 @@ export interface CompileInput {
   readonly existingAddressKeys?: ReadonlySet<string>;
   readonly rulesPerResource: number;
   readonly rulesPerMesh: number;
+  readonly overlayRulesPerMesh?: number;
+  readonly overlayRulesPerDevice?: number;
 }
 
 export type CompileResult =
-  | { readonly ok: true; readonly rules: ReadonlyArray<DesiredRule> }
+  | { readonly ok: true; readonly rules: ReadonlyArray<DesiredRule>; readonly overlayRules: ReadonlyArray<DesiredOverlayRule> }
   | { readonly ok: false; readonly reason: "invalid"; readonly message: string }
   | { readonly ok: false; readonly reason: "perResource"; readonly message: string; readonly resourceId: string; readonly count: number }
-  | { readonly ok: false; readonly reason: "perMesh"; readonly message: string; readonly count: number };
+  | { readonly ok: false; readonly reason: "perMesh"; readonly message: string; readonly count: number }
+  | { readonly ok: false; readonly reason: "overlayPerDevice"; readonly message: string; readonly resourceId: string; readonly count: number }
+  | { readonly ok: false; readonly reason: "overlayPerMesh"; readonly message: string; readonly count: number };
 
 interface PortSpec {
   readonly protocol: MeshProtocol | null;
@@ -187,11 +203,20 @@ const expand = (selectors: ReadonlyArray<string>, wildcard: string, prefix: stri
 export const compileAcl = (input: CompileInput): CompileResult => {
   const byKey = new Map<string, DesiredRule>();
   const byAddressKey = new Map<string, DesiredRule>();
+  const overlay = new Map<string, DesiredOverlayRule>();
+  const overlayCounts = new Map<string, number>();
+  const overlayPerMesh = input.overlayRulesPerMesh ?? DEFAULT_OVERLAY_RULES_PER_MESH;
+  const overlayPerDevice = input.overlayRulesPerDevice ?? DEFAULT_OVERLAY_RULES_PER_DEVICE;
   for (const [index, rule] of input.document.rules.entries()) {
     const sources = expand(rule.src, "device:*", "dev_", input.deviceIds, `rules[${index}].src`);
     if (!sources.ok) return { ok: false, reason: "invalid", message: sources.message };
-    const destinations = expand(rule.dst, "vm:*", "vm_", input.vmIds, `rules[${index}].dst`);
+    // Validate both families even when a wildcard currently expands to nothing.
+    const vmSelectors = rule.dst.filter((selector) => selector === "vm:*" || selector.startsWith("vm_"));
+    const deviceSelectors = rule.dst.filter((selector) => !vmSelectors.includes(selector));
+    const destinations = expand(vmSelectors, "vm:*", "vm_", input.vmIds, `rules[${index}].dst`);
     if (!destinations.ok) return { ok: false, reason: "invalid", message: destinations.message };
+    const deviceDestinations = expand(deviceSelectors, "device:*", "dev_", input.deviceIds, `rules[${index}].dst`);
+    if (!deviceDestinations.ok) return { ok: false, reason: "invalid", message: deviceDestinations.message };
     const specs: PortSpec[] = [];
     for (const entry of rule.allow) {
       const spec = parseAllow(entry);
@@ -199,6 +224,21 @@ export const compileAcl = (input: CompileInput): CompileResult => {
       specs.push(spec);
     }
     for (const deviceId of sources.ids) {
+      for (const destinationDeviceId of deviceDestinations.ids) {
+        if (deviceId === destinationDeviceId) continue;
+        for (const spec of specs) {
+          const key = ruleKey(deviceId, destinationDeviceId, spec);
+          if (overlay.has(key)) continue;
+          overlay.set(key, { key, sourceDeviceId: deviceId, destinationDeviceId, ...spec });
+          // Refuse during expansion, before a wildcard can allocate an unbounded map.
+          if (overlay.size > overlayPerMesh) return { ok: false, reason: "overlayPerMesh", count: overlay.size, message: `Overlay policy exceeds ${overlayPerMesh} directed rules per mesh` };
+          for (const id of [deviceId, destinationDeviceId]) {
+            const count = (overlayCounts.get(id) ?? 0) + 1;
+            overlayCounts.set(id, count);
+            if (count > overlayPerDevice) return { ok: false, reason: "overlayPerDevice", resourceId: id, count, message: `Overlay policy exceeds ${overlayPerDevice} inbound and outbound rules for device ${id}` };
+          }
+        }
+      }
       for (const vmId of destinations.ids) {
         for (const spec of specs) {
           const key = ruleKey(deviceId, vmId, spec);
@@ -253,7 +293,7 @@ export const compileAcl = (input: CompileInput): CompileResult => {
     total += 1;
     withAddresses.push(rule);
   }
-  return { ok: true, rules: withAddresses.sort(byRuleKey) };
+  return { ok: true, rules: withAddresses.sort(byRuleKey), overlayRules: [...overlay.values()].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0) };
 };
 
 /** Splits current rules (by key) against desired ones: create these, then delete those. */

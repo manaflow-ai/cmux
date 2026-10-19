@@ -13,6 +13,8 @@ export type Privilege = "SELECT" | "INSERT" | "UPDATE" | "DELETE";
 export interface Requirement {
   readonly table: string;
   readonly column?: string;
+  /** A validated CHECK constraint added by a later migration. */
+  readonly constraint?: string;
   readonly privileges?: ReadonlyArray<Privilege>;
   /** The migration that adds it (four digits). */
   readonly migration: string;
@@ -44,6 +46,7 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.stack_webhook_events", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0008" },
   // A device's published public IPv6 address (address rules, bead cx-wb5.45).
   { table: "cmux_vm.mesh_devices", column: "public_ipv6", migration: "0009" },
+  { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v2_check", migration: "0012" },
 ];
 
 /** The highest migration this build's requirements name. */
@@ -57,7 +60,7 @@ const pgArray = (values: ReadonlyArray<string>) => `{${values.map((value) => `"$
  * One row per requirement: `problem` is null when it is met, else
  * `<table>: missing`, `<table>.<column>: missing` or `<table>: no <PRIVILEGE> privilege`.
  * Parameters: $1 tables, $2 columns, $3 privileges (text[] literals), $4 the role
- * whose privileges count ('' = the current role).
+ * whose privileges count ('' = the current role), $5 validated CHECK constraint names.
  * pg_catalog, not information_schema: a column is found even when the role has no privilege on it.
  */
 export const SCHEMA_CHECK_SQL = `SELECT CASE
@@ -69,21 +72,27 @@ export const SCHEMA_CHECK_SQL = `SELECT CASE
               WHEN r.p <> '' AND NOT (CASE WHEN $4::text = '' THEN has_table_privilege(to_regclass(r.t), r.p)
                                            ELSE has_table_privilege($4::text, to_regclass(r.t), r.p) END)
                 THEN r.t || ': no ' || r.p || ' privilege'
+              WHEN r.k <> '' AND NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_constraint k
+                 WHERE k.conrelid = to_regclass(r.t) AND k.conname = r.k AND k.contype = 'c' AND k.convalidated
+              ) THEN r.t || '.' || r.k || ': missing'
             END AS problem
-       FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY AS r(t, c, p, n)
+       FROM unnest($1::text[], $2::text[], $3::text[], $5::text[]) WITH ORDINALITY AS r(t, c, p, k, n)
       ORDER BY r.n`;
 
 /** The parameters of SCHEMA_CHECK_SQL for `requirements`, checked for `role` ('' = the current role). */
-export const schemaCheckParams = (requirements: ReadonlyArray<Requirement> = REQUIRED_SCHEMA, role = ""): [string, string, string, string] => {
+export const schemaCheckParams = (requirements: ReadonlyArray<Requirement> = REQUIRED_SCHEMA, role = ""): [string, string, string, string, string] => {
   const tables: string[] = [];
   const columns: string[] = [];
   const privileges: string[] = [];
+  const constraints: string[] = [];
   for (const requirement of requirements) {
     for (const privilege of requirement.privileges ?? [null]) {
       tables.push(requirement.table);
       columns.push(requirement.column ?? "");
       privileges.push(privilege ?? "");
+      constraints.push(requirement.constraint ?? "");
     }
   }
-  return [pgArray(tables), pgArray(columns), pgArray(privileges), role];
+  return [pgArray(tables), pgArray(columns), pgArray(privileges), role, pgArray(constraints)];
 };

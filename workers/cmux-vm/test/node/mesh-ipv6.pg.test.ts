@@ -1,5 +1,6 @@
 import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
 import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
+import overlayPolicy from "../../migrations/0012_cmux_vm_device_overlay_policy.sql?raw";
 /**
  * The device address store (bead cx-wb5.45) against migrations 0001-0009 on
  * an in-process Postgres (PGlite): a live device's published public IPv6
@@ -24,7 +25,7 @@ import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
 const BEFORE = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries];
-const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex];
+const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, overlayPolicy];
 
 const sqlOver = (db: PGlite) =>
   Layer.succeed(SqlClient, {
@@ -72,7 +73,7 @@ describe("migration 0009", () => {
 
   it("the schema gate names the column when 0009 was not applied", async () => {
     const old = new PGlite();
-    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex]) await old.exec(migration);
+    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, overlayPolicy]) await old.exec(migration);
     expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(old)))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
   });
 
@@ -124,5 +125,16 @@ describe("device addresses", () => {
   it("accepts the address purpose for a signed request claim", async () => {
     const claimed = await run(Effect.flatMap(MeshStore, (store) => store.claimSignedRequest(T, "a".repeat(64), "address", at(120_000), at(0))));
     expect(claimed).toBe(true);
+  });
+
+  it("accepts distinct overlay replay claims after an idempotent migration, preserving old purposes", async () => {
+    await pg.exec(overlayPolicy);
+    for (const [index, purpose] of ["enroll", "rotate-key", "peers", "tunnel", "address", "overlay-policy"].entries()) {
+      const hash = (index + 1).toString(16).repeat(64);
+      const claim = () => run(Effect.flatMap(MeshStore, (store) => store.claimSignedRequest(T, hash, purpose, at(120_000), at(0))));
+      expect(await claim()).toBe(true);
+      expect(await claim()).toBe(false);
+    }
+    expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(pg)))).toEqual([]);
   });
 });

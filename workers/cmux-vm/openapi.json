@@ -6256,6 +6256,126 @@
         "summary": "What this device may reach"
       }
     },
+    "/v1/devices/{deviceId}/overlay-policy": {
+      "get": {
+        "tags": [
+          "mesh"
+        ],
+        "operationId": "mesh.getDeviceOverlayPolicy",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a device's directed overlay policy. Requires the mesh:join scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Public identities and inbound/outbound permissions only. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Read a device's directed overlay policy"
+      }
+    },
     "/v1/meshes/{meshId}/enrollment-codes": {
       "post": {
         "tags": [
@@ -7248,6 +7368,116 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CodeEnrollDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/devices/{deviceId}/signed/overlay-policy": {
+      "post": {
+        "tags": [
+          "meshDevice"
+        ],
+        "operationId": "meshDevice.signedDeviceOverlayPolicy",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Signed with the distinct purpose overlay-policy. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "A device reads its own overlay policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedDeviceRequest"
               }
             }
           },
@@ -10264,6 +10494,98 @@
         },
         "additionalProperties": false
       },
+      "OverlayPolicy": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "meshId",
+          "wgPublicKey",
+          "installPublicKey",
+          "aclVersion",
+          "policyDigest",
+          "peers"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "meshId": {
+            "type": "string",
+            "description": "a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "aclVersion": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "policyDigest": {
+            "type": "string",
+            "description": "SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof.",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "peers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OverlayPeer"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "description": "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane."
+      },
+      "OverlayPeer": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "wgPublicKey",
+          "installPublicKey",
+          "inbound",
+          "outbound"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "inbound": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeerAllow"
+            },
+            "description": "Connections this peer may initiate toward the requesting device."
+          },
+          "outbound": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeerAllow"
+            },
+            "description": "Connections the requesting device may initiate toward this peer. Replies do not grant reverse initiation."
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateEnrollmentCodeRequest": {
         "$id": "/schemas/%7B%7D",
         "anyOf": [
@@ -10439,7 +10761,7 @@
               "title": "maxLength(64)",
               "maxLength": 64
             },
-            "description": "VMs: vm_ ids or vm:* (every VM member of the mesh).",
+            "description": "VMs: vm_ ids or vm:*. Devices: dev_ ids or device:*. Device destinations use directed overlay permissions, never provider firewall rules. Self edges are omitted.",
             "title": "maxItems(64)",
             "minItems": 1,
             "maxItems": 64
@@ -10516,6 +10838,14 @@
           },
           "applyMs": {
             "$ref": "#/components/schemas/Int"
+          },
+          "overlayRuleCount": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Int"
+              }
+            ],
+            "description": "Directed device overlay permissions, when nonzero. Separate from ruleCount, which counts provider firewall rules."
           }
         },
         "additionalProperties": false
@@ -10598,7 +10928,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use."
+        "description": "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers, tunnel or overlay-policy, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use."
       },
       "PublishAddressRequest": {
         "type": "object",

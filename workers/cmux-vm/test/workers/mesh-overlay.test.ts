@@ -119,4 +119,45 @@ describe("device overlay policy", () => {
     expect((await json(await read(laptop)))["peers"]).toEqual([]);
     expect((await read(server)).status).toBe(404);
   });
+
+  it("refuses overlay expansion before committing an ACL or changing provider rules", async () => {
+    await h.dispose();
+    h = await makeHarness({ mesh: { budgets: { overlayRulesPerMesh: 1, overlayRulesPerDevice: 1 } } });
+    admin = await h.addKey(TEAM, ALL_SCOPES);
+    const created = (await json(await call("/v1/meshes", admin, "POST", {})))["id"];
+    if (typeof created !== "string") throw new Error("missing mesh");
+    mesh = created;
+    const laptop = await enroll();
+    const server = await enroll();
+    const before = h.upstreamRequests.length;
+    const refused = await apply([{ src: [laptop], dst: [server], allow: ["tcp:4100", "udp:53"] }]);
+    expect(refused.status).toBe(429);
+    expect(await json(refused)).toMatchObject({ _tag: "QuotaExceeded" });
+    expect((await json(await call(`/v1/meshes/${mesh}/acl`, admin)))["version"]).toBe(0);
+    expect((await json(await read(laptop)))["peers"]).toEqual([]);
+    expect(h.upstreamRequests).toHaveLength(before);
+  });
+
+  it("hides removed user peers and refuses signed reads when the experiment is off", async () => {
+    const laptop = await enroll();
+    h.addMember(TEAM, "user_server");
+    const token = await h.sessionToken("user_server");
+    const enrolled = await h.request(`/v1/meshes/${mesh}/devices`, { ...bearer(token), "x-cmux-team-id": TEAM }, {
+      method: "POST", body: await enrollBody(install, mesh, { name: "server", wgPublicKey: WG2 }),
+    });
+    expect(enrolled.status).toBe(201);
+    const server = record((await json(enrolled))["device"])["id"];
+    if (typeof server !== "string") throw new Error("missing server");
+    expect((await apply([{ src: [laptop], dst: [server], allow: ["tcp:4100"] }])).status).toBe(200);
+    expect((await json(await read(laptop)))["peers"]).toHaveLength(1);
+    h.removeMember(TEAM, "user_server");
+    // TeamMembership checks the directory; the signed read and projection
+    // must not inherit the credential middleware's cached positive result.
+    expect((await json(await read(laptop)))["peers"]).toEqual([]);
+    expect((await signed(server)).status).toBe(404);
+    await h.dispose();
+    h = await makeHarness({ mesh: { experiment: false } });
+    expect((await signed(laptop)).status).toBe(404);
+    expect(h.upstreamRequests).toHaveLength(0);
+  });
 });

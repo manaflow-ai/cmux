@@ -95,7 +95,7 @@ export class SignedDeviceRequest extends Schema.Class<SignedDeviceRequest>("Sign
   },
   {
     description:
-      "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use.",
+      "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers, tunnel or overlay-policy, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use.",
   },
 ) {}
 
@@ -174,7 +174,7 @@ export const AclRule = Schema.Struct({
     description: "Devices: dev_ ids or device:* (every device of the mesh).",
   }),
   dst: Schema.Array(Selector).pipe(Schema.minItems(1), Schema.maxItems(64)).annotations({
-    description: "VMs: vm_ ids or vm:* (every VM member of the mesh).",
+    description: "VMs: vm_ ids or vm:*. Devices: dev_ ids or device:*. Device destinations use directed overlay permissions, never provider firewall rules. Self edges are omitted.",
   }),
   allow: Schema.Array(AllowEntry).pipe(Schema.minItems(1), Schema.maxItems(64)).annotations({
     description: "tcp:<port>, udp:<port>, tcp:*, udp:*, icmp, or * (everything).",
@@ -205,6 +205,7 @@ export class AclApplied extends Schema.Class<AclApplied>("AclApplied")({
   rulesCreated: Schema.Int,
   rulesDeleted: Schema.Int,
   applyMs: Schema.Int,
+  overlayRuleCount: Schema.optional(Schema.Int).annotations({ description: "Directed device overlay permissions, when nonzero. Separate from ruleCount, which counts provider firewall rules." }),
 }) {}
 
 export const PeerAllow = Schema.Struct({
@@ -225,6 +226,24 @@ export class PeerMap extends Schema.Class<PeerMap>("PeerMap")({
   aclVersion: Schema.Int,
   peers: Schema.Array(Peer),
 }) {}
+
+export const OverlayPeer = Schema.Struct({
+  deviceId: DeviceId,
+  wgPublicKey: WgPublicKey,
+  installPublicKey: InstallPublicKey,
+  inbound: Schema.Array(PeerAllow).annotations({ description: "Connections this peer may initiate toward the requesting device." }),
+  outbound: Schema.Array(PeerAllow).annotations({ description: "Connections the requesting device may initiate toward this peer. Replies do not grant reverse initiation." }),
+}).annotations({ identifier: "OverlayPeer" });
+
+export class OverlayPolicy extends Schema.Class<OverlayPolicy>("OverlayPolicy")({
+  deviceId: DeviceId,
+  meshId: MeshId,
+  wgPublicKey: WgPublicKey,
+  installPublicKey: InstallPublicKey,
+  aclVersion: Schema.Int,
+  policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)).annotations({ description: "SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof." }),
+  peers: Schema.Array(OverlayPeer),
+}, { description: "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane." }) {}
 
 const OWN =
   "Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404.";
@@ -263,6 +282,19 @@ const DEVICE_SIGNED =
  * without the Authentication middleware.
  */
 export class MeshDeviceGroupDefinition extends HttpApiGroup.make("meshDevice")
+  .add(
+    HttpApiEndpoint.post("signedDeviceOverlayPolicy", "/v1/devices/:deviceId/signed/overlay-policy")
+      .setPath(DevicePath)
+      .setPayload(SignedDeviceRequest)
+      .addSuccess(OverlayPolicy)
+      .addError(BadRequest)
+      .addError(Forbidden)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(OpenApi.annotations({ summary: "A device reads its own overlay policy", description: `Signed with the distinct purpose overlay-policy. ${DEVICE_SIGNED} ${EXPERIMENT}` })),
+  )
   .add(
     HttpApiEndpoint.post("signedDevicePeers", "/v1/devices/:deviceId/signed/peers")
       .setPath(DevicePath)
@@ -434,6 +466,17 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addError(NotFound)
       .addError(QuotaExceeded)
       .annotateContext(describe("What this device may reach", "mesh:join", `Compiled from the current ACL. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.get("getDeviceOverlayPolicy", "/v1/devices/:deviceId/overlay-policy")
+      .setPath(DevicePath)
+      .setHeaders(GroupTeamHeaders)
+      .addSuccess(OverlayPolicy)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(describe("Read a device's directed overlay policy", "mesh:join", `${OWN} Public identities and inbound/outbound permissions only. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.post("createEnrollmentCode", "/v1/meshes/:meshId/enrollment-codes")

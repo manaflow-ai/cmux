@@ -12,7 +12,7 @@ import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Duration, Effect, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, EnrollmentCode, Mesh, MeshList, MeshMember, PeerMap, TunnelConfig } from "../api/mesh.ts";
+import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, EnrollmentCode, Mesh, MeshList, MeshMember, OverlayPolicy, PeerMap, TunnelConfig } from "../api/mesh.ts";
 import { TeamMembership } from "../auth/credentials.ts";
 import { MembershipCache } from "../auth/membership-cache.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
@@ -52,6 +52,7 @@ import { TenantLimits } from "../limits/service.ts";
 import { compileAcl, isAddressRuleKey, outsideSourceSlash64, parseDeviceIpv6, peersOf, planApply, type AclDocument, type CompileResult, type DesiredRule } from "../mesh/acl.ts";
 import { ENROLLMENT_CODE_TTL_MS, MESH_MTU, MESH_PERSISTENT_KEEPALIVE_SECONDS, MESH_SLOTS, MeshConfig, slotCidr } from "../mesh/config.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
+import { projectOverlayPeers } from "../mesh/overlay-policy.ts";
 import { deviceHoldsKey, type DeviceHoldsKey } from "../proofs/device-holds-key.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreateDevice, tenantMayCreateMesh } from "../proofs/mesh-may-create.ts";
@@ -229,14 +230,17 @@ const compileFor = (tenantId: Principal["tenantId"], meshId: string, document: A
       existingAddressKeys,
       rulesPerResource: config.budgets.rulesPerResource,
       rulesPerMesh: config.budgets.rulesPerMesh,
+      overlayRulesPerMesh: config.budgets.overlayRulesPerMesh,
+      overlayRulesPerDevice: config.budgets.overlayRulesPerDevice,
     });
-    return { result, members };
+    return { result, members, devices };
   });
 
 const compiled = (result: CompileResult) =>
   Effect.gen(function* () {
     if (result.ok) return result.rules;
     if (result.reason === "invalid") return yield* Effect.fail(new BadRequest({ message: result.message }));
+    if (result.reason === "overlayPerDevice" || result.reason === "overlayPerMesh") return yield* Effect.fail(new QuotaExceeded({ message: result.message }));
     return yield* Effect.fail(
       new QuotaExceeded({
         message: result.message,
@@ -495,6 +499,39 @@ const peerMapOf = (tenantId: Principal["tenantId"], deviceId: string, row: MeshD
       peers,
     });
   });
+
+/** A coherent device policy read, serialized with enrollment, removal and ACL writes. */
+const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: string, row: MeshDeviceRow) =>
+  withMeshWriter(tenantId, row.meshId, Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const acl = yield* store.currentAcl(tenantId, row.meshId).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
+    const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (version) => version.document });
+    const { result, devices } = yield* compileFor(tenantId, row.meshId, document, false);
+    if (!result.ok) return yield* Effect.fail(unavailable());
+    // Re-read the subject under the lock: an earlier ownership proof may have
+    // raced a deletion or key rotation while waiting for the writer.
+    const subject = devices.find((device) => device.deviceId === deviceId);
+    if (subject === undefined || subject.installPublicKey === null) return yield* Effect.fail(deviceNotFound());
+    const owner = actorOf(subject.createdBy);
+    if (Option.isNone(owner) || !(yield* ownerStillValid(tenantId, owner.value))) return yield* Effect.fail(deviceNotFound());
+    const incident = new Set(result.overlayRules.flatMap((rule) => rule.sourceDeviceId === deviceId ? [rule.destinationDeviceId] : rule.destinationDeviceId === deviceId ? [rule.sourceDeviceId] : []));
+    const identities = [];
+    for (const device of devices) {
+      if (!incident.has(device.deviceId) || device.installPublicKey === null) continue;
+      const actor = actorOf(device.createdBy);
+      if (Option.isSome(actor) && (yield* ownerStillValid(tenantId, actor.value))) {
+        identities.push({ deviceId: device.deviceId, wgPublicKey: device.wgPublicKey, installPublicKey: device.installPublicKey });
+      }
+    }
+    const projection = {
+      deviceId: DeviceId_(deviceId), meshId: MeshId_(row.meshId),
+      wgPublicKey: subject.wgPublicKey, installPublicKey: subject.installPublicKey,
+      aclVersion: Option.match(acl, { onNone: () => 0, onSome: (version) => version.version }),
+      peers: projectOverlayPeers(deviceId, identities, result.overlayRules).map((peer) => ({ ...peer, deviceId: DeviceId_(peer.deviceId) })),
+    };
+    const policyDigest = yield* sha256Hex(`cmux-device-overlay-policy-v1\n${JSON.stringify(projection)}`);
+    return new OverlayPolicy({ ...projection, policyDigest });
+  }));
 
 /** The config of the tunnel `row` (the tunnel's device) owns, read from the provider; `notFound` is the route's 404. */
 const tunnelConfigOf = <C, T>(
@@ -971,6 +1008,9 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
     .handle("getDevicePeers", ({ path }) =>
       withOwnedDevice(path.deviceId, "mesh:join", "read", (caller, device, _proofs, row) => peerMapOf(caller.value.tenantId, device.value, row)),
     )
+    .handle("getDeviceOverlayPolicy", ({ path }) =>
+      withOwnedDevice(path.deviceId, "mesh:join", "read", (caller, device, _proofs, row) => overlayPolicyOf(caller.value.tenantId, device.value, row)),
+    )
     .handle("getTunnel", ({ path }) =>
       withMeshCaller("mesh:read", "read", (caller, scope) =>
         Effect.gen(function* () {
@@ -1151,6 +1191,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   rulesCreated: applied.created,
                   rulesDeleted: applied.deleted,
                   applyMs: Math.max(0, Math.round(finished - started)),
+                  ...(result.ok && result.overlayRules.length > 0 ? { overlayRuleCount: result.overlayRules.length } : {}),
                 });
               }),
             );
@@ -1161,7 +1202,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
 );
 
 interface SignedDeviceFields {
-  readonly purpose: "peers" | "tunnel" | "rotate-key" | "address";
+  readonly purpose: "peers" | "tunnel" | "rotate-key" | "address" | "overlay-policy";
   /** The WireGuard key the request registers: the new key on rotate-key, empty for the others. */
   readonly wgPublicKey: string;
   /** The message's name line: the address exactly as sent for address, empty for the others. */
@@ -1252,6 +1293,11 @@ const withSignedDevice = <A, E, R>(
 /** The device-signed routes (M3): a device's own peer map, tunnel config and key rotation, without a credential. */
 export const meshDeviceHandlers = HttpApiBuilder.group(CmuxVmApi, "meshDevice", (handlers) =>
   handlers
+    .handle("signedDeviceOverlayPolicy", ({ path, payload }) =>
+      withSignedDevice(path.deviceId, { purpose: "overlay-policy", wgPublicKey: "", name: "", ...payload }, "read", (caller, device, _proofs, row) =>
+        overlayPolicyOf(caller.value.tenantId, device.value, row),
+      ),
+    )
     .handle("signedDevicePeers", ({ path, payload }) =>
       withSignedDevice(path.deviceId, { purpose: "peers", wgPublicKey: "", name: "", ...payload }, "read", (caller, device, _proofs, row) =>
         peerMapOf(caller.value.tenantId, device.value, row),

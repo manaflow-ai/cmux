@@ -79,6 +79,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Inspect a device's network permissions
+    #[command(subcommand)]
+    Device(DeviceCommand),
     /// Inspect or reconcile an original VM creation without allocating another VM
     #[command(subcommand)]
     Creation(CreationCommand),
@@ -168,6 +171,18 @@ struct CreationListArgs {
 enum FileCommand {
     /// Show file metadata on a running, paused, stopped or retired VM
     Stat(FileStatArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum DeviceCommand {
+    /// Read public peer identities and directed overlay permissions
+    OverlayPolicy(DeviceArg),
+}
+
+#[derive(Args, Debug)]
+struct DeviceArg {
+    /// Device id (dev_...)
+    device_id: String,
 }
 
 #[derive(Args, Debug)]
@@ -711,6 +726,14 @@ async fn dispatch(
             out.deleted(&vm_id)
         }
         Command::Snapshot(command) => snapshot(client, command, prompt, out).await,
+        Command::Device(DeviceCommand::OverlayPolicy(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            let body = fetch_body(client.mesh_get_device_overlay_policy(id.as_str(), None)).await?;
+            out.overlay_policy(&body)
+        }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
         Command::File(FileCommand::Stat(args)) => {
             let id = args
