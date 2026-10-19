@@ -9,7 +9,7 @@ import Testing
 
 /// cg-design-judge's fixes to the shipped Chrome-style group look (2026-10-14, the sidebar
 /// groups Thunderdome): a collapsed header says how many workspaces it holds, the members' line
-/// starts under the header bar instead of cutting its rounded corner, the header's ink is white
+/// joins the header bar (Leo 2026-10-18: no gap, as Chrome's tab groups), the header's ink is white
 /// or near-black on the group's color, and the header's name starts on the ungrouped rows' column.
 @MainActor @Suite(.serialized) struct SidebarGroupChromeLookTests {
     static let open = GroupID("grp-open")
@@ -39,7 +39,9 @@ import Testing
         #expect(laidOut >= roomy * 0.999, "the count draws \(laidOut) of its \(roomy) ink in a \(count.frame.width) pt frame")
     }
 
-    @Test func theMembersLineStartsUnderTheHeaderBarRounded() throws {
+    /// Leo 2026-10-18 (Chrome tab groups): the members' line joins the header bar, no gap.
+    /// Its round top end tucks into the bar's bottom edge, no deeper.
+    @Test func theMembersLineJoinsTheHeaderBar() throws {
         let (sidebar, _) = try Self.sidebar()
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
         let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first)
@@ -50,8 +52,9 @@ import Testing
         let flipped = sidebar.isFlipped
         let barEdge = flipped ? head.midY + bar / 2 : head.midY - bar / 2
         let lineStart = flipped ? drawn.minY : drawn.maxY
-        #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
-                "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
+        let overlap = flipped ? barEdge - lineStart : lineStart - barEdge
+        #expect(overlap >= 0, "a \(-overlap) pt gap between the header bar (edge \(barEdge)) and its members' line")
+        #expect(overlap <= drawn.width / 2 + 0.01, "the line runs \(overlap) pt into the header bar")
         line.layoutSubtreeIfNeeded()
         #expect(abs((line.layer?.cornerRadius ?? 0) - drawn.width / 2) < 0.01, "the line's ends are not round")
     }

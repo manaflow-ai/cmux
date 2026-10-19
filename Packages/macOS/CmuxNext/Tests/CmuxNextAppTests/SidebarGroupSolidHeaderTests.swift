@@ -14,7 +14,7 @@ import Testing
     private static let busy = WorkspaceID("ws-busy")
     private static let measured = WorkspaceID("ws-measured")
 
-    private static func sidebar(minimal: Bool) -> SidebarView {
+    private static func sidebar(minimal: Bool, name: String = "cmux-next app") -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let busy = SidebarWorkspace(id: busy, title: "sidebar", activity: .working(progress: nil),
                                     progress: SidebarProgress(value: nil))
@@ -22,7 +22,7 @@ import Testing
                                         progress: SidebarProgress(value: 0.5))
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [
-                .group(SidebarGroup(id: group, name: "cmux-next app", color: .blue, workspaces: [busy, measured])),
+                .group(SidebarGroup(id: group, name: name, color: .blue, workspaces: [busy, measured])),
             ]),
         ])
         let design = DesignSettings()
@@ -57,6 +57,28 @@ import Testing
         #expect(bar.frame.height > Metrics.dividerThickness * 4, "a \(bar.frame.height) pt bar is a hairline, not a group bar")
         let fill = try #require(bar.backgroundColor.flatMap { NSColor(cgColor: $0) })
         #expect(fill.alphaComponent > 0.5, "the bar's fill is see-through (\(fill.alphaComponent))")
+    }
+
+    /// Leo 2026-10-18: Chrome's tab groups. The members' line joins the header bar with no gap,
+    /// so bar and line read as one group shape; an unnamed group's header is the same solid bar.
+    @Test(arguments: [false, true], ["cmux-next app", ""])
+    func theMembersLineJoinsTheBar(minimal: Bool, name: String) throws {
+        let sidebar = Self.sidebar(minimal: minimal, name: name)
+        let header = try Self.header(sidebar)
+        let bar = try #require(header.layer?.sublayers?.first { !$0.isHidden && $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 },
+                               "name \"\(name)\": no full-width rounded bar")
+        #expect(bar.frame.height > Metrics.dividerThickness * 4, "name \"\(name)\": a \(bar.frame.height) pt bar is a hairline")
+        let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first, "no members' line")
+        line.layoutSubtreeIfNeeded()
+        line.updateLayer()
+        let barRect = sidebar.convert(bar.frame, from: header)
+        let drawn = sidebar.convert(line.bounds, from: line)
+        // The bar's edge nearest the members, in a flipped sidebar or not.
+        let flipped = sidebar.isFlipped
+        let overlap = flipped ? barRect.maxY - drawn.minY : drawn.maxY - barRect.minY
+        #expect(overlap >= 0, "minimal \(minimal): a \(-overlap) pt gap between the bar and its members' line")
+        #expect(overlap <= drawn.width / 2 + 0.01, "minimal \(minimal): the line runs \(overlap) pt into the bar")
+        #expect(drawn.minX >= barRect.minX && drawn.maxX <= barRect.maxX, "the line \(drawn) is not under the bar \(barRect)")
     }
 
     @Test(arguments: [false, true])
