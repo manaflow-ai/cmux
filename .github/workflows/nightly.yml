@@ -1585,6 +1585,16 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
+    # nightly-next pushes share one build slot. Each push used to build its own
+    # head, so pushes queued for the trusted runner and every intermediate head got
+    # a full build (2026-10-18: three pushes in three minutes, three 90-minute
+    # builds; merged-to-published p50 5.8 h, p90 2.1 d). Now at most one build
+    # waits, and a newer push replaces it; a running build always finishes. The
+    # workflow group above stays run-scoped so post-publication checks never hold
+    # the next build. Every other ref and dispatch keeps a slot of its own.
+    concurrency:
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'nightly-next-build-app' || format('nightly-build-app-{0}', github.run_id) }}
+      cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
@@ -6431,6 +6441,16 @@ jobs:
             const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
+            // A nightly-next build replaced in its slot by a newer push is cancelled
+            // on purpose: the newer run publishes. Report it only when nightly-next
+            // still points at this head, which means nothing newer will.
+            if (refName === 'nightly-next' && results['build-nightly-app']?.result === 'cancelled') {
+              const { data: ref } = await github.rest.git.getRef({ owner, repo, ref: 'heads/nightly-next' });
+              if (ref.object.sha !== process.env.HEAD_SHA) {
+                core.info(`Superseded: nightly-next moved from ${process.env.HEAD_SHA} to ${ref.object.sha}; the newer run reports its own result.`);
+                return;
+              }
+            }
             const failed = Object.entries(results)
               .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
               .map(([k, v]) => `${k} (${v.result})`);
