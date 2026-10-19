@@ -6700,7 +6700,7 @@ struct CMUXCLI {
         }
 
         if command == "right-sidebar" {
-            let parsed = try parseRightSidebarCLIArguments(commandArgs)
+            let parsed = try parseSidebarCLIArguments(commandArgs, for: .right)
             _ = try rightSidebarSocketArguments(from: parsed)
         }
 
@@ -9734,10 +9734,12 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput
             )
         case "right-sidebar":
-            try forwardRightSidebarCommand(
+            try forwardSidebarCommand(
+                .right,
                 commandArgs: commandArgs,
                 client: client,
-                windowOverride: windowId
+                windowOverride: windowId,
+                socketArguments: rightSidebarSocketArguments(from:)
             )
         case "sidebar":
             try runSidebarCommand(
@@ -23684,20 +23686,46 @@ struct CMUXCLI {
         return try sendV1Command(command, client: client)
     }
 
-    private struct RightSidebarCLIArguments {
+    private struct SidebarCLIArguments {
         let positional: [String]
         let workspace: String?
         let window: String?
         let noFocus: Bool
     }
 
-    private func forwardRightSidebarCommand(
+    /// What differs between the sidebar commands in the shared flag parsing
+    /// and forwarding below: the socket command name, whether `--no-focus` is
+    /// accepted, and the sidebar's own error messages. Each sidebar command
+    /// has one static value; checking the subcommand stays with each sidebar.
+    private struct SidebarCLICommand {
+        let socketCommand: String
+        let acceptsNoFocus: Bool
+        let workspaceRequiresValue: String
+        let windowRequiresValue: String
+        let unknownFlag: (String) -> String
+
+        static var right: SidebarCLICommand {
+            SidebarCLICommand(
+                socketCommand: "right_sidebar",
+                acceptsNoFocus: true,
+                workspaceRequiresValue: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"),
+                windowRequiresValue: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id"),
+                unknownFlag: { flag in
+                    String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(flag)'")
+                }
+            )
+        }
+    }
+
+    private func forwardSidebarCommand(
+        _ sidebar: SidebarCLICommand,
         commandArgs: [String],
         client: SocketClient,
-        windowOverride: String?
+        windowOverride: String?,
+        socketArguments: (SidebarCLIArguments) throws -> [String]
     ) throws {
-        let parsed = try parseRightSidebarCLIArguments(commandArgs)
-        let socketArgs = try rightSidebarSocketArguments(from: parsed)
+        let parsed = try parseSidebarCLIArguments(commandArgs, for: sidebar)
+        let socketArgs = try socketArguments(parsed)
         let windowId = try resolveSidebarWindowId(parsed.window ?? windowOverride, client: client)
         let workspaceId = try resolveSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
 
@@ -23709,7 +23737,7 @@ struct CMUXCLI {
             forwardedArgs.append("--window=\(windowId)")
         }
 
-        let command = (["right_sidebar"] + forwardedArgs)
+        let command = ([sidebar.socketCommand] + forwardedArgs)
             .map(shellQuote)
             .joined(separator: " ")
         let response = try sendV1Command(command, client: client)
@@ -24020,7 +24048,10 @@ struct CMUXCLI {
         Self.boolValue(raw)
     }
 
-    private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
+    private func parseSidebarCLIArguments(
+        _ args: [String],
+        for sidebar: SidebarCLICommand
+    ) throws -> SidebarCLIArguments {
         var positional: [String] = []
         var workspace: String?
         var window: String?
@@ -24032,17 +24063,17 @@ struct CMUXCLI {
             switch arg {
             case "--workspace":
                 guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"))
+                    throw CLIError(message: sidebar.workspaceRequiresValue)
                 }
                 workspace = args[index + 1]
                 index += 2
             case "--window":
                 guard index + 1 < args.count else {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id"))
+                    throw CLIError(message: sidebar.windowRequiresValue)
                 }
                 window = args[index + 1]
                 index += 2
-            case "--no-focus":
+            case "--no-focus" where sidebar.acceptsNoFocus:
                 noFocus = true
                 index += 1
             default:
@@ -24053,21 +24084,21 @@ struct CMUXCLI {
                     window = String(arg.dropFirst("--window=".count))
                     index += 1
                 } else if arg.hasPrefix("--") {
-                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(arg)'"))
+                    throw CLIError(message: sidebar.unknownFlag(arg))
                 } else {
                     positional.append(arg)
                     index += 1
                 }
             }
         }
-        return RightSidebarCLIArguments(
+        return SidebarCLIArguments(
             positional: positional,
             workspace: workspace,
             window: window,
             noFocus: noFocus
         )
     }
-    private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
+    private func rightSidebarSocketArguments(from parsed: SidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
         }

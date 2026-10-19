@@ -3428,6 +3428,7 @@
 		D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280020000000000000002 /* SidebarProfilingSignposts.swift */; };
 		C0DE48000000000000000001 /* SidebarProviderMenuRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */; };
 		B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */; };
+		E03520727ECA6DA7E9F178DC /* SidebarRemoteArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = E44EFC5A284A1280B4473637 /* SidebarRemoteArguments.swift */; };
 		B2BF08A600CA41EA8660EB96 /* SidebarReorderIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA16301CC6C54207991577EB /* SidebarReorderIndicatorView.swift */; };
 		BF469CA04EB1FB1769E79038 /* SidebarReorderInteractionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */; };
 		9C55B7258975E4099C5DA375 /* SidebarResizerAccessibilityModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A8C8F36CBB9D59049A238F /* SidebarResizerAccessibilityModifier.swift */; };
@@ -8002,6 +8003,7 @@
 		D75280020000000000000002 /* SidebarProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProfilingSignposts.swift; sourceTree = "<group>"; };
 		C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProviderMenuRegressionTests.swift; sourceTree = "<group>"; };
 		B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPullRequestInteractivityUITests.swift; sourceTree = "<group>"; };
+		E44EFC5A284A1280B4473637 /* SidebarRemoteArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRemoteArguments.swift; sourceTree = "<group>"; };
 		BA16301CC6C54207991577EB /* SidebarReorderIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SidebarReorderIndicatorView.swift"; sourceTree = "<group>"; };
 		3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarReorderInteractionState.swift; sourceTree = "<group>"; };
 		F2A8C8F36CBB9D59049A238F /* SidebarResizerAccessibilityModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarResizerAccessibilityModifier.swift; sourceTree = "<group>"; };
@@ -12388,6 +12390,7 @@
 				899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */,
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
+				E44EFC5A284A1280B4473637 /* SidebarRemoteArguments.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16633,6 +16636,7 @@
 				C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */,
 				C0DEA7710000000000000005 /* SidebarProBadge.swift in Sources */,
 				D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */,
+				E03520727ECA6DA7E9F178DC /* SidebarRemoteArguments.swift in Sources */,
 				B2BF08A600CA41EA8660EB96 /* SidebarReorderIndicatorView.swift in Sources */,
 				BF469CA04EB1FB1769E79038 /* SidebarReorderInteractionState.swift in Sources */,
 				9C55B7258975E4099C5DA375 /* SidebarResizerAccessibilityModifier.swift in Sources */,
