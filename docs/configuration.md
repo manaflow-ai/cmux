@@ -771,6 +771,43 @@ one, it reports that it is not logged in.
 acpmux reads the key at each spawn. Only the value `true` turns it on; a settings file that
 cannot be read keeps it off.
 
+## `agents.memory.*`
+
+Long-term memory shared by the Codex and Claude Code sessions cmux starts, on one or more
+machines. With `enabled` set to `true`, every agent session gets the `cmux-agent-memory` MCP
+server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and, unless
+`remember` is `false`, `memory_remember`. The index is built from Claude Code project memory
+(`~/.claude/projects/*/memory/*.md`), Codex's memories (`~/.codex/memories`), the folders in
+`sources`, and the notes agents saved. See the
+[cmux-agent-memory skill](../skills/cmux-agent-memory/SKILL.md) for setup on several machines.
+
+```jsonc
+{
+  "agents": {
+    "memory": {
+      "enabled": true,
+      // The machine that holds the index, as a `cmux remote` route; omit on that machine.
+      "owner": "ssh://studio",
+      "ownerArgs": ["--no-install"],
+      "sources": ["~/Projects/team-notes/decisions"],
+      "remember": true
+    }
+  }
+}
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
+| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
+| `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
+| `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
+| `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |
+| `sources` | `[]` | More folders whose `*.md` files are indexed (`~` expands). |
+
+acpmux reads `enabled` at each spawn and the Mac app at each Agent Memory search; the server
+reads the other keys at each call, so a change applies to the next session or call.
+
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
 The address bar's search engine and suggestions. Settings > Browser > Address Bar
