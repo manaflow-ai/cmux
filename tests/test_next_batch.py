@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -105,27 +106,90 @@ class Eligibility(unittest.TestCase):
 
 
 class OpenPrsQuery(unittest.TestCase):
-    """One 100-PR query with files and checks times out (HTTP 504): page it."""
+    """The PR list is light and paged; files and checks (30 PRs with both in one
+    page timed out, HTTP 504) come only for PRs the cheap filters keep."""
 
-    def node(self, number: int) -> dict:
-        return {"number": number, "title": "t", "url": "u", "isDraft": False, "headRefName": f"b{number}",
-                "headRefOid": "a" * 40, "authorAssociation": "MEMBER", "author": {"login": "teamleaderleo"},
-                "files": {"nodes": []}, "isCrossRepository": False, "labels": {"nodes": []},
-                "commits": {"nodes": []}}
+    def setUp(self):
+        nb.DETAILS.clear()
 
-    def test_pages_through_every_open_pr(self):
-        gh = nb.GitHub("o/r")
+    def node(self, number: int, draft: bool = False, state: str = "SUCCESS") -> dict:
+        return {"id": f"PR_{number}", "number": number, "title": "t", "url": "u", "isDraft": draft,
+                "headRefName": f"b{number}", "headRefOid": f"{number:040x}", "authorAssociation": "MEMBER",
+                "author": {"login": "teamleaderleo"}, "isCrossRepository": False, "labels": {"nodes": []},
+                "commits": {"nodes": [{"commit": {"committedDate": dt.datetime.now(dt.timezone.utc).isoformat(),
+                                                  "statusCheckRollup": {"state": state, "contexts": {}}}}]}}
+
+    def fake(self, pages: list[dict], details: dict) -> tuple[nb.GitHub, list]:
+        """GraphQL stub: list pages in order; a detail query answers each alias
+        from details[(node id, cursor)] = (paths, contexts, next cursor)."""
+        gh, seen = nb.GitHub("o/r"), []
+
+        def graphql(query, **variables):
+            if "pullRequests(" in query:
+                seen.append(("list", variables.get("after")))
+                return pages[sum(1 for kind, _ in seen if kind == "list") - 1]
+            reply = {}
+            for alias, node_id, rest in re.findall(r'^(p\d+): node\(id: "([^"]+)"\)(.*?)(?=^p\d+: |\Z)', query, re.S | re.M):
+                cursor = None
+                if "contexts(" in rest:
+                    found = re.search(r'after: "([^"]+)"', rest)
+                    cursor = found.group(1) if found else ""
+                seen.append(("detail", node_id, "files(" in rest, cursor))
+                paths, contexts, following = details[(node_id, cursor or "")]
+                node = {}
+                if "files(" in rest:
+                    node["files"] = {"nodes": [{"path": path} for path in paths]}
+                if cursor is not None:
+                    node["commits"] = {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {
+                        "nodes": contexts, "pageInfo": {"hasNextPage": bool(following), "endCursor": following}}}}}]}
+                reply[alias] = node
+            return reply
+
+        gh.graphql = graphql
+        return gh, seen
+
+    @staticmethod
+    def run_context(name: str, conclusion: str) -> dict:
+        return {"__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": conclusion}
+
+    def test_lists_every_page_and_fetches_details_only_for_candidates(self):
         pages = [
-            {"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2)],
+            {"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2, draft=True)],
                                               "pageInfo": {"hasNextPage": True, "endCursor": "c1"}}}},
             {"repository": {"pullRequests": {"nodes": [self.node(3)],
                                               "pageInfo": {"hasNextPage": False, "endCursor": None}}}},
         ]
-        seen = []
-        gh.graphql = lambda query, **variables: seen.append(variables.get("after")) or pages[len(seen) - 1]
-        self.assertEqual([item.number for item in nb.open_prs(gh)], [1, 2, 3])
-        self.assertEqual(seen, [None, "c1"])
-        self.assertLessEqual(nb.PRS_PAGE, 40)
+        gh, seen = self.fake(pages, {("PR_1", ""): (["a.swift"], [], None), ("PR_3", ""): ([".github/workflows/x.yml"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            prs = nb.open_prs(gh)
+        self.assertEqual([item.number for item in prs], [1, 2, 3])
+        self.assertEqual(seen[:2], [("list", None), ("list", "c1")])
+        # The draft gets no detail query; a green rollup gets files but no contexts.
+        self.assertEqual(sorted(seen[2:]), [("detail", "PR_1", True, None), ("detail", "PR_3", True, None)])
+        self.assertEqual(prs[2].files, [".github/workflows/x.yml"])
+        self.assertEqual(prs[1].files, [])
+
+    def test_pages_contexts_past_the_first_hundred_and_caches_by_head_and_counts(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1, state="FAILURE")],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        details = {
+            ("PR_1", ""): (["a.swift"], [self.run_context("ok", "SUCCESS")] * 100, "k1"),
+            ("PR_1", "k1"): ([], [self.run_context("cmux-next fast tier", "FAILURE")], None),
+        }
+        gh, seen = self.fake(pages, details)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            first = nb.open_prs(gh)
+            self.assertEqual(nb.red_fast_checks(first[0]), ["cmux-next fast tier"])
+            self.assertEqual([item[1:] for item in seen if item[0] == "detail"],
+                             [("PR_1", True, ""), ("PR_1", False, "k1")])
+            seen.clear()
+            again = nb.open_prs(gh)
+        self.assertEqual([item for item in seen if item[0] == "detail"], [])
+        self.assertEqual(nb.red_fast_checks(again[0]), ["cmux-next fast tier"])
+
+    def test_the_detail_query_refuses_an_unexpected_id(self):
+        with self.assertRaises(ValueError):
+            nb.detail_query([('x") { a } b: node(id: "y', True, None)])
 
     def test_a_gateway_timeout_is_retried_once(self):
         gh = nb.GitHub("o/r")
