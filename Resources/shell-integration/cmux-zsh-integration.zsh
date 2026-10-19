@@ -2121,8 +2121,27 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+# True when a command line runs Claude Code. Claude reports its own cwd through
+# hooks while it runs (`claude --worktree` moves it to another checkout), so the
+# next prompt must re-report $PWD even though the shell never left it. Extra
+# matches only cost one redundant report_pwd.
+_cmux_command_runs_claude() {
+    [[ "$1" == *claude* ]] || return 1
+    local word
+    for word in ${(z)1}; do
+        case "${word:t}" in
+            claude|cmux-claude-wrapper) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 _cmux_preexec() {
     local cmd="${1## }"
+    # $3 is the alias-expanded command line.
+    if _cmux_command_runs_claude "$cmd" || _cmux_command_runs_claude "${3:-}"; then
+        _CMUX_PWD_LAST_PWD=""
+    fi
     _cmux_halt_pr_poll_loop
     _cmux_stop_git_head_watch
     _cmux_zsh_job_table_saturated && return 0

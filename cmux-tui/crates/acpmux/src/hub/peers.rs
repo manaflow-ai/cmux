@@ -11,6 +11,10 @@ fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
 /// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
 const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The record kind of a peer's `_acpmux/permission_pending`, relayed to
+/// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
+pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
+
 impl Hub {
     // ------------------------------------------------------------- peers
 
@@ -202,8 +206,10 @@ impl Hub {
             summary["name"] = Value::String(full);
         }
         summary["peer"] = Value::String(peer.to_owned());
-        // A peer from before `indicator` or `lane` sends none: decide them here.
-        if summary.get("indicator").is_none() || summary.get("lane").is_none() {
+        // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
+        // sends none: decide them here.
+        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
         summary
@@ -410,7 +416,27 @@ impl Hub {
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
                             host_seq: None,
                         },
-                        // permission_pending is derived from the permission_request event locally.
+                        // A prompt the person must answer, to watchers of this
+                        // daemon that did not attach the session (attached
+                        // clients derive it from the permission_request event):
+                        // the peer's decision nonce and run come with it, so the
+                        // app that holds the peer's key can answer
+                        // (`hub/person.rs` (c)). Only the peer's own session
+                        // in its own run, never one of this daemon's.
+                        method::MUX_PERMISSION_PENDING
+                            if !self.peer_pending_counts(&peer, &id, &params) =>
+                        {
+                            tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
+                            return;
+                        }
+                        method::MUX_PERMISSION_PENDING => EventRecord {
+                            seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_PERMISSION_PENDING.into(),
+                            msg: params.clone(),
+                            host_seq: None,
+                        },
                         _ => return,
                     };
                     let _ = self.events.send(HubEvent {
@@ -421,6 +447,32 @@ impl Hub {
                 }
             }
         }
+    }
+
+    /// Whether peer `peer`'s `_acpmux/permission_pending` for session `id`
+    /// may reach this daemon's watchers (`hub/person.rs` (c)): a session the
+    /// peer listed as its own and that is not one of this daemon's, in the
+    /// daemon run the peer named at its handshake, which is not this run and
+    /// no other peer's. A prompt with this daemon's session or run would let
+    /// the peer show the person other text for one of this daemon's real
+    /// prompts, whose allow the app proves with this daemon's key.
+    fn peer_pending_counts(&self, peer: &str, id: &str, params: &Value) -> bool {
+        let Some(instance) = params.get("personInstance").and_then(Value::as_str) else {
+            return false;
+        };
+        let listed = self
+            .remote_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .any(|r| r.peer == peer && r.receipt.mux_session_id == id);
+        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
+        let peers: Vec<_> =
+            self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        let named = |p: &crate::peer::Peer| p.person_instance().as_deref() == Some(instance);
+        let own_run = peers.iter().any(|p| p.name == peer && named(p));
+        let others = peers.iter().any(|p| p.name != peer && named(p));
+        listed && !local && own_run && !others && instance != self.person.instance()
     }
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
@@ -501,5 +553,26 @@ mod tests {
         assert_eq!(summary["qualifiedSessionId"], "builder/mux-1");
         assert_eq!(summary["sessionReceipt"]["hostId"], "builder");
         assert_eq!(summary["sessionReceipt"]["generation"], 23);
+    }
+
+    /// hq#2509: a peer from before the lane's step and title sends a lane without them;
+    /// this daemon decides the lane again so the peer's lanes show a masked step.
+    #[test]
+    fn a_lane_from_an_older_peer_is_decided_again_with_its_masked_step() {
+        let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+        let summary = Hub::remote_summary(
+            "builder",
+            json!({
+                "sessionId": "mux-1",
+                "name": "review",
+                "status": "running",
+                "indicator": "working",
+                "turnCount": 1,
+                "updatedAt": 9,
+                "turn": {"prompt": format!("push {token}"), "startedAt": 5},
+                "lane": {"state": "working", "since": 5, "error": null},
+            }),
+        );
+        assert_eq!(summary["lane"]["step"], "push [github token]", "{summary}");
     }
 }

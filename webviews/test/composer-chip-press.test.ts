@@ -266,7 +266,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     });
 
   for (const [engine] of engines)
-    test(`${engine}: the 400 px picker rail uses tonal pills and visible hover/open highlights`, async () => {
+    test(`${engine}: the 400 px picker rail uses tonal pills and visible hover/open fills`, async () => {
       const page = await open(engine, PILL_STAGE, 400);
       const state = (name: string) =>
         page
@@ -301,8 +301,8 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       await page.locator(chip("Effort")).first().click();
       await page.locator('[role="menuitemradio"][aria-checked="true"]:visible').first().waitFor();
       const openEffort = await state("Effort");
-      expect(openEffort.background, "open keeps a stronger pill fill").not.toBe(idle[1]!.background);
-      expect(openEffort.boxShadow, "open has a tonal edge highlight").not.toBe("none");
+      expect(openEffort.background, "open keeps the pill's hover step").not.toBe(idle[1]!.background);
+      expect(openEffort.boxShadow, "open draws no edge ring (Leo 2026-10-18)").toBe("none");
       await page.close();
     });
 });

@@ -25,6 +25,10 @@ public nonisolated final class TunableStore: Observable, Sendable {
         var overrides: [String: TunableValue] = [:]
         var descriptors: [String: TunableDescriptor] = [:]
         var revision = 0
+        /// One Observation key path per key, made once (at `register`, at launch): a key path with
+        /// a subscript argument is a new object (and, the first time, a runtime type lookup) per
+        /// call, 5-10 ms cold on a read path such as a tab switch (cx-8w027.25).
+        var keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]
     }
 
     private let registrar = ObservationRegistrar()
@@ -55,7 +59,20 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// Declares the tunables the window lists and the store accepts.
     public func register(_ descriptors: [TunableDescriptor]) {
         state.withLock { state in
-            for descriptor in descriptors { state.descriptors[descriptor.key] = descriptor }
+            for descriptor in descriptors {
+                state.descriptors[descriptor.key] = descriptor
+                if state.keyPaths[descriptor.key] == nil { state.keyPaths[descriptor.key] = \TunableStore.[observed: descriptor.key] }
+            }
+        }
+    }
+
+    /// The Observation key path of `key`: made once per key.
+    private func keyPath(_ key: String) -> KeyPath<TunableStore, Int> & Sendable {
+        state.withLock { state in
+            if let made = state.keyPaths[key] { return made }
+            let made: KeyPath<TunableStore, Int> & Sendable = \TunableStore.[observed: key]
+            state.keyPaths[key] = made
+            return made
         }
     }
 
@@ -88,7 +105,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// The override for `key`, if any. Registers an Observation dependency.
     public func override(_ key: String) -> TunableValue? {
         guard active.load(ordering: .relaxed) else { return nil }
-        registrar.access(self, keyPath: \.[observed: key])
+        registrar.access(self, keyPath: keyPath(key))
         return state.withLock { $0.overrides[key] }
     }
 
@@ -178,7 +195,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
                 }
                 return
             }
-            registrar.withMutation(of: self, keyPath: \.[observed: key]) { apply(remaining.dropFirst()) }
+            registrar.withMutation(of: self, keyPath: keyPath(key)) { apply(remaining.dropFirst()) }
         }
         apply(keys[...])
         guard persist else { return }

@@ -36,7 +36,7 @@ project-local `.cmux/cmux.json`. Say so instead of writing them. The recipes in
 
 If a request can be handled by Ghostty config, say so and use Ghostty config instead of inventing cmux UI settings.
 
-Key surfaces: `actions` (reusable, can appear in Cmd+Shift+P, surface tab bars and shortcuts) and `ui.surfaceTabBar.buttons` (replaces default tab bar buttons; include built-ins like `cmux.newTerminal`, `cmux.newBrowser`, `cmux.splitRight`, `cmux.splitDown` only when they should stay visible; copy built-ins `cmux.copyWorkingDirectory`, `cmux.copyProjectRoot`, and `cmux.copyScreen` also work here and in `actions`).
+Key surfaces: `actions` (reusable, can appear in Cmd+Shift+P, surface tab bars, shortcuts, and the plus-button right-click menu; `type: "text"` pastes a snippet into the focused terminal and does not submit it unless `submit: true`), `ui.newWorkspace.action` (replaces the plus-button click) and `ui.newWorkspace.contextMenu` (right-click menu; `ui.newWorkspace.rightClick` is an accepted alias but new examples use `contextMenu`), `ui.surfaceTabBar.buttons` (replaces default tab bar buttons; include built-ins like `cmux.newTerminal`, `cmux.newBrowser`, `cmux.splitRight`, `cmux.splitDown` only when they should stay visible; copy built-ins `cmux.copyWorkingDirectory`, `cmux.copyProjectRoot`, and `cmux.copyScreen` also work here and in `actions`), and `commands` (workspace definitions with split layouts).
 
 ## Workflow
 
