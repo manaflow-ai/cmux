@@ -163,6 +163,29 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
 
 
+class ScriptTestsRunEveryScript(unittest.TestCase):
+    """The Script tests step ran under bash -e and stopped at its first red: with
+    tree-key-embeds.test.sh red on the base (2026-10-19), the 50 scripts after it never
+    ran on any pull request, so a PR breaking one of them was not seen."""
+
+    def test_a_red_script_does_not_stop_the_ones_after_it(self):
+        checks = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][JOB]["steps"]
+        run = next(step for step in checks if step.get("id") == "script-tests")["run"]
+        commands = [line for line in run.splitlines() if re.match(r"^(python3|bash|node) ", line)]
+        self.assertGreater(len(commands), 40)
+        with tempfile.TemporaryDirectory() as directory:
+            ran = Path(directory) / "ran"
+            # The first script fails, the rest record that they ran.
+            script = run.replace(commands[0] + "\n", "false\n", 1)
+            for command in commands[1:]:
+                script = script.replace(command + "\n", f"echo x >> {ran}\n", 1)
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(len(ran.read_text().splitlines()), len(commands) - 1, result.stdout + result.stderr)
+            self.assertIn("false", result.stdout + result.stderr)
+
+
 class ReferencedFilesExist(unittest.TestCase):
     """Every test a checks step runs, and every test or workflow a path filter names, exists.
     The bundle removal (ce0b9e76a9b) deleted tests/test_cmux_next_regenerate_bundles_workflow.py
