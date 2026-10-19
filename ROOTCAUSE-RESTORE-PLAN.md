@@ -226,7 +226,7 @@ after Xcode reported `BUILD SUCCEEDED`.
 The current repair code head is
 [`bd24baf383ba3ef3249866d58f93d454182b9a2f`](https://github.com/danielraffel/cmux/commit/bd24baf383ba3ef3249866d58f93d454182b9a2f);
 the worktree's documentation-only head is
-[`bd08b6aec9`](https://github.com/danielraffel/cmux/commit/bd08b6aec9).
+[`b5048101be69bfff443a800edcefa4b8ac5ab489`](https://github.com/danielraffel/cmux/commit/b5048101be69bfff443a800edcefa4b8ac5ab489).
 It contains the restore identity and fallback hardening, the managed-binding
 persistence validation, and the `cmux feed clear` revision-floor fix. The
 portable CMUXAgentLaunch suite passes **883 tests in 100 suites**; the focused
