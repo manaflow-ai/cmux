@@ -5,9 +5,11 @@ import CmuxNextSettings
 import Foundation
 
 /// The owner side of the Files page (`cmux.files.*`, cx-p4rt), for one tab's folder: `root` (the
-/// folder), `list {path}` (one folder's children through the session host's `git.files.list`, so
-/// ignored files never show) and `open {path}` (a file in the file pages). `path` is relative to the
-/// tab's folder; the page never names a file outside it.
+/// folder), `list {path}` (one folder's children through the session host's `git.files.list`, and,
+/// for a folder on this Mac, what else the folder holds marked `ignored`, which the page greys out;
+/// Lucas 2026-10-17), `search {query}` (the session host's `git.files.search`, paths relative to the
+/// tab's folder) and `open {path}` (a file in the file pages). `path` is relative to the tab's
+/// folder; the page never names a file outside it.
 @MainActor
 final class FileTreePageProvider: PageProvider {
     private let folder: URL?
@@ -27,6 +29,9 @@ final class FileTreePageProvider: PageProvider {
             return ["folder": .string(folder.path), "name": .string(folder.lastPathComponent)]
         case "cmux.files.list":
             return try await list(Self.resolve(params["path"]?.stringValue, in: folder))
+        case "cmux.files.search":
+            guard let link else { throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.unavailable, retryable: true) }
+            return try await AgentFileTreeReads().search(params["query"]?.stringValue ?? "", read: { try await link.read("git.files.search", params: ["path": .string(folder.path), "query": .string($0), "limit": .number(100)]) }, failure: { PageError(code: "cmux.files.unavailable", message: FileTreeStrings.message(for: $0), retryable: true) })
         case "cmux.files.open":
             let file = try Self.resolve(params["path"]?.stringValue, in: folder)
             if let failure = open(file) { throw PageError(code: "cmux.files.open_failed", message: failure, retryable: false) }
@@ -40,7 +45,7 @@ final class FileTreePageProvider: PageProvider {
         guard let link else { throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.unavailable, retryable: true) }
         do {
             let reply = try await CmuxNextSettings.JSONValue.parse(link.read("git.files.list", params: ["path": .string(directory.path)]))
-            return ["entries": reply["entries"] ?? .array([]), "truncated": reply["truncated"] ?? .bool(false)]
+            return await AgentFileTreeReads().listing(reply, directory: directory, local: link.isLocal)
         } catch let failure as AgentPaneGitFailure {
             throw PageError(code: "cmux.files.unavailable", message: FileTreeStrings.message(for: failure), retryable: true)
         }

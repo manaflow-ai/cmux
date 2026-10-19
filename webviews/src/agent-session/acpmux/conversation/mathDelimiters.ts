@@ -1,4 +1,5 @@
 // LaTeX delimiter normalization for the Markdown renderer.
+import { advanceFence, type MarkdownFence } from "./markdownFence";
 
 /**
  * Replies write LaTeX with `\[ … \]` (display) and `\( … \)` (inline) as well as
@@ -7,10 +8,10 @@
  */
 export function normalizeMath(lines: string[]): string[] {
   const out: string[] = [];
-  let fenced = false;
+  let fenced: MarkdownFence | undefined;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    if (/^\s*```/.test(line)) fenced = !fenced;
+    fenced = advanceFence(fenced, line);
     if (fenced) {
       out.push(line);
       continue;

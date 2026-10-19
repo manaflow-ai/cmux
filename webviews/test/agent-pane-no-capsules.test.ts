@@ -25,6 +25,7 @@ const SHAPES = new Set([
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-bar",
+  ".acpmux-plan-progress progress",
   ".acpmux-pdf-sheet-lines i",
   ".acpmux-composer-bar .acpmux-model .acpmux-picker-button",
   ".acpmux-composer-bar .acpmux-effort .acpmux-picker-button",

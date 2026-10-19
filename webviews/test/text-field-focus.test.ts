@@ -61,7 +61,8 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
   const NAMED: Case[] = [
     { entry: "agent-pane.composer", named: true },
     { entry: "agent-pane.composer", open: "Model", field: 'input[type="search"]', named: true },
-    { entry: "agent-pane.new-tab", named: true },
+    // The side-column launcher has no text field; exercise the New Tab composer explicitly.
+    { entry: "agent-pane.new-tab", variant: "empty", named: true },
   ];
   const OTHERS = [
     "agent-pane.model-picker",
