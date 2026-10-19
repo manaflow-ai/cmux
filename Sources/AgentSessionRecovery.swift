@@ -15,12 +15,14 @@ import Foundation
 /// through an undeclared launcher that `cmux restore` cannot rebuild resumes
 /// through that launcher instead (see `AgentLauncherPrefix`).
 ///
-/// Only Claude is recovered: its `SessionEnd` hook marks sessions that ended
-/// normally, so a session without one was killed. Codex has no end hook, so
-/// every finished Codex session would look killed.
+/// Claude has an agent-side `SessionEnd` hook. Codex does not, so cmux records
+/// its own panel-close boundary and treats an unended Codex record as lost only
+/// after the recorded process is gone. This preserves intentional closes while
+/// allowing an unclean app death to recover the session through the normal
+/// restore verb.
 struct AgentSessionRecovery: Sendable {
     /// Kinds whose journal records a session end.
-    static let recoverableKinds: [RestorableAgentKind] = [.claude]
+    static let recoverableKinds: [RestorableAgentKind] = [.claude, .codex]
 
     let journalURL: URL?
     let homeDirectory: String
