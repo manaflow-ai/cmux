@@ -294,3 +294,17 @@ The broad static `--affected` recipe is not a clean release gate because it
 also selects the unrelated expired `conversation-sidebar-release` feature flag
 (`reviewBy 2026-10-18`). All other 15 selected checks passed. That flag was not
 changed as part of this repair.
+
+## M5S wait-point sample (2026-10-19)
+
+A read-only `sample` of reclaim PID `48898` captured it spending the entire
+five-second sample in Python `os.access()`/libsystem `access`, rather than
+using CPU or waiting on a network operation. This is direct evidence that its
+recursive filesystem scan is blocked in the volume path. Its launch agent is
+still `com.danielraffel.tartci.reclaim`, with `LowPriorityIO=true` and
+`Nice=10`.
+
+The rescore shell PID `20151` is not currently doing filesystem work: its only
+child is `sleep 86400`, and it has near-zero CPU time after two days. That makes
+it a stale workspace/process to account for, but not the active wait point in
+the current storage failure. No process was terminated.
