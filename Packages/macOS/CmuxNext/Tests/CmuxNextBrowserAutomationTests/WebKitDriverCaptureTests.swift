@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
@@ -11,7 +12,8 @@ import UniformTypeIdentifiers
         let encoded = try #require(await WebKitDriver.encodeScreenshot(image, jpeg: jpeg, quality: 0.8))
         #expect(!encoded.ranOnMainThread)
 
-        let source = try #require(CGImageSourceCreateWithData(encoded.data as CFData, nil))
+        let data = try #require(Data(base64Encoded: encoded.base64))
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
         #expect(CGImageSourceGetType(source) as String? == type)
         let decoded = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(decoded.width == image.width)

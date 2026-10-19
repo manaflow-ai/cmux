@@ -7,7 +7,7 @@ import WebKit
 extension WebKitDriver {
     /// The result of encoding a captured image, including the executor proof used by tests.
     struct ScreenshotEncoding: Sendable {
-        let data: Data
+        let base64: String
         let ranOnMainThread: Bool
     }
 
@@ -58,13 +58,13 @@ extension WebKitDriver {
         guard let encoded = await Self.encodeScreenshot(cgImage, jpeg: jpeg, quality: quality) else {
             throw DriverError(.unsupported, "tab.screenshot: could not encode the image")
         }
-        let data = encoded.data
-        return .object(["base64": .string(data.base64EncodedString()), "width": .number(Double(cgImage.width)),
+        return .object(["base64": .string(encoded.base64), "width": .number(Double(cgImage.width)),
                         "height": .number(Double(cgImage.height))])
     }
 
-    /// ImageIO/AppKit encoding is deliberately detached from the main actor. A full-page capture
-    /// may contain millions of pixels, and compression must not hold up WebKit input or rendering.
+    /// ImageIO/AppKit encoding and the base64 copy are deliberately detached from the main actor. A
+    /// full-page capture may contain millions of pixels, and compression must not hold up WebKit
+    /// input or rendering.
     static func encodeScreenshot(_ image: CGImage, jpeg: Bool, quality: Double) async -> ScreenshotEncoding? {
         await Task.detached(priority: .userInitiated) {
             let rep = NSBitmapImageRep(cgImage: image)
@@ -73,7 +73,7 @@ extension WebKitDriver {
                 : [:]
             let data = rep.representation(using: jpeg ? .jpeg : .png, properties: properties)
             guard let data else { return nil }
-            return ScreenshotEncoding(data: data, ranOnMainThread: pthread_main_np() != 0)
+            return ScreenshotEncoding(base64: data.base64EncodedString(), ranOnMainThread: pthread_main_np() != 0)
         }.value
     }
 
