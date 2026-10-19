@@ -103,7 +103,9 @@ async fn an_offered_chat_is_a_chip_only_the_person_starts_and_it_reports_its_par
     // nor stops or closes it.
     assert!(hub.subsession_target(&session, &child, true).is_ok());
     for parent_ok in [true, false] {
-        let e = hub.subsession_write_target(&session, &child, parent_ok).unwrap_err();
+        let Err(e) = hub.subsession_write_target(&session, &child, parent_ok) else {
+            panic!("the offering agent may write to the chat the person started");
+        };
         let data = e.data.clone().unwrap_or_default();
         assert_eq!(data["reason"], "subsessions.person_started", "{e:?}");
     }
