@@ -41,6 +41,8 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      # A change to a tour tours it (path_map.py maps tours/<name>.json to <name>).
+      - 'scripts/cmux-next/media/tours/**'
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, ready_for_review, labeled]
@@ -50,6 +52,7 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      - 'scripts/cmux-next/media/tours/**'
   workflow_dispatch:
 
 permissions: {}
