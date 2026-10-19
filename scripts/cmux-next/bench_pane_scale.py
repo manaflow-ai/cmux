@@ -368,6 +368,9 @@ class Bench:
         if hangs is not None:
             measured["hangs"] = {k: hangs.get(k) for k in ("count", "total_ms", "max_ms", "long_frames",
                                                           "long_frame_max_ms", "frames_over_8_3ms", "max_gap_ms")}
+            # The main-thread stack of each hang (the watchdog's sample), to name its cause.
+            measured["hangs"]["records"] = [{k: r.get(k) for k in ("kind", "duration_ms", "cpu_ms", "frames")}
+                                            for r in hangs.get("records") or []]
         if frames is not None:
             measured["frames"] = {k: frames.get(k) for k in ("frames", "p50_ms", "p99_ms", "max_ms", "missed")}
         if layout_before is not None and layout_after is not None:

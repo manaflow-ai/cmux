@@ -339,8 +339,19 @@ Params: none.
 Result:
 
 ```text
-object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
+object{app:"cmux-tui",version:string,build_commit?:string|null,build_id?:string|null,cli_path?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_id?:string,machine_platform?:object{os:string,arch:string},machine_capabilities?:array<string>,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
+
+`machine_id` is the opaque owner ID returned by `machine.list`, persisted with the
+machine registry. It is distinct from the session's `registry_id`, the boot's
+`generation`, host names and client UI routes. Older daemons may omit it; clients
+must leave the machine owner unknown rather than derive an ID from other fields.
+`machine_platform` and `machine_capabilities` describe that owner using the same
+source as its native `machine.list` snapshot. Machine capabilities are separate
+from protocol features in `capabilities`. Older owners may omit the new fields;
+clients retain unknown platform and an empty capability list.
+The conversations-only remote `identify` remains restricted to `app`, `protocol`
+and `capabilities`.
 
 With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, personal, frontend_projections}`, where `tree` is the `list-workspaces` result, `personal` is the `list-personal` result without room `defaults.env` (or `null` when it cannot be read), and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout, personal state or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
 
@@ -8971,6 +8982,101 @@ without a gesture, as it can on acpmux's own socket (same uid); the app's
 chat on another machine reaches the verb that way, behind its relay's
 fresh-gesture rule. A WebSocket client of acpmux still cannot
 answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
+
+## Machine catalog publication
+
+On Unix builds, `identify` advertises `machine-catalog-publish-v1`. The verified
+local cmux app may send `{id, cmd:"machine-catalog-publish",
+expected_machine_id:"machine_…", sequence:1, machines:[...]}` on its existing
+connection. This is an internal host publication handshake, like app-provider
+registration; callers continue to discover machines through the existing
+`machine.list` and `machine.get` catalog operations, CLI and SDK surfaces.
+It is not another machine-list operation or an enrollment command.
+
+Readers explicitly request `catalog:true` on `machine.list/get` to receive owner
+metadata and projected remote origins. `identify` advertises
+`machine-catalog-read-v1` for this option. Without it, or with `catalog:false`,
+these reads retain the original local-only shape so strict older machine
+decoders remain usable even while a publisher is active. Session snapshots retain that original
+shape too. The CLI exposes the option as `--catalog`; MCP exposes the typed
+boolean `catalog`. A machine-prefix lookup forwards the same opt-in on its
+existing connection. This parameter changes the response format and catalog
+visibility, never execution authority.
+
+The required owner ID must match this daemon's persisted public ID. Each remote
+record has a canonical `id`, bounded display `name`, `origin` (`cloud`, `ssh`,
+`server`), `status` (`running`, `connecting`, `unavailable`, `sleeping`, `stopped`),
+optional `platform:{os?,arch?}`, and up to 16 bounded capability tokens. A snapshot
+has at most 256 records and a 128 KiB frame. Unknown fields, local impersonation,
+duplicate IDs, malformed tokens, control characters, paths and command fields
+are refused atomically. No credentials or connection endpoints are published.
+
+Exactly one live verified-app connection owns the projection. A positive,
+increasing `sequence` replaces it atomically; exact replay is harmless and an
+older or conflicting sequence is `machine_catalog.stale`. A competing connection
+gets `machine_catalog.taken`. Disconnect removes the entire publication under
+the client-registry lock. Unverified, agent-bound, WebSocket and remote relay
+clients cannot publish (`machine_catalog.not_trusted`); a wrong daemon is
+`machine_catalog.owner_mismatch` and malformed data is `machine_catalog.bad_request`.
+
+The native local record always remains first and authoritative. Remote metadata
+is read-only: it never opens a connection, creates a session, supplies routing
+credentials or grants command execution. Remote session operations still require
+their own authenticated owner path; catalog membership never falls back to a local
+session. Without a publisher the existing local-only behavior is preserved.
+The app observes existing policy-admitted registry routes and publishes on its
+captured local connection. A new handshake starts a new lease; temporary source
+loss or restarting the observer preserves the sequence of a still-live lease.
+Removed or denied routes are withdrawn, and late acknowledgements from an old
+owner cannot become current. Platform and capabilities come only from each
+owner's handshake. Legacy owners remain unknown and never receive an
+unnegotiated publication. This transitional projection does not enroll or dial
+machines, and it is not the final shared machine registry.
+
+## Agent CLI inventory
+
+`agent-inventory-v1` is advertised when the daemon has its own acpmux socket
+configured. A trusted native connection (the app's local, SSH or Cloud carrier)
+may send `{id, cmd:"agent-inventory"}`. WebSocket clients and the
+conversations-only remote relay cannot use it. This command reads this daemon's
+machine only; it accepts no machine, session, socket or command selector.
+
+With `agent-inventory-owner-v1`, a client selecting a public machine ID sends
+`{id, cmd:"agent-inventory", expected_machine_id:"machine_…"}`. The daemon
+validates the canonical ID and compares it to its own persisted machine ID
+before checking or opening acpmux. A different owner returns
+`agent_inventory.owner_mismatch` without an owner call or local identity in the
+response. The field is an identity fence, never a routing selector. Clients must
+negotiate this capability separately, require a known public machine ID and
+propagate a mismatch instead of removing the fence or retrying elsewhere.
+All other fields remain refused.
+
+The daemon first calls `initialize` on its own acpmux socket and requires the
+exact `harnessInventory` feature in a string array at `_meta.acpmux.features`.
+Only then, on that same connection, it calls
+`_acpmux/harness/health {view:"inventory"}`. Older owners never receive the health
+request: an older acpmux can ignore `view` and run checks or updates. There is no
+legacy fallback, daemon start, handoff, PATH scan, registry lookup or refresh.
+
+The response's `data` is `{view:"inventory", cached:true, harnesses:[...]}`.
+Each row contains only `id`, optional `family`, `channel`, `version`, `latest`,
+`latestCheckedAt`, `outdated`, `auth` and `checkedAt`. `family` is a recognized
+CLI family inferred from the executable and package saved by the same health
+check, never from the profile id or current configuration. Old owners omit it;
+missing executables, launchers, ACP adapters and conflicting evidence leave it
+null. Native forwarding also leaves unknown future families null. A family does
+not make this partial cache exhaustive. Versions and latest-check times may be null;
+times are milliseconds since the epoch. Channels are `npm`, `bun`, `brew`,
+`brewCask`, `native`, `launcher`, `standalone` or `missing`. Sign-in evidence is
+`signedIn`, `signedOut` or `unknown`, without account labels. No program paths,
+commands or diagnostic output are forwarded. Empty rows mean no cached
+observations, not proof that the machine has no installed agents. At most 256
+rows and eight concurrent reads per daemon are accepted.
+
+Failures have an `agent_inventory.*` error code: `not_trusted`, `bad_request`,
+`unavailable` (including a stopped or unresponsive owner), `unsupported` (no
+negotiated view), `owner_mismatch`, `busy` or `invalid_response`. An unavailable remote owner is
+never replaced with this computer's inventory.
 
 ## Agent CLI updates
 

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDiff
 import CmuxNextSettings
 import Foundation
 

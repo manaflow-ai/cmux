@@ -106,7 +106,7 @@ enum PaneHandlers {
         // Cmd+D on a daemon with client keys: the new pane shows and takes focus in this frame
         // (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil
-        if let provisional { content?.focus.expect(.tab(provisional.tabID), generation: intent) } // its surface is not stable (`isClientMinted`)
+        if let provisional { content?.focus.expect(.tab(provisional.tabID), generation: intent) } // its id is stable through the confirm; its surface is not
         // The window's keys wait until the new pane has the keyboard (cx-wb5.76): on the old path
         // focus moves only after the reply; on the optimistic path the provisional view stays (it
         // attaches when the daemon confirms) and takes keys by terminal id at once (cx-wb5.78).
