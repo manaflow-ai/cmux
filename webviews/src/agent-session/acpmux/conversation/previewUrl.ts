@@ -8,7 +8,8 @@
 // frame loads nothing until the reader clicks "Load preview". That click is the reader's consent to
 // the address the card shows, so the frame then loads that address (`previewFrameUrl`): the same
 // loopback host and port, its path and query, no fragment. The frame stays sandboxed without
-// forms and takes no input.
+// forms and takes no input, except a component gallery stage (`isGalleryFrame`): one live
+// component, drawn at its own size and usable in place.
 import type { AcpmuxRow } from "../model";
 import { stripAnsi } from "./toolOutput";
 
@@ -16,6 +17,10 @@ import { stripAnsi } from "./toolOutput";
 /// placeholder in conversation.css); the page draws at four
 /// times its size, scaled down.
 export const PREVIEW_FRAME_HEIGHT = 180;
+/// Height of a gallery stage's live frame and of its placeholder before Load preview
+/// (`.acpmux-turn-preview-frame--live` in styles.css, `.acpmux-turn-preview-unloaded--live` in
+/// conversation.css), so loading the stage does not move the transcript.
+export const GALLERY_FRAME_HEIGHT = 360;
 
 // The host ends the name (`localhost.evil.com` is not loopback, a sentence's closing dot is fine);
 // a colon after it must start a port.
@@ -69,4 +74,28 @@ export function turnPreviewUrl(user: AcpmuxRow, turn: readonly AcpmuxRow[]): str
 export function previewFrameUrl(url: string): string {
   const parsed = new URL(url);
   return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+}
+
+/// The gallery's mounts (src/gallery/ENTRIES.md, "Seeing it"): `bun run dev` and `gallery:dev`
+/// serve `/gallery/`, the live gallery `/live/`, a branch's `/wt/<name>/`, the static build `/latest/`.
+const GALLERY_STAGE_PATH = /^\/(?:gallery|live|latest|wt\/[\w.-]+)\/frame\.html$/;
+
+/// A component gallery stage on loopback: `<mount>frame.html?entry=<id>` under one of the
+/// gallery's own mounts (src/gallery/env.ts names the query), one state of one component. Its card
+/// draws it at full size and lets the reader use it in place, instead of a scaled thumbnail that
+/// opens a tab. The address comes from untrusted text, so any other path stays a thumbnail.
+export function isGalleryFrame(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    if (!["localhost", "127.0.0.1", "0.0.0.0"].includes(parsed.hostname)) return false;
+    return GALLERY_STAGE_PATH.test(parsed.pathname) && Boolean(parsed.searchParams.get("entry"));
+  } catch {
+    return false;
+  }
+}
+
+/// The height of a preview card's frame (and of its placeholder) for `url`.
+export function previewFrameHeight(url: string): number {
+  return isGalleryFrame(url) ? GALLERY_FRAME_HEIGHT : PREVIEW_FRAME_HEIGHT;
 }
