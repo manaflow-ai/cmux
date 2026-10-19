@@ -111,10 +111,12 @@ class PullRequestTiers(unittest.TestCase):
     def test_a_file_a_test_reads_selects_that_test(self):
         # CmuxNextSettingsTests reads the schema. Since the bundles are build output
         # (ce0b9e76a9b) the schema is also a web-bundle input, so the targets that ship
-        # a bundle, and the app that embeds them, are selected with it, and nothing else.
+        # a bundle, and the tests that link one (the app, and CmuxNextPhoneAccess through
+        # CmuxNextDaemonService -> CmuxNextAgentPane), are selected with it, and nothing else.
         result = tiers(["schemas/settings/settings-schema.json"])
         self.assertEqual(result["swift_targets"].split(), sorted([
             "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
+            "CmuxNextPhoneAccessTests",
         ]))
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
