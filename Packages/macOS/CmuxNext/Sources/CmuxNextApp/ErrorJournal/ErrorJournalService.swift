@@ -1,5 +1,6 @@
 import CmuxNextErrorJournal
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 
 /// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log
@@ -12,7 +13,11 @@ import Foundation
 final class ErrorJournalService {
     let journal: ErrorJournal
     let sources: [any ErrorHarvestSource]
+    /// The harvest that runs now, if any.
     private var harvesting: Task<Void, Never>?
+    /// The next harvest, ``harvestInterval`` after the last one ended.
+    private let nextHarvest = DemandTimer(owner: "error-journal.harvest")
+    private var running = false
 
     /// How often the journal reads its sources while the app runs.
     static let harvestInterval: Duration = .seconds(300)
@@ -51,28 +56,36 @@ final class ErrorJournalService {
 
     /// Starts the periodic harvest; the first one runs at once.
     func start() {
-        guard harvesting == nil else { return }
-        let journal = journal
-        let sources = sources
-        let interval = Self.harvestInterval
-        // A fixed-interval background harvest, cancelled by stop() (CLAUDE.md Clock.sleep carve-out:
-        // the delay is the intended cadence; nothing waits on it).
-        harvesting = Task.detached(priority: .utility) {
-            // concurrency-allow: a detached utility task, never the main thread; each pass awaits a harvest, then the cancellable cadence sleep
-            // wakeup-allow: one harvest every 300 s (harvestInterval) while the app runs, ended by stop()
-            while !Task.isCancelled {
-                await journal.harvest(sources)
-                // concurrency-allow: async cadence sleep on the detached harvest task; cancelled by stop(), blocks no thread
-                // wakeup-allow: the 300 s harvest cadence; nothing waits on it
-                guard (try? await ContinuousClock().sleep(for: interval)) != nil else { return }
-            }
-        }
+        guard !running else { return }
+        running = true
+        harvest()
     }
 
     /// Stops harvesting and writes what is pending.
     func stop() async {
+        running = false
+        nextHarvest.cancel()
         harvesting?.cancel()
         harvesting = nil
         await journal.flush()
+    }
+
+    /// Runs one harvest off the main actor; when it ends, the next one is due after ``harvestInterval``.
+    private func harvest() {
+        let journal = journal
+        let sources = sources
+        harvesting = Task.detached(priority: .utility) { [weak self] in
+            await journal.harvest(sources)
+            guard !Task.isCancelled else { return }
+            await self?.harvestEnded()
+        }
+    }
+
+    private func harvestEnded() {
+        harvesting = nil
+        guard running else { return }
+        nextHarvest.schedule(after: Self.harvestInterval) { [weak self] in
+            await self?.harvest()
+        }
     }
 }
