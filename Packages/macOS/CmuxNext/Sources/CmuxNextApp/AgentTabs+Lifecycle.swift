@@ -101,12 +101,7 @@ extension AgentTabStore {
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if let close = pendingCloses.removeValue(forKey: key) {
-                    close(created.key)
-                } else if let started = sessions[created.key], !remote {
-                    // A chat its page started (or the harness acpmux reported) before the store answered binds now.
-                    sendSession(started, for: created.key)
-                }
+                pendingCloses.created(key, as: created.key, session: sessions[created.key], remote: remote) { sendSession($0, for: $1) }
                 return created
             } catch {
                 store.rejectIntent(transaction)
@@ -262,11 +257,7 @@ extension AgentTabStore {
 
     /// Close on a tab the store is still creating: it closes when the store answers (its
     /// provisional surface names no daemon tab). False for any other tab.
-    func closeWhenCreated(_ key: String, close: @escaping @MainActor (String) -> Void) -> Bool {
-        guard ProvisionalTab.isProvisional(key), aliases[key] == nil, tabStores[key] != nil else { return false }
-        pendingCloses[key] = close
-        return true
-    }
+    func closeWhenCreated(_ key: String, close: @escaping @MainActor (String) -> Void) -> Bool { pendingCloses.add(key, provisional: ProvisionalTab.isProvisional(key), aliased: aliases[key] != nil, registered: tabStores[key] != nil, close: close) }
 
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
     func tab(resuming adopt: AgentPaneAdopt) -> String? {
@@ -303,7 +294,7 @@ extension AgentTabStore {
             }
         }
         notices[key] = nil
-        pendingCloses[key] = nil
+        pendingCloses.release(key)
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil

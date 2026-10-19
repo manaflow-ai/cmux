@@ -47,26 +47,8 @@ extension AgentTabStore {
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
         }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain)
-        // The side column's tiles page: Files' tree or Changes' diff as a tab in the page's own pane.
-        model.header?.openHere = { [weak self] action, cwd in
-            let tab = self?.resolve(provisional) ?? provisional
-            guard let folder = cwd ?? self?.lookup(tab)?.store.tab(id: tab)?.cwd, !folder.isEmpty else { return false }
-            switch action {
-            // Files reads this Mac's folders only: a page of another machine's chat gets no tree.
-            case AgentChatSplitToggles.files:
-                guard self?.gitLink?(tab)?.isLocal == true else { return false }
-                actions.openFiles(folder, on: tab)
-            case AgentChatSplitToggles.changes:
-                actions.runBeside(AgentChatSplitToggles.changes, arguments: ["path": .string(folder)], on: tab)
-            default: return false
-            }
-            return true
-        }
-        model.header?.rename = { name in actions.rename(name) }
-        model.header?.openIn = { [weak self] app in
-            let chat = self?.resolve(provisional) ?? provisional
-            return actions.openIn(self?.lookup(chat)?.store.tab(id: chat)?.cwd, app: app)
-        }
+        AgentChatThreadActions().wire(&model.header, tab: actions.tab, registry: actions.registry, cwd: { [weak self] in self?.lookup($0)?.store.tab(id: $0)?.cwd }, local: { [weak self] in self?.gitLink?($0)?.isLocal == true },
+                                      files: { actions.openFiles($0, on: $1) }, changes: { actions.runBeside(AgentChatSplitToggles.changes, arguments: ["path": .string($0)], on: $1) })
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }
@@ -79,7 +61,7 @@ extension AgentTabStore {
         // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
         guard var newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
         // The chat's side column (`agentChat.sideColumn`) starts as tiles of what it can hold.
-        if split, AgentPaneTunables.sideColumn.value { newTab.page.surfaces = true }
+        AgentChatPanelPlacement().configure(&newTab.page, split: split)
         return openBeside(provisional, split: split) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 
