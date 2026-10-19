@@ -33,7 +33,7 @@ enum DebugCardGrid {
                 glyphs.append(.object(["kind": .string("image"), "frame": frame(image)]))
                 return
             }
-            if let label = view as? NSTextField, !label.stringValue.isEmpty {
+            if let label = view as? any ShownText, !label.stringValue.isEmpty {
                 labels.append(.object(["text": .string(label.stringValue), "frame": frame(label)]))
                 return
             }

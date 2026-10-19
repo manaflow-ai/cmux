@@ -11,6 +11,10 @@ final class FieldTextView: NSTextView {
     /// cmux: the host's attachment intake reads the pasteboard first
     /// (files and pictures, Home's type rule); true when it took the paste.
     var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: whether the host's intake would take the pasteboard (types only).
+    /// A plain-text NSTextView enables Paste only for text types, so a
+    /// picture alone (a copied screenshot) left Cmd+V disabled.
+    var acceptsPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -186,11 +190,13 @@ final class FieldTextView: NSTextView {
     /// not depend on the blink's phase at the grab (Messages' still references show it solid).
     static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
 
-    private func startBlink() {
+    // cmux: not private, so a Reduce Motion change restarts or stills the blink (cx-sya4n).
+    func startBlink() {
         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
         caretLayer.removeAnimation(forKey: "blink")
         caretLayer.opacity = 1
-        if Self.solidCaret { return }
+        // cmux: under Reduce Motion the caret holds solid (cx-sya4n: nothing loops).
+        if Self.solidCaret || MessagesLabHomeView.reducesMotion { return }
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.calculationMode = .discrete
         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
@@ -234,6 +240,7 @@ final class FieldTextView: NSTextView {
         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
     }
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)), acceptsPastePasteboard(pasteboard) { return true }  // cmux
         if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
             (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
             return true

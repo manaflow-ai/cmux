@@ -7,25 +7,41 @@
 // The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
 // slider instead of its list of levels. Only Debug Settings changes it.
+// `plainFooter` is no cmux.json key either: Debug Settings' "Agent composer: plain footer" (Swift
+// AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY builds) rides the same event and draws the
+// footer's chips as plain text at rest (composerLocation.css, [data-footer-look="plain"]).
 import { useSyncExternalStore } from "react";
 
-export type ComposerSettings = { showContextUsage: boolean; showDictation: boolean; reasoningSlider: boolean };
+export type ReasoningSliderStyle = "accent" | "minimal";
+export type ComposerSettings = {
+  showContextUsage: boolean;
+  showDictation: boolean;
+  reasoningSlider: boolean;
+  reasoningSliderStyle: ReasoningSliderStyle;
+  plainFooter: boolean;
+};
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
   reasoningSlider: false,
+  reasoningSliderStyle: "accent",
+  plainFooter: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
+type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
-  const flag = (key: keyof ComposerSettings) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
+  const flag = (key: ComposerFlag) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
+  const reasoningSliderStyle: ReasoningSliderStyle = raw.reasoningSliderStyle === "minimal" ? "minimal" : "accent";
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
     reasoningSlider: flag("reasoningSlider"),
+    reasoningSliderStyle,
+    plainFooter: flag("plainFooter"),
   };
 }
 

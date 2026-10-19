@@ -15,6 +15,8 @@ import CmuxNextDesign
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
 /// same `composer` event, so the reasoning menu draws its stepped slider instead of the levels.
+/// `reasoningSliderStyle` carries the Debug Settings visual comparison choice, defaulting to
+/// `accent` so the slider's current treatment remains unchanged.
 public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let showContextUsagePath = ["agentPane", "showContextUsage"]
     public static let showDictationPath = ["agentPane", "showDictation"]
@@ -23,17 +25,20 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var showDictation = true
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
+    /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
+    public var reasoningSliderStyle = "accent"
 
     public init() {}
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, reasoningSlider}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
             "showDictation": .bool(showDictation),
-            "reasoningSlider": .bool(reasoningSlider)
+            "reasoningSlider": .bool(reasoningSlider),
+            "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
     }
 

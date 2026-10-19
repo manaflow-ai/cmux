@@ -82,7 +82,7 @@ final class LayoutViewContext {
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
     var reduceMotion: Bool { reduceMotionOverride ?? !Motion.animatesMovement }
 
-    /// Pane layout changes spring (`ui.paneAnimations`, off by default; plans/cmux-next/motion.md rule 9).
+    /// Pane layout changes spring (`ui.paneAnimations`, on by default; plans/cmux-next/motion.md rule 9).
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.animatesPaneLayout }
 

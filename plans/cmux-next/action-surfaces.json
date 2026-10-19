@@ -8378,7 +8378,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Mark Tab as Unread",
+      "title" : "Mark Tab Unread",
       "title_key" : "action.palette.toggleTabUnread",
       "title_table" : "ActionCatalog"
     },
@@ -18032,7 +18032,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Unread",
+      "title" : "Toggle Tab Unread",
       "title_key" : "action.toggleUnread",
       "title_table" : "ActionCatalog"
     },
@@ -23296,6 +23296,62 @@
       "palette_suggested" : null,
       "title" : "Tabs: Use Shrinking Tabs",
       "title_key" : "action.tabs.overflow.shrink",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings open-links-in-cmux-browser",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "links.openInCmuxBrowser",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Links: Open in cmux Browser",
+      "title_key" : "action.links.openInCmuxBrowser",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings open-links-in-default-browser",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "links.openInDefaultBrowser",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Links: Open in Default Browser",
+      "title_key" : "action.links.openInDefaultBrowser",
       "title_table" : "ActionCatalog"
     },
     {

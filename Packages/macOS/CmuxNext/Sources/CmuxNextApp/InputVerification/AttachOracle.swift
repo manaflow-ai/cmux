@@ -64,7 +64,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
                 } else {
                     fail(.inputOrder, "sent \(data.count) bytes out of order or twice (next accepted: \(unsent.first?.count ?? -1) bytes)")
                 }
-            case .claim(let link, _), .release(let link):
+            case .claim(let link, _), .hide(let link), .unhide(let link):
                 if detaches[link, default: 0] > 0 { fail(.liveLinkOnly, "geometry on a detached link") }
             case .detach(let link):
                 let count = detaches[link, default: 0] + 1

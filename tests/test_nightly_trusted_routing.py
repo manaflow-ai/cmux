@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Execute nightly runner selectors for trusted pushes, overflow, and unsigned resume."""
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -14,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from test_ci_fork_runner_routing import parse_expression
 
 ROOT = Path(__file__).resolve().parents[1]
-DOC = yaml.safe_load((ROOT / '.github/workflows/nightly.yml').read_text())
+WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
+DOC = yaml.safe_load(WORKFLOW_FILE.read_text())
 
 
 def evaluate(node, context):
@@ -89,7 +91,6 @@ class NightlyTrustedRouting(unittest.TestCase):
         steps = {step.get('name'): step for step in DOC['jobs']['build-nightly-app']['steps']}
         context = {
             'needs.decide.outputs.track': 'nightly-next',
-            'steps.persistent-release.outputs.enabled': 'true',
             'needs.decide.outputs.cold_cache': 'false',
             'steps.compilation-cache-bound.outputs.save': 'true',
         }
@@ -98,15 +99,83 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
 
+    def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
+        group = DOC["concurrency"]["group"]
+        self.assertIn(
+            "github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id)",
+            group,
+        )
+        self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
+
     def test_owned_next_and_main_have_independent_pending_slots(self):
-        def group(branch):
-            context = {'github.ref_name': branch, 'github.event_name': 'push'}
+        def group(branch, run_id=''):
+            context = {
+                'github.ref_name': branch,
+                'github.ref': f'refs/heads/{branch}',
+                'github.event_name': 'push',
+                'github.run_id': run_id,
+            }
             return re.sub(r'\$\{\{(.*?)\}\}',
                           lambda match: str(evaluate(parse_expression(match[1]), context)),
                           DOC['concurrency']['group'])
         self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
-        self.assertEqual(group('nightly-next'), 'nightly-build-nightly-next-full')
+        self.assertEqual(group('nightly-next', '39124573091'), 'nightly-build-nightly-next-run-39124573091')
+        self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
+        self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
+
+    def test_next_pushes_share_one_build_slot_that_the_newest_push_takes(self):
+        # Every nightly-next push built its own head, so pushes queued for the trusted
+        # runner and each intermediate head got a full build (2026-10-18: three pushes
+        # in three minutes, three 90-minute builds). One job-level group keeps one build
+        # waiting at most, the newest; a running build always finishes.
+        job = DOC['jobs']['build-nightly-app']
+        def group(branch, event='push', run_id='1'):
+            context = {'github.ref': f'refs/heads/{branch}', 'github.event_name': event, 'github.run_id': run_id}
+            return re.sub(r'\$\{\{(.*?)\}\}',
+                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+                          job['concurrency']['group'])
+        self.assertEqual(group('nightly-next', run_id='1'), group('nightly-next', run_id='2'))
+        self.assertNotEqual(group('nightly-next', 'workflow_dispatch', '1'), group('nightly-next', 'workflow_dispatch', '2'))
+        self.assertNotEqual(group('main', run_id='1'), group('main', run_id='2'))
         self.assertNotEqual(group('main'), group('nightly-next'))
+        self.assertFalse(job['concurrency']['cancel-in-progress'])
+
+    def test_a_superseded_next_run_never_enters_the_build_slot(self):
+        # Job concurrency is decided when the job becomes ready, not in push order:
+        # an older run whose resolver finished late could otherwise replace the
+        # newer run's waiting build. The resolver re-reads nightly-next last.
+        resolver = DOC['jobs']['resolve-nightly-cmux-tui-client']
+        self.assertEqual(resolver['steps'][-1]['id'], 'superseded')
+        self.assertIn('git/ref/heads/nightly-next', resolver['steps'][-1]['run'])
+        self.assertIn('superseded', resolver['outputs'])
+        context = {'needs.decide.outputs.should_build': 'true', 'github.event_name': 'push',
+                   'needs.resolve-nightly-cmux-tui-client.outputs.already_published': 'false',
+                   'needs.decide.outputs.continue_only': 'false'}
+        for job in ('build-nightly-app', 'build-nightly-ghostty-cli-helper'):
+            build_if = parse_expression(DOC['jobs'][job]['if'])
+            with self.subTest(job=job):
+                self.assertTrue(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'false'}))
+                self.assertFalse(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'true'}))
+
+    def test_only_a_build_replaced_before_it_started_goes_unreported(self):
+        script = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
+                      if step.get('name') == 'Open or update the nightly failure issue')['with']['script']
+        # A replaced build never got a runner; a timed-out or cancelled one did.
+        self.assertIn("!build.runner_name && !(build.steps || []).length", script)
+        # Other failed jobs of the run still report.
+        self.assertIn("!(replaced && k === 'build-nightly-app')", script)
+        # listJobsForWorkflowRun needs Actions read; without it the timeout this
+        # must still report would throw before any issue is opened.
+        self.assertEqual(DOC['jobs']['report-nightly-failure']['permissions'].get('actions'), 'read')
+        # A build cancelled while queued for a runner also never started; only a
+        # newer push (nightly-next moved past this run's tip) makes it a replacement.
+        step = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
+                    if step.get('name') == 'Open or update the nightly failure issue')
+        self.assertIn('needs.decide.outputs.head_sha', step['env']['TIP_SHA'])
+        self.assertIn("ref: 'heads/nightly-next'", script)
+        self.assertIn("process.env.TIP_SHA", script)
+        # An unreadable job list reports rather than going silent.
+        self.assertIn("catch (error)", script.split("listJobsForWorkflowRun")[1][:600])
 
     def test_runner_guard_accepts_only_the_complete_nightly_capability_tuple(self):
         source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()

@@ -37,4 +37,5 @@ final class DisplaySleep {
         guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
         return CGDisplayIsAsleep(CGDirectDisplayID(number.uint32Value)) != 0
     }
+
 }

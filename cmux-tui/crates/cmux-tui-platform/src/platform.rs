@@ -1188,13 +1188,24 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
 /// for a report that names no safe local directory (a remote host, or no
 /// host where `allow_hostless` is false).
 fn kitty_shell_cwd_to_local_path(value: &str, allow_hostless: bool) -> Option<Option<PathBuf>> {
-    let rest = value.strip_prefix("kitty-shell-cwd://")?;
+    const SCHEME: &str = "kitty-shell-cwd://";
+    let rest = value
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map(|_| &value[SCHEME.len()..])?;
     let Some(slash) = rest.find('/') else { return Some(None) };
     let (host, path) = rest.split_at(slash);
     let host_ok = if host.is_empty() { allow_hostless } else { terminal_pwd_host_is_local(host) };
     if path.contains('\0') {
         return Some(None);
     }
+    // `kitty-shell-cwd://host/C:/Users/me` keeps the URI's slash before a
+    // Windows drive, which a rooted Windows path does not have.
+    #[cfg(windows)]
+    let path = path
+        .strip_prefix('/')
+        .filter(|rest| windows_path_is_rooted_local_drive(rest))
+        .unwrap_or(path);
     let path = Path::new(path);
     Some((host_ok && terminal_pwd_path_is_safe(path)).then(|| path.to_owned()))
 }

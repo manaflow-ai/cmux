@@ -16,6 +16,12 @@ test("ordinary matrix cards include settled interaction latency", () => {
   expect(html).toContain("playCells(r)");
 });
 
+test("motion review cards include an opt-in video", () => {
+  const html = renderIndex([{ id: "motion", engine: "webkit", screenshot: "motion.png", video: "motion.webm" }]);
+  expect(html).toContain("r.video");
+  expect(html).toContain("motion.webm");
+});
+
 test("parses and validates a manifest", () => {
   expect(parseManifest([{ id: "a", path_or_url: "index.html", params: { width: 10, dark: true } }])).toHaveLength(1);
   expect(() => parseManifest([{ id: "a", path_or_url: "x" }, { id: "a", path_or_url: "y" }])).toThrow("duplicate");

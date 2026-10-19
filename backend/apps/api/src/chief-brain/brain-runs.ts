@@ -16,6 +16,8 @@ export interface Step {
   readonly text?: string
   readonly truncated?: boolean
   readonly tool?: { readonly name: string; readonly input?: unknown; readonly output?: string; readonly started_at?: number; readonly ended_at?: number }
+  /** ms epoch: when the step ended (a tool step at its result, a talk step at its final text); `at` is its first write. */
+  readonly ended_at?: number
 }
 
 export interface Run {
@@ -34,13 +36,19 @@ export interface Run {
   readonly harness: "pi-durable"
   readonly session: { readonly kind: "pi"; readonly id: string; readonly host: string }
   readonly error?: string
+  /** A subagent's run (brain-spawn.ts): the run that spawned it. */
+  readonly parent_run?: string
   /** Where the reply went: posted (with its message id), no_reply (NO_REPLY or empty), refused (with the code), none (failed turn). */
   readonly reply?: { readonly state: string; readonly message?: string }
   /** Model tokens of the run (cache_read / (input + cache_read + cache_write) = cache hit) and its provider cost. */
   readonly usage?: { readonly input: number; readonly output: number; readonly cache_read: number; readonly cache_write: number; readonly calls: number }
   readonly cost_usd?: number
-  /** ms epoch: first model request, first token (with started_at: wake path vs. model time). */
-  readonly timing?: { readonly regions?: ReadonlyArray<string>; readonly wake_at?: number; readonly admitted_at?: number; readonly settled_at?: number; readonly request_at?: number; readonly first_token_at?: number }
+  /**
+   * ms epoch: first model request, first token of the run (its first output: text, thinking or a tool call; with
+   * started_at: wake path vs. model time); continuation_at / continuation_first_token_at: the hands continuation;
+   * step marks of the turn's start (brain-turn.ts): count_at, auth_at, paid_at, pi_at, submit_at.
+   */
+  readonly timing?: { readonly regions?: ReadonlyArray<string>; readonly count_at?: number; readonly boot_at?: number; readonly mux_at?: number; readonly life_at?: number; readonly reserved_at?: number; readonly upstream_at?: number; readonly headers_at?: number; readonly auth_at?: number; readonly paid_at?: number; readonly pi_at?: number; readonly submit_at?: number; readonly wake_at?: number; readonly admitted_at?: number; readonly settled_at?: number; readonly request_at?: number; readonly first_token_at?: number; readonly continuation_at?: number; readonly continuation_first_token_at?: number }
 }
 
 /**
@@ -49,12 +57,13 @@ export interface Run {
  * opens, then stored with it (cb_timing2). With started_at, request_at and first_token_at they split
  * the time from a person's message to the first token.
  */
-export const markPending = (sql: SqlStorage, mark: "wake" | "admitted" | "settled", at = Date.now()): void =>
-  void sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = ${mark === "wake" ? "CASE WHEN cb_config.value = '' THEN excluded.value ELSE cb_config.value END" : "excluded.value"}`, `mark.${mark}`, String(at))
+export const markPending = (sql: SqlStorage, mark: "wake" | "admitted" | "settled" | "boot" | "life" | "mux", at = Date.now()): void =>
+  void sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = ${mark === "wake" || mark === "boot" || mark === "life" || mark === "mux" ? "CASE WHEN cb_config.value = '' THEN excluded.value ELSE cb_config.value END" : "excluded.value"}`, `mark.${mark}`, String(at))
 export const flushMarks = (sql: SqlStorage, turn: string): void => {
-  for (const m of ["wake", "admitted", "settled"]) {
+  for (const m of ["mux", "boot", "life", "wake", "admitted", "settled"]) {
     const v = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `mark.${m}`).toArray()[0]?.value
-    if (v) sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, turn, m, Number(v))
+    // A mark left by a wake that started no turn (skipped, nothing new) is older than this turn's wake path: dropped.
+    if (v && Date.now() - Number(v) < 60_000) sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, turn, m, Number(v))
     sql.exec(`UPDATE cb_config SET value = '' WHERE name = ?`, `mark.${m}`)
   }
 }
@@ -132,7 +141,7 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
   const marks: Record<string, unknown> = Object.fromEntries(markRows.filter((r) => !String(r.mark).startsWith("region:")).map((r) => [`${r.mark}_at`, Number(r.at)]))
   if (regions.length > 0) marks.regions = regions
   const kind = String(t.trigger_kind)
-  const threadRoot = kind === "chief" || kind === "dm" ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
+  const threadRoot = kind === "spawn" ? undefined : kind === "chief" || kind === "dm" ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
   return {
     id,
     conversation: String(t.conversation),
@@ -148,6 +157,7 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
     model: String(t.model),
     harness: "pi-durable",
     session: { kind: "pi", id, host: "cloud" },
+    ...(kind === "spawn" ? { parent_run: String(t.trigger_message) } : {}),
     ...(status === "failed" && t.reason !== null ? { error: errorOf(sql, id, String(t.reason)) } : {}),
     ...(t.post === null ? {} : { reply: { state: String(t.post), ...(t.posted_message === null ? {} : { message: String(t.posted_message) }) } }),
     ...(tm || Object.keys(marks).length > 0 ? { timing: { ...marks, ...(!tm || tm.request_at === null ? {} : { request_at: Number(tm.request_at) }), ...(!tm || tm.first_token_at === null ? {} : { first_token_at: Number(tm.first_token_at) }) } } : {}),

@@ -528,6 +528,16 @@ pub enum ResourceOperation {
     PaletteUsageHide,
     #[serde(rename = "palette_usage.forget")]
     PaletteUsageForget,
+    #[serde(rename = "stash.create")]
+    StashCreate,
+    #[serde(rename = "stash.list")]
+    StashList,
+    #[serde(rename = "stash.restore")]
+    StashRestore,
+    #[serde(rename = "stash.delete")]
+    StashDelete,
+    #[serde(rename = "stash.import")]
+    StashImport,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

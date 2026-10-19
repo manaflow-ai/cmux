@@ -99,6 +99,8 @@ MAX_COMMENT_CHARS = 60000
 MAX_MESSAGE_LINES = 14
 MAX_MESSAGE_CHARS = 1500
 MAX_TESTS_PER_STEP = 4
+MAX_API_PAGES = 10
+API_PAGE_SIZE = 100
 RED = {"failure", "timed_out", "startup_failure"}
 
 TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ?")
@@ -600,7 +602,20 @@ class GitHub:
         return self.get(f"repos/{self.repo}/pulls/{number}")  # type: ignore[return-value]
 
     def commit_pulls(self, sha: str) -> list[dict]:
-        return list(self.get(f"repos/{self.repo}/commits/{sha}/pulls") or [])  # type: ignore[arg-type]
+        found: list[dict] = []
+        prefix = f"repos/{self.repo}/commits/{sha}/pulls"
+        for page in range(1, MAX_API_PAGES + 1):
+            payload = self.get(f"{prefix}?per_page={API_PAGE_SIZE}&page={page}")
+            if payload is None:
+                batch: list[dict] = []
+            elif isinstance(payload, list):
+                batch = payload
+            else:
+                raise RuntimeError(f"GET {prefix}: GitHub returned an invalid pull-request page")
+            found.extend(batch)
+            if len(batch) < API_PAGE_SIZE:
+                return found
+        raise RuntimeError(f"GET {prefix}: more than {MAX_API_PAGES * API_PAGE_SIZE} pull requests")
 
     def open_issues(self) -> list[dict]:
         return list(self.get(f"repos/{self.repo}/issues?labels={ISSUE_LABEL}&state=open&per_page=20") or [])  # type: ignore[arg-type]

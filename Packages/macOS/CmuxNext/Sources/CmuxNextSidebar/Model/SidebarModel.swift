@@ -38,7 +38,7 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return sectionsRevision
     }
-    /// `sectionsRevision` when the user last moved rows (a keyboard move, a drop): the next structural set may scroll to
+    /// `sectionsRevision` when the user last moved rows (a keyboard move; never a drop): the next structural set may scroll to
     /// the moved active row. Nil: no move of the user's waits. Changes from others never move the view (DESIGN.md
     /// scroll reveal, cx-ml98q).
     @ObservationIgnored public private(set) var userMoveRevision: UInt64?
@@ -52,6 +52,8 @@ public final class SidebarModel {
     }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
+    /// `itemOrder` and the inputs it was made from.
+    @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
@@ -206,7 +208,7 @@ public final class SidebarModel {
     /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
     /// select first/last, arrow keys) may land on: every row but
     /// placeholders, which are no workspace yet.
-    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { $0.rowState != .placeholder } }
+    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { !$0.rowState.isPending } }
 
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
@@ -220,6 +222,12 @@ public final class SidebarModel {
 
     /// Selected ids in visual order.
     public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
+
+    /// What a close of `id` from its menu or a key closes: the whole selection, in row order,
+    /// when `id` is one of two or more selected rows; otherwise `id` alone.
+    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] {
+        selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
+    }
 
     // MARK: Intents
 
@@ -239,11 +247,13 @@ public final class SidebarModel {
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .close(ids):
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
@@ -323,12 +333,34 @@ public final class SidebarModel {
         return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
     }
 
+    /// Whether these sections list workspace `id`: O(1) through `rowIndex`
+    /// (built once per structural set), never a walk of every row.
+    public func lists(_ id: WorkspaceID) -> Bool { !listedPaths(of: id).isEmpty }
+
+    /// Whether `id` sits in a collapsed group: the list then draws its row
+    /// only while it is the active workspace, so a selection change there
+    /// moves rows.
+    func isInCollapsedGroup(_ id: WorkspaceID) -> Bool {
+        listedPaths(of: id).contains { path in
+            guard path.member != nil, case let .group(group) = storedSections[path.section].nodes[path.node] else { return false }
+            return group.isCollapsed
+        }
+    }
+
+    private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
+        if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
+        return rowIndex?.paths(of: id) ?? []
+    }
+
     /// Clears closed workspaces from the selection and picks a new active one.
-    private func dropClosed(_ closed: Set<WorkspaceID>) {
+    private func dropClosed(_ closed: Set<WorkspaceID>, oldOrder: [WorkspaceID]) {
+        let oldActive = activeWorkspaceID
         selection.subtract(closed)
-        if let active = activeWorkspaceID, closed.contains(active) {
-            activeWorkspaceID = selection.first ?? allWorkspaces.first?.id
-            if let next = activeWorkspaceID { selection.insert(next) }
+        if let oldActive, closed.contains(oldActive) {
+            let surviving = allWorkspaces.map(\.id)
+            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving)
+            activeWorkspaceID = next
+            selection = next.map { [$0] } ?? []
         }
     }
 
@@ -336,7 +368,7 @@ public final class SidebarModel {
 
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
-    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
+    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {

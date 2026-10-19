@@ -613,11 +613,14 @@ check_dmg_signing_uses_build_keychain() {
   fi
   for needle in \
     'CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"' \
-    '"$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"' \
+    '"$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"' \
     '"$CODESIGN_TOOL" --force --timestamp --keychain build.keychain' \
     '--sign "$APPLE_SIGNING_IDENTITY"' \
-    '"$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"' \
-    '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"'; do
+    '"$CODESIGN_TOOL" --verify --verbose=2 "$out"' \
+    'package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"' \
+    'package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work"' \
+    '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"' \
+    '"$XCRUN_TOOL" notarytool submit "$FINAL_DMG"'; do
     if ! grep -Fq -- "$needle" "$nightly_helper"; then
       echo "FAIL: nightly notarization helper must sign the DMG through build.keychain before submission: $needle"
       exit 1
