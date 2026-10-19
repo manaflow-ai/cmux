@@ -194,7 +194,7 @@ export const rollbackPlan = async (script: string, force = false): Promise<{ fro
   return { fromVersion, toVersion, ...(fromSha ? { fromSha } : {}), ...(toSha ? { toSha } : {}) }
 }
 
-interface StagingRun { sha: string; at: number; green: boolean }
+export interface StagingRun { sha: string; at: number; green: boolean }
 
 /** Staging deploys of feat-cmux-next pushes, newest first: green = deploy-staging and its smoke step passed. */
 export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
@@ -215,6 +215,9 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
 /** G1: the newest green staging deploy at least SOAK_MINUTES old with no red staging deploy in its soak window. */
 export const pickCandidate = (runs: ReadonlyArray<StagingRun>, now: number): StagingRun | undefined =>
   runs.find((r) => r.green && now - r.at >= SOAK_MINUTES * 60_000 && !runs.some((x) => !x.green && x.at > r.at && x.at <= r.at + SOAK_MINUTES * 60_000))
+
+/** Exact SHA (--candidate or a one-shot hold): only that commit's green runs compete; every red run still counts against its soak window. */
+export const candidateRuns = (runs: ReadonlyArray<StagingRun>, want: string | undefined): ReadonlyArray<StagingRun> => (want ? runs.filter((r) => !r.green || r.sha === want) : runs)
 
 const isAncestor = (a: string, b: string) => {
   try {
@@ -270,8 +273,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (prod.codeDeployedAt && now - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold("spacing", `production code changed less than ${SPACING_HOURS} h ago`)
     const prodSha = fullSha(prod.sourceTag)
     const runs = await stagingRuns()
-    // Exact SHA: only that commit's green runs compete; every red run still counts against its soak window.
-    const cand = pickCandidate(want ? runs.filter((r) => !r.green || r.sha === want) : runs, now)
+    const cand = pickCandidate(candidateRuns(runs, want), now)
     if (!cand) return hold("G1", want ? `${want.slice(0, 12)} has no green staging deploy (tests, push guard, deploy and smoke) older than ${SOAK_MINUTES} min without a red one after it, among the last ${runs.length} staging runs` : `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
     if (!isAncestor(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
