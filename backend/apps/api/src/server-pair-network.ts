@@ -25,7 +25,7 @@ const publicPoint = (record: PairingRecord): string => {
 }
 
 export const sameApproval = (a: PairingApproval, b: PairingApproval) => a.team === b.team && a.name === b.name && a.mesh === b.mesh
-export const networkLocator = (grant: ServerNetworkEnrollment) => ({ tenant: grant.tenantId, mesh: grant.meshId, device: grant.deviceId })
+export const networkLocator = (grant: ServerNetworkEnrollment) => ({ state: "reserved" as const, tenant: grant.tenantId, mesh: grant.meshId, device: grant.deviceId })
 
 /** PairingDO revalidates the key/name binding before storing or releasing a secret. */
 export const networkMatchesPairing = (grant: ServerNetworkEnrollment, record: PairingRecord, approval: PairingApproval, now: number): boolean => {

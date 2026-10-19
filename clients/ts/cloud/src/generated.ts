@@ -2710,18 +2710,24 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
+  /** Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution. */
   readonly "server.pair.approve": {
     readonly params: {
       readonly code: PairingCode
       readonly team: TeamId
       readonly name: string
+      readonly mesh?: string
     }
     readonly result: {
       readonly host: HostId
       readonly team: TeamId
       readonly user: UserId
       readonly install: InstallId
+      readonly network?: {
+        readonly tenant: string
+        readonly mesh: string
+        readonly device: string
+      }
     }
   }
   /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */

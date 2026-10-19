@@ -18,7 +18,7 @@ export interface PairingResult {
   readonly team: string
   readonly user: string
   readonly install: string
-  readonly network?: { readonly tenant: string; readonly mesh: string; readonly device: string }
+  readonly network?: { readonly state: "reserved"; readonly tenant: string; readonly mesh: string; readonly device: string }
 }
 
 type Row = {

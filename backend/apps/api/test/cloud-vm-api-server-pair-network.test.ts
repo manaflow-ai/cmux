@@ -1,6 +1,5 @@
 import { env } from "cloudflare:workers"
-import { fetchMock } from "cloudflare:test"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Env } from "../src/env.ts"
 import { pairApprove } from "../src/pair-routes.ts"
 import { beginPairing, call, op, read, sessionPrincipal, sessionToken, testEnv, userSubmit, waitFor } from "./pairing-harness.ts"
@@ -10,7 +9,7 @@ const MESH = "mesh_00000000000000000000000000"
 const DEVICE = "dev_00000000000000000000000000"
 const NATIVE = "native_team_network"
 const CODE = "msc_00000000000000000000000000"
-afterEach(() => { fetchMock.deactivate() })
+afterEach(() => { vi.restoreAllMocks() })
 
 const fixture = async () => {
   const token = await sessionToken(`stack-network-${crypto.randomUUID()}`)
@@ -54,15 +53,22 @@ describe("network enrollment over approved server pairing", () => {
     if (!(raw instanceof ArrayBuffer)) throw new Error("unexpected public key encoding")
     const binding = { name: "Studio", wgPublicKey: begun.wg, installPublicKey: btoa(String.fromCharCode(...new Uint8Array(raw))) }
     const grant = { code: CODE, deviceId: DEVICE, meshId: MESH, tenantId: team.stackTeam, expiresAt: new Date(Date.now() + 600_000).toISOString(), binding }
-    fetchMock.activate(); fetchMock.disableNetConnect()
-    fetchMock.get("https://vm.test").intercept({ path: `/v1/meshes/${MESH}/overlay-server-codes`, method: "POST", headers: { authorization: `Bearer ${team.creator.token}`, "x-cmux-team-id": team.stackTeam }, body: JSON.stringify(binding) })
-      .reply(201, JSON.stringify(grant), { headers: { "content-type": "application/json" } })
+    const native = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input, init)
+      expect(request.url).toBe(`https://vm.test/v1/meshes/${MESH}/overlay-server-codes`)
+      expect(request.method).toBe("POST")
+      expect(request.headers.get("authorization")).toBe(`Bearer ${team.creator.token}`)
+      expect(request.headers.get("x-cmux-team-id")).toBe(team.stackTeam)
+      expect(request.redirect).toBe("manual")
+      expect(await request.json()).toEqual(binding)
+      return Response.json(grant, { status: 201 })
+    })
     const waiter = await waitFor(begun.res.json.code, begun.res.json.collect_secret)
     await waiter.until(() => waiter.frames.length > 0)
     const approved = await call("/v1/ops", team.creator.token, { op: "server.pair.approve", params: { code: begun.res.json.code, team: team.team, name: "Studio", mesh: MESH }, idempotency_key: "http-network", origin: "user" }, { "x-cmux-team": team.team })
     expect(approved.status).toBe(200)
-    expect(approved.json).toMatchObject({ ok: true, value: { network: { tenant: team.stackTeam, mesh: MESH, device: DEVICE } } })
-    fetchMock.assertNoPendingInterceptors()
+    expect(approved.json).toMatchObject({ ok: true, value: { network: { state: "reserved", tenant: team.stackTeam, mesh: MESH, device: DEVICE } } })
+    expect(native).toHaveBeenCalledTimes(1)
     await waiter.until(() => waiter.frames.some((frame) => frame.t === "paired"))
     expect(waiter.frames.find((frame) => frame.t === "paired")).toMatchObject({ network_enrollment: { origin: "https://vm.test", ...grant } })
     expect(JSON.stringify(approved.json)).not.toContain(CODE)
@@ -82,7 +88,7 @@ describe("network enrollment over approved server pairing", () => {
     expect(request.headers.get("x-cmux-team-id")).toBe(NATIVE)
     expect(request.redirect).toBe("manual")
     expect(await request.json()).toEqual(f.binding)
-    expect(approved.value).toMatchObject({ network: { tenant: NATIVE, mesh: MESH, device: DEVICE } })
+    expect(approved.value).toMatchObject({ network: { state: "reserved", tenant: NATIVE, mesh: MESH, device: DEVICE } })
     expect(JSON.stringify(approved)).not.toContain(CODE)
     await waiter.until(() => waiter.frames.some((frame) => frame.t === "paired"))
     expect(waiter.frames.find((frame) => frame.t === "paired")).toMatchObject({ network_enrollment: { origin: "https://vm.test", ...f.grant } })

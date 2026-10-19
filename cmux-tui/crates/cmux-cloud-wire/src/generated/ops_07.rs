@@ -359,7 +359,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Approve a pairing code: register the server's install key under you and add the server to the team directory.
+    /// Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.
     ServerPairApproveOp {
         name: "server.pair.approve",
         class: Mutation,
@@ -378,6 +378,15 @@ pub struct ServerPairApproveParams {
     pub code: PairingCode,
     pub team: TeamId,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerPairApproveResultNetwork {
+    pub tenant: String,
+    pub mesh: String,
+    pub device: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -386,6 +395,8 @@ pub struct ServerPairApproveResult {
     pub team: TeamId,
     pub user: UserId,
     pub install: InstallId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<ServerPairApproveResultNetwork>,
 }
 
 wire_errors! {

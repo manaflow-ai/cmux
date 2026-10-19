@@ -47662,6 +47662,14 @@
               "max_length": 80
             }
           },
+          "mesh": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -47707,6 +47715,35 @@
                   "kind": "ref",
                   "name": "InstallId"
                 }
+              },
+              "network": {
+                "required": false,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "tenant": {
+                      "required": true,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "mesh": {
+                      "required": true,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "device": {
+                      "required": true,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -47742,7 +47779,7 @@
         "expose": "never",
         "group": "servers"
       },
-      "docs": "Approve a pairing code: register the server's install key under you and add the server to the team directory.",
+      "docs": "Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -47757,6 +47794,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 80
+          },
+          "mesh": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
           }
         },
         "required": [
@@ -47792,6 +47833,26 @@
           },
           "install": {
             "$ref": "#/$defs/InstallId"
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "tenant": {
+                "type": "string"
+              },
+              "mesh": {
+                "type": "string"
+              },
+              "device": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
           }
         },
         "required": [
