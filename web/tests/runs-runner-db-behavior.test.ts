@@ -67,7 +67,7 @@ describe("Run queue worker", () => {
     expect(String(attempt?.error)).toContain("session");
     const [run] = await db`select status::text from runs where id = ${runId}::uuid`;
     expect(run?.status).toBe("failed");
-    const events = await db`select type from run_events where run_id = ${runId}::uuid order by sequence`;
-    expect(events.map((event) => event.type)).toEqual(["attempt.started", "attempt.failed"]);
+    const events = await db`select kind::text as kind from run_events where run_id = ${runId}::uuid order by sequence`;
+    expect(events.map((event) => event.kind)).toEqual(["attempt.started", "attempt.failed"]);
   });
 });
