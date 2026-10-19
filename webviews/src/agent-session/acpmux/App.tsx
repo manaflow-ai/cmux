@@ -258,6 +258,7 @@ import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/Sugge
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
+import { setSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -304,6 +305,9 @@ declare global {
       applyPreview?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
+      /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
+      /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
+      applySessionStatus?(on: boolean): void;
       /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
@@ -3452,7 +3456,15 @@ function AcpmuxPane() {
   }).current;
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
-    attach: (audio) => composerHandle.current?.attach(audioAttachment(audio, translate("dictation.recording"))),
+    attach: (audio) => {
+      const recording = audioAttachment(audio, translate("dictation.recording"));
+      if (recording) composerHandle.current?.attach(recording);
+      else directClient.current?.notice(translate("dictation.recordingTooLong"));
+    },
+    omitted: (reason) =>
+      directClient.current?.notice(
+        translate(reason === "tooLong" ? "dictation.recordingTooLong" : "dictation.recordingNarrowband"),
+      ),
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -3672,6 +3684,9 @@ function AcpmuxPane() {
       },
       applySidebarPreviewVariant(variant) {
         configureNativeSidebarPreviewVariant(variant);
+      },
+      applySessionStatus(on) {
+        setSessionStatus(on === true);
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
@@ -5499,6 +5514,7 @@ function AcpmuxPane() {
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
+              {...(newTab.widgets ? { widgets: true } : {})}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
