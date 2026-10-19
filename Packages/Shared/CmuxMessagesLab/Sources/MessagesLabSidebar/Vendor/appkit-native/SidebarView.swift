@@ -82,7 +82,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// width it is designed for (to verify against Messages' default).
     var minimumWidth: CGFloat { SidebarMetrics.minimumWidth }
     var preferredWidth: CGFloat? { SidebarMetrics.preferredWidth }
-    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // no force unwrap
+    // cmux: readable (tests read the resolved selection colours).
+    private(set) var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // no force unwrap
     private var generation = 0
     /// The palette, scale and color-space generation (tests).
     var renderGeneration: Int { generation }

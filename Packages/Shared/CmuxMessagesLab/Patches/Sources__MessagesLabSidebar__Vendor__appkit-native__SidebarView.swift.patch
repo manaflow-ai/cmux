@@ -1,6 +1,14 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
-@@ -88,7 +88,7 @@
+@@ -82,13 +82,14 @@
+     /// width it is designed for (to verify against Messages' default).
+     var minimumWidth: CGFloat { SidebarMetrics.minimumWidth }
+     var preferredWidth: CGFloat? { SidebarMetrics.preferredWidth }
+-    private var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // no force unwrap
++    // cmux: readable (tests read the resolved selection colours).
++    private(set) var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // no force unwrap
+     private var generation = 0
+     /// The palette, scale and color-space generation (tests).
      var renderGeneration: Int { generation }
      private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
      private let cache = SidebarBitmapCache()
@@ -9,7 +17,7 @@
      private let textCache = SidebarTextCache()
      private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
      private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
-@@ -96,7 +96,10 @@
+@@ -96,7 +97,10 @@
      private var pending: Set<SidebarBitmapKey> = []
      private var rowLayers: [Int: SidebarRowLayer] = [:]
      private var pool: [SidebarRowLayer] = []
@@ -21,7 +29,7 @@
      private let menuRing = CALayer()
      private var lastVisible: Range<Int> = 0..<0
      private var lastTop: CGFloat = 0
-@@ -677,6 +680,7 @@
+@@ -677,6 +681,7 @@
          layoutDocument()
          tile(force: true)
          updateAccessibility()
@@ -29,7 +37,7 @@
      }
  
      // MARK: Geometry
-@@ -797,7 +801,7 @@
+@@ -797,7 +802,7 @@
  
      private func clipMoved() { tile(force: false) }  // no selector
  
@@ -38,7 +46,7 @@
          SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
                               space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
                               bellSecondary: bellSecondary, bellSelected: bellSelected,
-@@ -1734,7 +1738,9 @@
+@@ -1734,7 +1739,9 @@
          if let c = controller, c.swipeClick(at: point(event)) { return }
          guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
          c.highlight(s.id, reveal: false)
@@ -49,7 +57,7 @@
      }
      override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
      override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
-@@ -1746,6 +1752,7 @@
+@@ -1746,6 +1753,7 @@
          default: interpretKeyEvents([event])
          }
      }
