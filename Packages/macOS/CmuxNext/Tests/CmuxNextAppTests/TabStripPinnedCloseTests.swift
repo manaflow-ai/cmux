@@ -55,4 +55,16 @@ import Testing
         #expect(model().keyboardClose(TabID("p1"), closesPinned: true) == .close)
         #expect(model().keyboardClose(TabID("p1"), closesPinned: false) == .select(TabID("p2")))
     }
+
+    /// Move Tab Left and Move Tab Right stop at the pinned boundary (Chrome): the daemon puts a
+    /// pinned tab moved past it back, so Move Right on the last pinned tab did nothing, silently.
+    @Test func moveLeftAndRightStayInsideTheTabsSection() {
+        let strip = model()
+        #expect(strip.moveIndex(of: TabID("p0"), by: 1) == 1)
+        #expect(strip.moveIndex(of: TabID("p2"), by: 1) == nil)
+        #expect(strip.moveIndex(of: TabID("t3"), by: -1) == nil)
+        #expect(strip.moveIndex(of: TabID("t3"), by: 1) == 4)
+        #expect(strip.moveIndex(of: TabID("t5"), by: 1) == nil)
+        #expect(strip.moveIndex(of: TabID("p0"), by: -1) == nil)
+    }
 }
