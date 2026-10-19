@@ -59,8 +59,11 @@ test("a queued row's one hover action is Send now; Edit and Remove are on its me
         <ComposerQueue queue={queued as never} t={t} onRemove={async () => true} onChange={async () => true} />,
       ),
     );
+  // The row's actions; its text is a button too (it opens the prompt whole), not an action.
   const labels = () =>
-    [...main.querySelectorAll(".acpmux-queued button")].map((button) => button.getAttribute("aria-label"));
+    [...main.querySelectorAll(".acpmux-queued .acpmux-queued-action")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
   root = createRoot(main.querySelector<HTMLElement>("#root")!);
   await draw();
   expect(labels()).toEqual([t("composer.queueSendNow")]);

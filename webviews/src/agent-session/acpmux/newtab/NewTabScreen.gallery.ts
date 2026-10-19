@@ -12,6 +12,10 @@ const SITE_ICON =
 const OTHER_SITE_ICON =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPklEQVR42mNgoDZ4FcHzHx+mSDNeQ4jVjNUQUjVjGIJN8v/bqyiYJAPQNeMyZDgbQHEg0iUtUD8pUyUzkQMARpy6LDTJkq8AAAAASUVORK5CYII=";
 
+/// Album art as the host sends it: a small inline PNG (a gradient).
+const ALBUM_ART =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACU0lEQVR42tXPCTcTAAAH8P8nkZJyC8uSRUNzX8uRNS0amvvMckSOJkcTOXJHJCJHkyOyHJEjckS8Xr16vXr1en2E9jX+3+D3g5labZ6ttrxx0yorxyYr1zYz1y4jzyEjX5B+yzGtQJha4JRa6JxyW5Rc5JJc7JpULE4scUso9Ui4I4nXeKo03qoyn+t3/eLKA2IrAmMrgmMqpcqqEOW9sGva8GhtRFS1LOq+/GpNpKJGoaiNuvIgOrJOKa+PkdfHXW5QyRrjZQ8TI5qSLjWlhDenhbekh7VmhrZlhbZlh7SrL3bkSB/lSTvzgzsLgroKgx4XBXaXBPSU+vdo/J+U+fWW+z6t9O0Dtb7Kpw/Ueq13P6j11V7PQK2v8RoAtb7WcwDU+jrJIKj1DZLnoNY3XhgCtb7JYxjU+mb3YVDrW91HQK1vdxsFtb5D/ALU+k6xDtT6rvM6UOu7XcdAre9xeQlqfa/LOKj1fecmQK3vF02AWj8gmgS1ftB5CtT6obOvQK0fcZoGtX7UEKDW687MgFo/JnwNav24cBbU+klHPaj1U6f1oNZPC96AWj8jmAO1ftZhHtR6vf08qPVz9gug1i/YLYJav3jqLaj1S7ZLoNYvGwLU+hWbZVDr16zfgVq/br0Cav2G1Sqo9ZuWq6DWb1msgVq/Y7EOav2u+XtQ6/fMNkCt3zcEqPUHJzdBrT888QHU+s+mW6DWfzHdBrX+6/FtUOu/meyAWv/dZBfU+h/HPoJa//PoHqj1v4z3QK3/bbwPav2fI59Arf9rdABq/T+jw/8n7vrBWnViYgAAAABJRU5ErkJggg==";
+
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -52,6 +56,41 @@ const withAllChats = <V extends object>(variants: Record<string, V>) =>
   Object.fromEntries(
     Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
+
+/// The widget view's fixtures: projects as the host sends them, and chats where three need the user.
+const WIDGET_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/src/manaflow"];
+const widgetSessions = () => [
+  session({
+    sessionId: "widget-failed",
+    title: "Composer + picker polish: no Tonka toys",
+    indicator: "failed",
+    preview: "Hit an error while running the gallery checks.",
+    cwd: "/Users/you/src/cmux",
+    updatedAt: minutesAgo(2),
+  }),
+  session({
+    sessionId: "widget-input",
+    title: "Ship the release notes for 0.64",
+    status: "waiting",
+    pendingPermissions: 1,
+    indicator: "input",
+    cwd: "/Users/you/src/cmux-web",
+    updatedAt: minutesAgo(12),
+  }),
+  session({
+    sessionId: "widget-lost",
+    title: "Index the docs site",
+    indicator: "lost",
+    cwd: "/Users/you/src/manaflow",
+    updatedAt: minutesAgo(40),
+  }),
+  ...manySessions(6).map((entry) => ({
+    ...entry,
+    indicator: "done" as const,
+    status: "idle" as const,
+    pendingPermissions: 0,
+  })),
+];
 
 type GalleryNativeCall = { method: string; params?: Record<string, unknown> };
 
@@ -96,6 +135,8 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/newtab/ChatCards.tsx",
+    "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingPlayer",
+    "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingCard",
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
@@ -104,6 +145,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
+    "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
@@ -182,6 +224,38 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
         if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
           throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
+      },
+    },
+    // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
+    // actions, from the page's own data. Projects: this Mac, then its recent projects, the one a chat
+    // starts in checked. Needs you: the chats asking for input or that hit an error, each with ×.
+    widgets: {
+      note: "Widget view on (Debug Settings newTab.widgets): a Projects card with this Mac and its recent projects, the picked one checked; a Needs you card with the chats waiting on you or that hit an error, each dismissable. Then the calm chat rows.",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.click({ text: "cmux" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-widget-row[aria-pressed="true"]') !== null);
+      },
+    },
+    "widgets-off": {
+      note: "The same chats and projects with the widget view off (the default): no cards, only the calm chat rows.",
+      ready: newTab({ projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length > 0);
+        if (ctx.document.querySelector(".nt-widgets")) throw new Error("widget cards show with the widget view off");
+      },
+    },
+    "widgets-hover": {
+      note: "Widget view, a pointer over a Needs you chat: a hover card with its whole title and why it needs you (its last line).",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
     "no-harness-installed": {
@@ -392,8 +466,42 @@ export default agentPaneEntry({
         if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
       },
     },
+    "now-playing": {
+      note: "Now Playing: what plays on this Mac (Spotify here), large under the create actions, with its artwork, level bars and Play or Pause; the controls ask the host, and a pause stills the bars.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        const track = (playing: boolean) => ({
+          title: "Weightless",
+          artist: "Marconi Union",
+          artwork: ALBUM_ART,
+          playing,
+          position: 132,
+          duration: 480,
+          rate: 1,
+          positionDate: Date.now(),
+          canPrevious: true,
+          canNext: true,
+          labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
+        });
+        const bridge = ctx.document.defaultView?.cmuxAcpmuxBridge;
+        bridge?.applyNowPlaying?.(track(true));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
+        await ctx.click({ role: "button", name: "Pause" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "nowPlaying.command" && call.params?.command === "playPause",
+          ),
+        );
+        bridge?.applyNowPlaying?.(track(false));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=false]") !== null);
+        bridge?.applyNowPlaying?.(track(true));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
+      },
+    },
     "typed-prompt": {
-      note: "A typed prompt: Ask first (Return's, highlighted) and a web search in the popover over the cards; the cards stay where they were.",
+      note: "A typed prompt: Ask first (Return's, highlighted), a web search, then New terminal, New browser tab and New chat in the popover over the cards; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -422,9 +530,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Ask, the search, two tabs, the workspace and a page: five presses from Ask end on the
-        // last row, and three more wrap round to the first tab.
-        for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
+        // Ask, the search, two tabs, the workspace, a page and the three create actions: eight
+        // presses from Ask end on the last row, and three more wrap round to the first tab.
+        for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");

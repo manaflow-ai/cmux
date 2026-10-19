@@ -7,6 +7,7 @@
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift	1	keep	resolver: AcpmuxEnvironment
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectCopy.swift	1	keep	project-local .cmux/context folder, not a state root
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift	1	keep	project-local .cmux/context folder, not a state root
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/ErrorJournal/ErrorJournalService.swift	1	keep	reads (never writes) the shared Release/NIGHTLY ~/.acpmux/daemon.log for the error journal
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	unreviewed at S7 (cx-is1kf.8)
@@ -46,3 +47,4 @@ cmux-tui/crates/cmux-tui-core/src/state/projects_store.rs	1	move	unreviewed at S
 cmux-tui/crates/cmux-tui/src/acp.rs	1	keep	resolver: acpmux home of the CLI (S2)
 cmux-tui/crates/cmux-tui/src/cli/chief/home.rs	1	keep	resolver: Chief home (CLI)
 cmux-tui/crates/cmux-tui/src/cli/chief/link.rs	1	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/cmux-tui/src/remote_host/config.rs	1	keep	machine-wide cmux host config (one listener per machine, not per build); serve --dir and CMUX_HOST_DIR override it

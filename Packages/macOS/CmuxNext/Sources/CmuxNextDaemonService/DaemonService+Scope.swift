@@ -15,8 +15,8 @@ public struct CommandTicket {
 extension DaemonService {
     /// Opens a ticket on entry (synchronously, on the main actor), so the
     /// scope is not idle between a task's commands.
-    public func openTicket() -> CommandTicket? {
-        guard let scope = DaemonCommandScope.current, let ticket = scope.begin() else { return nil }
+    public func openTicket(_ label: String? = nil) -> CommandTicket? {
+        guard let scope = DaemonCommandScope.current, let ticket = scope.begin(label: label) else { return nil }
         return CommandTicket(scope: scope, ticket: ticket)
     }
 
@@ -28,10 +28,11 @@ extension DaemonService {
     /// not cover the old one's echo.
     public func closeTicket(_ ticket: CommandTicket?, label: String, error: (any Error)?, replying: DaemonConnection? = nil) async {
         guard let ticket else { return }
+        ticket.scope.note("reply \(label)")
         if error == nil, let source = replying ?? connection, let sequence = await source.eventSequence() {
             ticket.scope.noteBarrier(sequence, machine: machineID)
         }
-        ticket.scope.end(ticket.ticket, failure: error.map { Self.scopeFailure(label, $0) })
+        ticket.scope.end(ticket.ticket, failure: error.map { Self.scopeFailure(label, $0) }, label: label)
     }
 
     static func scopeFailure(_ label: String, _ error: any Error) -> DaemonCommandScope.Failure {

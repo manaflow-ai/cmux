@@ -394,12 +394,13 @@ export const ConversationImport = def({
     title: Schema.optionalKey(Title),
     participants: Schema.optionalKey(Schema.Array(ParticipantInput).check(Schema.isMaxLength(64))),
     after_seq: Schema.optionalKey(Seq),
+    fill: Schema.optionalKey(Schema.Boolean),
     messages: Schema.Array(Schema.Unknown).check(Schema.isMaxLength(500)),
     read_cursors: Schema.optionalKey(Schema.Unknown)
   }),
   result: commit,
   errors: [...conversationErrors, "conversation_exists", "import_out_of_order", "importing", "invalid_conversation_id"],
-  docs: "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+  docs: "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.",
   cli: { path: "chat import", visible: false },
   mcp: { expose: "never", group: "home" }
 })

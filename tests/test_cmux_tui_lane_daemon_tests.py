@@ -4,8 +4,7 @@
 The cmux_next_ daemon tests ran on every branch push with a new tree key, on
 the owned minis' shared side lane: 17 of the 48 daemon-test jobs queued there
 at 2026-10-14 12:59Z were lane-branch pushes. A feat-cmux-next pull request's
-own run (pull_request_target) and its cmux-tui-pin-* merge tree already test
-the tree that gates the merge. So a lane-branch push now builds and publishes
+cmux-tui-pin-* merge tree already tests the tree that gates the merge. So a lane-branch push now builds and publishes
 its tree (source.json daemonTests "separate") with no daemon-tests marker, and
 any run that does test (feat-cmux-next, cmux-tui-pin-*, next-batch/*, main,
 a pull request, a dispatch, or a push whose head commit carries the trailer

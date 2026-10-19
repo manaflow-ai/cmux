@@ -81,6 +81,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
          );",
     )?;
     super::tab_state_store::add_tab_icon_column(transaction)?;
+    super::tab_state_store::add_tab_marked_unread_column(transaction)?;
     super::browser_devices::add_tab_emulation_column(transaction)?;
     super::browser_devices::create_schema(transaction)?;
     crate::workspace_registry::presentation_store::add_group_icon_column(
@@ -99,6 +100,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::sidebar_doc_store::create_sidebar_doc_schema(transaction)?;
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
+    super::stash_store::create_stash_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::home_store::create_home_schema(transaction)?;

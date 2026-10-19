@@ -51,6 +51,36 @@ const composerControls = {
   },
 };
 
+// A Claude chat as Leo's app shows it (2026-10-13): the agent names its model with the vendor
+// ("Claude Opus 5.5"), the access mode is the default, nothing used yet, on this Mac.
+function footerChat(mode: "default" | "full-access") {
+  const base = chat(finished);
+  return {
+    ...base,
+    catalog: CATALOG.map((entry) =>
+      entry.id === "claude"
+        ? {
+            ...entry,
+            models: entry.models.map((model) =>
+              model.id === "claude-opus-5-5" ? { ...model, name: "Claude Opus 5.5" } : model,
+            ),
+          }
+        : entry,
+    ),
+    summary: {
+      ...base.summary!,
+      usage: { used: 0, size: 200_000 },
+      modes: {
+        currentModeId: mode,
+        availableModes: [
+          { id: "default", name: "Default", description: "Ask before sensitive actions." },
+          { id: "full-access", name: "Full access", description: "Run actions without asking." },
+        ],
+      },
+    },
+  };
+}
+
 // A new chat in a project on `branch`, before its first send.
 const onBranch = (branch: string) =>
   noChat([session({ sessionId: "older", title: "An older chat" })], {
@@ -98,6 +128,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -175,6 +206,59 @@ export default agentPaneEntry({
         await ctx.click({ selector: '[aria-label="Folder"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu"));
       },
+    },
+    "footer-essentials": {
+      note: 'Leo 2026-10-13, the footer "tells too much": the model without its vendor, the default access mode as its lock alone, no context ring before any use, the folder without this Mac\'s name. Titles and labels keep the full text.',
+      snapshot: footerChat("default"),
+    },
+    // The location row is a new chat's only (locationRow.ts).
+    "footer-essentials-new-chat": {
+      note: "A new chat's location row: the folder by name, the computer as the strip draws it.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+    },
+    "footer-full-access": {
+      note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
+      snapshot: footerChat("full-access"),
+    },
+    // Leo 2026-10-19: no composer button draws a pill at rest, the bolt on included
+    // (test/composer-quiet-chips.test.ts).
+    "quiet-chips": {
+      note: "Every footer button at rest: +, the model, effort and mode chips and the fast bolt on. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
+      snapshot: withSummary(chat(finished, { title: "Quiet chips" }), {
+        modes: {
+          currentModeId: "default",
+          availableModes: [
+            { id: "default", name: "Default", description: "Ask before sensitive actions." },
+            { id: "full-access", name: "Full access", description: "Run actions without asking." },
+          ],
+        },
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "medium",
+            options: [
+              { value: "low", name: "Low" },
+              { value: "medium", name: "Medium" },
+              { value: "high", name: "High" },
+            ],
+          },
+          {
+            id: "fast-mode",
+            name: "Fast mode",
+            category: "model_config",
+            currentValue: "on",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+        ],
+      }),
     },
     idle: {
       note: "After a turn: Send, the mode and model chips.",
@@ -327,6 +411,16 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
+    // Leo 2026-10-18: the empty prompt mid-turn teaches its keys, as Claude's "↵ to send, ⌘↵ to
+    // queue for later" does.
+    "working-hint-steer": {
+      note: "A turn running for an agent that steers: the empty prompt says ↵ queues and ⌘↵ steers.",
+      snapshot: steering(true),
+    },
+    "working-hint-interrupt": {
+      note: "The same for an agent that cannot steer: the empty prompt says ↵ queues and ⌘↵ interrupts.",
+      snapshot: steering(false),
+    },
     "working-stop": {
       note: "Play: stop a running turn; the circular control returns to Send after the host acknowledges cancellation.",
       snapshot: chat(working, { isWorking: true }),
@@ -410,8 +504,30 @@ export default agentPaneEntry({
         await ctx.waitFor(() => prompt() === "draft");
       },
     },
+    "queued-steering": {
+      note: "A prompt sent now to an agent that cannot steer (⌘Return) waits first under Steering: it stops the turn and runs next. The queued prompts stay under Queued and count from 1.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
+      }),
+    },
+    "steer-marks": {
+      note: "Under a steer's bubble: Steering while the agent has not read it, Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
+      snapshot: chat(
+        [
+          user("Add retries", 6),
+          user("Use the cache dir, not tmp", 5, { steer: "landed" }),
+          assistant("Using the cache dir now.", 4),
+          user("Stop and fix the space thing first", 3, { steer: "stopped" }),
+          assistant("Fixing the space handling…", 2),
+          user("Also keep the old flag working", 1, { steer: "waiting" }),
+          assistant("Reading the flag parser…", 0.5, { streaming: true }),
+        ],
+        { isWorking: true },
+      ),
+    },
     "queued-long": {
-      note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
+      note: 'Many queued prompts fold: the next two show, then one "3 more queued" row. The cut-off one shows a tooltip on hover and opens whole on click.',
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -419,7 +535,7 @@ export default agentPaneEntry({
           {
             id: "q2",
             prompt:
-              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then summarize what changed",
+              "Once the retries land, go through every caller of the fetch helper and make sure none of them retries on its own as well, then check the upload path and the sync worker for the same pattern, write down which ones you changed and why, and summarize what changed",
           },
           { id: "q3", prompt: "And update the README" },
           { id: "q4", prompt: "Run the whole suite" },
@@ -429,8 +545,25 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // Target the queue row itself so the pointer enters the span that owns the truncation
         // check; a text target can resolve to the row or a parent in the gallery driver.
-        await ctx.hover({ selector: ".acpmux-queued:nth-child(2) .acpmux-queued-text" });
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q2"] .acpmux-queued-text' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-text[title]"));
+      },
+    },
+    "queued-long-open": {
+      note: 'Play: "3 more queued" opens the whole queue in place, in order, and reads Show less; it closes back the same way.',
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "Check every caller of the fetch helper for its own retries" },
+          { id: "q3", prompt: "And update the README" },
+          { id: "q4", prompt: "Run the whole suite" },
+          { id: "q5", prompt: "Open a PR" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-queue-fold" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 5);
       },
     },
     "queued-send-remove": {
@@ -451,7 +584,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.hover({ text: "Then add a test for the 429 path" });
-        await ctx.click({ selector: '.acpmux-queued:first-child button[aria-label="Remove queued prompt"]' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] button[aria-label="Remove queued prompt"]' });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
         await ctx.click({ role: "button", name: "Stop" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
@@ -507,9 +640,9 @@ export default agentPaneEntry({
       ),
       checks: {
         anchorMovePx: {
-          value: 100,
+          value: 78,
           reason:
-            "The attached image's 96 px thumbnail row (an 80 px thumbnail under the 16 px inset; Leo, 2026-10-14) opens above the prompt, the same growth a pasted image makes.",
+            "The attached image's compact thumbnail row (a 64 px thumbnail 8 px under the top, the text 6 px under it; Leo, 2026-10-18) opens above the prompt, the same growth a pasted image makes.",
         },
         layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
       },
@@ -807,7 +940,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (its line beside it, on one row) and Fast Mode On/Off; the chip reads Medium Fast.",
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (its line beside it, on one row) and Fast Mode On/Off; the chip reads Medium (the bolt beside the mic shows Fast).",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {

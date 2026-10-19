@@ -77,6 +77,7 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+        SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
@@ -101,11 +102,13 @@ extension AppActions {
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
+        // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
+        let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
         services.registry.track(Task {
             var pageMade = false
             defer { input.endIncoming(keys, pageMade: pageMade) }
             do {
-                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                _ = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
                 if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
@@ -130,6 +133,9 @@ extension AppActions {
            lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               !ClosingWorkspaces.shared.ids.contains(workspace.id) else { return } // a second press during the close sends nothing
+        // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
+        if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+           case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
         let daemon = services.activeDaemon
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.

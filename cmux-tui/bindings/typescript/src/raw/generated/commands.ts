@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc. */
+/* cmux-tui mux protocol 12, IR 2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93. */
 
 
 import type * as T from "./types.js";
@@ -499,11 +499,43 @@ export interface CloudConversationThreadRequest extends CmuxRequestBase {
 export type CloudConversationThreadResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudConversationTypingRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-typing";
+  "conversation": string;
+  "on": boolean;
+}
+export type CloudConversationTypingResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
   cmd: "cloud-conversation-unsubscribe";
   "conversation": string;
 }
 export type CloudConversationUnsubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaClearRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-clear";
+  "purge"?: boolean;
+}
+export type CloudHostReplicaClearResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaSetRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-set";
+  "api_base_url": string;
+  "client_version"?: (string) | null;
+  "expires_at": bigint;
+  "host_name": string;
+  "install_token": string;
+}
+export type CloudHostReplicaSetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudHostReplicaStatusRequest extends CmuxRequestBase {
+  cmd: "cloud-host-replica-status";
+}
+export type CloudHostReplicaStatusResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudInboxListRequest extends CmuxRequestBase {
@@ -1258,6 +1290,7 @@ export type HomeInboxResult = {
 /** Protocol v5; authority: control. */
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
+  "machine_metadata"?: boolean;
 }
 
 /** Protocol v6; authority: control. */
@@ -2026,11 +2059,17 @@ export type RenameSurfaceResult = T.EmptyResult;
 export interface RenameWorkspaceRequest extends CmuxRequestBase {
   cmd: "rename-workspace";
   "expected_generation"?: (string) | null;
+  /** The workspace name_revision the caller read; a rename since then fails. */
+  "expected_name_revision"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name": string;
   "origin"?: (string) | null;
+  /** With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed. */
+  "release"?: boolean;
+  /** Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision. */
+  "source"?: (T.NameSource) | null;
   "workspace"?: (T.Id) | null;
 }
 export type RenameWorkspaceResult = T.WorkspaceMutationResult;
@@ -2234,6 +2273,7 @@ export interface SetColumnDockRequest extends CmuxRequestBase {
   "mode"?: (string) | null;
   "pane": T.Id;
   "permanent"?: (boolean) | null;
+  "pinned"?: (boolean) | null;
   "role"?: (string) | null;
   "transaction"?: (bigint) | null;
 }
@@ -2816,7 +2856,11 @@ export type CmuxRequest =
   | CloudConversationSnapshotRequest
   | CloudConversationSubscribeRequest
   | CloudConversationThreadRequest
+  | CloudConversationTypingRequest
   | CloudConversationUnsubscribeRequest
+  | CloudHostReplicaClearRequest
+  | CloudHostReplicaSetRequest
+  | CloudHostReplicaStatusRequest
   | CloudInboxListRequest
   | CloudInboxOpRequest
   | CloudInboxSubscribeRequest
@@ -3400,12 +3444,44 @@ export interface CmuxCommandDefinitionMap {
     capability: "conversation-thread-v1";
     stream: null;
   };
+  "cloud-conversation-typing": {
+    request: CloudConversationTypingRequest;
+    result: CloudConversationTypingResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-typing-v1";
+    stream: null;
+  };
   "cloud-conversation-unsubscribe": {
     request: CloudConversationUnsubscribeRequest;
     result: CloudConversationUnsubscribeResult;
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-host-replica-clear": {
+    request: CloudHostReplicaClearRequest;
+    result: CloudHostReplicaClearResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
+    stream: null;
+  };
+  "cloud-host-replica-set": {
+    request: CloudHostReplicaSetRequest;
+    result: CloudHostReplicaSetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
+    stream: null;
+  };
+  "cloud-host-replica-status": {
+    request: CloudHostReplicaStatusRequest;
+    result: CloudHostReplicaStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-host-replica-v1";
     stream: null;
   };
   "cloud-inbox-list": {

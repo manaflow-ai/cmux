@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -32,6 +33,9 @@ final class NotificationCenterService {
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
     private(set) var viewedRevision: UInt64 = 0
+    /// The tabs viewed at the last viewed-tab pass: a tab marked unread
+    /// (Mark Tab Unread) clears when it comes into view, not while it stays.
+    @ObservationIgnored var viewedTabIDs: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
@@ -47,6 +51,8 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
+    /// `notifications.dockBounce`: the running bounce, ended when nothing is unread.
+    @ObservationIgnored let dockAttention = DockAttention()
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
     @ObservationIgnored var feedDriver: FeedHandoffDriver?
     /// Agent permission prompts to the person's feed, while
@@ -216,7 +222,7 @@ final class NotificationCenterService {
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
         guard tab.hasUnread else { return }
-        guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
+        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
         acknowledge(tab)
     }
@@ -276,13 +282,14 @@ final class NotificationCenterService {
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        let decision = NotificationPolicy.decide(arrival, prefs: preferences)
+        let decision = NotificationPolicy(prefs: preferences).decide(arrival)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
+            if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
         }
         if decision.acknowledge {
@@ -344,6 +351,7 @@ final class NotificationCenterService {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
         }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
+        if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,

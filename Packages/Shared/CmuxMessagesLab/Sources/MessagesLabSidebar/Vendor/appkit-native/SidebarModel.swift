@@ -323,6 +323,8 @@ struct SidebarPalette: Equatable {
     var selectionActive: CGColor
     var selectionInactive: CGColor
     var selectedText: CGColor
+    // cmux: a pinned tile's name when not selected (Messages' label colour; Home's neutral selection draws it grey).
+    var pinName: CGColor
     var monogramTop: CGColor
     var monogramBottom: CGColor
     var groupDisc: CGColor
@@ -357,6 +359,7 @@ struct SidebarPalette: Equatable {
                 selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                 selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
                 selectedText: NSColor.alternateSelectedControlTextColor.cgColor,
+                pinName: NSColor.labelColor.cgColor, // cmux
                 // Contacts' monogram disc (grey gradient, white initials): to verify.
                 monogramTop: dark ? p3(132, 136, 145) : p3(166, 171, 184),
                 monogramBottom: dark ? p3(104, 108, 117) : p3(134, 139, 151),

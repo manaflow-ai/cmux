@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(16px,calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
 @media (max-height:480px){.nt-screen{padding-top:12px}}
@@ -86,30 +86,17 @@
 }
 /* The location strip (ComposerContext, the composer's own; hq#1957 composer location strip) heads
    the card as plain text a few px over it (Cursor's home, #21133; the rules after the strip's fill
-   below). Under a top strip variant (Debug Settings) it is a tab of the card's fill instead, in
-   from the card's sides by its corner radius. Its wrapper only marks the page as touched, so it
+   below). Under a top strip variant (Debug Settings) it is a strip of the card's fill instead,
+   spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
-.nt-composer { --acpmux-strip-inset: 20px; }
-/* The strip is the box's fill (.nt-box below): the composer's surface, and the box's hover lift
-   while the box has the pointer, so the two stay one surface at rest and on hover. */
+.nt-composer { --acpmux-strip-radius: 20px; }
+/* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
+   surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and
+   ChatGPT's; only its controls answer the pointer). */
 .nt-composer .acpmux-composer-strip {
-  --nt-box-fill: color-mix(
-    in srgb,
-    var(--cmux-hover, color-mix(in srgb, var(--agent-text) 6%, transparent)) var(--nt-box-lift),
-    transparent
-  );
-  background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)),
-    var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-}
-.nt-composer:has(.nt-box:hover:not(:focus-within)) .acpmux-composer-strip {
-  --nt-box-lift: 100%;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .nt-composer .acpmux-composer-strip {
-    transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
-  }
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
 }
 /* Without a top strip variant (Debug Settings agentPane.debug.topStripStyle, composerLocation.css),
    the folder and computer are plain text over the card, as Cursor's home draws them: no tab shape,
@@ -167,7 +154,7 @@
   border-radius: 10px;
 }
 .nt-screen[data-template="console"] .nt-composer {
-  --acpmux-strip-inset: 10px;
+  --acpmux-strip-radius: 10px;
 }
 .nt-screen[data-template="console"],
 .nt-screen[data-template="console"] .nt-field {
@@ -184,7 +171,7 @@
   border-radius: 24px;
 }
 .nt-screen[data-template="composer"] .nt-composer {
-  --acpmux-strip-inset: 24px;
+  --acpmux-strip-radius: 24px;
 }
 .nt-screen[data-template="composer"] .nt-input {
   min-height: 96px;
@@ -348,17 +335,10 @@
 .nt-style-name[data-shown]{opacity:1;transition-duration:var(--agent-motion-hover,80ms)}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option::after{transition:none}}
 
-/* The browser omnibar's pointer and hover (OmnibarPointer, cx-d0d.80): the field row is the
-   text area, so the I-beam shows over all of it (a press there focuses the field, focusFromRow);
-   the pickers and buttons keep the arrow. The box lifts on hover by the native hover fill
-   (Palette.hoverFill, --cmux-hover) over the composer's surface, not while it has the keyboard,
-   and eases with the hover token both ways. The lift is a gradient layer over the surface, clear
-   at rest, so it is a registered property that can ease. */
-@property --nt-box-lift {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 0%;
-}
+/* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
+   the I-beam shows over all of it (a press there focuses the field, focusFromRow); the pickers and
+   buttons keep the arrow. The box itself has no hover state: it is the composer's surface at rest,
+   under the pointer and while it has the keyboard (Leo 2026-10-18). */
 .nt-input {
   cursor: text;
 }
@@ -366,21 +346,7 @@
   cursor: default;
 }
 .nt-box {
-  --nt-box-fill: color-mix(
-    in srgb,
-    var(--cmux-hover, color-mix(in srgb, var(--agent-text) 6%, transparent)) var(--nt-box-lift),
-    transparent
-  );
-  background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)),
-    var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-}
-.nt-box:hover:not(:focus-within) {
-  --nt-box-lift: 100%;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .nt-box {
-    transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
-  }
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
 }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
@@ -424,3 +390,69 @@
 .nt-cards[data-variant="list"] .nt-card-children > .nt-card {
   padding-left: 30px;
 }
+/* Now Playing (NowPlayingPlayer.tsx): the sidebar card's track, large, under the create actions.
+   One quiet surface; Play or Pause is the one filled control, in the text color. The level bars
+   sway on three unequal periods while it plays and rest still when paused or under reduced motion. */
+.nt-player{display:flex;align-items:center;gap:16px;margin:16px 4px 0;padding:14px;max-width:440px;
+  border-radius:14px;background:color-mix(in srgb,var(--cmux-text,currentColor) 5%,transparent)}
+.nt-player-art{flex:none;width:88px;height:88px;border-radius:10px;overflow:hidden;
+  background:color-mix(in srgb,var(--cmux-text,currentColor) 8%,transparent)}
+.nt-player-art img{display:block;width:100%;height:100%;object-fit:cover}
+.nt-player-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:8px}
+.nt-player-head{display:flex;align-items:flex-start;gap:10px}
+.nt-player-text{flex:1 1 auto;min-width:0}
+.nt-player-title{font-weight:600;font-size:var(--text-body);line-height:var(--text-body--line-height);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nt-player-artist{opacity:.65;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nt-player-levels{flex:none;display:flex;align-items:flex-end;gap:2px;height:12px;margin-top:3px;opacity:.6}
+.nt-player-levels i{display:block;width:2.5px;border-radius:2px;background:currentColor;transform-origin:bottom}
+.nt-player-levels i:nth-child(1){height:40%}
+.nt-player-levels i:nth-child(2){height:65%}
+.nt-player-levels i:nth-child(3){height:30%}
+.nt-player[data-playing="true"] .nt-player-levels i{height:100%;animation:nt-player-level 1.6s ease-in-out infinite}
+.nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){animation-duration:1.3s}
+.nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){animation-duration:1.9s}
+@keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
+.nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--cmux-text,currentColor) 12%,transparent);overflow:hidden}
+.nt-player-played{height:100%;background:currentColor;opacity:.55;transition:width 1s linear}
+.nt-player-controls{display:flex;align-items:center;gap:18px}
+.nt-player-button{display:grid;place-items:center;width:24px;height:24px;padding:4px;border:0;border-radius:50%;
+  background:transparent;color:inherit;opacity:.75;cursor:default}
+.nt-player-button:hover:not(:disabled){opacity:1}
+.nt-player-button:disabled{opacity:.3}
+.nt-player-button:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,currentColor);outline-offset:2px}
+.nt-player-play{width:36px;height:36px;padding:9px;border-radius:50%;opacity:1;background:var(--cmux-text,currentColor);
+  color:var(--cmux-surface-solid,var(--acpmux-base))}
+.nt-player-play:active{opacity:.75}
+@media (prefers-reduced-motion:reduce){
+  .nt-player[data-playing="true"] .nt-player-levels i{animation:none;height:auto}
+  .nt-player[data-playing="true"] .nt-player-levels i:nth-child(1){height:40%}
+  .nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){height:65%}
+  .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){height:30%}
+  .nt-player-played{transition:none}
+}
+/* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
+   hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
+   one, as the page's other rows do. A chat's state reads in the theme's amber (input) or red. */
+.nt-widgets{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.nt-widget{display:flex;flex-direction:column;box-sizing:border-box;padding:6px;border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
+.nt-widget-row{display:flex;align-items:center;gap:12px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;cursor:default}
+button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
+.nt-widget-icon{flex:none;color:var(--acpmux-composer-dim)}
+.nt-widget-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nt-widget-check{flex:none;color:var(--agent-text)}
+.nt-widget-rule{height:0;margin:4px -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.nt-widget-attention{gap:4px}
+.nt-widget-chat{display:flex;align-items:center;gap:4px;min-width:0;padding-right:6px;border-radius:14px}
+.nt-widget-chat:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+.nt-widget-chat-open{flex:1;display:flex;align-items:baseline;gap:6px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);line-height:36px;text-align:left;cursor:default}
+.nt-widget-chat-open:hover{color:var(--agent-text)}
+.nt-widget-state{flex:none;color:var(--agent-warning,var(--agent-text))}
+.nt-widget-chat[data-state=error] .nt-widget-state,.nt-widget-chat[data-state=failed] .nt-widget-state{color:var(--agent-danger)}
+.nt-widget-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nt-widget-dismiss{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;padding:0;background:none;color:var(--acpmux-composer-dim);cursor:default}
+.nt-widget-dismiss:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.nt-widget-tip{display:flex;flex-direction:column;gap:2px;max-width:360px}
+.nt-widget-tip-title{color:var(--agent-text)}
+.nt-widget-tip-detail{color:var(--acpmux-composer-dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}
