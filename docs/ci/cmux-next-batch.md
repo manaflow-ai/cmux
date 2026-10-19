@@ -8,6 +8,7 @@ Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, reba
 - It's by a batch author (the `CMUX_NEXT_BATCH_AUTHORS` variable, default `teamleaderleo`), or anyone else labels it `batch-queue`.
 - It has none of the labels `hold`, `exploration`, `needs a call`, `default call`, `do-not-merge` or `wip`.
 - Its head commit is less than 5 days old.
+- GitHub doesn't report it as conflicting with feat-cmux-next. One that does waits for its owner to merge feat-cmux-next, instead of taking a batch slot.
 - It doesn't change `.github/workflows/`. Those PRs land by hand.
 - coord-2 doesn't land it itself: every `manaflow-ai/cmux|<pr>|...` entry in the `CMUX_NEXT_BATCH_EXCLUDE` file (coord-2's merge-ready list) stays out. That file exists only on the coordinator's host, so an Actions batch never lands; it validates and posts receipts.
 - No check is red outside the heavy tier, except web formatting (`web / react-apps-check`, `web / Web status`) on a PR that changes `webviews/`. Before landing such a PR, the queue runs `bun run check:fix` (formatter and lint autofix) on its head in `regen-linux` and pushes the fix to its branch. That push happens only for a batch author's PR; an opted-in PR by anyone else keeps its red check. The formatted head is new, so it lands in a later batch once its checks rerun and it's reviewed.
