@@ -12,7 +12,7 @@ import { Effect, Option } from "effect";
 import { OwnershipStore, type OwnedResource, type PagePosition } from "../db/stores.ts";
 import type { StoreError } from "../db/sql.ts";
 import { carriesRequiredLabels, type Principal } from "../domain/principal.ts";
-import { parseVmId, type DeviceId, type MeshId, type ResourceId, type ResourceKind, type SnapshotId, type TunnelId, type UpstreamId, type VmId } from "../lib/ids.ts";
+import { parseVmId, type DeviceId, type IdentityId, type MeshId, type ResourceId, type ResourceKind, type SnapshotId, type TunnelId, type UpstreamId, type VmId } from "../lib/ids.ts";
 
 const TenantOwnsResource = defineProof("TenantOwnsResource");
 
@@ -71,6 +71,8 @@ export const tenantOwnsMesh = <C, R>(caller: Named<C, Principal>, mesh: Named<R,
 export const tenantOwnsDevice = <C, R>(caller: Named<C, Principal>, device: Named<R, DeviceId>) => owns(caller, device, "device");
 
 export const tenantOwnsTunnel = <C, R>(caller: Named<C, Principal>, tunnel: Named<R, TunnelId>) => owns(caller, tunnel, "tunnel");
+
+export const tenantOwnsIdentity = <C, R>(caller: Named<C, Principal>, identity: Named<R, IdentityId>) => owns(caller, identity, "identity");
 
 /** What a list handler may read from an ownership row; the upstream id stays with the proof. */
 export type OwnedRowView = Pick<OwnedResource, "cmuxId" | "displayName" | "createdAt" | "labels">;

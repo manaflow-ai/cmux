@@ -31,6 +31,7 @@
     "@cloudflare/workers-types": "5.20260928.1",
     "@electric-sql/pglite": "0.5.8",
     "@types/node": "26.6.3",
+    "freestyle": "0.2.16",
     "oxlint": "1.86.0",
     "typescript": "7.0.2",
     "vitest": "4.1.11",

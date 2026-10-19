@@ -21,6 +21,11 @@ export interface FakeSnapshot {
   readonly autoDeleteSeconds: number | null;
 }
 
+export interface FakeIdentity {
+  readonly id: string;
+  readonly managed: boolean;
+}
+
 /** One upstream call as the fake saw it. `json` is the parsed JSON body, if any. */
 export interface UpstreamCall {
   readonly method: string;
@@ -43,10 +48,19 @@ export type UpstreamOperation =
   | "read"
   | "write"
   | "dir"
-  | "resize";
+  | "resize"
+  | "identityCreate"
+  | "identityGet"
+  | "identityDelete"
+  | "grant"
+  | "permissionList"
+  | "tokenCreate"
+  | "tokenList"
+  | "tokenDelete";
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
+const IDENTITY_PATH = /^\/v5\/identities\/([^/]+)(?:\/(.*))?$/;
 
 const vmBody = (vm: FakeVm) => ({
   id: vm.id,
@@ -56,7 +70,7 @@ const vmBody = (vm: FakeVm) => ({
   resources: vm.resources,
   idleTimeoutSeconds: vm.idleTimeoutSeconds,
   displayName: vm.displayName,
-  metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
+  metadata: { ...vm.metadata },
   createdAt: "2026-10-01T00:00:00Z",
   updatedAt: "2026-10-02T00:00:00Z",
 });
@@ -76,6 +90,9 @@ const conflict = (message: string) => Response.json({ code: "CONFLICT", message 
 export function makeFakeUpstream(apiKey: string) {
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
+  const identities = new Map<string, FakeIdentity>();
+  const grants = new Map<string, { id: string; identityId: string; vmId: string; allowedLinuxUsers: string[] | null }>();
+  const tokens = new Map<string, { identityId: string; token: string }>();
   const files = new Map<string, Uint8Array>();
   const calls: UpstreamCall[] = [];
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
@@ -91,6 +108,7 @@ export function makeFakeUpstream(apiKey: string) {
 
   const fileKey = (vmId: string, path: string) => `${vmId}\u0000${path}`;
 
+  const identityBody = (identity: FakeIdentity) => ({ id: identity.id, accountId: "acct-test", managed: identity.managed });
   const handle = async (operation: UpstreamOperation, request: Request, url: URL, vmId: string | null): Promise<Response> => {
     const failure = takeFailure(operation);
     if (failure !== null) return failure;
@@ -98,6 +116,53 @@ export function makeFakeUpstream(apiKey: string) {
     switch (operation) {
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
+      case "identityCreate": {
+        const identity = { id: `idn-${crypto.randomUUID()}`, managed: false };
+        identities.set(identity.id, identity);
+        return Response.json(identityBody(identity), { status: 201 });
+      }
+      case "identityGet": {
+        const match = IDENTITY_PATH.exec(url.pathname);
+        const identity = match?.[1] === undefined ? undefined : identities.get(decodeURIComponent(match[1]));
+        return identity === undefined ? Response.json({ code: "NOT_FOUND", message: "no such identity" }, { status: 404 }) : Response.json(identityBody(identity));
+      }
+      case "identityDelete": {
+        const match = IDENTITY_PATH.exec(url.pathname);
+        if (match?.[1] !== undefined) identities.delete(decodeURIComponent(match[1]));
+        return new Response(null, { status: 204 });
+      }
+      case "grant": {
+        const match = IDENTITY_PATH.exec(url.pathname);
+        const identityId = match?.[1] === undefined ? "" : decodeURIComponent(match[1]);
+        const body = (await request.clone().json().catch(() => ({}))) as Record<string, unknown>;
+        const vmId = typeof body.vmId === "string" ? body.vmId : "";
+        const grant = { id: `vmp-${crypto.randomUUID()}`, identityId, vmId, allowedLinuxUsers: Array.isArray(body.allowedLinuxUsers) ? body.allowedLinuxUsers.filter((value): value is string => typeof value === "string") : null };
+        grants.set(`${identityId}\u0000${vmId}`, grant);
+        return Response.json({ ...grant, grantedAt: "2026-10-04T00:00:00Z", grantedBy: "acct-test" });
+      }
+      case "permissionList": {
+        const match = IDENTITY_PATH.exec(url.pathname);
+        const identityId = match?.[1] === undefined ? "" : decodeURIComponent(match[1]);
+        return Response.json({ permissions: [...grants.values()].filter((grant) => grant.identityId === identityId).map((grant) => ({ ...grant, grantedAt: "2026-10-04T00:00:00Z", grantedBy: "acct-test" })) });
+      }
+      case "tokenCreate": {
+        const match = IDENTITY_PATH.exec(url.pathname);
+        const identityId = match?.[1] === undefined ? "" : decodeURIComponent(match[1]);
+        const id = `tok-${crypto.randomUUID()}`;
+        const token = `identity-${crypto.randomUUID()}`;
+        tokens.set(id, { identityId, token });
+        return Response.json({ id, token });
+      }
+      case "tokenList": {
+        const match = IDENTITY_PATH.exec(url.pathname);
+        const identityId = match?.[1] === undefined ? "" : decodeURIComponent(match[1]);
+        return Response.json([...tokens].filter(([, value]) => value.identityId === identityId).map(([id]) => ({ id })));
+      }
+      case "tokenDelete": {
+        const match = IDENTITY_PATH.exec(url.pathname);
+        if (match?.[2] !== undefined) tokens.delete(decodeURIComponent(match[2]).split("/").at(-1) ?? "");
+        return new Response(null, { status: 204 });
+      }
       case "create": {
         const body: unknown = await request.clone().json();
         const record = typeof body === "object" && body !== null ? body : {};
@@ -149,7 +214,7 @@ export function makeFakeUpstream(apiKey: string) {
           autoDeleteSeconds: typeof auto === "number" ? auto : null,
         };
         snapshots.set(snapshot.id, snapshot);
-        return Response.json({ snapshotId: snapshot.id, sourceVmId: vm.id, snapshot: { id: snapshot.id, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" } });
+        return Response.json({ snapshotId: snapshot.id, sourceVmId: vm.id, snapshot: { id: snapshot.id, sourceVmId: vm.id, public: false, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" } });
       }
       case "deleteSnapshot": {
         const match = SNAPSHOT_PATH.exec(url.pathname);
@@ -232,6 +297,14 @@ export function makeFakeUpstream(apiKey: string) {
   };
 
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
+    if (url.pathname === "/v5/identities" && method === "POST") return { operation: "identityCreate", vmId: null };
+    if (IDENTITY_PATH.test(url.pathname)) {
+      const match = IDENTITY_PATH.exec(url.pathname);
+      const rest = match?.[2] ?? "";
+      if (rest === "") return { operation: method === "DELETE" ? "identityDelete" : "identityGet", vmId: null };
+      if (rest === "permissions/vm" || rest.startsWith("permissions/vm/")) return { operation: method === "GET" ? "permissionList" : "grant", vmId: null };
+      if (rest.startsWith("tokens")) return { operation: method === "POST" ? "tokenCreate" : method === "GET" ? "tokenList" : "tokenDelete", vmId: null };
+    }
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
@@ -264,7 +337,8 @@ export function makeFakeUpstream(apiKey: string) {
     let json: unknown = null;
     if (raw !== null && contentType.includes("application/json")) json = JSON.parse(new TextDecoder().decode(raw));
     calls.push({ method: request.method, path: url.pathname, search: url.searchParams, json, bytes: raw });
-    if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
+    const authorization = request.headers.get("authorization") ?? "";
+    if (authorization !== `Bearer ${apiKey}` && ![...tokens.values()].some((token) => authorization === `Bearer ${token.token}`)) {
       return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
     }
     const route = operationOf(request.method, url);
@@ -276,6 +350,9 @@ export function makeFakeUpstream(apiKey: string) {
     fetch,
     vms,
     snapshots,
+    identities,
+    grants,
+    tokens,
     files,
     calls,
     /** Makes the next `times` calls of `operation` answer `status`. */

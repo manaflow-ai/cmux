@@ -81,6 +81,20 @@ creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 integration tests (fake upstream), the PGlite store tests and the bundle size
 budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
+## Freestyle-compatible API
+
+The worker also serves the pinned provider contract under `/v5`. A Freestyle
+API key (`cmuxvm_sk_...`) or Stack access token with `X-Freestyle-Team-Id`
+selects one Stack team; provider ids remain wire-compatible while ownership
+rows keep `/v1` and `/v5` views joined. VMs, snapshots, identities, grants,
+tokens, exec and PTY routes are tenant-scoped. Cross-tenant and unowned ids
+answer the provider error shape with `NOT_FOUND`.
+
+Background requests, account-wide hardware, domains/TLS, VPCs and other
+provider surfaces that cannot be safely tenant-scoped answer `NOT_AVAILABLE`.
+The worker drops the provider background header so supported calls always
+complete inline.
+
 ## Operations
 
 Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside

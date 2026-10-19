@@ -18,9 +18,10 @@ export const RESOURCE_PREFIXES = {
   mesh: "mesh_",
   device: "dev_",
   tunnel: "tun_",
+  identity: "idn_",
 } as const;
 
-export const ResourceKind = Schema.Literal("vm", "snapshot", "mesh", "device", "tunnel");
+export const ResourceKind = Schema.Literal("vm", "snapshot", "mesh", "device", "tunnel", "identity");
 export type ResourceKind = typeof ResourceKind.Type;
 
 const opaque = (prefix: string) => new RegExp(`^${prefix}[${BASE32}]{${BODY_LENGTH}}$`);
@@ -43,8 +44,11 @@ export type DeviceId = typeof DeviceId.Type;
 export const TunnelId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.tunnel)), Schema.brand("TunnelId"));
 export type TunnelId = typeof TunnelId.Type;
 
+export const IdentityId = Schema.String.pipe(Schema.pattern(opaque(RESOURCE_PREFIXES.identity)), Schema.brand("IdentityId"));
+export type IdentityId = typeof IdentityId.Type;
+
 /** Any public resource id. */
-export type ResourceId = VmId | SnapshotId | MeshId | DeviceId | TunnelId;
+export type ResourceId = VmId | SnapshotId | MeshId | DeviceId | TunnelId | IdentityId;
 
 /** API key ids are public (shown in key listings and audit logs); the secret is not. */
 export const ApiKeyId = Schema.String.pipe(Schema.pattern(opaque("vmk_")), Schema.brand("ApiKeyId"));
@@ -96,6 +100,7 @@ export const newSnapshotId = (): SnapshotId => SnapshotId.make(RESOURCE_PREFIXES
 export const newMeshId = (): MeshId => MeshId.make(RESOURCE_PREFIXES.mesh + randomIdBody());
 export const newDeviceId = (): DeviceId => DeviceId.make(RESOURCE_PREFIXES.device + randomIdBody());
 export const newTunnelId = (): TunnelId => TunnelId.make(RESOURCE_PREFIXES.tunnel + randomIdBody());
+export const newIdentityId = (): IdentityId => IdentityId.make(RESOURCE_PREFIXES.identity + randomIdBody());
 export const newApiKeyId = (): ApiKeyId => ApiKeyId.make("vmk_" + randomIdBody());
 
 /** Decodes a public VM id; any malformed input is simply "no such VM". */
@@ -108,3 +113,4 @@ export const parseSnapshotId = Schema.decodeUnknownOption(SnapshotId);
 export const parseMeshId = Schema.decodeUnknownOption(MeshId);
 export const parseDeviceId = Schema.decodeUnknownOption(DeviceId);
 export const parseTunnelId = Schema.decodeUnknownOption(TunnelId);
+export const parseIdentityId = Schema.decodeUnknownOption(IdentityId);

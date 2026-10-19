@@ -11,6 +11,7 @@ import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
 import { signWebhookContent } from "../../src/auth/webhook-signature.ts";
 import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
+import { IdentityStore, type IdentityGrant, type IdentityRecord, type IdentityToken } from "../../src/compat/identity-store.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
 import { memoryLimitsLayer } from "../../src/limits/service.ts";
@@ -18,6 +19,8 @@ import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
+import { compatUpstreamLayer } from "../../src/upstream/compat.ts";
+import { noopUsageRecorderLayer } from "../../src/metering/recorder.ts";
 import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
@@ -75,6 +78,9 @@ interface StoredKey extends ApiKeyRecord {
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
+  const identityRecords: IdentityRecord[] = [];
+  const identityGrants: IdentityGrant[] = [];
+  const identityTokens: IdentityToken[] = [];
   const keys: StoredKey[] = [];
   /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
   const serviceKeys: Array<{
@@ -126,6 +132,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
     find: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
+      ),
+    findByUpstream: (tenantId, kind, upstreamId) =>
+      Effect.sync(() =>
+        Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.upstreamId === upstreamId && live(row))),
       ),
     record: (resource) => Effect.sync(() => void resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) })),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
@@ -210,6 +220,19 @@ export async function makeHarness(options: HarnessOptions = {}) {
         ),
     }),
     auditStore,
+    Layer.succeed(IdentityStore, {
+      recordIdentity: (identity) => Effect.sync(() => void identityRecords.push(identity)),
+      listIdentities: (tenantId) => Effect.sync(() => identityRecords.filter((identity) => identity.tenantId === tenantId && resources.some((row) => row.cmuxId === identity.cmuxId && live(row)))),
+      markIdentityDeleted: (tenantId, id) => Effect.sync(() => { for (const row of resources) if (row.tenantId === tenantId && row.cmuxId === id) deleted.add(id); }),
+      recordGrant: (grant) => Effect.sync(() => { const index = identityGrants.findIndex((existing) => existing.tenantId === grant.tenantId && existing.identityCmuxId === grant.identityCmuxId && existing.vmCmuxId === grant.vmCmuxId); if (index < 0) identityGrants.push(grant); else identityGrants[index] = grant; }),
+      listGrants: (tenantId, identityId) => Effect.sync(() => identityGrants.filter((grant) => grant.tenantId === tenantId && grant.identityCmuxId === identityId)),
+      findGrant: (tenantId, identityId, vmId) => Effect.sync(() => Option.fromNullable(identityGrants.find((grant) => grant.tenantId === tenantId && grant.identityCmuxId === identityId && grant.vmCmuxId === vmId))),
+      revokeGrant: (tenantId, identityId, vmId) => Effect.sync(() => { const index = identityGrants.findIndex((grant) => grant.tenantId === tenantId && grant.identityCmuxId === identityId && grant.vmCmuxId === vmId); if (index >= 0) identityGrants.splice(index, 1); }),
+      recordToken: (token) => Effect.sync(() => void identityTokens.push(token)),
+      listTokens: (tenantId, identityId) => Effect.sync(() => identityTokens.filter((token) => token.tenantId === tenantId && token.identityCmuxId === identityId)),
+      revokeToken: (tenantId, identityId, tokenId) => Effect.sync(() => { const index = identityTokens.findIndex((token) => token.tenantId === tenantId && token.identityCmuxId === identityId && token.id === tokenId); if (index >= 0) identityTokens.splice(index, 1); }),
+      findToken: (tokenHash) => Effect.sync(() => Option.fromNullable(identityTokens.find((token) => token.tokenHash === tokenHash))),
+    }),
     policy,
     entitlements,
     memoryLimitsLayer(),
@@ -217,6 +240,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
       UpstreamClient,
       makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),
     ),
+    compatUpstreamLayer({ baseUrl: UPSTREAM_URL, apiKey: UPSTREAM_KEY, environment: "local", fetch: upstreamFetch }),
+    noopUsageRecorderLayer,
     Layer.succeed(SessionVerifier, makeStackSessionVerifier({ apiUrl: STACK_API_URL, projectId: STACK_PROJECT_ID, getKey })),
     // The real membership client and shared positive cache (mesh M4), over a fake Stack teams API.
     Layer.succeed(

@@ -23,6 +23,10 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
+import { sqlIdentityStoreLayer } from "./compat/identity-store.ts";
+import { compatUpstreamLayer } from "./upstream/compat.ts";
+import { noopUsageRecorderLayer } from "./metering/recorder.ts";
+export { noopUsageRecorderLayer } from "./metering/recorder.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -63,7 +67,7 @@ const liveServices = (env: Env) => {
   });
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer, sqlIdentityStoreLayer).pipe(
       Layer.provide(sql),
     ),
     policy,
@@ -72,6 +76,8 @@ const liveServices = (env: Env) => {
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
     upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    compatUpstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    noopUsageRecorderLayer,
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
     Layer.provideMerge(
       stackLayers({

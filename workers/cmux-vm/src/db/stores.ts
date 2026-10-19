@@ -59,6 +59,8 @@ export interface ApiKeyRecord {
 export interface OwnershipStoreService {
   /** The caller's own resource of this kind, or none. */
   readonly find: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
+  /** The caller's owned resource identified by a provider id. */
+  readonly findByUpstream: (tenantId: TenantId, kind: ResourceKind, upstreamId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
   readonly record: (resource: OwnedResource) => Effect.Effect<void, StoreError>;
   /** The tenant's live resources of this kind, newest first. */
   readonly listPage: (tenantId: TenantId, kind: ResourceKind, options: ListPageOptions) => Effect.Effect<ReadonlyArray<OwnedResource>, StoreError>;
@@ -149,6 +151,20 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           )
           .pipe(
             Effect.flatMap(decodeRows(ResourceRow, "ownership.find")),
+            Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
+          ),
+      findByUpstream: (tenantId, kind, upstreamId) =>
+        sql
+          .query(
+            "ownership.findByUpstream",
+            `SELECT ${RESOURCE_COLUMNS}
+               FROM cmux_vm.resources
+              WHERE upstream_id = $1 AND tenant_id = $2 AND kind = $3 AND deleted_at IS NULL
+              LIMIT 1`,
+            [upstreamId, tenantId, kind],
+          )
+          .pipe(
+            Effect.flatMap(decodeRows(ResourceRow, "ownership.findByUpstream")),
             Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
           ),
       record: (resource) => {

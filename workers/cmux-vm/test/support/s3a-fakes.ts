@@ -143,7 +143,8 @@ export function makeS3aFakes(resources: OwnedResource[], provider: FakeUpstream)
     if (!isSnapshotRead && !isPty) return null;
     requests.push(request);
     provider.calls.push({ method: request.method, path, search: url.searchParams, json: null, bytes: null });
-    if (request.headers.get("authorization") !== `Bearer ${UPSTREAM_KEY}`) {
+    const authorization = request.headers.get("authorization") ?? "";
+    if (authorization !== `Bearer ${UPSTREAM_KEY}` && ![...provider.tokens.values()].some((token) => authorization === `Bearer ${token.token}`)) {
       return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
     }
     if (oneSnapshot?.[1] !== undefined) {

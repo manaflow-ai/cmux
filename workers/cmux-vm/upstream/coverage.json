@@ -84,64 +84,52 @@
       "reason": "Switches a real power outlet on operator hardware; never exposed to tenants."
     },
     "list_identities": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.list"]
     },
     "create_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.create"]
     },
     "delete_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.delete"]
     },
     "describe_identity": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.get"]
     },
     "list_vm_permissions": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.permissions.list"]
     },
     "grant_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.permissions.grant"]
     },
     "revoke_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.permissions.revoke"]
     },
     "describe_vm_permission": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.permissions.get"]
     },
     "update_vm_allowed_linux_users": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.permissions.update"]
     },
     "list_access_tokens": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.tokens.list"]
     },
     "create_access_token": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.tokens.create"]
     },
     "revoke_access_token": {
-      "status": "planned",
-      "bead": "cx-b4h.6",
-      "reason": "planned in cx-b4h.6"
+      "status": "wrapped",
+      "by": ["compat.identities.tokens.revoke"]
     },
     "list_snapshots": {
       "status": "wrapped",
@@ -163,9 +151,8 @@
       ]
     },
     "update_snapshot": {
-      "status": "planned",
-      "bead": "cx-b4h.9",
-      "reason": "planned in cx-b4h.9"
+      "status": "wrapped",
+      "by": ["compat.snapshots.update"]
     },
     "list_tls_rules": {
       "status": "planned",
@@ -315,9 +302,8 @@
       ]
     },
     "update_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["compat.vms.update"]
     },
     "exec_vm": {
       "status": "wrapped",
@@ -333,14 +319,12 @@
       ]
     },
     "path_exists": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["compat.vms.fs.exists"]
     },
     "make_dir": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["compat.vms.fs.mkdir"]
     },
     "read_file": {
       "status": "wrapped",
@@ -349,14 +333,12 @@
       ]
     },
     "remove_path": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["compat.vms.fs.remove"]
     },
     "stat_path": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["compat.vms.fs.stat"]
     },
     "begin_upload": {
       "status": "planned",
@@ -427,9 +409,8 @@
       ]
     },
     "resize_vm": {
-      "status": "planned",
-      "bead": "cx-b4h.2",
-      "reason": "planned in cx-b4h.2"
+      "status": "wrapped",
+      "by": ["compat.vms.resize"]
     },
     "snapshot_vm": {
       "status": "wrapped",

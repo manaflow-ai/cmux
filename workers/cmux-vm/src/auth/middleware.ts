@@ -23,8 +23,62 @@ import {
 } from "./credentials.ts";
 
 export const TEAM_HEADER = "x-cmux-team-id";
+export const FREESTYLE_TEAM_HEADER = "x-freestyle-team-id";
 
 const unauthorized = (message = "A valid cmux VM API key or session token is required") => new Unauthorized({ message });
+
+/** Authentication for the raw Freestyle-compatible boundary. It deliberately
+ * shares the same stores and scope construction as the HttpApi middleware. */
+export const authenticateCompat = (
+  raw: string,
+  headers: Headers,
+): Effect.Effect<Principal, Unauthorized | Forbidden | ServiceUnavailable, ApiKeyStore | ServiceKeys | SessionVerifier | TeamMembership> =>
+  Effect.gen(function* () {
+    const sessions = yield* SessionVerifier;
+    const membership = yield* TeamMembership;
+    const apiKeys = yield* ApiKeyStore;
+    const serviceKeys = yield* ServiceKeys;
+    const teamHeader = headers.get(TEAM_HEADER) ?? headers.get(FREESTYLE_TEAM_HEADER);
+    const tenant = decodeTenantId(teamHeader);
+    if (raw.startsWith(API_KEY_PREFIX)) {
+      if (!isApiKeyShaped(raw)) return yield* Effect.fail(unauthorized());
+      const now = new Date(yield* Clock.currentTimeMillis);
+      const hash = yield* hashApiKey(raw).pipe(Effect.mapError(() => unavailable()));
+      const service = yield* serviceKeys.find(hash);
+      if (Option.isSome(service)) {
+        if (Option.isNone(tenant)) return yield* Effect.fail(unauthorized("Service keys must name a team in the X-Cmux-Team-Id header"));
+        const proof = serviceMayActFor(service.value, tenant.value);
+        if (proof === null) return yield* Effect.fail(new Forbidden({ message: "This service key may not act for this team" }));
+        return servicePrincipal(service.value, tenant.value, proof);
+      }
+      const record = yield* apiKeys.findActiveByHash(hash, now).pipe(Effect.mapError(() => unavailable()));
+      if (Option.isNone(record)) return yield* Effect.fail(unauthorized());
+      return {
+        tenantId: record.value.tenantId,
+        actor: { kind: "api_key", keyId: record.value.id },
+        scopes: scopeSetOf(record.value.scopes),
+        resourceAllowlist: record.value.resourceAllowlist === null ? null : new Set(record.value.resourceAllowlist),
+        credentialExpiresAt: record.value.expiresAt,
+      } satisfies Principal;
+    }
+    if (Option.isNone(tenant)) return yield* Effect.fail(unauthorized("Session tokens must name a team in the X-Freestyle-Team-Id header"));
+    const now = new Date(yield* Clock.currentTimeMillis);
+    const userId = yield* sessions.verify(Redacted.make(raw), now).pipe(
+      Effect.catchTags({
+        SessionRejected: () => Effect.fail(unauthorized()),
+        IdentityUnavailable: () => Effect.fail(unavailable()),
+      }),
+    );
+    const member = yield* membership.isMember(tenant.value, userId).pipe(Effect.mapError(() => unavailable()));
+    if (!member) return yield* Effect.fail(new Forbidden({ message: "You are not a member of this team" }));
+    return {
+      tenantId: tenant.value,
+      actor: { kind: "session", userId },
+      scopes: SESSION_SCOPES,
+      resourceAllowlist: null,
+      credentialExpiresAt: null,
+    } satisfies Principal;
+  });
 
 export const authenticationLayer = Layer.effect(
   Authentication,
