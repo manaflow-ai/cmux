@@ -46,6 +46,16 @@ can leave an unsigned test bundle that breaks the next app CodeSign step.
 For `cmuxApp`/`AppDelegate` changes, retain the current GlobalISel workaround
 when required by project instructions.
 
+## Webview, bun and browser tests
+
+Run a few named test files at a pushed commit on Blacksmith Linux, not on a shared dev box:
+
+```bash
+./scripts/run-linux-tests.sh --ref <pushed-commit-sha> webviews/test/foo.test.tsx --wait
+```
+
+It dispatches `.github/workflows/linux-tests.yml` from main. Each file runs in its own `bun test` with the web bundles built and Playwright's Chromium and WebKit installed, so browser-lane suites run instead of skipping. Paths may be relative to `webviews/`; `--runner 16` or `32` picks a bigger machine, and `--no-bundles` skips the bundle build. The wrapper lives on main; from another branch run `git show origin/main:scripts/run-linux-tests.sh | bash -s -- ...`.
+
 ## UI and socket checks
 
 ## E2E and UI tests
