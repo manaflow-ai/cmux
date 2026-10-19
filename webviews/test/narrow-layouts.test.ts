@@ -16,6 +16,7 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
     "working",
     "pull-requests",
     "new-tab",
+    "new-tab-wide-type",
     "code",
     "permission",
     "model-menu",
