@@ -70,6 +70,9 @@ import PackageDescription
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
 //   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, CmuxScreenKit (Mac Screen tabs: another Mac's screen as a
 //     WebRTC stream, pairing home page, Share This Mac host; CmuxScreenKit links WebRTC.framework)
+//   CmuxNextDevices -> Compat, Wakeups (the device hub: Secure Enclave device identity, the signed
+//     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
+//     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
 //   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; the App adapts it to the pane
 //     as a RemoteViewFrameSource for `via=vnc` records; remote-desktop.md 12)
 //   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
@@ -214,6 +217,7 @@ let package = Package(
                 .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
                 "CmuxNextRemoteBrowser",
                 "CmuxNextMacScreen",
+                "CmuxNextDevices",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -505,6 +509,19 @@ let package = Package(
                 .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
+        ),
+        // The device hub (docs/device-hub/PROTOCOL.md): this device's Secure
+        // Enclave identity, the device-signed HTTP client, the User DO socket,
+        // relay secret sealing and the DeviceHub model the UI reads. No UI.
+        .target(
+            name: "CmuxNextDevices",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextDevicesTests",
+            dependencies: ["CmuxNextDevices", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
         // whose runtime is on another machine. Decode and present come from

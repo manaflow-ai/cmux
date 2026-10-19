@@ -157,6 +157,7 @@
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextDevices",
         "CmuxNextFeed",
         "CmuxNextHistory",
         "CmuxNextHome",
@@ -438,6 +439,25 @@
         "CMUXMobileCore",
         "CmuxTheme"
       ],
+      "reads": []
+    },
+    "CmuxNextDevices": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDevices",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDevicesTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDevicesTests",
+      "targets": [
+        "CmuxNextDevices",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
       "reads": []
     },
     "CmuxNextDictation": {
