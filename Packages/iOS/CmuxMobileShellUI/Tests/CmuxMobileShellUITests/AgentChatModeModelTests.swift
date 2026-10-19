@@ -435,6 +435,15 @@ import Testing
 
         #expect((await source.sent).map(\.0) == ["Inspect this diff"])
         #expect((await source.sent).map(\.1) == ["session"])
+        // The send acknowledgement only proves that the prompt crossed the
+        // transport. The host stream owns turn state, so regeneration remains
+        // busy until it publishes the resulting turn.
+        #expect(model.regeneratingSessionIDs == Set(["session"]))
+        await source.emitHost(
+            sessionID: "session",
+            event: .stateChanged(.working(since: Date(timeIntervalSince1970: 20)))
+        )
+        await settle()
         #expect(model.regeneratingSessionIDs.isEmpty)
     }
 
@@ -496,6 +505,63 @@ import Testing
         await source.emitHost(
             sessionID: "session",
             event: .stateChanged(.working(since: Date(timeIntervalSince1970: 20)))
+        )
+        await settle()
+        #expect(model.regeneratingSessionIDs.isEmpty)
+    }
+
+    @Test func staleRegenerationCompletionCannotClearReplacementSourceState() async {
+        let oldSource = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [ChatHistoryPage(
+                    messages: [
+                        userMessage(id: "old-prompt", seq: 1, text: "Inspect the old diff"),
+                        message(id: "old-response", seq: 2, text: "The old diff is safe.")
+                    ],
+                    hasMore: false
+                )]
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(oldSource)
+        await settle()
+
+        let oldSendGate = await oldSource.holdSends()
+        let oldRegeneration = Task { await model.regenerateLatestResponse() }
+        await oldSource.waitForSendStart()
+
+        let replacementSource = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [ChatHistoryPage(
+                    messages: [
+                        userMessage(id: "new-prompt", seq: 1, text: "Inspect the new diff"),
+                        message(id: "new-response", seq: 2, text: "The new diff is safe.")
+                    ],
+                    hasMore: false
+                )]
+            ]
+        )
+        model.updateSource(replacementSource)
+        await settle()
+
+        let replacementSendGate = await replacementSource.holdSends()
+        let replacementRegeneration = Task { await model.regenerateLatestResponse() }
+        await replacementSource.waitForSendStart()
+        #expect(model.regeneratingSessionIDs == Set(["session"]))
+
+        await oldSendGate.open()
+        await oldRegeneration.value
+        // The old source completion is stale. It must not clear the
+        // replacement source's in-flight regeneration for the same id.
+        #expect(model.regeneratingSessionIDs == Set(["session"]))
+
+        await replacementSendGate.open()
+        await replacementRegeneration.value
+        await replacementSource.emitHost(
+            sessionID: "session",
+            event: .stateChanged(.working(since: Date(timeIntervalSince1970: 21)))
         )
         await settle()
         #expect(model.regeneratingSessionIDs.isEmpty)

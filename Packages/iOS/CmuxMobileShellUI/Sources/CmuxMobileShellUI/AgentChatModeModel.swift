@@ -1130,7 +1130,9 @@ final class AgentChatModeModel {
         regenerationBaselineSeqBySession[selectedSessionID] = baselineResponse.seq
         let generation = sourceGeneration
         guard generation == sourceGeneration, !Task.isCancelled else {
-            clearRegeneration(for: selectedSessionID)
+            if generation == sourceGeneration {
+                clearRegeneration(for: selectedSessionID)
+            }
             return
         }
         do {
@@ -1140,12 +1142,16 @@ final class AgentChatModeModel {
                 sessionID: selectedSessionID
             )
             guard generation == sourceGeneration, !Task.isCancelled else {
-                clearRegeneration(for: selectedSessionID)
+                if generation == sourceGeneration {
+                    clearRegeneration(for: selectedSessionID)
+                }
                 return
             }
         } catch {
             guard generation == sourceGeneration, !Task.isCancelled else {
-                clearRegeneration(for: selectedSessionID)
+                if generation == sourceGeneration {
+                    clearRegeneration(for: selectedSessionID)
+                }
                 return
             }
             clearRegeneration(for: selectedSessionID)
