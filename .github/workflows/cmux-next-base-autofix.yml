@@ -130,10 +130,13 @@ jobs:
     name: action exports (Mac)
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
-    # A newer push's regeneration replaces this one (autofix's own group cancels too).
+    # A running export finishes; only the newest push waits behind it. Cancelling
+    # in progress starved it: feat-cmux-next takes a push every minute or two and
+    # this job takes ten or more, so from 05:27 on 2026-10-19 no export landed
+    # and the settings stamp went stale on every pull request.
     concurrency:
       group: cmux-next-base-autofix-action-exports
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
@@ -286,11 +289,12 @@ jobs:
     # action exports job fails or is skipped.
     needs: [webviews-fmt, action-exports]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' }}
-    # A newer push supersedes this run's repairs (the next run diffs from the
-    # last successful one).
+    # A running repair finishes and lands on the newest tip
+    # (base-autofix-push.sh); only the newest push waits behind it (the next
+    # run diffs from the last successful one).
     concurrency:
       group: cmux-next-base-autofix
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
@@ -441,18 +445,10 @@ jobs:
           echo "::add-mask::$auth"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
-          current="$("${with_auth[@]}" git ls-remote "$remote" refs/heads/feat-cmux-next | awk '{print $1}')"
-          if [[ "$current" != "$HEAD_SHA" ]]; then
-            # Failing keeps this run out of the next run's "since".
-            echo "::error::feat-cmux-next moved to ${current:0:12} after ${HEAD_SHA:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          # A plain push: it fails rather than overwrite a commit pushed meanwhile.
-          if ! "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
-            echo "::error::feat-cmux-next moved during the repair; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+          # Lands the repair on the newest tip unless a newer commit wrote the same
+          # files; a failure keeps this run out of the next run's "since".
+          "${with_auth[@]}" scripts/cmux-next/base-autofix-push.sh "$remote" feat-cmux-next "$HEAD_SHA" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
   # (scripts/ghosttykit-checksums.txt) from our own published release only

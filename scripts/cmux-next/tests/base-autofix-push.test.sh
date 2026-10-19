@@ -20,7 +20,7 @@ setup() {
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && echo src > source.txt && echo old > generated.txt \
     && git add -A && git commit -q -m base && git push -q origin feat)
-  git clone -q -b feat "$tmp/remote.git" "$tmp/bot"
+  git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"  # actions/checkout is shallow
   base="$(git -C "$tmp/bot" rev-parse HEAD)"
   (cd "$tmp/bot" && echo repaired > generated.txt && git commit -q -am "chore(next): base autofix")
 }
