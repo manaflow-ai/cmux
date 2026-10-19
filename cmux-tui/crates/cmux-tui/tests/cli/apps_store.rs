@@ -15,6 +15,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux_tui_core::server::frontend_proof::{NONCE_LEN, hello_proof, unhex};
 use serde_json::{Value, json};
 
+#[path = "apps_store_scope.rs"]
+mod scope;
+
 const KEY_HEX: &str = "8f0e1d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100";
 const INSTALL_ID: &str = "inst_apps_store";
 
@@ -353,21 +356,6 @@ fn app_store_changes_need_the_user_and_first_party_apps_are_hide_only() {
         "user",
     );
     assert_eq!(ok(&reply)["app"]["state"]["installed"], false, "{reply}");
-}
-
-/// `cmux.host.link.get` answers the hub socket from the link agent's
-/// registration (`<daemon state dir>/link.json`) while that link runs.
-#[test]
-fn host_link_get_answers_from_the_link_registration() {
-    // A running link: a live pid (this test) that serves the socket.
-    let (reply, hub) = host_link_get("link", |state, hub| {
-        cmux_link::registration::write(
-            state,
-            &cmux_link::registration::Registration::new(hub.to_path_buf(), std::process::id()),
-        )
-        .unwrap();
-    });
-    assert_eq!(reply["value"]["hub_socket"], json!(hub), "{reply}");
 }
 
 /// With a runtime dir (a login session), a state path too long for a socket
