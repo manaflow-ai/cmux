@@ -20,7 +20,7 @@ off by default, audit) still binds. Owner: hq session cmuxterm-hq-53, worktree
 
 ## 1. Security model
 
-Four checks, in order. Each one only narrows.
+Five checks, in order. Each one only narrows.
 
 1. Tailscale ACLs (the user's tailnet policy) decide reachability.
 2. The host's tsnet listener accepts only on its tailnet addresses (never a
@@ -30,14 +30,24 @@ Four checks, in order. Each one only narrows.
    id), then the allow list (`user:<login>` or `tag:<name>`), then tailnet
    members only with `--allow-tailnet-members`. Tagged devices have no owner
    and pass only by an explicit `tag:` entry. Default deny.
-4. Session rules from remote-desktop.md section 11: hosting off by default,
+4. The WebSocket handshake is refused when it carries a browser `Origin`
+   header. WhoIs names the device, not the program: without this rule a web
+   page that the owner opens could reach the port as the owner. A peer that
+   does not finish the handshake in 10 s is dropped.
+5. Session rules from remote-desktop.md section 11: hosting off by default,
    consent at the host, the indicator with Stop, no agent control, audit.
 
 Fallback path: the room secret (256 bits) authenticates the room, the Worker
 sees signaling only, TURN carries DTLS-SRTP ciphertext only.
 
-tsnet log output is discarded by default (it can contain the sign-in link);
-the link is read from the IPN bus. The node state folder is 0700.
+The sign-in link is a credential until someone uses it: whoever opens it
+first puts the device on their own tailnet and becomes its owner. So the link
+goes only to the IPN bus reader (the CLI, later the app's sign-in button),
+never to a log. tsnet prints it every 5 s through `UserLogf`, which
+libtailscale does not expose; `cmux-tailnet/patches/0001-user-logf-follows-logfd.patch`
+routes it to the log fd (discarded by default). The node state folder is
+0700. The LocalAPI client never uses an environment proxy (it would receive
+the LocalAPI password).
 
 ## 2. Components
 
