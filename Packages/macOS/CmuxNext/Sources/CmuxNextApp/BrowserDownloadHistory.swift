@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import Darwin
 import Foundation
 import os
 
@@ -66,8 +67,7 @@ final class BrowserDownloadHistory {
             do {
                 if let data, !rows.isEmpty {
                     try Self.secureStorage(at: url)
-                    try data.write(to: url, options: .atomic)
-                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+                    try Self.writePrivate(data, to: url)
                 } else if FileManager.default.fileExists(atPath: url.path) {
                     try FileManager.default.removeItem(at: url)
                 }
@@ -77,8 +77,32 @@ final class BrowserDownloadHistory {
         }
     }
 
+    /// Waits until the latest queued persistence operation has finished.
+    func waitForPendingWrites() async {
+        await lastWrite?.value
+    }
+
+    /// Prepares the replacement privately before publishing it at `url`, so interruption cannot
+    /// leave the destination at Foundation's default file mode between an atomic rename and chmod.
+    nonisolated private static func writePrivate(_ data: Data, to url: URL) throws {
+        let files = FileManager.default
+        let temporary = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        defer { try? files.removeItem(at: temporary) }
+        try data.write(to: temporary, options: .withoutOverwriting)
+        try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+        try temporary.withUnsafeFileSystemRepresentation { source in
+            try url.withUnsafeFileSystemRepresentation { destination in
+                guard let source, let destination else { throw CocoaError(.fileWriteInvalidFileName) }
+                guard Darwin.rename(source, destination) == 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+            }
+        }
+    }
+
     /// Browser metadata belongs only to this account. Tightens an existing install as well as a
-    /// new one; the private parent also closes the atomic-write window before the file is chmodded.
+    /// new one; `writePrivate` separately prepares replacements before publishing them.
     nonisolated private static func secureStorage(at url: URL) throws {
         let files = FileManager.default
         let directory = url.deletingLastPathComponent()

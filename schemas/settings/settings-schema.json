@@ -354,6 +354,7 @@
               "sidebar.showProfileControl",
               "sidebar.minimal",
               "sidebar.density",
+              "sidebar.detailedStatusIcons",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -3449,7 +3450,7 @@
       },
       "help" : {
         "key" : "settings.updates.showWhatsNew.help",
-        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+        "text" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.showWhatsNew",
@@ -15046,6 +15047,60 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.detailedStatusIcons.help",
+        "text" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.detailedStatusIcons",
+      "keywords" : [
+        "sidebar",
+        "status",
+        "icons",
+        "badge",
+        "working",
+        "waiting",
+        "input",
+        "error",
+        "done",
+        "agent",
+        "osc 7501"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "detailedStatusIcons"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.detailedStatusIcons",
+        "text" : "Detailed Status Icons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -25647,7 +25702,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "8f3fb35122d0dbfbb1c815815b9ed5725d322ebffa887164e39d3d4801e31b4f",
+  "schema_hash" : "44ea403350073e656593c071fe9cd4a6dfcc28f020341b285f5d641d25f990ee",
   "sections" : [
     {
       "id" : "general",
