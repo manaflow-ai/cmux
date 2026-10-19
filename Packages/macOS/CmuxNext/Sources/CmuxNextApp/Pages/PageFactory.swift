@@ -119,10 +119,20 @@ struct PageFactory {
             openTerminal: { [weak services] line in
                 guard let pane = services?.windows.active?.focusedPane else { return }
                 pane.newTerminalTab(typing: line + "\r")
-            }
+            },
+            runUpdate: { [weak services] id, context in
+                guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
+                return try await updates.runSettings(id: id, context: context, registry: services.registry)
+            },
+            runResume: { [weak services] key, context in
+                guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
+                return try await updates.resumeRetained(key: key, context: context, registry: services.registry)
+            },
+            updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
         )
         provider.harnessesState = { harnesses.state }
-        provider.harnessesRun = { params in try await harnesses.run(params) }
+        provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in

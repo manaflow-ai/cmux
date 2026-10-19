@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+pub(super) mod bun;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Channel {
@@ -32,8 +34,8 @@ pub enum Channel {
 pub struct Install {
     pub channel: Channel,
     pub package: Option<String>,
-    /// The folder an update writes (npm's `lib/node_modules`), to tell
-    /// whether it needs elevated rights.
+    /// The folder an update writes (npm's `lib/node_modules`), to bind its
+    /// target prefix and tell whether it needs elevated rights.
     pub writes: Option<PathBuf>,
 }
 
@@ -86,10 +88,8 @@ pub fn detect(program: &str, path: Option<&Path>, home: &Path) -> Install {
     }
     // Only npm's and bun's global folders; pnpm, yarn and a project's own
     // `node_modules` update some other way.
-    let bun = home.join(".bun/install/global/node_modules");
-    if let Ok(after) = path.strip_prefix(&bun) {
-        let package = package_name(&after.to_string_lossy());
-        return Install { channel: Channel::Bun, package, writes: None };
+    if let Some(install) = bun::detect(path, home) {
+        return install;
     }
     if let Some((before, after)) = text.split_once("/lib/node_modules/")
         && let Some(package) = package_name(after)
@@ -135,11 +135,25 @@ pub fn update_plan(
     let package = install.package.as_deref();
     let argv: Vec<String> = match (install.channel, package) {
         (Channel::Npm, Some(p)) => {
-            vec!["npm".into(), "install".into(), "-g".into(), format!("{p}@latest")]
+            let modules = install.writes.as_deref()?;
+            let lib = modules.parent()?;
+            if modules.file_name()? != "node_modules" || lib.file_name()? != "lib" {
+                return None;
+            }
+            let prefix = lib.parent()?;
+            if !absolute_prefix(prefix) {
+                return None;
+            }
+            vec![
+                "npm".into(),
+                "install".into(),
+                "-g".into(),
+                "--prefix".into(),
+                prefix.to_str()?.into(),
+                format!("{p}@latest"),
+            ]
         }
-        (Channel::Bun, Some(p)) => {
-            vec!["bun".into(), "add".into(), "-g".into(), format!("{p}@latest")]
-        }
+        (Channel::Bun, Some(_)) => bun::argv(install, path?, real?, home)?,
         (Channel::Brew, Some(f)) => vec!["brew".into(), "upgrade".into(), f.into()],
         (Channel::BrewCask, Some(c)) => {
             vec!["brew".into(), "upgrade".into(), "--cask".into(), c.into()]
@@ -151,10 +165,31 @@ pub fn update_plan(
         }
         _ => return None,
     };
-    let elevated = install.writes.as_deref().is_some_and(|dir| !writable(dir));
+    let elevated = install.writes.as_deref().is_some_and(|dir| !writable(dir))
+        || (install.channel == Channel::Bun && !writable(bun::bin_dir(&argv)?));
     let line = argv.iter().map(|w| quote(w)).collect::<Vec<_>>().join(" ");
     let command = if elevated { format!("sudo {line}") } else { line };
     Some(UpdatePlan { argv, command, elevated })
+}
+
+/// Old saved health rows can still contain an update without a target.
+/// Never execute that plan using whichever npm prefix today's shell selects.
+pub(super) fn npm_update_matches(plan: &UpdatePlan, package: Option<&str>) -> bool {
+    let argv = plan.argv.as_slice();
+    let [program, verb, global, flag, prefix, _package] = argv else { return false };
+    Path::new(program).file_name().is_some_and(|name| name == "npm")
+        && verb == "install"
+        && global == "-g"
+        && flag == "--prefix"
+        && absolute_prefix(Path::new(prefix))
+        && package.is_some_and(|package| argv.last() == Some(&format!("{package}@latest")))
+}
+
+fn absolute_prefix(prefix: &Path) -> bool {
+    prefix.is_absolute()
+        && !prefix.components().any(|part| {
+            matches!(part, std::path::Component::CurDir | std::path::Component::ParentDir)
+        })
 }
 
 #[cfg(unix)]
