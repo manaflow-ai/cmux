@@ -723,6 +723,10 @@ impl Hub {
             if let Some(started) = session.child.lock().await.take() {
                 started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
             }
+            // A host that outlived the grace would be re-adopted, still in full access.
+            if Self::host_record_live(&session.id) {
+                self.end_unadopted_host(session).await;
+            }
             self.set_status(session, SessionStatus::Idle);
             self.append(session, "mux", "full_access_refused", json!({}));
             return Err(e);
