@@ -27,7 +27,7 @@ export const withOwnedSnapshot = <const S extends Scope, A, E, R>(
   k: <C, V>(
     caller: Named<C, Principal>,
     snapshot: Named<V, SnapshotId>,
-    proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: KeyHasScope<C, S> },
+    proofs: { readonly owns: TenantOwnsResource<C, V, "snapshot">; readonly scope: KeyHasScope<C, S> },
   ) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {

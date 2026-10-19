@@ -79,7 +79,7 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
   k: <C, V>(
     caller: Named<C, Principal>,
     vm: Named<V, VmId>,
-    proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: KeyHasScope<C, S> },
+    proofs: { readonly owns: TenantOwnsResource<C, V, "vm">; readonly scope: KeyHasScope<C, S> },
   ) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {

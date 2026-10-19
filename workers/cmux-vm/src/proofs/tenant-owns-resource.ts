@@ -17,7 +17,8 @@ import { parseVmId, type DeviceId, type IdentityId, type MeshId, type ResourceId
 const TenantOwnsResource = defineProof("TenantOwnsResource");
 
 /** The tenant of caller `C` owns the public resource named `R`, and `C` may reach it. */
-export interface TenantOwnsResource<C, R> extends Proof<"TenantOwnsResource", [C, R]> {
+export interface TenantOwnsResource<C, R, K extends ResourceKind = ResourceKind> extends Proof<"TenantOwnsResource", [C, R]> {
+  readonly kind: K;
   /** The ownership row's display name and labels (public data, not evidence). */
   readonly displayName: string | null;
   readonly labels: Readonly<Record<string, string>>;
@@ -26,17 +27,17 @@ export interface TenantOwnsResource<C, R> extends Proof<"TenantOwnsResource", [C
 const evidence = new WeakMap<object, UpstreamId>();
 
 /** The upstream id this proof was minted for. A proof not minted here has none. */
-export const upstreamIdOf = <C, R>(proof: TenantOwnsResource<C, R>): UpstreamId => {
+export const upstreamIdOf = <C, R, K extends ResourceKind>(proof: TenantOwnsResource<C, R, K>): UpstreamId => {
   const upstreamId = evidence.get(proof);
   if (upstreamId === undefined) throw new Error("TenantOwnsResource proof was not minted by src/proofs");
   return upstreamId;
 };
 
-const owns = <C, R>(
+const owns = <C, R, K extends ResourceKind>(
   caller: Named<C, Principal>,
   resource: Named<R, ResourceId>,
-  kind: ResourceKind,
-): Effect.Effect<TenantOwnsResource<C, R> | null, StoreError, OwnershipStore> =>
+  kind: K,
+): Effect.Effect<TenantOwnsResource<C, R, K> | null, StoreError, OwnershipStore> =>
   Effect.gen(function* () {
     const principal = caller.value;
     if (principal.resourceAllowlist !== null && !principal.resourceAllowlist.has(resource.value)) return null;
@@ -45,13 +46,14 @@ const owns = <C, R>(
     if (Option.isNone(found) || found.value.tenantId !== principal.tenantId) return null;
     // A service key (cx-b4h.13) reaches only resources carrying its labels; any other is as absent as another tenant's.
     if (!carriesRequiredLabels(principal, found.value.labels)) return null;
-    return mint(caller, resource, found.value);
+    return mint(caller, resource, found.value, kind);
   });
 
 /** A fresh object per mint: the WeakMap entry belongs to this proof only. */
-const mint = <C, R>(caller: Named<C, Principal>, resource: Named<R, unknown>, row: OwnedResource): TenantOwnsResource<C, R> => {
-  const proof: TenantOwnsResource<C, R> = Object.freeze({
+const mint = <C, R, K extends ResourceKind>(caller: Named<C, Principal>, resource: Named<R, unknown>, row: OwnedResource, kind: K): TenantOwnsResource<C, R, K> => {
+  const proof: TenantOwnsResource<C, R, K> = Object.freeze({
     ...TenantOwnsResource.prove(caller, resource),
+    kind,
     displayName: row.displayName,
     labels: row.labels,
   });
@@ -78,7 +80,7 @@ export const tenantOwnsIdentity = <C, R>(caller: Named<C, Principal>, identity: 
 export type OwnedRowView = Pick<OwnedResource, "cmuxId" | "displayName" | "createdAt" | "labels">;
 
 /** One row of a list page, with its ownership proof, scoped to the callback. */
-export type OwnedVmVisitor<C, A, E, R> = <V>(vm: Named<V, VmId>, owns: TenantOwnsResource<C, V>, row: OwnedRowView) => Effect.Effect<A, E, R>;
+export type OwnedVmVisitor<C, A, E, R> = <V>(vm: Named<V, VmId>, owns: TenantOwnsResource<C, V, "vm">, row: OwnedRowView) => Effect.Effect<A, E, R>;
 
 export interface OwnedVmPage<A> {
   /** Rows read from the ownership table (before the visitor dropped any). */
@@ -116,7 +118,7 @@ export const visitOwnedVms = <C, A, E, R>(
         const parsed = parseVmId(row.cmuxId);
         if (Option.isNone(parsed)) return Effect.succeed(Option.none<A>());
         return name(parsed.value, (vm) => {
-          const owns: TenantOwnsResource<C, NameOf<typeof vm>> = mint(caller, vm, row);
+          const owns: TenantOwnsResource<C, NameOf<typeof vm>, "vm"> = mint(caller, vm, row, "vm");
           const view: OwnedRowView = { cmuxId: row.cmuxId, displayName: row.displayName, createdAt: row.createdAt, labels: row.labels };
           return Effect.map(visit(vm, owns, view), Option.some);
         });

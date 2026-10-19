@@ -23,10 +23,10 @@ export interface CompatRequest {
 }
 
 export interface CompatUpstreamService {
-  readonly forwardVm: <C, R extends VmId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
-  readonly forwardSnapshot: <C, R extends SnapshotId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
-  readonly forwardIdentity: <C, R extends IdentityId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
-  readonly forwardGrant: <C, I extends IdentityId, V extends VmId>(identityProof: TenantOwnsResource<C, I>, vmProof: TenantOwnsResource<C, V>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardVm: <C, R>(proof: TenantOwnsResource<C, R, "vm">, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardSnapshot: <C, R>(proof: TenantOwnsResource<C, R, "snapshot">, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardIdentity: <C, R>(proof: TenantOwnsResource<C, R, "identity">, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly forwardGrant: <C, I, V>(identityProof: TenantOwnsResource<C, I, "identity">, vmProof: TenantOwnsResource<C, V, "vm">, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
   readonly forwardCreatedVm: <C>(caller: Named<C, Principal>, proof: CompatCreatedResource<C, "vm">, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
   readonly discardCreatedVm: <C>(caller: Named<C, Principal>, proof: CompatCreatedResource<C, "vm">) => Effect.Effect<void, CompatUpstreamError>;
   readonly discardCreatedSnapshot: <C>(caller: Named<C, Principal>, proof: CompatCreatedResource<C, "snapshot">) => Effect.Effect<void, CompatUpstreamError>;

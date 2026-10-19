@@ -175,7 +175,7 @@ const createRecorded = <C, S>(
   proofs: {
     readonly mayCreate: TenantMayCreate<C, "vm">;
     readonly scope: KeyHasScope<C, "vm:write">;
-    readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: TenantOwnsResource<C, S> };
+    readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: TenantOwnsResource<C, S, "snapshot"> };
   },
 ) =>
   Effect.gen(function* () {
@@ -627,7 +627,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             for (const grant of grants) {
               const identity = parseIdentityId(grant.identityCmuxId);
               if (Option.isSome(identity)) {
-                const revoke = <C2, V2 extends VmId, I extends IdentityId>(caller2: Named<C2, Principal>, vmProof: TenantOwnsResource<C2, V2>, namedIdentity: Named<I, IdentityId>) =>
+                const revoke = <C2, V2, I>(caller2: Named<C2, Principal>, vmProof: TenantOwnsResource<C2, V2, "vm">, namedIdentity: Named<I, IdentityId>) =>
                   tenantOwnsIdentity(caller2, namedIdentity).pipe(
                     Effect.flatMap((identityOwns) =>
                       identityOwns === null
@@ -639,7 +639,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
                           }).pipe(Effect.flatMap((response) => response.ok ? Effect.void : Effect.fail(unavailable()))),
                     ),
                   );
-                yield* name(identity.value, <I extends IdentityId>(namedIdentity: Named<I, IdentityId>) => revoke(caller, proofs.owns, namedIdentity)).pipe(Effect.mapError(() => unavailable()));
+                yield* name(identity.value, (namedIdentity) => revoke(caller, proofs.owns, namedIdentity)).pipe(Effect.mapError(() => unavailable()));
               }
             }
             yield* identityStore.revokeGrantsForVm(caller.value.tenantId, vm.value, now).pipe(Effect.mapError(() => unavailable()));
