@@ -478,6 +478,14 @@ def red_fast_checks(pr: PullRequest) -> list[str]:
                    if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS | fixable})
 
 
+def group_red_heavy(pr: PullRequest) -> str | None:
+    """A group member's red heavy-tier check. The batch's waiver covers only a
+    stack's last PR, so gh-merge-green would refuse a middle member for it."""
+    red = sorted({name for name, status, conclusion in pr.checks
+                  if status == "completed" and conclusion in RED and name in HEAVY_CHECKS})
+    return "red check " + ", ".join(red) if red else None
+
+
 def red_format_checks(pr: PullRequest) -> list[str]:
     return sorted({name for name, status, conclusion in pr.checks
                    if status == "completed" and conclusion in RED and name in FORMAT_CHECKS})
@@ -2143,7 +2151,7 @@ class Controller:
             members = [pr for pr in members if not self.reported(pr, ("culprit", "conflict", "refused"))]
             # Own checks count: each member lands through gh-merge-green, which judges them,
             # and a red one found only at landing would strand the members before it.
-            reasons = {pr.number: ineligible_reason(pr, now()) for pr in members}
+            reasons = {pr.number: ineligible_reason(pr, now()) or group_red_heavy(pr) for pr in members}
             if not members or any(reasons.values()):
                 why = "; ".join(f"#{number} {reason}" for number, reason in reasons.items() if reason) or "no member left"
                 log(f"group {name}: waiting ({why})")
