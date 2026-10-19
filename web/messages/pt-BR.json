@@ -2258,6 +2258,7 @@
           "currentLineHighlight": "Destaca com cor a linha que contém o cursor de texto enquanto nada estiver selecionado.",
           "tabWidth": "Quantas colunas uma parada de tabulação ocupa. As guias de indentação usam o mesmo espaçamento."
         },
+        "actions": "Ações reutilizáveis para a paleta de comandos, atalhos, botões da barra de abas e menu do botão de adição. Suporta builtin, command, agent, workspaceCommand, workspace, setting, settingPreset e text. Ações de texto colam no terminal em foco e preservam quebras de linha; submit: true pressiona Enter. Ações de configurações exigem configuração global.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3466,6 +3467,16 @@
       "title": "Regras abertas no cmux",
       "intro": "Esta página abre regras no espaço de trabalho cmux atual.",
       "fallback": "cmux mostra as regras primeiro e pergunta antes de colá-las no espaço de trabalho atual. Se o cmux não abrir, instale o cmux e clique em Abrir no cmux novamente."
+    },
+    "agent": {
+      "metaTitle": "Abrir sessão de agente no cmux",
+      "metaDescription": "Abra pela web um deeplink do cmux para uma sessão de agente, com instalação alternativa quando o cmux não estiver disponível.",
+      "title": "Abrir sessão de agente",
+      "intro": "Este link abre a sessão do agente no cmux se este Mac já conseguir acessá-la. O link em si não concede nenhum acesso.",
+      "fallback": "Se o cmux não abrir, instale o cmux e clique em Abrir no cmux novamente. O cmux só abre a sessão se este Mac já conseguir acessá-la.",
+      "nameLabel": "Nome: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
