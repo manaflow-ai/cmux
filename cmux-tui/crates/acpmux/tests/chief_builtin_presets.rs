@@ -440,9 +440,9 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
         (Some(format!("optchat-chief-codex-{id}")), vec!["cmux"]),
         (
             Some(format!("optchat-sub-{id}")),
-            vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"],
+            vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"],
         ),
-        (None, vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"]),
+        (None, vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"]),
     ] {
         let mut params = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
         if let Some(name) = &preset {
