@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34";
+pub const ir_sha256 = "48f33aa2909576637e8d9a259edda9b748fcc72d4ec96bb4358d6e4cb95e47ef";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8080,8 +8080,14 @@ pub fn reportFrontendBrowserTabRemoved(client: anytype, request: ReportFrontendB
 }
 
 pub const RequestFrontendBrowserTabCloseRequest = struct {
+    /// How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline.
+    deadline_ms: ?u64 = null,
     reason: wire.Field(CloseReason) = .absent,
     surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "deadline_ms",
+    };
 };
 
 pub const RequestFrontendBrowserTabCloseResult = struct {
@@ -10242,11 +10248,13 @@ pub const FrontendBrowserTabCloseSettledEventOutcome = enum {
     removed,
     cancelled,
     owner_gone,
+    timed_out,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "removed")) return .removed;
         if (std.mem.eql(u8, value, "cancelled")) return .cancelled;
         if (std.mem.eql(u8, value, "owner_gone")) return .owner_gone;
+        if (std.mem.eql(u8, value, "timed_out")) return .timed_out;
         return error.UnknownEnumValue;
     }
 
@@ -10255,6 +10263,7 @@ pub const FrontendBrowserTabCloseSettledEventOutcome = enum {
             .removed => "removed",
             .cancelled => "cancelled",
             .owner_gone => "owner_gone",
+            .timed_out => "timed_out",
         };
     }
 };

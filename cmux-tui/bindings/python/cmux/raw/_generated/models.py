@@ -4253,6 +4253,7 @@ class ReportFrontendBrowserTabRemovedResult:
 class RequestFrontendBrowserTabCloseRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/request-frontend-browser-tab-close/request'
     surface: Id
+    deadline_ms: Union[int, MissingType] = field(default=MISSING)
     reason: Union[CloseReason, None, MissingType] = field(default=MISSING)
 
 
@@ -5307,7 +5308,7 @@ class FrontendBrowserTabCloseSettledEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/frontend-browser-tab-close-settled/payload'
     surface: Id
     event: Literal['frontend-browser-tab-close-settled']
-    outcome: Literal['removed', 'cancelled', 'owner_gone']
+    outcome: Literal['removed', 'cancelled', 'owner_gone', 'timed_out']
     request_id: str
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 

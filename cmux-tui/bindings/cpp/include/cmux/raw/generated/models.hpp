@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34";
+inline constexpr std::string_view kProtocolIrSha256 = "48f33aa2909576637e8d9a259edda9b748fcc72d4ec96bb4358d6e4cb95e47ef";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2864,6 +2864,7 @@ enum class FrontendBrowserTabCloseSettledEventOutcome {
     removed,
     cancelled,
     owner_gone,
+    timed_out,
 };
 
 struct FrontendBrowserTabCloseSettledEvent {
@@ -4586,6 +4587,7 @@ struct ReportFrontendBrowserTabRemovedResult {
 };
 
 struct RequestFrontendBrowserTabCloseRequest {
+    std::optional<std::uint64_t> deadline_ms{};
     Field<CloseReason> reason{};
     Id surface{};
     friend bool operator==(const RequestFrontendBrowserTabCloseRequest&, const RequestFrontendBrowserTabCloseRequest&) = default;

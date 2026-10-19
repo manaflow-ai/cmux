@@ -621,8 +621,8 @@ class GeneratedClientMixin:
     def report_frontend_browser_tab_removed(self, surface: Id, reason: Literal['answered', 'user_closed', 'page_closed', 'extension'], *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, request_id: Union[str, None, MissingType] = MISSING) -> ReportFrontendBrowserTabRemovedResult:
         return self._invoke_command('report-frontend-browser-tab-removed', ReportFrontendBrowserTabRemovedRequest(surface=surface, reason=reason, mutation_id=mutation_id, origin=origin, request_id=request_id))
 
-    def request_frontend_browser_tab_close(self, surface: Id, *, reason: Union[CloseReason, None, MissingType] = MISSING) -> RequestFrontendBrowserTabCloseResult:
-        return self._invoke_command('request-frontend-browser-tab-close', RequestFrontendBrowserTabCloseRequest(surface=surface, reason=reason))
+    def request_frontend_browser_tab_close(self, surface: Id, *, deadline_ms: Union[int, MissingType] = MISSING, reason: Union[CloseReason, None, MissingType] = MISSING) -> RequestFrontendBrowserTabCloseResult:
+        return self._invoke_command('request-frontend-browser-tab-close', RequestFrontendBrowserTabCloseRequest(surface=surface, deadline_ms=deadline_ms, reason=reason))
 
     def resize_attached_view(self, surface: Id, cols: int, rows: int, *, identity: Union[SizingIdentity, None, MissingType] = MISSING, lease: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> AttachedViewResizeResult:
         return self._invoke_command('resize-attached-view', ResizeAttachedViewRequest(surface=surface, cols=cols, rows=rows, identity=identity, lease=lease, view=view))

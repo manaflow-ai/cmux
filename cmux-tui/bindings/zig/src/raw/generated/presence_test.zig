@@ -71,6 +71,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.NewTabRequest, "keep");
     try expectExplicitNullRejected(protocol.RenameWorkspaceRequest, "release");
     try expectExplicitNullRejected(protocol.ReportClientAttentionRequest, "recent_input");
+    try expectExplicitNullRejected(protocol.RequestFrontendBrowserTabCloseRequest, "deadline_ms");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SendResult, "queued");

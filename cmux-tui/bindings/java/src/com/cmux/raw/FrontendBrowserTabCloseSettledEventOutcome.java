@@ -6,7 +6,8 @@ import java.util.Objects;
 public enum FrontendBrowserTabCloseSettledEventOutcome implements WireEnum {
     REMOVED("removed"),
     CANCELLED("cancelled"),
-    OWNER_GONE("owner_gone");
+    OWNER_GONE("owner_gone"),
+    TIMED_OUT("timed_out");
 
     private final Object wireValue;
 

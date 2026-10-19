@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34. */
+/* cmux-tui mux protocol 12, IR 48f33aa2909576637e8d9a259edda9b748fcc72d4ec96bb4358d6e4cb95e47ef. */
 
 
 import type * as T from "./types.js";
@@ -290,7 +290,7 @@ export type FrontendBrowserTabCloseRequestedEvent = { event: "frontend-browser-t
 
 /** Protocol v12; emission: emitted; streams: control. */
 export type FrontendBrowserTabCloseSettledEvent = { event: "frontend-browser-tab-close-settled" } & {
-  "outcome": "removed" | "cancelled" | "owner_gone";
+  "outcome": "removed" | "cancelled" | "owner_gone" | "timed_out";
   "request_id": string;
   "surface": T.Id;
 };

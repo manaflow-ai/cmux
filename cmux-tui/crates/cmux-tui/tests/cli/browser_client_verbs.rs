@@ -276,8 +276,10 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
         "engine": "cef", "owner": OWNER,
     }));
     let surface = created["surface"].as_u64().unwrap_or_else(|| panic!("no surface: {created}"));
-    let close =
-        serde_json::json!({"cmd": "request-frontend-browser-tab-close", "surface": surface});
+    // The longest deadline: these steps must not race the timeout.
+    let close = serde_json::json!({
+        "cmd": "request-frontend-browser-tab-close", "surface": surface, "deadline_ms": 30000,
+    });
 
     // No owner connection yet: nothing is asked and nothing changes.
     let undelegated = cli.call(close.clone());
@@ -368,13 +370,14 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
     let elsewhere = new_frontend_tab(&mut cli, pane, Some(OWNER))["surface"].as_u64().unwrap();
     let kept = new_frontend_tab(&mut cli, pane, Some(OWNER))["surface"].as_u64().unwrap();
     let asked = cli.call(serde_json::json!({
-        "cmd": "request-frontend-browser-tab-close", "surface": elsewhere,
+        "cmd": "request-frontend-browser-tab-close", "surface": elsewhere, "deadline_ms": 30000,
     }));
     let request_id = asked["request_id"].as_str().expect("request id").to_string();
     browser.event("frontend-browser-tab-close-requested");
     cli.call(serde_json::json!({"cmd": "close-surface", "surface": elsewhere}));
-    stranger
-        .call(serde_json::json!({"cmd": "request-frontend-browser-tab-close", "surface": kept}));
+    stranger.call(serde_json::json!({
+        "cmd": "request-frontend-browser-tab-close", "surface": kept, "deadline_ms": 30000,
+    }));
     let settled = cli.event("frontend-browser-tab-close-settled");
     assert_eq!(settled["request_id"], request_id.as_str(), "{settled}");
     assert_eq!(settled["outcome"], "removed", "{settled}");
@@ -396,7 +399,7 @@ fn an_owner_that_goes_away_leaves_its_tabs_and_settles_its_requests() {
     browser
         .call(serde_json::json!({"cmd": "frontend-browser-tab-close-subscribe", "owner": OWNER}));
     let asked = cli.call(serde_json::json!({
-        "cmd": "request-frontend-browser-tab-close", "surface": surface,
+        "cmd": "request-frontend-browser-tab-close", "surface": surface, "deadline_ms": 30000,
     }));
     let request_id = asked["request_id"].as_str().expect("request id").to_string();
     browser.event("frontend-browser-tab-close-requested");
@@ -411,4 +414,59 @@ fn an_owner_that_goes_away_leaves_its_tabs_and_settles_its_requests() {
         "cmd": "request-frontend-browser-tab-close", "surface": surface,
     }));
     assert_eq!(undelegated["delegated"], false, "{undelegated}");
+}
+
+#[test]
+fn an_owner_that_does_not_answer_in_time_must_close_the_tab() {
+    const OWNER: &str = "cmux-browser-install-0i-slow";
+    let server = HeadlessServer::start("frontend-tab-close-timed-out");
+    state_cli(&server, None, &["workspace", "create", "--name", "pages"]);
+    let mut browser = Conn::open(&server);
+    let mut cli = Conn::open(&server);
+    let pane = first_pane(&mut cli);
+    let created = browser.call(serde_json::json!({
+        "cmd": "new-frontend-browser-tab", "pane": pane, "url": "https://example.com/",
+        "engine": "cef", "owner": OWNER,
+    }));
+    let surface = created["surface"].as_u64().unwrap_or_else(|| panic!("no surface: {created}"));
+    browser
+        .call(serde_json::json!({"cmd": "frontend-browser-tab-close-subscribe", "owner": OWNER}));
+
+    // Out of range deadlines are bad requests.
+    for deadline_ms in [0, 30001] {
+        let refused = cli.reply(serde_json::json!({
+            "cmd": "request-frontend-browser-tab-close", "surface": surface,
+            "deadline_ms": deadline_ms,
+        }));
+        assert_eq!(refused["ok"], false, "deadline_ms {deadline_ms}: {refused}");
+    }
+
+    // The owner gets the request and does not answer.
+    let asked = cli.call(serde_json::json!({
+        "cmd": "request-frontend-browser-tab-close", "surface": surface, "deadline_ms": 200,
+    }));
+    let request_id = asked["request_id"].as_str().expect("request id").to_string();
+    browser.event("frontend-browser-tab-close-requested");
+
+    // Both the requester and the owner learn that the request timed out.
+    for conn in [&mut cli, &mut browser] {
+        let settled = conn.event("frontend-browser-tab-close-settled");
+        assert_eq!(settled["request_id"], request_id.as_str(), "{settled}");
+        assert_eq!(settled["surface"], surface, "{settled}");
+        assert_eq!(settled["outcome"], "timed_out", "{settled}");
+    }
+    // The tab stays until the owner closes it; a late answer is refused.
+    assert!(tree_has_surface(&mut cli, surface));
+    let late = browser.call(serde_json::json!({
+        "cmd": "answer-frontend-browser-tab-close", "request_id": request_id, "outcome": "cancelled",
+    }));
+    assert_eq!(late["accepted"], false, "{late}");
+
+    // The owner closes the tab without a veto and reports the removal.
+    let removed = browser.call(serde_json::json!({
+        "cmd": "report-frontend-browser-tab-removed", "surface": surface, "reason": "answered",
+        "request_id": request_id,
+    }));
+    assert_eq!(removed["removed"], true, "{removed}");
+    assert!(!tree_has_surface(&mut cli, surface));
 }

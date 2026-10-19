@@ -1327,8 +1327,8 @@
     },
     {
       "path": "FrontendBrowserTabCloseSettledEventOutcome.java",
-      "sha256": "d09efd5acaa3db328b6bb961904dfc5c0b3c534e7321f68f6666fd073e088d51",
-      "size": 1072
+      "sha256": "e418f621b1d44061459fa57eb8fd7f9d582abc0beb625c398146cec19f07d675",
+      "size": 1100
     },
     {
       "path": "FrontendBrowserTabCloseSubscribeRequest.java",
@@ -2097,7 +2097,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "c131eaeac2625ad110ba9b6a26fb478334959fcdc337c41634177510038923b2",
+      "sha256": "53b5b35d7f0edfbe9056a7d59c2f438585a33cea1810f01a587959bf81b1a5cb",
       "size": 7523
     },
     {
@@ -2337,8 +2337,8 @@
     },
     {
       "path": "RequestFrontendBrowserTabCloseRequest.java",
-      "sha256": "026660c7ff2f6eb125eb8fbc3216a7705a04d388a188b72e444c48307756a3e7",
-      "size": 2860
+      "sha256": "c104f8152bf79a8265eb84feda1fdae86811e294e81021d11de0e1ee4ab3a634",
+      "size": 3794
     },
     {
       "path": "RequestFrontendBrowserTabCloseResult.java",
@@ -3387,7 +3387,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34",
+  "ir_sha256": "48f33aa2909576637e8d9a259edda9b748fcc72d4ec96bb4358d6e4cb95e47ef",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

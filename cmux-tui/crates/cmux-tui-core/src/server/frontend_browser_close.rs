@@ -28,14 +28,20 @@
 //!
 //! Every requester gets `frontend-browser-tab-close-settled` once:
 //! `removed` (also when the tab left the store by another path, such as
-//! `close-surface`), `cancelled`, or `owner_gone` (the owner's connection
-//! ended; the tab stays, and the owner restores it when it comes back). Crash and
+//! `close-surface`), `cancelled`, `owner_gone` (the owner's connection
+//! ended; the tab stays, and the owner restores it when it comes back), or
+//! `timed_out`. A slow or dead browser never blocks a close: when the owner
+//! does not answer by the request's `deadline_ms` (default 5 s, at most
+//! 30 s), the request settles `timed_out`, the owner gets the same settled
+//! event, and the owner must then close the tab without a beforeunload veto
+//! and report its removal. A late answer gets `accepted: false`. Crash and
 //! discard are not removals; the owner reports them through
 //! `update-frontend-browser-tab`. Requests are transient: they are never
 //! journaled or replayed across a daemon restart.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -50,6 +56,9 @@ pub(crate) const CAPABILITY: &str = "frontend-tab-close-request-v1";
 const MAX_SUBSCRIBERS: usize = 16;
 const MAX_OPEN_PER_OWNER: usize = 64;
 const MAX_WAITERS_PER_REQUEST: usize = 16;
+/// The owner's time to answer a close request.
+const DEFAULT_DEADLINE_MS: u64 = 5_000;
+const MAX_DEADLINE_MS: u64 = 30_000;
 
 /// `frontend-browser-tab-close-subscribe`.
 #[derive(Deserialize)]
@@ -63,6 +72,12 @@ pub(super) struct RequestParams {
     surface: SurfaceId,
     #[serde(default)]
     reason: Option<crate::mux::CloseReason>,
+    #[serde(default = "default_deadline_ms")]
+    deadline_ms: u64,
+}
+
+fn default_deadline_ms() -> u64 {
+    DEFAULT_DEADLINE_MS
 }
 
 /// `answer-frontend-browser-tab-close`.
@@ -110,7 +125,11 @@ struct Waiter {
 struct OpenClose {
     surface: SurfaceId,
     owner_client: u64,
+    /// The owner connection, told when the request times out.
+    owner_writer: MessageWriter,
     phase: Phase,
+    /// The owner must answer by then; only an `Asked` request times out.
+    deadline: Instant,
     waiters: Vec<Waiter>,
 }
 
@@ -120,6 +139,8 @@ struct State {
     /// The connection that answers for each owner (the newest subscriber).
     owners: HashMap<String, u64>,
     open: HashMap<String, OpenClose>,
+    /// Set when the broker is dropped; the deadline thread then exits.
+    shut_down: bool,
 }
 
 impl State {
@@ -132,6 +153,11 @@ impl State {
 
     fn open_for_surface(&self, surface: SurfaceId) -> Option<String> {
         self.open.iter().find(|(_, open)| open.surface == surface).map(|(id, _)| id.clone())
+    }
+
+    /// The first deadline of a request that the owner has not answered.
+    fn next_deadline(&self) -> Option<Instant> {
+        self.open.values().filter(|open| open.phase == Phase::Asked).map(|open| open.deadline).min()
     }
 
     /// Removes the requests `matches` selects and returns them, to be
@@ -149,7 +175,7 @@ impl State {
 /// request budget until the owner disconnects.
 fn settle_gone_tabs(mux: &Mux) {
     let closes = &mux.control_clients.frontend_tab_closes;
-    let surfaces: Vec<SurfaceId> = lock(&closes.0).open.values().map(|open| open.surface).collect();
+    let surfaces: Vec<SurfaceId> = closes.state().open.values().map(|open| open.surface).collect();
     let gone: Vec<SurfaceId> = surfaces
         .into_iter()
         .filter(|surface| mux.surface(*surface).is_none_or(|live| live.is_dead()))
@@ -157,7 +183,7 @@ fn settle_gone_tabs(mux: &Mux) {
     if gone.is_empty() {
         return;
     }
-    let settled = lock(&closes.0).take(|open| gone.contains(&open.surface));
+    let settled = closes.state().take(|open| gone.contains(&open.surface));
     settle(settled, "removed");
 }
 
@@ -167,27 +193,118 @@ fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+fn settled_event(request_id: &str, surface: SurfaceId, outcome: &str) -> Value {
+    json!({
+        "event": "frontend-browser-tab-close-settled",
+        "request_id": request_id,
+        "surface": surface,
+        "outcome": outcome,
+    })
+}
+
 /// Tells every requester how its close ended. Best effort: a requester
 /// whose connection closed meanwhile has nobody to tell.
 fn settle(settled: Vec<(String, OpenClose)>, outcome: &str) {
     for (request_id, open) in settled {
+        let event = settled_event(&request_id, open.surface, outcome);
         for waiter in open.waiters {
-            let _ = waiter.writer.send_control(&json!({
-                "event": "frontend-browser-tab-close-settled",
-                "request_id": request_id,
-                "surface": open.surface,
-                "outcome": outcome,
-            }));
+            let _ = waiter.writer.send_control(&event);
+        }
+    }
+}
+
+/// Settles `timed_out` the requests whose owner did not answer in time. The
+/// owner gets the settled event too: it must now close the tab without a
+/// beforeunload veto and report the removal. A requester that is also the
+/// owner connection gets the event once.
+fn settle_timed_out(settled: Vec<(String, OpenClose)>) {
+    for (request_id, open) in settled {
+        let event = settled_event(&request_id, open.surface, "timed_out");
+        if !open.waiters.iter().any(|waiter| waiter.client == open.owner_client) {
+            let _ = open.owner_writer.send_control(&event);
+        }
+        for waiter in open.waiters {
+            let _ = waiter.writer.send_control(&event);
         }
     }
 }
 
 #[derive(Default)]
-pub(crate) struct FrontendTabCloses(Mutex<State>);
+struct Shared {
+    state: Mutex<State>,
+    /// Wakes the deadline thread when a request or a shutdown changes the
+    /// next deadline.
+    wake: Condvar,
+}
+
+/// One thread per broker settles the requests whose deadline passed. It
+/// sleeps until the first deadline and exits when the broker is dropped.
+fn run_deadlines(shared: &Shared) {
+    let mut state = lock(&shared.state);
+    loop {
+        if state.shut_down {
+            return;
+        }
+        let now = Instant::now();
+        let expired = state.take(|open| open.phase == Phase::Asked && open.deadline <= now);
+        if !expired.is_empty() {
+            drop(state);
+            settle_timed_out(expired);
+            state = lock(&shared.state);
+            continue;
+        }
+        state = match state.next_deadline() {
+            Some(deadline) => {
+                shared
+                    .wake
+                    .wait_timeout(state, deadline.saturating_duration_since(now))
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0
+            }
+            None => shared.wake.wait(state).unwrap_or_else(PoisonError::into_inner),
+        };
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct FrontendTabCloses {
+    shared: Arc<Shared>,
+    deadline_thread: OnceLock<()>,
+}
+
+impl Drop for FrontendTabCloses {
+    fn drop(&mut self) {
+        lock(&self.shared.state).shut_down = true;
+        self.shared.wake.notify_all();
+    }
+}
 
 impl FrontendTabCloses {
+    fn state(&self) -> MutexGuard<'_, State> {
+        lock(&self.shared.state)
+    }
+
+    /// Starts the deadline thread on the first delegated request, then
+    /// wakes it for the new deadline.
+    fn watch_deadlines(&self) {
+        self.deadline_thread.get_or_init(|| {
+            let shared = Arc::clone(&self.shared);
+            let started = std::thread::Builder::new()
+                .name("frontend-tab-close-deadlines".into())
+                .spawn(move || run_deadlines(&shared));
+            if let Err(error) = started {
+                // Without the thread no request times out; the other
+                // outcomes still settle.
+                eprintln!(
+                    "cmux-tui: frontend tab close: cannot start the deadline thread: {error}"
+                );
+            }
+        });
+        self.shared.wake.notify_all();
+    }
+
     fn subscribe(&self, client: u64, owner: String, writer: MessageWriter) -> anyhow::Result<()> {
-        let mut state = lock(&self.0);
+        let mut state = self.state();
         anyhow::ensure!(
             state.subscribers.len() < MAX_SUBSCRIBERS || state.subscribers.contains_key(&client),
             "too many frontend browser close subscribers"
@@ -209,7 +326,7 @@ impl FrontendTabCloses {
     /// on its own requests.
     pub(super) fn disconnect(&self, client: u64) {
         let gone = {
-            let mut state = lock(&self.0);
+            let mut state = self.state();
             if let Some(subscriber) = state.subscribers.remove(&client)
                 && state.owners.get(&subscriber.owner) == Some(&client)
             {
@@ -288,12 +405,17 @@ pub(super) fn request(
 ) -> anyhow::Result<Value> {
     // A page must not close another tab, even through its owner.
     refuse_page_relay(mux, client)?;
-    let RequestParams { surface, reason } = params;
+    let RequestParams { surface, reason, deadline_ms } = params;
+    anyhow::ensure!(
+        (1..=MAX_DEADLINE_MS).contains(&deadline_ms),
+        "bad request: deadline_ms must be 1-{MAX_DEADLINE_MS}"
+    );
     let (owner, tab) = frontend_tab(mux, surface)?;
     settle_gone_tabs(mux);
     let not_delegated = json!({"delegated": false, "request_id": null});
     let Some(owner) = owner else { return Ok(not_delegated) };
-    let mut state = lock(&mux.control_clients.frontend_tab_closes.0);
+    let closes = &mux.control_clients.frontend_tab_closes;
+    let mut state = closes.state();
     let waiter = Waiter { client, writer: writer.clone() };
     // One close per tab at a time: a second request waits on the first.
     if let Some(request_id) = state.open_for_surface(surface)
@@ -331,8 +453,17 @@ pub(super) fn request(
     }
     state.open.insert(
         request_id.clone(),
-        OpenClose { surface, owner_client, phase: Phase::Asked, waiters: vec![waiter] },
+        OpenClose {
+            surface,
+            owner_client,
+            owner_writer,
+            phase: Phase::Asked,
+            deadline: Instant::now() + Duration::from_millis(deadline_ms),
+            waiters: vec![waiter],
+        },
     );
+    drop(state);
+    closes.watch_deadlines();
     Ok(json!({"delegated": true, "request_id": request_id}))
 }
 
@@ -346,7 +477,7 @@ pub(super) fn answer(mux: &Mux, client: u64, params: AnswerParams) -> anyhow::Re
         }
     };
     let settled = {
-        let mut state = lock(&mux.control_clients.frontend_tab_closes.0);
+        let mut state = mux.control_clients.frontend_tab_closes.state();
         let phase = match state.open.get(&request_id) {
             Some(open) if open.owner_client == client => open.phase,
             _ => return Ok(json!({"accepted": false})),
@@ -392,7 +523,7 @@ pub(super) fn report_removed(
                 anyhow::bail!("surface {surface} is not a frontend browser tab");
             };
             let owns = record.owner.as_deref().is_some_and(|owner| {
-                let state = lock(&closes.0);
+                let state = closes.state();
                 state.owners.get(owner) == Some(&client)
                     && state.subscribers.get(&client).is_some_and(|sub| sub.owner == owner)
             });
@@ -423,7 +554,7 @@ pub(super) fn report_removed(
     }
     if let Some(request_id) = &request_id {
         let other_tab =
-            lock(&closes.0).open.get(request_id).is_some_and(|open| open.surface != surface);
+            closes.state().open.get(request_id).is_some_and(|open| open.surface != surface);
         anyhow::ensure!(
             !other_tab,
             "bad request: request_id {request_id} is a close request for another tab"
@@ -435,7 +566,7 @@ pub(super) fn report_removed(
         // A removal settles every open request for this tab, the named one
         // and any other that was still waiting (a tab the page or an
         // extension removed on its own).
-        let settled = lock(&closes.0).take(|open| open.surface == surface);
+        let settled = closes.state().take(|open| open.surface == surface);
         settle(settled, "removed");
     }
     Ok(json!({"removed": removed, "replayed": outcome.replayed}))

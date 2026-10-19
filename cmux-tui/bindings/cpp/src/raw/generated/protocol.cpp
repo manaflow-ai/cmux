@@ -28342,6 +28342,11 @@ Result<ReportFrontendBrowserTabRemovedResult> Codec<ReportFrontendBrowserTabRemo
 Result<Json> Codec<RequestFrontendBrowserTabCloseRequest>::encode(const RequestFrontendBrowserTabCloseRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.deadline_ms) {
+        auto encoded = encode_value(*value.deadline_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("deadline_ms", std::move(encoded).value());
+    }
     if (!value.reason.is_absent()) {
         auto encoded = encode_value(value.reason);
         if (!encoded) return std::move(encoded).error();
@@ -28357,6 +28362,12 @@ Result<RequestFrontendBrowserTabCloseRequest> Codec<RequestFrontendBrowserTabClo
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     RequestFrontendBrowserTabCloseRequest result{};
+    const Json* field_deadline_ms = value.find("deadline_ms");
+    if (field_deadline_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_deadline_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.deadline_ms = std::move(decoded).value();
+    }
     const Json* field_reason = value.find("reason");
     if (field_reason) {
         if (field_reason->is_null()) {
@@ -40758,6 +40769,7 @@ Result<Json> Codec<FrontendBrowserTabCloseSettledEventOutcome>::encode(const Fro
         case FrontendBrowserTabCloseSettledEventOutcome::removed: return Json(std::string("removed"));
         case FrontendBrowserTabCloseSettledEventOutcome::cancelled: return Json(std::string("cancelled"));
         case FrontendBrowserTabCloseSettledEventOutcome::owner_gone: return Json(std::string("owner_gone"));
+        case FrontendBrowserTabCloseSettledEventOutcome::timed_out: return Json(std::string("timed_out"));
     }
     return make_error(ErrorCode::invalid_argument, "invalid enum value");
 }
@@ -40766,6 +40778,7 @@ Result<FrontendBrowserTabCloseSettledEventOutcome> Codec<FrontendBrowserTabClose
     if (value == Json(std::string("removed"))) return FrontendBrowserTabCloseSettledEventOutcome::removed;
     if (value == Json(std::string("cancelled"))) return FrontendBrowserTabCloseSettledEventOutcome::cancelled;
     if (value == Json(std::string("owner_gone"))) return FrontendBrowserTabCloseSettledEventOutcome::owner_gone;
+    if (value == Json(std::string("timed_out"))) return FrontendBrowserTabCloseSettledEventOutcome::timed_out;
     return make_error(ErrorCode::decode, "unknown FrontendBrowserTabCloseSettledEventOutcome value");
 }
 

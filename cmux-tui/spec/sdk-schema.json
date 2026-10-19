@@ -25053,6 +25053,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "deadline_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": 5000,
+      "description": "How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline."
      }
     },
     "additional_properties": false
@@ -25083,7 +25093,7 @@
    },
    "stream": null,
    "constraints": [
-    "The tab stays until the owner reports it removed. The requesting connection receives frontend-browser-tab-close-settled once.",
+    "The tab stays until the owner reports it removed. The requesting connection receives frontend-browser-tab-close-settled once. An owner that does not answer by deadline_ms gets the settled event with outcome timed_out and must then close the tab.",
     "At most 64 open requests per owner connection and 16 requesters per request."
    ]
   },
@@ -30058,7 +30068,8 @@
        "values": [
         "removed",
         "cancelled",
-        "owner_gone"
+        "owner_gone",
+        "timed_out"
        ]
       },
       "presence": "required",
