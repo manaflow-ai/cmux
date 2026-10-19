@@ -236,6 +236,11 @@ impl Mux {
 }
 
 impl Mux {
+    /// Whether a keyed frontend browser creation already recorded `key`.
+    pub(crate) fn has_frontend_browser_key(&self, key: &str) -> anyhow::Result<bool> {
+        Ok(self.read_registry_state(|c| browser_for_key(c, key))?.is_some())
+    }
+
     /// The placed tab a keyed `new-frontend-browser-tab` made under `key`.
     pub(crate) fn keyed_frontend_browser_tab(
         &self,
