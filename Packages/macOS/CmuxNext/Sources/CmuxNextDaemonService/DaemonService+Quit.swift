@@ -62,8 +62,9 @@ extension DaemonService {
                 let restarts = KeptTabRestarts.accepted(failed: result.failedSurfaces)
                 if self?.keptTabRestarts != restarts { self?.keptTabRestarts = restarts }
             } catch {
-                // The next connect tries again; until then the kept tabs still draw as restarting.
                 logger.error("kept layout relaunch failed: \(String(describing: error), privacy: .public)")
+                // Nothing restarted: the kept tabs draw dead (a closed connection's next connect tries again).
+                if !Task.isCancelled, self?.keptTabRestarts != KeptTabRestarts.none { self?.keptTabRestarts = .none }
             }
         }
     }
@@ -76,6 +77,8 @@ extension DaemonService {
     /// the tab's own fields).
     public func restartsKeptTab(_ tab: TabModel) -> Bool {
         guard tab.relaunch != nil else { return false }
+        // The daemon took the restart, then the new shell's launch failed: the tab is dead again.
+        if tab.dead, tab.end?.reason == .restartFailed { return false }
         switch keptTabRestarts {
         case .none: return false
         case .expected: return true
