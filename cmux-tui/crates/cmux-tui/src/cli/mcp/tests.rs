@@ -1463,3 +1463,18 @@ fn an_allowlist_lists_only_its_tools_and_refuses_every_other_call() {
     assert_eq!(listed["result"]["tools"], json!([]));
     assert_eq!(allowed_tools(None), None);
 }
+
+/// The tools the acpmux sub-session server's instructions point agents at
+/// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server.
+#[test]
+fn the_subsession_servers_instructions_name_real_cmux_tools() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let rules = acpmux::subsession_mcp::instructions();
+    for name in acpmux::subsession_mcp::CMUX_TOOLS {
+        assert!(rules.contains(name), "the instructions no longer name {name}");
+        assert!(tools.iter().any(|tool| tool["name"] == name), "cmux mcp serve has no {name}");
+    }
+}
