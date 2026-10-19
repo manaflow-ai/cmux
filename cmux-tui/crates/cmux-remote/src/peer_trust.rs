@@ -9,7 +9,7 @@
 //! module is the local authority that `machine.session.request` will consult.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,9 @@ const MAX_PEERS: usize = 256;
 const MAX_FOLDERS: usize = 64;
 const MAX_BOOK_BYTES: u64 = 1024 * 1024;
 const MAX_AUDIT_LINE_BYTES: usize = 8 * 1024;
+const MAX_AUDIT_FIELD_BYTES: usize = 1024;
+/// The audit log rotates to `peer-audit.jsonl.1` past this size.
+const MAX_AUDIT_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const FINGERPRINT_LEN: usize = 22;
 
 /// What a peer may do on this machine. There is deliberately no shell tier:
@@ -95,11 +98,13 @@ pub enum RefuseReason {
     FolderNotAllowed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A decision on a session request. Admit and Ask carry the resolved working
+/// directory; launch there, not in the path the peer sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Admission {
-    Admit,
+    Admit(PathBuf),
     /// Allowed only after the user approves on this machine.
-    Ask,
+    Ask(PathBuf),
     Refuse(RefuseReason),
 }
 
@@ -157,9 +162,25 @@ impl PeerTrustBook {
         }
         let mut book = Self::default();
         for peer in persisted.peers {
-            book.set(peer)?;
+            book.insert(peer)?;
         }
         Ok(book)
+    }
+
+    /// Loads the book, applies `change` and saves it, holding an exclusive
+    /// lock so concurrent writers don't lose each other's updates.
+    pub fn update<T>(
+        state_root: &Path,
+        change: impl FnOnce(&mut Self) -> Result<T, PeerTrustError>,
+    ) -> Result<T, PeerTrustError> {
+        ensure_secure_directory(state_root, DirectoryAccess::ManagedOwnerOnly)?;
+        let _lock = crate::owner_lock::OwnerFileLock::acquire(
+            &state_root.join(format!("{PEER_TRUST_FILE}.lock")),
+        )?;
+        let mut book = Self::load(state_root)?;
+        let value = change(&mut book)?;
+        book.save(state_root)?;
+        Ok(value)
     }
 
     /// Writes the book atomically as an owner-only file.
@@ -168,8 +189,13 @@ impl PeerTrustBook {
         let persisted = PersistedBook { version: BOOK_VERSION, peers: self.peers.clone() };
         let data = serde_json::to_vec_pretty(&persisted).map_err(PeerTrustError::Json)?;
         let path = state_root.join(PEER_TRUST_FILE);
-        let temporary = state_root.join(format!(".{PEER_TRUST_FILE}.tmp-{}", std::process::id()));
-        let _ = fs::remove_file(&temporary);
+        let mut suffix = [0u8; 8];
+        getrandom::fill(&mut suffix).map_err(|error| io::Error::other(error.to_string()))?;
+        let temporary = state_root.join(format!(
+            ".{PEER_TRUST_FILE}.tmp-{}-{}",
+            std::process::id(),
+            u64::from_le_bytes(suffix)
+        ));
         let result = (|| -> io::Result<()> {
             let mut file = owner_only_options().write(true).create_new(true).open(&temporary)?;
             file.write_all(&data)?;
@@ -193,8 +219,20 @@ impl PeerTrustBook {
         self.peers.iter().find(|peer| peer.fingerprint == fingerprint)
     }
 
-    /// Adds or replaces a peer's grant after validating it.
-    pub fn set(&mut self, peer: PeerTrust) -> Result<(), PeerTrustError> {
+    /// Adds or replaces a peer's grant. Folders are resolved through symlinks
+    /// and stored resolved; each must exist and must not be the filesystem
+    /// root, the home folder or one of its ancestors.
+    pub fn set(&mut self, mut peer: PeerTrust) -> Result<(), PeerTrustError> {
+        for folder in &mut peer.folders {
+            *folder = fs::canonicalize(&*folder)
+                .ok()
+                .filter(|resolved| resolved.is_dir())
+                .ok_or(PeerTrustError::Invalid("allowed folders must be existing folders"))?;
+        }
+        self.insert(peer)
+    }
+
+    fn insert(&mut self, peer: PeerTrust) -> Result<(), PeerTrustError> {
         validate_fingerprint(&peer.fingerprint)?;
         if peer.folders.len() > MAX_FOLDERS {
             return Err(PeerTrustError::Invalid("too many allowed folders"));
@@ -223,8 +261,9 @@ impl PeerTrustBook {
 
     /// Decides a session request from `fingerprint` for `agent` in `cwd`.
     ///
-    /// The working directory and every allowed folder are resolved through
-    /// symlinks first, so a link inside an allowed folder can't lead out of it.
+    /// The working directory is resolved through symlinks, so a link inside
+    /// an allowed folder can't lead out of it. A stored folder that no longer
+    /// resolves to itself (it was replaced by a symlink) admits nothing.
     pub fn admit(
         &self,
         fingerprint: &str,
@@ -247,17 +286,16 @@ impl PeerTrustBook {
         let Ok(cwd) = fs::canonicalize(cwd) else {
             return Admission::Refuse(RefuseReason::FolderNotAllowed);
         };
-        let inside = peer
-            .folders
-            .iter()
-            .filter_map(|folder| fs::canonicalize(folder).ok())
-            .any(|folder| cwd.starts_with(folder));
+        let inside = peer.folders.iter().any(|folder| {
+            cwd.starts_with(folder)
+                && fs::canonicalize(folder).is_ok_and(|resolved| &resolved == folder)
+        });
         if !inside {
             return Admission::Refuse(RefuseReason::FolderNotAllowed);
         }
         match peer.tier {
-            TrustTier::Folders => Admission::Admit,
-            TrustTier::Ask => Admission::Ask,
+            TrustTier::Folders => Admission::Admit(cwd),
+            TrustTier::Ask => Admission::Ask(cwd),
             TrustTier::None => Admission::Refuse(RefuseReason::NoGrant),
         }
     }
@@ -281,6 +319,13 @@ fn validate_folder(folder: &Path) -> Result<(), PeerTrustError> {
     if folder.components().any(|component| matches!(component, Component::ParentDir)) {
         return Err(PeerTrustError::Invalid("allowed folders can't contain '..'"));
     }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home_resolved = home.as_deref().and_then(|home| fs::canonicalize(home).ok());
+    if home.iter().chain(home_resolved.iter()).any(|home| home.starts_with(folder)) {
+        return Err(PeerTrustError::Invalid(
+            "the home folder or a folder above it can't be an allowed folder",
+        ));
+    }
     Ok(())
 }
 
@@ -295,12 +340,12 @@ pub enum AuditDecision {
     Refused(RefuseReason),
 }
 
-impl From<Admission> for AuditDecision {
-    fn from(admission: Admission) -> Self {
+impl From<&Admission> for AuditDecision {
+    fn from(admission: &Admission) -> Self {
         match admission {
-            Admission::Admit => Self::Admitted,
-            Admission::Ask => Self::Asked,
-            Admission::Refuse(reason) => Self::Refused(reason),
+            Admission::Admit(_) => Self::Admitted,
+            Admission::Ask(_) => Self::Asked,
+            Admission::Refuse(reason) => Self::Refused(*reason),
         }
     }
 }
@@ -309,45 +354,66 @@ impl From<Admission> for AuditDecision {
 pub struct AuditEntry {
     pub at_unix: u64,
     pub peer: String,
+    /// The request's idempotency key, so an approval or denial can be
+    /// matched to the request that asked.
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub method: String,
     #[serde(default)]
     pub agent: Option<PeerAgent>,
     #[serde(default)]
     pub cwd: Option<PathBuf>,
+    /// A peer-supplied field was cut to fit the line limit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
     #[serde(flatten)]
     pub decision: AuditDecision,
 }
 
-/// Appends one entry to `state_root/peer-audit.jsonl` (owner-only).
-pub fn append_audit(
-    state_root: &Path,
-    at_unix: u64,
-    peer: &str,
-    method: &str,
-    agent: Option<PeerAgent>,
-    cwd: Option<&Path>,
-    decision: AuditDecision,
-) -> Result<(), PeerTrustError> {
-    validate_fingerprint(peer)?;
-    let entry = AuditEntry {
-        at_unix,
-        peer: peer.to_owned(),
-        method: method.to_owned(),
-        agent,
-        cwd: cwd.map(Path::to_path_buf),
-        decision,
-    };
+/// Appends one entry to `state_root/peer-audit.jsonl` (owner-only). Fields a
+/// peer controls are cut to fit instead of dropping the entry, so every
+/// request leaves a line. The log rotates to `peer-audit.jsonl.1` once it
+/// passes 4 MiB.
+pub fn append_audit(state_root: &Path, entry: &AuditEntry) -> Result<(), PeerTrustError> {
+    validate_fingerprint(&entry.peer)?;
+    let mut entry = entry.clone();
     let mut line = serde_json::to_vec(&entry).map_err(PeerTrustError::Json)?;
     if line.len() >= MAX_AUDIT_LINE_BYTES {
-        return Err(PeerTrustError::Invalid("audit entry is too large"));
+        entry.truncated = true;
+        entry.method = truncate(&entry.method);
+        entry.request_id = entry.request_id.as_deref().map(truncate);
+        entry.cwd = entry.cwd.as_deref().map(|cwd| PathBuf::from(truncate(&cwd.to_string_lossy())));
+        line = serde_json::to_vec(&entry).map_err(PeerTrustError::Json)?;
     }
     line.push(b'\n');
     ensure_secure_directory(state_root, DirectoryAccess::ManagedOwnerOnly)?;
-    let mut file =
-        owner_only_options().append(true).create(true).open(state_root.join(PEER_AUDIT_FILE))?;
+    let path = state_root.join(PEER_AUDIT_FILE);
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.len() > MAX_AUDIT_FILE_BYTES) {
+        fs::rename(&path, state_root.join(format!("{PEER_AUDIT_FILE}.1")))?;
+    }
+    let mut options = owner_only_options();
+    options.append(true).create(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    let mut file = options.open(&path)?;
+    check_owner_file(&file)?;
     file.write_all(&line)?;
     file.sync_data()?;
     Ok(())
+}
+
+fn truncate(value: &str) -> String {
+    if value.len() <= MAX_AUDIT_FIELD_BYTES {
+        return value.to_owned();
+    }
+    let mut end = MAX_AUDIT_FIELD_BYTES;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
 }
 
 /// Reads the newest `limit` audit entries, oldest first. Unreadable lines are skipped.
@@ -358,12 +424,24 @@ pub fn read_audit(state_root: &Path, limit: usize) -> Result<Vec<AuditEntry>, Pe
         Err(error) => return Err(error.into()),
     };
     let mut entries = std::collections::VecDeque::with_capacity(limit.min(1024));
-    for line in BufReader::new(file).split(b'\n') {
-        let line = line?;
-        if line.len() > MAX_AUDIT_LINE_BYTES {
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::with_capacity(1024);
+    loop {
+        line.clear();
+        // Read at most one line limit at a time, so a file without newlines
+        // can't make this hold the whole log in memory.
+        let read =
+            (&mut reader).take(MAX_AUDIT_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line)?;
+        if read == 0 {
+            break;
+        }
+        if line.last() != Some(&b'\n') && line.len() > MAX_AUDIT_LINE_BYTES {
+            skip_rest_of_line(&mut reader)?;
             continue;
         }
-        let Ok(entry) = serde_json::from_slice::<AuditEntry>(&line) else { continue };
+        let Ok(entry) = serde_json::from_slice::<AuditEntry>(line.trim_ascii_end()) else {
+            continue;
+        };
         if entries.len() == limit {
             entries.pop_front();
         }
@@ -372,6 +450,25 @@ pub fn read_audit(state_root: &Path, limit: usize) -> Result<Vec<AuditEntry>, Pe
         }
     }
     Ok(entries.into())
+}
+
+fn skip_rest_of_line(reader: &mut impl BufRead) -> io::Result<()> {
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(());
+        }
+        match buffer.iter().position(|byte| *byte == b'\n') {
+            Some(index) => {
+                reader.consume(index + 1);
+                return Ok(());
+            }
+            None => {
+                let length = buffer.len();
+                reader.consume(length);
+            }
+        }
+    }
 }
 
 fn owner_only_options() -> OpenOptions {
@@ -397,6 +494,13 @@ fn open_owner_file(path: &Path) -> io::Result<File> {
         }
         options.open(path)?
     };
+    check_owner_file(&file)?;
+    Ok(file)
+}
+
+/// Requires an open state file to be a regular file this user owns with no
+/// group or other access.
+fn check_owner_file(file: &File) -> io::Result<()> {
     let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "state path is not a file"));
@@ -413,11 +517,10 @@ fn open_owner_file(path: &Path) -> io::Result<File> {
             ));
         }
     }
-    Ok(file)
+    Ok(())
 }
 
 fn read_owner_file(path: &Path) -> io::Result<Vec<u8>> {
-    use std::io::Read;
     let file = open_owner_file(path)?;
     let mut bytes = Vec::new();
     file.take(MAX_BOOK_BYTES + 1).read_to_end(&mut bytes)?;

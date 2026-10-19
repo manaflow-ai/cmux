@@ -104,7 +104,7 @@ cmux remote trust audit --limit 20
 | `ask` | Request a session for a listed agent in a listed folder; each request waits for approval on this machine. |
 | `folders` | Start sessions for listed agents in listed folders without asking. |
 
-Folders are resolved through symlinks when the grant is saved and again for every request, so a link inside an allowed folder can't lead out of it. `/` and the home folder itself can't be allowed. Records are written to `peer-trust.json` and requests to the append-only `peer-audit.jsonl`, both owner-only files in the remote state root (`--state-dir`, `CMUX_REMOTE_STATE_DIR`, or the platform default). A peer can't change them. There's no shell tier: opening a terminal for a peer needs its own design and review.
+Folders are stored resolved through symlinks. A request's working directory is resolved too, so a link inside an allowed folder can't lead out of it, and a stored folder that's later replaced by a symlink admits nothing. `/`, the home folder and any folder above it can't be allowed. Records are written to `peer-trust.json` (updated under a lock) and requests to the append-only `peer-audit.jsonl` (rotated to `.1` past 4 MiB; oversized peer fields are cut, never dropped), both owner-only files in the remote state root (`--state-dir`, `CMUX_REMOTE_STATE_DIR`, or the platform default). A peer can't change them. There's no shell tier: opening a terminal for a peer needs its own design and review.
 
 Nothing remote consults these records yet. The next step, `machine.session.request`, will admit or refuse through them and log every decision ([design](../../docs/multi-machine-sessions.md#per-host-trust)).
 

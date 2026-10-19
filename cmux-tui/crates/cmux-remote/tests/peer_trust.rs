@@ -172,8 +172,11 @@ fn the_audit_log_appends_owner_only_and_reads_the_newest_entries() {
     let state = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
 
-    append_audit(state.path(), &entry(NOW, project.path(), AuditDecision::Refused(RefuseReason::NoGrant)))
-        .unwrap();
+    append_audit(
+        state.path(),
+        &entry(NOW, project.path(), AuditDecision::Refused(RefuseReason::NoGrant)),
+    )
+    .unwrap();
     append_audit(state.path(), &entry(NOW + 1, project.path(), AuditDecision::Admitted)).unwrap();
 
     let path = state.path().join("peer-audit.jsonl");
@@ -244,8 +247,11 @@ fn an_oversized_request_is_still_logged_truncated() {
     let state = tempfile::tempdir().unwrap();
     let long = Path::new("/").join("x".repeat(64 * 1024));
 
-    append_audit(state.path(), &entry(NOW, &long, AuditDecision::Refused(RefuseReason::FolderNotAllowed)))
-        .unwrap();
+    append_audit(
+        state.path(),
+        &entry(NOW, &long, AuditDecision::Refused(RefuseReason::FolderNotAllowed)),
+    )
+    .unwrap();
 
     let entries = read_audit(state.path(), 10).unwrap();
     assert_eq!(entries.len(), 1);
@@ -280,7 +286,9 @@ fn appending_to_an_audit_log_readable_by_others_is_refused() {
     fs::write(&path, b"").unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
 
-    assert!(append_audit(state.path(), &entry(NOW, project.path(), AuditDecision::Admitted)).is_err());
+    assert!(
+        append_audit(state.path(), &entry(NOW, project.path(), AuditDecision::Admitted)).is_err()
+    );
 }
 
 #[test]

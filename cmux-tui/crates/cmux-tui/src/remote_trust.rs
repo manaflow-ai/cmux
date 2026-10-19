@@ -76,9 +76,13 @@ pub(crate) fn run(args: &[String]) -> anyhow::Result<()> {
                 expires_at_unix: parsed.expires_in.map(|duration| now + duration.as_secs()),
                 updated_at_unix: now,
             };
-            let mut book = PeerTrustBook::load(&root)?;
-            book.set(peer.clone())?;
-            book.save(&root)?;
+            let fingerprint = peer.fingerprint.clone();
+            // The stored record has its folders resolved; print that one.
+            let peer = PeerTrustBook::update(&root, |book| {
+                book.set(peer)?;
+                Ok(book.get(&fingerprint).cloned())
+            })?
+            .ok_or_else(|| anyhow!(messages.not_known(&fingerprint)))?;
             if parsed.json {
                 println!("{}", serde_json::to_string_pretty(&peer)?);
             } else {
@@ -86,11 +90,9 @@ pub(crate) fn run(args: &[String]) -> anyhow::Result<()> {
             }
         }
         Action::Forget { fingerprint } => {
-            let mut book = PeerTrustBook::load(&root)?;
-            if !book.forget(&fingerprint) {
+            if !PeerTrustBook::update(&root, |book| Ok(book.forget(&fingerprint)))? {
                 return Err(anyhow!(messages.not_known(&fingerprint)));
             }
-            book.save(&root)?;
             if parsed.json {
                 println!(
                     "{}",
@@ -162,8 +164,8 @@ fn kebab(value: &impl serde::Serialize) -> String {
     }
 }
 
-/// Resolves a folder through symlinks and refuses the filesystem root and the
-/// home folder itself: a grant names a project, not the whole account.
+/// Resolves a folder through symlinks and refuses the filesystem root, the
+/// home folder and its ancestors: a grant names a project, not the account.
 fn allowed_folder(folder: &Path) -> anyhow::Result<PathBuf> {
     let invalid = || anyhow!(catalog().peer_trust.invalid_folder(&folder.display().to_string()));
     let resolved = std::fs::canonicalize(folder).map_err(|_| invalid())?;
@@ -171,7 +173,7 @@ fn allowed_folder(folder: &Path) -> anyhow::Result<PathBuf> {
         return Err(invalid());
     }
     let home = std::env::var_os("HOME").and_then(|home| std::fs::canonicalize(home).ok());
-    if home.is_some_and(|home| home == resolved) {
+    if home.is_some_and(|home| home.starts_with(&resolved)) {
         return Err(invalid());
     }
     Ok(resolved)

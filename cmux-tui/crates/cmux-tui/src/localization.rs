@@ -1818,7 +1818,7 @@ socket.
         grant_needs_scope: "ask and folders need at least one --folder and one --agent",
         not_known: "no trust record for peer {fingerprint}",
         forgotten: "Forgot trust record for {fingerprint}.",
-        invalid_folder: "--folder {path} must be an existing folder other than / or your home folder",
+        invalid_folder: "--folder {path} must be an existing project folder, not /, your home folder or a folder that contains it",
     },
     remote: RemoteMessages {
         remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nThis command manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
@@ -2065,7 +2065,7 @@ static JAPANESE: Catalog = Catalog {
     local_server: LocalServerMessages {
         shorthand_help: "使用方法\n  cmux help shorthands\n\n短縮形は同じ公開リソース操作と出力形式を使います。\n-t/--target は cmux セレクターです。tmux の session:window.pane 形式ではありません。\n対象の省略は選択したセッションの current です。一覧もそのセッション内です。\nsplitw の既定は下、-h は右、-v は下です。ヘルプは --help を使います。\nselectp は -L/-R/-U/-D の一つ、neww は -n NAME を受け付けます。\nrenamew は新しい名前一つ、capturep は常に出力します（-p は省略可）。\nsend-keys は Enter、C-c、M-x などのキー名、-l は UTF-8 文字列を連結します。\n文字列とキー名の混在には対応しません。文字列には terminal write を使います。\nリソースの current は省略可能です: pane split、term read、ws rename --name NAME。\n明示的なセレクターパスを優先します。コマンドと同名なら name: を使います。\nnew-session はありません。cmux --session NAME または server ensure --session NAME を使います。\n",
         shorthand_invalid: "短縮形の引数 {value} は無効または未対応です。cmux help shorthands を参照してください",
-        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote doctor <ホスト>   ホストへの SSH が失敗する理由を説明\n  cmux remote trust <操作>    ペアリングしたマシンがここでできることを決める\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
+        startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote doctor <ホスト>   ホストへの SSH が失敗する理由を説明\n  cmux remote trust <操作>      ペアリングしたマシンがここでできることを決める\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|doctor|trust|stop> [オプション]",
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
@@ -2562,7 +2562,7 @@ SIGTERM または SIGINT で終了し、ソケットを削除します。
         grant_needs_scope: "ask と folders には --folder と --agent をそれぞれ 1 つ以上指定してください",
         not_known: "ピア {fingerprint} の信頼記録はありません",
         forgotten: "{fingerprint} の信頼記録を削除しました。",
-        invalid_folder: "--folder {path} には / とホームフォルダ以外の既存のフォルダを指定してください",
+        invalid_folder: "--folder {path} には既存のフォルダを指定してください (/、ホームフォルダ、その上位フォルダは不可)",
     },
     remote: RemoteMessages {
         remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nこのコマンドは置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
