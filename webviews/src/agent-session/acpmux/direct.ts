@@ -156,6 +156,8 @@ const startsTurn = (event: EventRecord) =>
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// Most older pages an open adds to reach the start of the turn its page began in (1 MiB).
+const OPEN_TURN_PAGES = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
@@ -1489,6 +1491,11 @@ export class AcpmuxDirectClient {
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
     this.events = mergeEventRecords(page, this.events);
+    // The open page is the newest records that fit, so a long reply can put its start mid-turn,
+    // and the tail would draw as a whole reply: a render fence cut in two shows its HTML as text
+    // (Lucas 2026-10-19). Older pages until one holds the turn's start, as older pages keep to
+    // whole turns (fetchOlder).
+    if (result?.hasMore !== false && !(await this.reachTurnStart(sessionId, generation))) return [];
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
     this.queue = mergeQueue(this.queue, detail.queue ?? []);
@@ -3078,6 +3085,40 @@ export class AcpmuxDirectClient {
     this.loadingOlder = loading;
     return loading;
   }
+  /// Adds older transcript pages until the held transcript opens with a turn start, acpmux has no
+  /// more, or OPEN_TURN_PAGES pages came. False when the selection moved on meanwhile.
+  private async reachTurnStart(sessionId: string, generation: number): Promise<boolean> {
+    const other = new Set<string>([COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS, ...QUEUE_KINDS]);
+    for (let pages = 0; pages < OPEN_TURN_PAGES; pages++) {
+      const transcript = this.events.filter((event) => !other.has(event.kind));
+      const head = transcript.reduce<EventRecord | undefined>((first, event) => (first && first.seq <= event.seq ? first : event), undefined);
+      if (!head || startsTurn(head) || head.seq <= 1) return true;
+      const beforeSeq = this.events.reduce((first, event) => Math.min(first, event.seq), head.seq);
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        beforeSeq,
+        limit: 400,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return false;
+      let older: EventRecord[] = result?.events ?? [];
+      const more = result?.hasMore === true;
+      // Only the page's last turn start onward: the turns before it stay for scrolling up.
+      let start = -1;
+      for (let index = older.length - 1; index >= 0 && start < 0; index--) if (startsTurn(older[index]!)) start = index;
+      if (start > 0) older = older.slice(start);
+      this.events = mergeEventRecords(older, this.events);
+      if (!more || older.length === 0) {
+        // Nothing was left behind on the page: acpmux holds nothing older.
+        if (start <= 0) this.historyExhausted = true;
+        return true;
+      }
+      if (start >= 0) return true;
+    }
+    return true;
+  }
+
   private async fetchOlder(): Promise<void> {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
