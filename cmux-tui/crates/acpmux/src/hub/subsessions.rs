@@ -67,32 +67,35 @@ pub struct Catalog {
 pub fn catalog() -> &'static Catalog {
     static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
     CATALOG.get_or_init(|| {
-        let doc: Value = serde_json::from_str(CATALOG_SOURCE).expect("subsessions.json is JSON");
-        let row = |key: &str| -> Value {
-            doc["lists"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|l| l["rows"].as_array().into_iter().flatten())
-                .find(|r| r["key"] == key)
-                .cloned()
-                .unwrap_or_else(|| panic!("subsessions.json has no row {key}"))
-        };
-        let number = |key: &str| {
-            let r = row(key);
-            let get = |v: &Value| v.as_u64().and_then(|n| u32::try_from(n).ok());
-            NumberSetting {
-                default: get(&r["default"]).unwrap_or_else(|| panic!("{key}: default")),
-                max: get(&r["range"]["max"]).unwrap_or_else(|| panic!("{key}: range.max")),
-            }
-        };
-        Catalog {
-            enabled: row(SETTING_ENABLED)["default"].as_bool().expect("enabled: default"),
-            max_children: number(SETTING_MAX_CHILDREN),
-            max_depth: number(SETTING_MAX_DEPTH),
-        }
+        // crash-allow: the source is a checked-in file embedded with include_str!, so a bad row fails every daemon start in tests/subsessions.rs before it can ship
+        parse_catalog(CATALOG_SOURCE).expect("subsessions.json rows")
     })
 }
+
+/// The three agents.subsessions rows of a settings source file, or None when one is missing.
+fn parse_catalog(source: &str) -> Option<Catalog> {
+    let doc: Value = serde_json::from_str(source).ok()?;
+    let row = |key: &str| -> Option<Value> {
+        doc["lists"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|l| l["rows"].as_array().into_iter().flatten())
+            .find(|r| r["key"] == key)
+            .cloned()
+    };
+    let get = |v: &Value| v.as_u64().and_then(|n| u32::try_from(n).ok());
+    let number = |key: &str| -> Option<NumberSetting> {
+        let r = row(key)?;
+        Some(NumberSetting { default: get(&r["default"])?, max: get(&r["range"]["max"])? })
+    };
+    Some(Catalog {
+        enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
+        max_children: number(SETTING_MAX_CHILDREN)?,
+        max_depth: number(SETTING_MAX_DEPTH)?,
+    })
+}
+
 /// Longest short name, in characters.
 const MAX_SHORT_NAME: usize = 40;
 /// Longest reply text a tool returns, in characters.
@@ -308,7 +311,15 @@ impl Hub {
                 break;
             }
             let Some(id) = parent.take() else { break };
-            let Some(up) = self.sessions.lock().unwrap().get(&id).cloned() else { break };
+            let Some(up) = self
+                .sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&id)
+                .cloned()
+            else {
+                break;
+            };
             let up = up.meta.lock().unwrap_or_else(|e| e.into_inner());
             limits = up.subsession_limits.clone();
             parent = up.subsession.as_ref().map(|l| l.started_by.clone());
@@ -377,7 +388,7 @@ impl Hub {
             next = self
                 .sessions
                 .lock()
-                .unwrap()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get(&id)
                 .and_then(|s| s.meta.lock().ok().and_then(|m| m.subsession.clone()))
                 .map(|l| l.started_by);
