@@ -1,4 +1,3 @@
-import AppKit
 import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
@@ -45,8 +44,8 @@ public protocol SystemNowPlayingAdapter: AnyObject {
 ///
 /// The stream never outlives cmux: it runs under ``parentWatch``, a shell that
 /// holds a pipe from cmux on its stdin and ends the adapter when that pipe
-/// closes, which the kernel does when cmux quits or crashes; a normal quit
-/// also stops it first (`NSApplication.willTerminateNotification`).
+/// closes, which the kernel does however cmux exits (a quit or a crash), so it
+/// needs no quit hook of its own.
 public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     public let script: URL
     public let framework: URL
@@ -60,7 +59,6 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     /// Exits in a row that came soon after their start.
     private var quickExits = 0
     private let restart = DemandTimer(owner: "now-playing.adapter-restart")
-    private var termination: (any NSObjectProtocol)?
     static let quickExit: TimeInterval = 10
     static let maximumQuickExits = 4
     static let streamArguments = ["stream", "--micros", "--debounce=150"]
@@ -107,12 +105,6 @@ public final class MediaRemoteAdapterProcess: SystemNowPlayingAdapter {
     public func start(onUpdate: @escaping @MainActor (SystemNowPlayingFeed.Update) -> Void) {
         self.onUpdate = onUpdate
         quickExits = 0
-        if termination == nil {
-            termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
-                                                                 queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.stop() }
-            }
-        }
         launch()
     }
 
