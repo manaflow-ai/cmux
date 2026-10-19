@@ -223,6 +223,12 @@ public final class SidebarModel {
     /// Selected ids in visual order.
     public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
 
+    /// What a close of `id` from its menu or a key closes: the whole selection, in row order,
+    /// when `id` is one of two or more selected rows; otherwise `id` alone.
+    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] {
+        selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
+    }
+
     // MARK: Intents
 
     /// Emits an intent to `onIntent`, or applies it locally when unset.
@@ -241,11 +247,13 @@ public final class SidebarModel {
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .close(ids):
+            let oldOrder = allWorkspaces.map(\.id)
             SidebarEdits.apply(intent, to: &sections)
-            dropClosed(Set(ids))
+            dropClosed(Set(ids), oldOrder: oldOrder)
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
@@ -345,11 +353,14 @@ public final class SidebarModel {
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.
-    private func dropClosed(_ closed: Set<WorkspaceID>) {
+    private func dropClosed(_ closed: Set<WorkspaceID>, oldOrder: [WorkspaceID]) {
+        let oldActive = activeWorkspaceID
         selection.subtract(closed)
-        if let active = activeWorkspaceID, closed.contains(active) {
-            activeWorkspaceID = selection.first ?? allWorkspaces.first?.id
-            if let next = activeWorkspaceID { selection.insert(next) }
+        if let oldActive, closed.contains(oldActive) {
+            let surviving = allWorkspaces.map(\.id)
+            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving)
+            activeWorkspaceID = next
+            selection = next.map { [$0] } ?? []
         }
     }
 

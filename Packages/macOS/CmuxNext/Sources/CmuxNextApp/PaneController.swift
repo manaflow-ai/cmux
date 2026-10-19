@@ -40,19 +40,31 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
+    /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
+    private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
+        item: { [weak self] tab in self.map { ($0.tabItem(tab), FocusTopology.Kind.of(tab)) } },
+        same: { $0.0 == $1.0 && $0.1 == $1.1 }, changed: { [weak self] in self?.tabItemChanged() })
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
+    #if DEBUG
+    private var debugSnapshotRuns = 0
+    #endif
 
-    struct Snapshot: Equatable {
+    /// The strip. `structure()` reads no tab field (a confirm that draws the same applies nothing); `compose` adds `tabItems`.
+    struct Snapshot {
+        var tabs: [TabModel] // the daemon tabs shown, in order
         var items: [StripTabItem]
         var groups: [TabGroupItem]
         var defaultIndex: Int
-        var connected: Bool
         var generation: String?
-        var surfaces: [UInt64]
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
+        /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
+        /// shows no close button.
+        var keepsFirstTab = false
+        /// False in a pinned column that takes no other tab: no new-tab button.
+        var takesNewTabs = true
     }
 
     /// `workspace` is set before the first apply, so the first frame is the settled one.
@@ -83,6 +95,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func teardown() {
         observation?.cancel()
+        tabItems.cancelAll()
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
@@ -101,93 +114,119 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func observe() {
         // One snapshot now (the first frame), tracked; the stream brings the later ones. A trigger:
         // `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
-        let (first, later) = ObservationStream.current({ [weak self] in ObservationTrigger(self?.snapshot()) })
+        tabItems.cancelAll() // a new record's tabs are new objects
+        let (first, later) = ObservationStream.current({ [weak self] in ObservationTrigger(self?.structure()) })
         observation?.cancel(); observation = Task { [weak self] in
-            for await snapshot in later {
-                guard let self, let snapshot = snapshot.value else { return }
-                self.apply(snapshot)
+            for await structure in later {
+                guard let self, let structure = structure.value else { return }
+                self.apply(self.compose(structure))
             }
         }
-        if let first = first.value { apply(first) }
+        if let first = first.value { apply(compose(first)) }
     }
 
+    /// The strip now, every tab's item mapped again (for a caller whose change no observation sees).
     func snapshot(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
+        compose(structure(file, line), refresh: true)
+    }
+
+    /// One tab's strip item changed (`tabItems`): apply it with the list as it is now (untracked).
+    private func tabItemChanged() { apply(compose(structure())) }
+
+    private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
+        var result = structure
+        result.items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh).map { $0.0 } + structure.items
+        if structure.keepsFirstTab, !structure.tabs.isEmpty { result.items[0].isClosable = false }
+        return result
+    }
+
+    func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
         #if DEBUG
         DebugLayoutCounters.paneSnapshots &+= 1
-        DebugLayoutCounters.note("snapshot", file, line)
+        debugSnapshotRuns += 1
+        DebugLayoutCounters.note(debugSnapshotRuns > 3 ? "snapshot later" : "snapshot #\(debugSnapshotRuns)", file, line) // a new pane's runs, else another pane's
         #endif
         let store = daemon.store
-        let fallback = Strings.untitledTerminal
-        // Terminals on another machine carry its name; browsers always run here.
-        let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
-        // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
-        let titles = TabTitleResolver(services: services)
-        var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
-            // A new tab page is "New Tab", with the new-tab icon, until it
-            // becomes a chat (then the chat's title and icon).
-            let isNewTabPage = titles.isNewTabPage(tab)
-            var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage)
-            // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
-            // content, when the app becomes available after the tree arrived.
-            // An app or page tab names and badges itself like the page it shows.
-            if let page = titles.page(tab) {
-                item.title = page.title
-                item.icon = page.icon
-            }
-            item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
-            if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
-            item.isDormant = services.cache.dormantTabs.contains(tab.id)
-            if tab.kind == .remoteTerminal {
-                // Its terminal runs on another machine: that machine's name.
-                item.machineBadge = services.remoteTerminals.badge(for: tab)
-                item.icon = .icon(.terminal)
-            } else if tab.kind != .browser {
-                item.machineBadge = machine
-                item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
-            } else {
-                // A browser tab names the machine whose localhost it sees.
-                let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-                let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
-                (item.machineBadge, item.machineBadgeHelp) = (badge?.text, badge?.help)
-                // Incognito tabs have only a placeholder record in the daemon.
-                let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
-                if incognito {
-                    let live = services.cache.incognitoDisplay(tab)
-                    (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
-                } else {
-                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id)
-                    if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
-                }
-                browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
-                item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
-            }
-            TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
-            return item
-        }
-        for local in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(local.id) {
-            let page = services.cache.existingBrowser(local.id)?.tab.state
+        var local: [StripTabItem] = []
+        for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
+            let page = services.cache.existingBrowser(tab.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
-            var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
+            var item = StripTabItem(id: StripTabID(tab.id), title: title, subtitle: page?.url?.absoluteString,
                                     icon: .icon(.browser))
-            item.isDormant = services.cache.dormantTabs.contains(local.id)
-            browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
-            items.append(item)
+            item.isDormant = services.cache.dormantTabs.contains(tab.id)
+            browserIcon(key: tab.id, recordFavicon: nil).apply(to: &item)
+            local.append(item)
         }
-        items += services.localTabItems(in: paneKey, hiding: hidden)
+        local += services.localTabItems(in: paneKey, hiding: hidden)
         let groupAsset = IconAssetImages.shared.tabIcon(owner: daemon)
         let groups = pane.tabGroups.map { group in
             TabItemMapping.shared.groupItem(group, isSaved: group.isSaved, asset: groupAsset)
         }
-        let connected = if case .connected = store.connectionState { true } else { false }
-        return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
-                        generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
-                        // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                        hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
+        // The column kind decides (`pinned-dock-v1`), never the tab's title or page.
+        let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
+        let pinned = dock?.isPinned == true
+        let tabs = pane.tabs.filter { !hidden.contains($0.id) }
+        return Snapshot(tabs: tabs, items: local, groups: groups,
+                         defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
+                         // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
+                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil,
+                         keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
+                         takesNewTabs: !pinned || dock?.allowsTabs == true)
+    }
+
+    /// Daemon tab `tab`'s strip item; observed one tab at a time (`tabItems`).
+    private func tabItem(_ tab: TabModel) -> StripTabItem {
+        let fallback = Strings.untitledTerminal
+        // Terminals on another machine carry its name; browsers always run here.
+        let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
+        let ownWorkspace = workspace?.workspace ?? daemon.store.workspace(containing: pane.handle)
+        // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
+        let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
+        // A new tab page is "New Tab", with the new-tab icon, until it
+        // becomes a chat (then the chat's title and icon).
+        let isNewTabPage = titles.isNewTabPage(tab)
+        var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage, restarting: daemon.restartsKeptTab(tab))
+        // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
+        // content, when the app becomes available after the tree arrived.
+        // An app or page tab names and badges itself like the page it shows.
+        if let page = titles.page(tab) {
+            item.title = page.title
+            item.icon = page.icon
+        }
+        item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
+        if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
+        item.isDormant = services.cache.dormantTabs.contains(tab.id)
+        if tab.kind == .remoteTerminal {
+            // Its terminal runs on another machine: that machine's name.
+            item.machineBadge = services.remoteTerminals.badge(for: tab)
+            item.icon = .icon(.terminal)
+        } else if tab.kind != .browser {
+            item.machineBadge = machine
+            item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
+        } else {
+            // A browser tab names the machine whose localhost it sees.
+            let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
+            let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
+            (item.machineBadge, item.machineBadgeHelp) = (badge?.text, badge?.help)
+            // Incognito tabs have only a placeholder record in the daemon.
+            let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
+            if incognito {
+                let live = services.cache.incognitoDisplay(tab)
+                (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
+            } else {
+                item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id, room: state?.profileID)
+                if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
+            }
+            browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
+            item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
+        }
+        TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
+        return item
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
@@ -206,6 +245,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
+        if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
@@ -257,12 +297,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let key = id?.rawValue, services.cache.pageRequests.titleAttention.viewed(key) { remapsViewedTab = true }
     }
 
-    /// Sends the workspace's focus topology when this pane's part of it changed.
+    /// Marks the workspace's focus topology changed when this pane's part of it changed: the
+    /// workspace sends one for all panes that change in this turn (`setNeedsTopology`).
     func sendTopologyIfChanged() {
         let current = focusPane
         guard current != sentFocusPane else { return }
         sentFocusPane = current
-        workspace?.sendTopology()
+        workspace?.setNeedsTopology()
     }
 
     /// A terminal, browser or agent page parked in this pane (`PaneContentView+Parking`)

@@ -32,8 +32,8 @@ extension ChatController {
         let other = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.command, .shift]) == true
         switch linkTarget(hit, at: p) {
         case let .text(url)?:
-            // An app link (a Chief subagent) goes to the host, never to the system.
-            if let url, url.isChiefSubagentLink { onAppLink?(url) } else if let url { onOpenLink(url, other) }
+            // An app link (a workspace, pane, tab, chat or Chief subagent) goes to the host, never to the system.
+            if let url, url.isCmuxAppLink { onAppLink?(url) } else if let url { onOpenLink(url, other) }
         case let .card(raw, url)?:
             if let url { intents?.linkTapped(hit.row.ref, url: raw); onOpenLink(url, other) }
         case nil:

@@ -245,7 +245,7 @@ import QuartzCore
 /// gesture and clicks stay on the list).
 final class SpacePageView: NSView {
     var list: SidebarListView?
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func makeBackingLayer() -> CALayer { SpacePageLayer() }
 }

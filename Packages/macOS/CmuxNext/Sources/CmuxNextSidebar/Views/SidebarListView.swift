@@ -28,6 +28,14 @@ final class SidebarListView: NSView {
         // A held drag hit-tests a geometry built at its begin: new blocks rebuild it at the next move.
         didSet { if blocks != oldValue { drag?.docGeometry = nil } }
     }
+    /// The selected top item, drawn active in its block (`SidebarRegionView.activeItem`): a selection
+    /// change repaints the old and new item only, with no list reload (perf-speed-of-light I6).
+    var activeTopItem: LayoutItemID? {
+        didSet {
+            guard oldValue != activeTopItem else { return }
+            for view in rowViews.values { (view as? SidebarBlockRowView)?.region.activeItem = activeTopItem }
+        }
+    }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
     /// and no pop when the move lands; a refusal lets it go and the rows spring back.
@@ -189,14 +197,19 @@ final class SidebarListView: NSView {
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
-        func reach(_ view: NSView) { view.subviews.forEach { ($0 as? StatusIndicatorView)?.isWindowVisible = visible; if !($0 is StatusIndicatorView) { reach($0) } } }
-        subviews.forEach(reach)
+        // Depth first in subview order; an indicator's own subviews are not entered. An explicit
+        // stack, not a recursive local function (Swift 6.3.3's SendNonSendable pass crashed now and
+        // then on capturing ones in Release).
+        var pending: [NSView] = subviews.reversed()
+        while let view = pending.popLast() {
+            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+        }
     }
     nonisolated override var isFlipped: Bool { true }
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
     /// layer-backed view this tall (1,000 rows) gets a visible-rect backing that AppKit marks for
     /// display on every scroll frame; with updateLayer it keeps no bitmap, so a scroll draws nothing here.
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }

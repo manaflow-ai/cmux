@@ -482,6 +482,23 @@ class PathRoutingStructure(unittest.TestCase):
         install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
         self.assertEqual(install["if"], "steps.web-bundle-cache.outputs.cache-hit == 'true'")
 
+    def test_package_jobs_use_cached_web_bundles_without_rebuilding(self):
+        """Swift and daemon jobs must take the same cache hit fast path."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for job_id in ("swift-test", "daemon-test"):
+            with self.subTest(job=job_id):
+                steps = jobs[job_id]["steps"]
+                build = next(step for step in steps if step.get("name") == "Build the web bundles")
+                self.assertEqual(build["if"], "steps.web-bundle-cache.outputs.cache-hit != 'true'")
+
+    def test_package_jobs_wait_for_single_web_bundle_producer(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for job_id in ("swift-test", "daemon-test", "generated-files"):
+            with self.subTest(job=job_id):
+                needs = jobs[job_id]["needs"]
+                self.assertIn("web-bundles", needs)
+                self.assertIn("needs.web-bundles.result == 'skipped'", jobs[job_id]["if"])
+
     def test_stale_generated_files_fail_with_the_regenerate_hint_and_no_autofix(self):
         """The autofix job's App (glaeda route) has no contents: write, so "Mint the autofix
         token" failed on every stale PR; it is removed, not widened. A stale generated file
@@ -877,7 +894,7 @@ class SameTreeIsAnEvent(unittest.TestCase):
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        for name, state in (("publish-tree", "ready"), ("publish-pr-tree", "ready"), ("notify-unpublished-tree", "failed")):
+        for name, state in (("publish-tree", "ready"), ("notify-unpublished-tree", "failed")):
             job = jobs[name]
             notify = [step for step in job["steps"] if "scripts/ci/cmux_next_tree_notify.py" in step.get("run", "")]
             with self.subTest(job=name):
@@ -898,9 +915,45 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertEqual(job["env"]["CMUX_GHOSTTY_SRC"], "")
         runs = [step.get("run", "") for step in job["steps"]]
         tier = next(i for i, run in enumerate(runs) if "scripts/cmux-next/fast-tier.py" in run)
-        init = next(i for i, run in enumerate(runs) if "git submodule update --init" in run and "ghostty-next" in run)
+        init = next(i for i, run in enumerate(runs)
+                    if "scripts/ci/init-submodule.sh ghostty-next" in run
+                    or ("git submodule update --init" in run and "ghostty-next" in run))
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
         self.assertLess(max(init, zig), tier)
+
+    def test_fast_tier_uses_bounded_ghostty_initialization(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        init = next(step for step in job["steps"]
+                    if "scripts/ci/init-submodule.sh ghostty-next" in step.get("run", ""))
+        self.assertIn("scripts/ci/init-submodule.sh ghostty-next", init["run"])
+
+    def test_fast_tier_restores_shared_build_caches_and_only_seeds_on_push(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        steps = job["steps"]
+        restores = [step for step in steps if "cache-restore" in str(step.get("uses", ""))]
+        saves = [step for step in steps if "cache-save" in str(step.get("uses", ""))]
+        self.assertEqual(len(restores), 2)
+        self.assertEqual(len(saves), 2)
+        self.assertTrue(any("Packages/Shared/CmuxHomeRender/.build" in str(step.get("with", {}).get("path", ""))
+                            for step in restores))
+        self.assertTrue(any("cmux-tui/target" in str(step.get("with", {}).get("path", ""))
+                            for step in restores))
+        for step in restores + saves:
+            self.assertIn(step.get("with", {}).get("backend"), ("r2", "${{ vars.CI_CACHE_BACKEND || 'r2' }}"))
+        cargo_steps = [step for step in steps if "Cargo fast-tier cache" in step.get("name", "")]
+        for step in cargo_steps:
+            self.assertIn("!contains(runner.name, '-glaeda')", step.get("if", ""))
+        for save in saves:
+            self.assertIn("github.event_name == 'push'", save.get("if", ""))
+            self.assertIn("refs/heads/feat-cmux-next", save.get("if", ""))
+
+    def test_fast_tier_emits_a_json_timing_receipt(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        run = next(step for step in job["steps"] if "scripts/cmux-next/fast-tier.py" in step.get("run", ""))
+        self.assertIn("--receipt", run["run"])
+        upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", "")))
+        self.assertEqual(upload.get("if"), "always()")
+        self.assertIn("github.run_attempt", upload["with"]["name"])
 
     def test_fast_tier_reuses_ghostty_next_instead_of_deinitializing_every_submodule(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]

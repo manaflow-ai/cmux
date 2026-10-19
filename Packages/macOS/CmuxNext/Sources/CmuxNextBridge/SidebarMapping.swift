@@ -11,10 +11,10 @@ public struct SidebarMapping {
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
-    /// The front page's title, else the workspace's name. A daemon default
-    /// name (`workspace-7`) is shown: a terminal workspace gets no page or
-    /// agent title, so hiding it left the row blank until a rename (#21357).
-    /// The creating row sends the same name, so the reply changes nothing.
+    /// What a workspace's row shows of its front tab: a name in place of one
+    /// the user never gave (a page's title, cx-e32b; a chat's or terminal's,
+    /// hq#1957), and a page's favicon in place of an icon the user never chose.
+    /// A daemon default name (`workspace-7`) remains visible until a rename.
     private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
         if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
         return workspace.displayName
@@ -39,8 +39,8 @@ public struct SidebarMapping {
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
-    /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
-    /// face of a workspace whose front tab is a browser, and the favicon of
+    /// titled `newTabTitle` (localized by the App). `pageFace` gives the face
+    /// a workspace's front tab (any kind) lends its row, and the favicon of
     /// each browser tab in the tab list. `tabTitle` names each tab in the tab
     /// list as its strip does (the App's `TabTitleResolver`); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
@@ -112,7 +112,7 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
-        let page = front.flatMap { $0.kind == .browser ? pageFace(workspace, $0) : nil }
+        let page = front.flatMap { pageFace(workspace, $0) }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
@@ -135,7 +135,9 @@ public struct SidebarMapping {
                 ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
             kindBrand: front?.agentBrand,
-            unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
+            // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
+            unread: unread > 0 ? .count(unread)
+                : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: agentBrand(tabs),
@@ -145,7 +147,7 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
                 return SidebarTab(id: TabID(tab.id), title: title,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
                                   brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },
             muted: muted,
@@ -165,7 +167,7 @@ public struct SidebarMapping {
 
     /// The tab the row stands for: the selected tab of the workspace's most
     /// recently focused pane; nil for a workspace with no tabs.
-    func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+    public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
         let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
         guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
         if let id = selectedTab(pane), let tab = pane.tabs.first(where: { $0.id == id }) { return tab }

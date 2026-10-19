@@ -59,6 +59,11 @@ fn read(path: Option<&Path>) -> BTreeSet<String> {
 /// no elevated rights and whose program does not raise them.
 pub fn updatable(row: &HarnessHealth) -> Option<Vec<String>> {
     let plan = row.update.as_ref().filter(|p| !p.elevated)?;
+    if row.channel == super::channel::Channel::Npm
+        && !super::channel::npm_update_matches(plan, row.package.as_deref())
+    {
+        return None;
+    }
     let program = plan.argv.first()?;
     let name = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
     (row.outdated && !ELEVATING.contains(&name)).then(|| plan.argv.clone())
@@ -213,11 +218,16 @@ impl HealthService {
             };
             if !row.outdated {
                 let unknown = || row.problem.clone().unwrap_or("its version is unknown".into());
-                let answer = if row.version.is_some() {
-                    Requested::Current
-                } else {
-                    Requested::Refused(unknown())
-                };
+                let known_current = row.latest.as_deref().zip(row.version.as_deref()).is_some_and(
+                    |(latest, installed)| {
+                        matches!(
+                            probe::compare_versions(latest, installed),
+                            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                        )
+                    },
+                );
+                let answer =
+                    if known_current { Requested::Current } else { Requested::Refused(unknown()) };
                 out.push((id, answer));
                 continue;
             }

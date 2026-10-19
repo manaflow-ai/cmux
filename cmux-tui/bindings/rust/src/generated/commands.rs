@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR dbe29a991910f8ae2eac9e243184bd92bc6d2a8485f216da921aa31bcc9e6fd0.
+// cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1801,6 +1801,8 @@ pub struct HomeInboxResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct IdentifyRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_metadata: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -2900,6 +2902,9 @@ pub type RenameSurfaceResult = T::EmptyResult;
 pub struct RenameWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_generation: Optional<String>,
+    /// The workspace name_revision the caller read; a rename since then fails.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_name_revision: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2909,6 +2914,12 @@ pub struct RenameWorkspaceRequest {
     pub name: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub release: Option<bool>,
+    /// Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub source: Optional<T::NameSource>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -3192,6 +3203,8 @@ pub struct SetColumnDockRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub permanent: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pinned: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3525,6 +3538,8 @@ pub struct SplitRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4536,6 +4551,10 @@ impl CmuxClient {
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {
+        if request.machine_metadata.is_some() {
+            self.require_protocol_field("identify", 12)?;
+            self.require_capability_field("identify", "machine-identity-v1")?;
+        }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }
 
@@ -5012,6 +5031,10 @@ impl CmuxClient {
         if !request.expected_generation.is_missing() {
             self.require_protocol_field("rename-workspace", 7)?;
         }
+        if !request.expected_name_revision.is_missing() {
+            self.require_protocol_field("rename-workspace", 12)?;
+            self.require_capability_field("rename-workspace", "workspace-name-source-v1")?;
+        }
         if !request.expected_revision.is_missing() {
             self.require_protocol_field("rename-workspace", 7)?;
         }
@@ -5024,6 +5047,14 @@ impl CmuxClient {
         }
         if !request.origin.is_missing() {
             self.require_protocol_field("rename-workspace", 7)?;
+        }
+        if request.release.is_some() {
+            self.require_protocol_field("rename-workspace", 12)?;
+            self.require_capability_field("rename-workspace", "workspace-name-source-v1")?;
+        }
+        if !request.source.is_missing() {
+            self.require_protocol_field("rename-workspace", 12)?;
+            self.require_capability_field("rename-workspace", "workspace-name-source-v1")?;
         }
         self.execute(&RENAME_WORKSPACE_METADATA, &request)
     }
@@ -5150,6 +5181,10 @@ impl CmuxClient {
     }
 
     pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        if !request.pinned.is_missing() {
+            self.require_protocol_field("set-column-dock", 12)?;
+            self.require_capability_field("set-column-dock", "pinned-dock-v1")?;
+        }
         if !request.role.is_missing() {
             self.require_protocol_field("set-column-dock", 12)?;
             self.require_capability_field("set-column-dock", "dock-column-role-v1")?;
@@ -5326,6 +5361,10 @@ impl CmuxClient {
         if !request.shell_args.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-shell-args-v1")?;
+        }
+        if !request.split_id.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-client-split-id-v1")?;
         }
         if !request.tab_id.is_missing() {
             self.require_protocol_field("split", 12)?;

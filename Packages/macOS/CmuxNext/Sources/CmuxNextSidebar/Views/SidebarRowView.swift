@@ -14,12 +14,19 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
             // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
             needsLayout = true
         }
     }
+
+    /// The row shows as selected, the one source of its AXSelected. A row with more
+    /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
+    var showsSelection: Bool { isSelected }
+
+    func updateAccessibilitySelection() { setAccessibilitySelected(showsSelection) }
 
     required init(key: SidebarRowKey) {
         self.key = key
@@ -33,7 +40,7 @@ class SidebarRowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
@@ -92,17 +99,29 @@ class SidebarRowView: NSView {
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
     @objc dynamic func hoverChanged() {
-        fadesNextFill = true
-        fadesNextHover = true
+        // Hover entry is immediate; only clearing a row may use the short
+        // exit transition. A pointer sweep should never leave a delayed
+        // highlight behind the row the pointer is currently over.
+        fadesNextFill = !isHovered
+        fadesNextHover = !isHovered
         needsDisplay = true
     }
 
-    /// The next fill change came from hover, so it fades in and out
-    /// (`MotionFade.hover` both ways, Leo 2026-10-13: moving between rows
-    /// snapped); reloads and theme changes apply at once.
+    /// Clears hover state before a row leaves the realized list. This avoids
+    /// carrying its fill or hover controls through the close/recycle motion.
+    func clearHoverImmediately() {
+        isHovered = false
+        fadesNextFill = false
+        fadesNextHover = false
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    /// The next fill change came from hover. Hover entry is immediate and the
+    /// default hover-out token clears it without leaving a trail.
     var fadesNextFill = false
-    /// The next layout came from hover: the row's hover controls fade in
-    /// place (the row's `layout()` clears it).
+    /// The next layout came from hover: the row's hover controls reveal or
+    /// clear in place (the row's `layout()` clears it).
     var fadesNextHover = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed
@@ -110,7 +129,7 @@ class SidebarRowView: NSView {
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hover)
+        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
     }
 
@@ -161,7 +180,7 @@ class SidebarRowView: NSView {
     /// A one-line label. Its color is set in the row's `updateLayer`, inside
     /// `performWithTheme`, so it follows the row's theme scope; it is a layer
     /// color, so a theme change blends it (`ChromeLabel`, I5).
-    static func label(font: NSFont) -> NSTextField {
+    static func label(font: NSFont) -> ChromeLabel {
         ChromeLabel(font: font)
     }
 

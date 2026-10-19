@@ -7,13 +7,14 @@ selectors, fields, results, errors, constraints, or stream types.
 ## Transported operations
 
 `cmux.protocol/2` transports the operations in `resource-operations-v2.json` for one local mux
-session. Cross-machine aggregation and provider lifecycle require a later
-broker protocol.
+session. `machine.list/get` can explicitly opt in to admitted remote metadata
+with `catalog:true`; this supplies no remote execution route. Cross-machine
+session aggregation and provider lifecycle require a later broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 87 | Reads state and forbids an idempotency key |
-| `mutation` | 193 | Requires an idempotency key and returns a mutation result |
+| `read` | 88 | Reads state and forbids an idempotency key |
+| `mutation` | 197 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -56,6 +57,7 @@ correlation, and idempotency metadata.
 | `project` | 6 | `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
 | `setting` | 7 | `settings.get`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.schema`, `settings.set`, `settings.snapshot` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
+| `stash` | 5 | `stash.create`, `stash.delete`, `stash.import`, `stash.list`, `stash.restore` |
 | `stream` | 1 | `stream.cancel` |
 | `tab` | 15 | `browser.profile.open`, `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |
 | `tab_group` | 9 | `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.get`, `tab_group.list`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update` |

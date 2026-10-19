@@ -43,6 +43,7 @@ public final class HomeSidebarView: NSView {
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
 
     public override init(frame: NSRect) {
+        HomeReduceMotion.install()
         super.init(frame: frame)
         wantsLayer = true
         list.frame = bounds

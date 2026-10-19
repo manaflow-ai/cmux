@@ -8,7 +8,7 @@ import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
 import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
-import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket } from "./wire-ticket.ts"
+import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket, type WireScope } from "./wire-ticket.ts"
 
 /** The owner each wire scope reaches (principalForOwner). */
 const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
@@ -70,12 +70,12 @@ const gateUnreachable = (e: unknown) => {
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocol
  * `cmux.wire.v1`. The credential is the Authorization header (native clients), a `ticket.<ticket>`
- * subprotocol from POST /v1/wire/ticket (browsers), or the legacy `bearer.<token>` subprotocol
- * (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
+ * subprotocol from POST /v1/wire/ticket, bound to its scope (browsers); the legacy `bearer.<token>` subprotocol is
+ * retired (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
  * authenticates and passes the principal to the owner DO; frames never carry identity.
  */
-const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
-  const credential = await wireCredential(request, env, scope, spent)
+const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: WireScope, conversation?: string /* or agent for mux */): Promise<Response> => {
+  const credential = await wireCredential(request, env, spent, scope)
   if (!credential.ok) return credential.response
   const { principal: authenticatedToken, protocols } = credential
   if (!authenticatedToken?.user || !authenticatedToken.team) return wireUnauthenticated()
@@ -175,7 +175,7 @@ export default {
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
-    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, m[1]!)
+    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, m[1] as WireScope)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
     if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "conv", conv[1]!)
