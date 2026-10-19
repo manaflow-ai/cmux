@@ -5140,5 +5140,18 @@
         ]
       }
     }
+  },
+  "conversation.codex": {
+    "source": "Codex",
+    "identityLocales": {
+      "de": "Codex is the provider name and invariant brand; the translated entry is still required.",
+      "fr": "Codex is the provider name and invariant brand; the translated entry is still required.",
+      "ar": "Codex is the provider name and invariant brand; the translated entry is still required.",
+      "es": "Codex is the provider name and invariant brand; the translated entry is still required.",
+      "zh-Hant": "Codex is the provider name and invariant brand; the translated entry is still required.",
+      "zh-Hans": "Codex is the provider name and invariant brand; the translated entry is still required.",
+      "ko": "Codex is the provider name and invariant brand; the translated entry is still required.",
+      "ja": "Codex is the provider name and invariant brand; the translated entry is still required."
+    }
   }
 }

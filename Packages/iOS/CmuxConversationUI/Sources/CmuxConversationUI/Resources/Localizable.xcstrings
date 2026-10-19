@@ -13,49 +13,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "Konversationsaktionen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "Actions de conversation"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "إجراءات المحادثة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "Acciones de conversación"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "對話操作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "对话操作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "대화 작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation actions"
+            "value": "会話アクション"
           }
         }
       }
@@ -71,49 +71,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "Anhang oder Modus hinzufügen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "Ajouter une pièce jointe ou un mode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "إضافة مرفق أو وضع"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "Añadir archivo adjunto o modo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "加入附件或模式"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "添加附件或模式"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "첨부 파일 또는 모드 추가"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add attachment or mode"
+            "value": "添付ファイルまたはモードを追加"
           }
         }
       }
@@ -129,49 +129,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "Alle"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "Tous"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "الجميع"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "Todo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "全部"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "全部"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "모두"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "すべて"
           }
         }
       }
@@ -187,49 +187,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "Für diese Aufgabe immer genehmigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "Toujours approuver pour cette tâche"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "الموافقة دائمًا على هذه المهمة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "Aprobar siempre para esta tarea"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "一律核准此工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "始终批准此任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "이 작업은 항상 승인"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always approve for this task"
+            "value": "このタスクでは常に承認"
           }
         }
       }
@@ -245,49 +245,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "Freigabe erforderlich"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "Approbation requise"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "الموافقة مطلوبة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "Se requiere aprobación"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "需要核准"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "需要批准"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "승인 필요"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval needed"
+            "value": "承認が必要です"
           }
         }
       }
@@ -303,49 +303,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "Genehmigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "Approuver"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "موافقة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "Aprobar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "核准"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "批准"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "승인"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approve"
+            "value": "承認"
           }
         }
       }
@@ -361,49 +361,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "Archivieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "Archiver"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "أرشفة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "Archivar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "封存"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "归档"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "보관"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive"
+            "value": "アーカイブ"
           }
         }
       }
@@ -419,49 +419,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "Aufgabe archivieren?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "Archiver la tâche ?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "هل تريد أرشفة المهمة؟"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "¿Archivar la tarea?"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "要封存工作嗎？"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "要归档任务吗？"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "작업을 보관할까요?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive task?"
+            "value": "タスクをアーカイブしますか？"
           }
         }
       }
@@ -477,49 +477,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "Damit wird die Aufgabe aus der Remote-Aufgabenliste entfernt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "Cela supprime la tâche de la liste des tâches distantes."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "سيؤدي ذلك إلى إزالة المهمة من قائمة المهام البعيدة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "Esto elimina la tarea de la lista de tareas remotas."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "這會從遠端工作列表中移除工作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "这会从远程任务列表中移除任务。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "원격 작업 목록에서 작업이 제거됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes the task from the remote task list."
+            "value": "リモートタスク一覧からタスクが削除されます。"
           }
         }
       }
@@ -535,49 +535,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "Zurück zu den Aufgaben"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "Retour aux tâches"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "العودة إلى المهام"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "Volver a las tareas"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "返回工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "返回任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "작업으로 돌아가기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to tasks"
+            "value": "タスクに戻る"
           }
         }
       }
@@ -593,49 +593,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "Ausgewogen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "Équilibré"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "متوازن"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "Equilibrado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "均衡"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "均衡"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "균형 잡힌"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balanced"
+            "value": "バランス"
           }
         }
       }
@@ -651,49 +651,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "Kamera"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "Appareil photo"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "الكاميرا"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "Cámara"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "相機"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "摄像头"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "카메라"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera"
+            "value": "カメラ"
           }
         }
       }
@@ -709,49 +709,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Abbrechen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Annuler"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "إلغاء"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cancelar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "取消"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "取消"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "취소"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "キャンセル"
           }
         }
       }
@@ -767,49 +767,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "Abgebrochen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "Annulé"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "تم الإلغاء"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "Cancelado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "已取消"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "已取消"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "취소됨"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "キャンセルされました"
           }
         }
       }
@@ -825,49 +825,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "Diese Steuerelemente folgen den vom verbundenen Anbieter gemeldeten Fähigkeiten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "Ces commandes suivent les capacités annoncées par le fournisseur connecté."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "تتبع عناصر التحكم هذه الإمكانات التي يعلنها المزوّد المتصل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "Estos controles siguen las capacidades anunciadas por el proveedor conectado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "這些控制項會依照已連線提供者所宣告的功能運作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "这些控件遵循已连接提供方公布的功能。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "이 제어 항목은 연결된 제공자가 알린 기능을 따릅니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "These controls follow the capabilities advertised by the connected provider."
+            "value": "これらのコントロールは接続中のプロバイダが示す機能に従います。"
           }
         }
       }
@@ -883,49 +883,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "Wähle vor dem Starten einer Aufgabe einen verbundenen Arbeitsbereich aus."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "Choisissez un espace de travail connecté avant de commencer une tâche."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "اختر مساحة عمل متصلة قبل بدء مهمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "Elige un espacio de trabajo conectado antes de iniciar una tarea."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "開始工作前請選擇已連線的工作區。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "开始任务前请选择已连接的工作区。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "작업을 시작하기 전에 연결된 작업 공간을 선택하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a connected workspace before starting a task."
+            "value": "タスクを開始する前に接続済みのワークスペースを選択してください。"
           }
         }
       }
@@ -941,49 +941,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "Schließen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "Fermer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "إغلاق"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "Cerrar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "關閉"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "关闭"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "닫기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "閉じる"
           }
         }
       }
@@ -999,49 +999,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "Aufgabe schließen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "Fermer la tâche"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "إغلاق المهمة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "Cerrar tarea"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "關閉工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "关闭任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "작업 닫기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close task"
+            "value": "タスクを閉じる"
           }
         }
       }
@@ -1057,49 +1057,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Cloud-Dienst"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Service cloud"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "السحابة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Nube"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "雲端"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "云端"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "클라우드"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "クラウド"
           }
         }
       }
@@ -1173,49 +1173,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "Vergleich"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "Comparaison"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "مقارنة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "Comparación"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "比較"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "比较"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "비교"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparison"
+            "value": "比較"
           }
         }
       }
@@ -1231,49 +1231,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "Verbindung wird hergestellt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "Connexion en cours"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "جارٍ الاتصال"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "Conectando"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "正在連線"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "正在连接"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "연결 중"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting"
+            "value": "接続中"
           }
         }
       }
@@ -1289,49 +1289,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "Ablehnen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "Refuser"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "رفض"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "Denegar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "拒絕"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "拒绝"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "거부"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deny"
+            "value": "拒否"
           }
         }
       }
@@ -1347,49 +1347,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "Getrennt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "Déconnecté"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "غير متصل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "Desconectado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "已中斷連線"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "已断开连接"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "연결 해제됨"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnected"
+            "value": "切断済み"
           }
         }
       }
@@ -1405,49 +1405,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "Erledigt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "Fait"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "تم"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "Hecho"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "完成"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "完成"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "완료"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Done"
+            "value": "完了"
           }
         }
       }
@@ -1463,49 +1463,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "Bearbeiten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "Modifier"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "تعديل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "Editar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "編輯"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "编辑"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "편집"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit"
+            "value": "編集"
           }
         }
       }
@@ -1521,49 +1521,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "Wartende Nachricht bearbeiten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "Modifier le message en file d’attente"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "تعديل الرسالة في قائمة الانتظار"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "Editar mensaje en cola"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "編輯排隊中的訊息"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "编辑排队中的消息"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "대기 중인 메시지 편집"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit queued message"
+            "value": "キュー内のメッセージを編集"
           }
         }
       }
@@ -1579,49 +1579,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "Aufwand"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "Niveau d’effort"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "جهد"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "Esfuerzo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "努力"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "努力"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "노력"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "思考レベル"
           }
         }
       }
@@ -1637,49 +1637,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "Starte eine Aufgabe mit Codex, Claude Code oder OpenCode."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "Commencez une tâche avec Codex, Claude Code ou OpenCode."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "ابدأ مهمة باستخدام Codex أو Claude Code أو OpenCode."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "Inicia una tarea con Codex, Claude Code u OpenCode."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "使用 Codex、Claude Code 或 OpenCode 開始工作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "使用 Codex、Claude Code 或 OpenCode 开始任务。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "Codex, Claude Code 또는 OpenCode로 작업을 시작하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start a task to work with Codex, Claude Code, or OpenCode."
+            "value": "Codex、Claude Code、OpenCode のいずれかでタスクを開始します。"
           }
         }
       }
@@ -1695,49 +1695,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "Fehler"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "Erreur"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "خطأ"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "Se produjo un error"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "錯誤"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "错误"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "오류"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "エラー"
           }
         }
       }
@@ -1753,49 +1753,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "Die Artefaktübertragung hat einen ungültigen Teil zurückgegeben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "Le transfert de l’artefact a renvoyé un fragment invalide."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "أعاد نقل العنصر جزءًا غير صالح."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "La transferencia del artefacto devolvió un fragmento no válido."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "構件傳輸傳回了無效區塊。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "工件传输返回了无效分块。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "아티팩트 전송에서 잘못된 조각을 반환했습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "The artifact transfer returned an invalid chunk."
+            "value": "アーティファクト転送から無効なチャンクが返されました。"
           }
         }
       }
@@ -1811,49 +1811,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "Das heruntergeladene Artefakt hat die Integritätsprüfung nicht bestanden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "L’artefact téléchargé n’a pas réussi la vérification d’intégrité."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "فشل العنصر الذي تم تنزيله في فحص السلامة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "El artefacto descargado no superó la comprobación de integridad."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "下載的構件未通過完整性檢查。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "下载的工件未通过完整性检查。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "다운로드한 아티팩트가 무결성 검사를 통과하지 못했습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "The downloaded artifact failed its integrity check."
+            "value": "ダウンロードしたアーティファクトの整合性チェックに失敗しました。"
           }
         }
       }
@@ -1869,49 +1869,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "Dieses Artefakt ist größer als das unterstützte Übertragungslimit."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "Cet artefact dépasse la limite de transfert prise en charge."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "هذا العنصر أكبر من حد النقل المدعوم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "Este artefacto supera el límite de transferencia admitido."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "此構件大於支援的傳輸大小上限。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "此工件大于支持的传输限制。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "이 아티팩트는 지원되는 전송 한도보다 큽니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is larger than the supported transfer limit."
+            "value": "このアーティファクトは対応する転送上限を超えています。"
           }
         }
       }
@@ -1927,49 +1927,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "Dieses Artefakt ist auf dem verbundenen Host nicht verfügbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "Cet artefact est indisponible sur l’hôte connecté."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "هذا العنصر غير متاح من المضيف المتصل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "Este artefacto no está disponible en el host conectado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "已連線主機無法提供此構件。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "已连接主机无法提供此工件。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "연결된 호스트에서 이 아티팩트를 사용할 수 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "This artifact is unavailable from the connected host."
+            "value": "接続中のホストからこのアーティファクトを利用できません。"
           }
         }
       }
@@ -1985,49 +1985,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "Wähle vor dem Starten einer Aufgabe einen Arbeitsbereich aus."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "Choisissez un espace de travail avant de commencer une tâche."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "اختر مساحة عمل قبل بدء مهمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "Elige un espacio de trabajo antes de iniciar una tarea."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "開始工作前請選擇工作區。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "开始任务前请选择工作区。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "작업을 시작하기 전에 작업 공간을 선택하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a workspace before starting a task."
+            "value": "タスクを開始する前にワークスペースを選択してください。"
           }
         }
       }
@@ -2043,49 +2043,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "Der Befehl wurde abgelehnt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "La commande a été refusée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "تم رفض الأمر."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "Se rechazó el comando."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "指令已遭拒絕。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "命令已被拒绝。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "명령이 거부되었습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command was rejected."
+            "value": "コマンドは拒否されました。"
           }
         }
       }
@@ -2101,49 +2101,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "Das Ergebnis des Befehls ist unbekannt. Prüfe die Aufgabe, bevor du es erneut versuchst."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "Le résultat de la commande est inconnu. Vérifiez la tâche avant de réessayer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "نتيجة الأمر غير معروفة. تحقق من المهمة قبل إعادة المحاولة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "Se desconoce el resultado del comando. Comprueba la tarea antes de volver a intentarlo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "指令結果不明。請先檢查工作再重試。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "命令结果未知。请先检查任务再重试。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "명령 결과를 알 수 없습니다. 다시 시도하기 전에 작업을 확인하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "The command outcome is unknown. Check the task before retrying."
+            "value": "コマンドの結果は不明です。再試行する前にタスクを確認してください。"
           }
         }
       }
@@ -2159,49 +2159,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "Der Ereignisstrom hat sich zu schnell geändert. Öffne die Aufgabe erneut, um fortzufahren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "Le flux d’événements a changé trop rapidement. Rouvrez la tâche pour continuer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "تغيّر تدفق الأحداث بسرعة كبيرة. أعد فتح المهمة للمتابعة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "El flujo de eventos cambió demasiado rápido. Vuelve a abrir la tarea para continuar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "事件串流變更過快。請重新開啟工作以繼續。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "事件流变化过快。请重新打开任务以继续。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "이벤트 스트림이 너무 빠르게 변경되었습니다. 계속하려면 작업을 다시 여세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "The event stream changed too quickly. Reopen the task to continue."
+            "value": "イベントストリームの変化が速すぎます。続行するにはタスクを開き直してください。"
           }
         }
       }
@@ -2217,49 +2217,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "Dieser Anbieter kann während der Arbeit keine Folgeanfrage annehmen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "Ce fournisseur ne peut pas accepter de suivi pendant son activité."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "لا يمكن لهذا المزوّد قبول متابعة أثناء عمله."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "Este proveedor no puede aceptar un seguimiento mientras trabaja."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "此提供者在工作時無法接受後續訊息。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "此提供方工作时无法接受后续消息。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "이 제공자는 작업 중에 후속 요청을 받을 수 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "This provider cannot accept a follow-up while it is working."
+            "value": "このプロバイダは処理中にフォローアップを受け付けられません。"
           }
         }
       }
@@ -2275,49 +2275,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "Der Anbieter wurde neu gestartet. Ausstehende Anfragen wurden gelöscht."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "Le fournisseur a redémarré. Les demandes en attente ont été effacées."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "أُعيد تشغيل المزوّد. تم مسح الطلبات المعلّقة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "El proveedor se reinició. Se borraron las solicitudes pendientes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "提供者已重新啟動。待處理要求已清除。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "提供方已重启。待处理请求已清除。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "제공자가 다시 시작되었습니다. 대기 중인 요청이 삭제되었습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "The provider restarted. Pending requests were cleared."
+            "value": "プロバイダが再起動しました。保留中のリクエストは消去されました。"
           }
         }
       }
@@ -2333,49 +2333,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "Stelle die Verbindung wieder her, um eine Aufgabe zu erstellen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "Reconnectez-vous pour créer une tâche."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "أعد الاتصال لإنشاء مهمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "Vuelve a conectarte para crear una tarea."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "請重新連線以建立工作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "请重新连接以创建任务。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "작업을 만들려면 다시 연결하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to create a task."
+            "value": "タスクを作成するには再接続してください。"
           }
         }
       }
@@ -2391,49 +2391,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "Stelle die Verbindung wieder her, um eine Nachricht zu senden."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "Reconnectez-vous pour envoyer un message."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "أعد الاتصال لإرسال رسالة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "Vuelve a conectarte para enviar un mensaje."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "請重新連線以傳送訊息。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "请重新连接以发送消息。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "메시지를 보내려면 다시 연결하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnect to send a message."
+            "value": "メッセージを送信するには再接続してください。"
           }
         }
       }
@@ -2449,49 +2449,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "Die Aufgabenverbindung ist nicht verfügbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "La connexion à la tâche est indisponible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "اتصال المهمة غير متاح."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "La conexión de la tarea no está disponible."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "工作連線無法使用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "任务连接不可用。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "작업 연결을 사용할 수 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "The task connection is unavailable."
+            "value": "タスク接続を利用できません。"
           }
         }
       }
@@ -2507,49 +2507,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "Fehlgeschlagen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "Échoué"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "فشل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "Fallido"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "失敗"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "失败"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "실패"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed"
+            "value": "失敗"
           }
         }
       }
@@ -2565,49 +2565,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "Schnell"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "Rapide"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "سريع"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "Rápido"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "快速"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "快速"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "빠름"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast"
+            "value": "高速"
           }
         }
       }
@@ -2623,49 +2623,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "Dateien"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "Fichiers"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "ملفات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "Archivos"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "檔案"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "文件"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "파일"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files"
+            "value": "ファイル"
           }
         }
       }
@@ -2681,49 +2681,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "Eingabe"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "Entrée"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "إدخال"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "Entrada"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "輸入"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "输入"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "입력"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input"
+            "value": "入力"
           }
         }
       }
@@ -2739,49 +2739,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "Eingabe erforderlich"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "Saisie requise"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "الإدخال مطلوب"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "Se necesita una entrada"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "需要輸入"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "需要输入"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "입력 필요"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Input needed"
+            "value": "入力が必要です"
           }
         }
       }
@@ -2797,49 +2797,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "Intelligenz"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "Niveau d’intelligence"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "الذكاء"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "Inteligencia"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "智慧"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "智能"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "지능"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intelligence"
+            "value": "インテリジェンス"
           }
         }
       }
@@ -2855,49 +2855,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "Letzter Durchlauf"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "Dernier tour"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "الدور الأخير"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "Último turno"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "上一輪"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "上一轮"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "마지막 턴"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last turn"
+            "value": "最後のターン"
           }
         }
       }
@@ -2913,49 +2913,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "Als ungelesen markieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "Marquer comme non lu"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "وضع علامة غير مقروء"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "Marcar como no leído"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "標示為未讀"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "标记为未读"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "읽지 않음으로 표시"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark unread"
+            "value": "未読としてマーク"
           }
         }
       }
@@ -2971,49 +2971,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "Modell"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "Modèle"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "نموذج"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "Modelo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "模型"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "模型"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "모델"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model"
+            "value": "モデル"
           }
         }
       }
@@ -3029,49 +3029,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "Modell und Aufwand"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "Modèle et effort"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "النموذج والجهد"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "Modelo y esfuerzo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "模型與努力程度"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "模型和努力程度"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "모델 및 노력"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model and effort"
+            "value": "モデルと負荷"
           }
         }
       }
@@ -3087,49 +3087,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "Weitere Aktionen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "Plus d’actions"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "إجراءات أخرى"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "Más acciones"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "更多操作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "更多操作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "추가 작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "More actions"
+            "value": "その他のアクション"
           }
         }
       }
@@ -3145,49 +3145,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "Neue Aufgabe"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "Nouvelle tâche"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "مهمة جديدة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "Nueva tarea"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "新工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "新任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "새 작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "New task"
+            "value": "新しいタスク"
           }
         }
       }
@@ -3203,49 +3203,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "Keine Änderungen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "Aucun changement"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "لا تغييرات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "Sin cambios"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "沒有變更"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "没有变化"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "변경사항 없음"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "No changes"
+            "value": "変更はありません"
           }
         }
       }
@@ -3261,49 +3261,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "Für diesen Vergleich gibt es keine Änderungen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "Aucune modification pour cette comparaison."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "لا توجد تغييرات لهذه المقارنة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "No hay cambios para esta comparación."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "此比較沒有變更。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "此比较没有变化。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "이 비교에는 변경사항이 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "There are no changes for this comparison."
+            "value": "この比較に変更はありません。"
           }
         }
       }
@@ -3319,49 +3319,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "Keine Arbeitsbereiche"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "Aucun espace de travail"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "لا توجد مساحات عمل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "No hay espacios de trabajo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "沒有工作區"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "没有工作区"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "작업 공간 없음"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces"
+            "value": "ワークスペースなし"
           }
         }
       }
@@ -3377,49 +3377,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "Ausgabe"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "Sortie"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "إخراج"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "Salida"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "輸出"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "输出"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "출력"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output"
+            "value": "出力"
           }
         }
       }
@@ -3435,49 +3435,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "Fotos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "Images"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "الصور"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "Fotos"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "照片"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "照片"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "사진"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photos"
+            "value": "写真"
           }
         }
       }
@@ -3493,49 +3493,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "Anheften"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "Épingler"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "تثبيت"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "Fijar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "釘選"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "固定"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "고정"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin"
+            "value": "ピン留め"
           }
         }
       }
@@ -3551,49 +3551,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "Angeheftet"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "Épinglé"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "مثبّت"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "Fijado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "已釘選"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "已固定"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "고정됨"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned"
+            "value": "ピン留め済み"
           }
         }
       }
@@ -3609,49 +3609,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "Planungsmodus"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "Mode plan"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "وضع التخطيط"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "Modo plan"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "規劃模式"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "计划模式"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "계획 모드"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plan mode"
+            "value": "計画モード"
           }
         }
       }
@@ -3667,49 +3667,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "Artefakt in der Vorschau anzeigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "Prévisualiser l’artefact"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "معاينة العنصر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "Previsualizar artefacto"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "預覽構件"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "预览工件"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "아티팩트 미리 보기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview artifact"
+            "value": "アーティファクトをプレビュー"
           }
         }
       }
@@ -3725,49 +3725,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "Anbieter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "Fournisseur"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "المزوّد"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "Proveedor"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "提供者"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "提供方"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "제공자"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provider"
+            "value": "プロバイダ"
           }
         }
       }
@@ -3783,49 +3783,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "Ziel verfolgen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "Poursuivre l’objectif"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "متابعة الهدف"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "Perseguir objetivo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "追求目標"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "追求目标"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "목표 추구"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pursue goal"
+            "value": "目標を追求"
           }
         }
       }
@@ -3841,49 +3841,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "Warteschlange"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "File d’attente"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "قائمة الانتظار"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "Cola"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "佇列"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "队列"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "대기열"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queue"
+            "value": "キュー"
           }
         }
       }
@@ -3899,49 +3899,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "In der Warteschlange"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "En file d’attente"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "في قائمة الانتظار"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "En cola"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "排隊中"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "排队中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "대기 중"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Queued"
+            "value": "待機中"
           }
         }
       }
@@ -3957,49 +3957,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "Bereit"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "Prêt"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "جاهز"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "Listo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "準備好"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "就绪"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "준비됨"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "準備完了"
           }
         }
       }
@@ -4015,49 +4015,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "Zuletzt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "Récent"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "مؤخرًا"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "Reciente"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "最近"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "最近"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "최근"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recent"
+            "value": "最近"
           }
         }
       }
@@ -4073,49 +4073,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "Aufgabe aktualisieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "Actualiser la tâche"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "تحديث المهمة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "Actualizar tarea"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "重新整理工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "刷新任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "작업 새로 고침"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh task"
+            "value": "タスクを更新"
           }
         }
       }
@@ -4131,49 +4131,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "Umbenennen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "Renommer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "إعادة تسمية"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "Cambiar nombre"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "重新命名"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "重命名"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "이름 변경"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename"
+            "value": "名前を変更"
           }
         }
       }
@@ -4189,49 +4189,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "Aufgabe umbenennen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "Renommer la tâche"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "إعادة تسمية المهمة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "Cambiar el nombre de la tarea"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "重新命名工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "重命名任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "작업 이름 변경"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename task"
+            "value": "タスクの名前を変更"
           }
         }
       }
@@ -4247,49 +4247,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "Diese Anfrage ist nicht verfügbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "Cette demande est indisponible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "هذا الطلب غير متاح."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "Esta solicitud no está disponible."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "此要求無法使用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "此请求不可用。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "이 요청을 사용할 수 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "This request is unavailable."
+            "value": "このリクエストは利用できません。"
           }
         }
       }
@@ -4305,49 +4305,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "Wird ausgeführt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "En cours d’exécution"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "قيد التشغيل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "En ejecución"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "執行中"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "运行中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "실행 중"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running"
+            "value": "実行中"
           }
         }
       }
@@ -4363,49 +4363,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "Speichern"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "Enregistrer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "حفظ"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "Guardar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "儲存"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "保存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "저장"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "保存"
           }
         }
       }
@@ -4421,49 +4421,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "Aufgaben suchen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "Rechercher des tâches"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "البحث عن المهام"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "Buscar tareas"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "搜尋工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "搜索任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "작업 검색"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search tasks"
+            "value": "タスクを検索"
           }
         }
       }
@@ -4479,49 +4479,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "Senden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "Envoyer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "إرسال"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "Enviar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "傳送"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "发送"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "보내기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send"
+            "value": "送信"
           }
         }
       }
@@ -4537,49 +4537,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "Folgeanfrage senden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "Envoyer un suivi"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "إرسال متابعة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "Enviar seguimiento"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "傳送後續訊息"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "发送后续消息"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "후속 요청 보내기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send follow up"
+            "value": "フォローアップを送信"
           }
         }
       }
@@ -4595,49 +4595,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "Während der Arbeit senden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "Envoyer pendant le traitement"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "الإرسال أثناء العمل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "Enviar mientras trabaja"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "工作時傳送"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "工作时发送"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "작업 중 보내기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send while working"
+            "value": "処理中に送信"
           }
         }
       }
@@ -4653,49 +4653,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "Wähle, ob diese Nachricht den aktuellen Durchlauf steuern oder in der Warteschlange warten soll."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "Choisissez si ce message doit guider le tour actuel ou attendre dans la file."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "اختر ما إذا كانت هذه الرسالة ستوجّه الدور الحالي أم تنتظر في قائمة الانتظار."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "Elige si este mensaje debe guiar el turno actual o esperar en la cola."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "選擇此訊息要引導目前回合，還是留在佇列中等待。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "请选择此消息是引导当前轮次还是在队列中等待。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "이 메시지가 현재 턴을 이끌지 대기열에서 기다릴지 선택하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether this message should guide the current turn or wait in the queue."
+            "value": "このメッセージで現在のターンを誘導するか、キューで待機するかを選択してください。"
           }
         }
       }
@@ -4711,49 +4711,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "Wird gesendet"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "Envoi en cours"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "جارٍ الإرسال"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "Enviando"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "傳送中"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "发送中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "보내는 중"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sending"
+            "value": "送信中"
           }
         }
       }
@@ -4769,49 +4769,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "Artefakt teilen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "Partager l’artefact"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "مشاركة العنصر"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "Compartir artefacto"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "分享構件"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "分享工件"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "아티팩트 공유"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share artifact"
+            "value": "アーティファクトを共有"
           }
         }
       }
@@ -4827,49 +4827,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "Überspringen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "Ignorer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "تخطي"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "Omitir"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "略過"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "跳过"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "건너뛰기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skip"
+            "value": "スキップ"
           }
         }
       }
@@ -4885,49 +4885,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "Geschwindigkeit"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "Vitesse"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "السرعة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "Velocidad"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "速度"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "速度"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "속도"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Speed"
+            "value": "速度"
           }
         }
       }
@@ -4943,49 +4943,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "Bereitgestellt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "Indexé"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "مُجهَّز"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "Preparado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "已暫存"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "已暂存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "스테이징됨"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Staged"
+            "value": "ステージ済み"
           }
         }
       }
@@ -5001,49 +5001,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "Starten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "Démarrer"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "بدء"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "Iniciar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "開始"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "开始"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "시작"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "開始"
           }
         }
       }
@@ -5059,49 +5059,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "Steuern"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "Orienter"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "توجيه"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "Dirigir"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "引導"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "引导"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "조정"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer"
+            "value": "方向を指定"
           }
         }
       }
@@ -5117,49 +5117,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "Stattdessen steuern"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "Orienter à la place"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "التوجيه بدلًا من ذلك"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "Dirigir en su lugar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "改為引導"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "改为引导"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "대신 조정"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steer instead"
+            "value": "代わりに方向を指定"
           }
         }
       }
@@ -5175,49 +5175,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "Aufgabe stoppen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "Arrêter la tâche"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "إيقاف المهمة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "Detener tarea"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "停止工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "停止任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "작업 중지"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop task"
+            "value": "タスクを停止"
           }
         }
       }
@@ -5233,49 +5233,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "Erfolgreich"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "Succès"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "نجاح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "Éxito"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "成功"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "成功"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "성공"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Success"
+            "value": "成功"
           }
         }
       }
@@ -5291,49 +5291,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "Aufgabenaktionen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "Actions de la tâche"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "إجراءات المهمة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "Acciones de la tarea"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "工作操作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "任务操作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "작업 작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Task actions"
+            "value": "タスクのアクション"
           }
         }
       }
@@ -5349,49 +5349,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "Aufgaben"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "Tâches"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "المهام"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "Tareas"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasks"
+            "value": "タスク"
           }
         }
       }
@@ -5407,49 +5407,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "Gründlich"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "Approfondi"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "شامل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "Exhaustivo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "詳盡"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "彻底"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "철저함"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thorough"
+            "value": "詳細"
           }
         }
       }
@@ -5465,49 +5465,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "Unterhaltung"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "Discussion"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "محادثة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "Conversación"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "對話"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "对话"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "대화"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "会話"
           }
         }
       }
@@ -5523,49 +5523,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "Cloud-Dienst nicht verfügbar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "Service cloud indisponible"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "الخدمة السحابية غير متاحة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "Servicio en la nube no disponible"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "雲端服務無法使用"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "云服务不可用"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "클라우드 서비스를 사용할 수 없음"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud service unavailable"
+            "value": "クラウドサービスを利用できません"
           }
         }
       }
@@ -5581,49 +5581,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "Lösen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "Désépingler"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "إلغاء التثبيت"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "Desfijar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "取消釘選"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "取消固定"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "고정 해제"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unpin"
+            "value": "ピン留めを解除"
           }
         }
       }
@@ -5639,49 +5639,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "Nicht bereitgestellt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "Non indexé"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "غير مُجهَّز"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "Sin preparar"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "未暫存"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "未暂存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "스테이징되지 않음"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unstaged"
+            "value": "未ステージ"
           }
         }
       }
@@ -5697,49 +5697,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "Unbenannte Aufgabe"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "Tâche sans titre"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "مهمة بلا عنوان"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "Tarea sin título"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "未命名工作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "未命名任务"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "제목 없는 작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Untitled task"
+            "value": "無題のタスク"
           }
         }
       }
@@ -5755,49 +5755,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "Sende eine Anweisung, um eine Aufgabe zu starten. Hier kannst du Folgeanfragen einreihen, Tool-Arbeit prüfen und Anfragen beantworten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "Envoyez une instruction pour commencer une tâche. Vous pouvez mettre des suivis en file, examiner le travail des outils et répondre aux demandes ici."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "أرسل تعليمات لبدء مهمة. يمكنك وضع المتابعات في قائمة الانتظار ومراجعة عمل الأدوات والإجابة عن الطلبات هنا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "Envía una instrucción para iniciar una tarea. Aquí puedes poner seguimientos en cola, revisar el trabajo de las herramientas y responder solicitudes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "傳送指示以開始工作。你可以在這裡將後續訊息加入佇列、檢閱工具工作並回應要求。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "发送指令以开始任务。你可以在这里将后续消息加入队列、查看工具工作并回复请求。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "작업을 시작하려면 지시를 보내세요. 여기에서 후속 요청을 대기열에 넣고 도구 작업을 검토하며 요청에 답할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."
+            "value": "指示を送信してタスクを開始します。ここでフォローアップをキューに入れ、ツールの作業を確認し、リクエストに回答できます。"
           }
         }
       }
@@ -5872,49 +5872,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "Erledigt"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "Terminé"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "تم العمل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "Realizado"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "已完成"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "已完成"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "작업 완료"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worked"
+            "value": "作業済み"
           }
         }
       }
@@ -5930,49 +5930,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "Wird bearbeitet"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "En cours"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "جارٍ العمل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "En curso"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "處理中"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "处理中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "작업 중"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Working"
+            "value": "作業中"
           }
         }
       }
@@ -5988,49 +5988,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "Arbeitsbereich"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "Espace de travail"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "مساحة العمل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "Espacio de trabajo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "工作區"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "工作区"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "작업 공간"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "ワークスペース"
           }
         }
       }
@@ -6042,15 +6042,53 @@
             "state": "translated",
             "value": "Follow up"
           }
-        }
-      }
-    },
-    "conversation.work_on": {
-      "localizations": {
-        "en": {
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work on"
+            "value": "Folgeanfrage"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متابعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimiento"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後續訊息"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后续消息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후속 요청"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォローアップ"
           }
         }
       }
@@ -6062,6 +6100,54 @@
             "state": "translated",
             "value": "%1$d of %2$d"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d von %2$d"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d sur %2$d"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d من %2$d"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d de %2$d"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$d 項中的第 %1$d 項"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$d 项中的第 %1$d 项"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$d개 중 %1$d개"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$d 件中 %1$d 件"
+          }
         }
       }
     },
@@ -6071,6 +6157,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "Command"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド"
           }
         }
       }
@@ -6082,6 +6216,54 @@
             "state": "translated",
             "value": "Your answer"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Antwort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre réponse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إجابتك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu respuesta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的回答"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的回答"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答"
+          }
         }
       }
     },
@@ -6091,6 +6273,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "Task name"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabenname"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom de la tâche"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم المهمة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre de la tarea"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作名稱"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务名称"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 이름"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク名"
           }
         }
       }
@@ -6102,6 +6332,54 @@
             "state": "translated",
             "value": "Queued message"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartende Nachricht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message en file d’attente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسالة في قائمة الانتظار"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje en cola"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排隊中的訊息"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排队中的消息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중인 메시지"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー内のメッセージ"
+          }
         }
       }
     },
@@ -6111,6 +6389,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "Command applied"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl angewendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande appliquée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تطبيق الأمر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando aplicado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指令已套用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令已应用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 적용됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを適用しました"
           }
         }
       }
@@ -6122,6 +6448,54 @@
             "state": "translated",
             "value": "Provider default"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anbietervorgabe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valeur par défaut du fournisseur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعداد الافتراضي للمزوّد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor predeterminado del proveedor"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供者預設值"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供方默认值"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자 기본값"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロバイダのデフォルト"
+          }
         }
       }
     },
@@ -6131,6 +6505,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "Changes apply to your next message."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen werden auf deine nächste Nachricht angewendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les modifications s’appliqueront à votre prochain message."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستُطبَّق التغييرات على رسالتك التالية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los cambios se aplicarán a tu próximo mensaje."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "變更會套用至你的下一則訊息。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改将应用于你的下一条消息。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경사항은 다음 메시지에 적용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更は次のメッセージに適用されます。"
           }
         }
       }
@@ -6142,6 +6564,54 @@
             "state": "translated",
             "value": "Task changes"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabenänderungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifications de la tâche"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغييرات المهمة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambios de la tarea"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作變更"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务更改"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 변경사항"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクの変更"
+          }
         }
       }
     },
@@ -6151,6 +6621,344 @@
           "stringUnit": {
             "state": "translated",
             "value": "Command received"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl empfangen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande reçue"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم استلام الأمر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando recibido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到指令"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到命令"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 수신됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを受信しました"
+          }
+        }
+      }
+    },
+    "conversation.work_on %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Work on %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An %@ arbeiten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Travailler sur %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العمل على %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trabajar en %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "处理 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 작업"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に取り組む"
+          }
+        }
+      }
+    },
+    "conversation.empty.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tasks yet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Aufgaben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune tâche pour le moment"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مهام بعد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay tareas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前沒有工作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前没有任务"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 작업이 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだタスクはありません"
+          }
+        }
+      }
+    },
+    "conversation.queued.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long press for queued message actions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lange drücken für Aktionen der wartenden Nachricht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez longuement pour les actions du message en file"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط مطولًا لإجراءات الرسالة في قائمة الانتظار"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado para ver las acciones del mensaje en cola"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長按以查看排隊訊息的操作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长按以查看排队消息的操作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 대기 중인 메시지 작업 보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長押ししてキュー内メッセージのアクションを表示"
+          }
+        }
+      }
+    },
+    "conversation.send_message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send message"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer un message"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال رسالة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar mensaje"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送訊息"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送消息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 보내기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージを送信"
+          }
+        }
+      }
+    },
+    "conversation.send_working.hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long press for Steer or Queue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lange drücken für „Steuern“ oder „Einreihen“"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez longuement pour « Orienter » ou « Mettre en file »"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط مطولًا للتوجيه أو الإضافة إلى قائمة الانتظار"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado para dirigir o poner en cola"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長按以引導或加入佇列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长按以引导或加入队列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 조정 또는 대기열 추가"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長押しして方向指定またはキュー追加"
           }
         }
       }
