@@ -678,8 +678,10 @@ class FormatBeforeLanding(unittest.TestCase):
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = controller.land(validation)
         self.assertEqual(formatted, [1])
-        self.assertEqual(merged, [1, 2])
-        self.assertEqual([text for _, text in landed], ["landed", "landed"])
+        # The pushed formatting is a new head nobody validated or reviewed.
+        self.assertEqual(merged, [2])
+        self.assertIn("formatted", landed[0][1])
+        self.assertEqual(landed[1][1], "landed")
 
 
 class NotifyOwners(unittest.TestCase):
@@ -783,13 +785,66 @@ class ReviewGate(NotifyOwners):
         self.assertEqual(controller.merged, [1])
 
 
+class ReviewGateHoles(NotifyOwners):
+    """Review findings on #21925: every way an unreviewed head could still land."""
+
+    def reviewed_file(self, *items):
+        path = Path(tempfile.mkdtemp()) / "reviewed"
+        path.write_text("".join(f"{item.number} {item.sha}\n" for item in items))
+        path.chmod(0o600)
+        return str(path)
+
+    def test_the_merge_is_pinned_to_the_validated_head(self):
+        controller = self.controller(notify=False)
+        calls = []
+        controller.writer = mock.Mock(env={})
+        def run(command, **kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+        with mock.patch.object(nb.subprocess, "run", run):
+            nb.Controller.merge_one(controller, Path("/bin/true"), pr(1), self.validation([pr(1)]))
+        self.assertIn(["--match-head-commit", pr(1).sha], [calls[0][i:i + 2] for i in range(len(calls[0]))])
+
+    def test_only_reviewed_prs_are_stacked_when_landing(self):
+        gh = mock.Mock()
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": self.reviewed_file(pr(2))}):
+            admitted, waiting = nb.admit_reviewed([pr(1), pr(2)], gh, landing=True)
+            self.assertEqual([item.number for item in admitted], [2])
+            self.assertIn("review", waiting[1])
+            # Receipt mode lands nothing, so everything is validated.
+            admitted, waiting = nb.admit_reviewed([pr(1), pr(2)], gh, landing=False)
+            self.assertEqual([item.number for item in admitted], [1, 2])
+
+    def test_a_statuses_error_counts_as_not_reviewed(self):
+        gh = mock.Mock(repo="o/r")
+        gh.api.side_effect = RuntimeError("HTTP 502")
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWERS": "cmux-review-bot"}):
+            os.environ.pop("CMUX_NEXT_BATCH_REVIEWED", None)
+            self.assertFalse(nb.reviewed(pr(1), gh))
+
+    def test_a_reviewed_file_others_can_write_is_ignored(self):
+        path = self.reviewed_file(pr(1))
+        Path(path).chmod(0o666)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": path}):
+            self.assertFalse(nb.reviewed(pr(1)))
+
+    def test_actions_never_lands_without_coord2_s_list(self):
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)
+            self.assertIn("CMUX_NEXT_BATCH_EXCLUDE", nb.landing_refusal())
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CMUX_NEXT_BATCH_EXCLUDE": ""}):
+            self.assertIsNone(nb.landing_refusal())
+
+
 class CoordinatorAndOverrides(unittest.TestCase):
     def test_prs_coord2_lands_itself_stay_out(self):
         listed = Path(tempfile.mkdtemp()) / "merge-ready.sh"
-        listed.write_text("land 21686 98f2d9818d5\nland 21697 3b544e65d8d\n")
+        listed.write_text('READY=(\n  "manaflow-ai/cmux|21686|98f2d9818d5|build"\n  "manaflow-ai/cmux|21697|3b544e65d8d|"\n)\n'
+                          "sleep 1800  # 21700 is not listed\n")
         with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_EXCLUDE": str(listed)}):
             self.assertIn("coord-2 lands it", nb.ineligible_reason(pr(21686), NOW))
             self.assertIsNone(nb.ineligible_reason(pr(21700), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(1800), NOW))
 
     def test_known_base_red_counts_only_when_an_allowed_login_applied_it(self):
         red = [("lint", "completed", "failure")]
@@ -803,6 +858,8 @@ class CoordinatorAndOverrides(unittest.TestCase):
         label = nb.OVERRIDE_ALONE
         prs = [pr(1), pr(2, labels=[label], label_actors={label: "lawrencecchen"}), pr(3)]
         self.assertEqual([item.number for item in nb.land_alone_first(prs)], [2])
+        # One try per head: a land-alone that didn't land doesn't hold the queue every batch.
+        self.assertEqual([item.number for item in nb.land_alone_first(prs, tried={2})], [1, 2, 3])
         untrusted = [pr(1), pr(2, labels=[label], label_actors={label: "teamleaderleo"})]
         self.assertEqual([item.number for item in nb.land_alone_first(untrusted)], [1, 2])
 
