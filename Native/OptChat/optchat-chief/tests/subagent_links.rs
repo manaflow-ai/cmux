@@ -39,6 +39,9 @@ fn an_id_inside_italic_and_a_table_cell_is_linked() {
 fn unknown_ids_code_and_existing_links_stay_as_written() {
     assert_eq!(link("a99 and `a81`"), "a99 and `a81`");
     assert_eq!(link("foo_a81 and a81_x"), "foo_a81 and a81_x");
-    assert_eq!(link("__a82__"), "__[a82](cmux://chief/0123abcd/session/s-82)__");
+    assert_eq!(
+        link("__a82__"),
+        "__[a82](cmux://chief/0123abcd/session/s-82)__"
+    );
     assert_eq!(link(A81), A81);
 }
