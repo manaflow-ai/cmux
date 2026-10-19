@@ -9,7 +9,7 @@ use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::*;
 use super::install_host_replica;
 use crate::cloud_conversations::testing::{FakeBackend, ScriptedWire, wait_until};
-use crate::cloud_conversations::{HostReplica, HostReplicaOptions};
+use crate::cloud_conversations::{ConnectError, HostReplica, HostReplicaOptions};
 
 const ME: &str = "user_00000000000000000001";
 const HOST: &str = "host_0123456789abcdefghij";
@@ -453,4 +453,37 @@ fn a_refused_token_is_asked_for_again_until_a_new_lease_comes() {
     let again = connect_again(&backend, json!({}));
     lease(&mux, client, &INSTALL_TOKEN.replace(".sig", ".sig2")).unwrap();
     wait_frame(&again, "online again", |f| f["snapshot"].is_object());
+}
+
+/// A purge whose token the cloud refuses (4401) waits for a new lease and
+/// asks for it at the `reask` pace; it does not reconnect with the dead
+/// token in a loop.
+#[test]
+fn a_purge_whose_token_is_refused_waits_for_a_new_one_instead_of_reconnecting_at_once() {
+    let (mux, client, backend) = replica_mux_with(HostReplicaOptions {
+        reask: Duration::from_millis(100),
+        ..HostReplicaOptions::default()
+    });
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    let wire = connect_again(&backend, json!({}));
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+    wait_frame(&wire, "online", |f| f["snapshot"].is_object());
+
+    // The off switch, and the token expires before the cloud confirms the purge.
+    run(&mux, client, json!({"cmd":"cloud-host-replica-clear","purge":true})).unwrap();
+    wait_frame(&wire, "the purge", |f| f["t"] == "replica.purge");
+    for _ in 0..40 {
+        backend.refuse(ConnectError::Unauthenticated);
+    }
+    wire.push_close(Some(4401));
+    // Two asks are one `reask` apart: the time to count the connects.
+    wait_until("the ask and the ask again", || {
+        needed(&events, &mut seen).iter().filter(|e| e["reason"] == "unauthenticated").count() >= 2
+    });
+    let attempts = backend.connected().len();
+    assert!(attempts <= 3, "{attempts} connects while the token is refused");
+    assert_eq!(status(&mux, client)["purge_pending"], true);
 }
