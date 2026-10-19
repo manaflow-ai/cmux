@@ -32,6 +32,10 @@ public final class TerminalSurfaceView: NSView {
     /// only reported.
     private var geometry = TerminalGridPolicy(ownsGeometry: true)
 
+    /// The grid this view's pixel size fits (its last ``updateSurfaceSize(forceReport:)``),
+    /// whatever grid the PTY owner announced. Nil before the first layout.
+    var fittedGrid: TerminalGridSize? { geometry.desired }
+
     /// Whether this view reports its grid to the PTY owner. Followers only
     /// render the announced grid (shell.md 2.3).
     var ownsGeometry: Bool {

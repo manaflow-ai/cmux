@@ -43,7 +43,7 @@ Only Debug and tagged builds read the variable; Release always loads the bundled
 
 ## Merging feat-cmux-next
 
-The shipped page and the webviews app bundle are not committed (cx-vn5), so merges never collide in them. The strings tables (`generated/strings.json`) are still committed: with the clone's merge drivers registered (`./scripts/install-git-hooks.sh`, run by `setup.sh`), `git merge origin/feat-cmux-next` keeps this branch's copies of them. Resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, regenerates and stages the strings tables, and removes from the index any bundle file a branch from before cx-vn5 still tracks.
+The shipped page, the webviews app bundle (cx-vn5) and the strings tables (`generated/strings.json`, #21946) are not committed, so merges never collide in them. `bun install`, the test preload and every bundle build write the strings tables from the xcstrings catalogs; `bun run strings` rewrites them by hand. After merging feat-cmux-next, resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, rewrites the strings tables, and removes from the index any bundle file or strings table a branch from before cx-vn5 or #21946 still tracks.
 
 ## Comparing against reference captures
 
