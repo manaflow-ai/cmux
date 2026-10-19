@@ -17,7 +17,7 @@ use crate::localization;
 use crate::machine::{
     DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
     MachineCapabilities, MachineConnectRoute, MachineController, MachineDescriptor, MachineKey,
-    MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
+    MachinePlatform, MachineRequest, MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate,
     MachineUpdateStream, ManagedMachineCapabilities, ManagedMachineDescriptor,
     ManagedMachineStatus, ManagedWorkspaceCapabilities, ManagedWorkspaceDescriptor,
     ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionDescriptor,
@@ -2349,6 +2349,11 @@ fn machine_ui_state(
                     name: machine.display_name.clone(),
                     subtitle: machine.subtitle.clone(),
                     status: machine_status(machine.status),
+                    platform: machine.platform.as_ref().map(|platform| MachinePlatform {
+                        os: platform.os.clone(),
+                        arch: platform.arch.clone(),
+                    }),
+                    capabilities: machine.capabilities.clone(),
                 })
             })
             .chain(
@@ -2366,6 +2371,8 @@ fn machine_ui_state(
                             name: machine.display_name.clone(),
                             subtitle: String::new(),
                             status: MachineStatus::Stopped,
+                            platform: None,
+                            capabilities: Vec::new(),
                         })
                     }),
             )
@@ -2935,6 +2942,8 @@ mod tests {
                 status,
                 connectable: false,
                 workspace_create: protocol::WorkspaceCreatePolicy::Session,
+                platform: None,
+                capabilities: Vec::new(),
             }],
             selected_machine_id: Some(id("machine-1")),
             capabilities: protocol::ProviderCapabilities {
@@ -3946,11 +3955,8 @@ mod tests {
                 panic!("client capability negotiation did not immediately follow hello");
             };
             assert_eq!(
-                params.capabilities,
-                [
-                    protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
-                    protocol::CONNECTION_PROGRESS_CLIENT_CAPABILITY,
-                ]
+                params.capabilities.join(","),
+                "provider-action-targets-v1,connection-progress-v1,machine-metadata-v1"
             );
             write_frame(
                 &mut stream,
@@ -4030,6 +4036,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            platform: None,
+            capabilities: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -4112,6 +4120,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: false,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            platform: None,
+            capabilities: Vec::new(),
         });
         enrolled.selected_machine_id = Some(id("paired-machine"));
         let server_initial = initial;
@@ -4663,6 +4673,8 @@ mod tests {
                 name: "Mini".into(),
                 subtitle: "local".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             }],
             active: Some(local_key),
             capabilities: MachineCapabilities { create: false, connect: true },
@@ -4697,6 +4709,8 @@ mod tests {
                 name: "Mini".into(),
                 subtitle: "local".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             }],
             active: Some(local_key),
             capabilities: MachineCapabilities::default(),
@@ -5487,6 +5501,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            platform: None,
+            capabilities: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {
@@ -5564,6 +5580,8 @@ mod tests {
             status: protocol::MachineStatus::Running,
             connectable: true,
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
+            platform: None,
+            capabilities: Vec::new(),
         });
         let server_catalog = catalog.clone();
         let server = thread::spawn(move || {

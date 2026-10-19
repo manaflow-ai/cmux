@@ -637,19 +637,19 @@ export default agentPaneEntry({
       },
     },
     "long-thought-streaming": {
-      note: "A long thought still streaming shows in full (with the Debug toggle agentPane.debug.foldLongThoughts on, it folds only once done).",
+      note: "A long thought still streaming shows in full. With the Debug toggle agentPane.debug.foldLongThoughts on, it holds a seven-line viewport with its newest line in view (agentPane.debug.liveThoughtViewport) and folds once done.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
         isWorking: true,
       }),
     },
     "long-thought-done": {
-      note: "A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to its first line; off, it shows in full as before.",
+      note: 'A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to "Thought for 12s" (with agentPane.debug.thoughtHeader preview, "Thought" and its first line); off, it shows in full as before.',
       snapshot: chat(
         [
           user(prompt, 2),
           activity(
             [
-              thought(LONG_THOUGHT),
+              thought(LONG_THOUGHT, { startedAt: 0, endedAt: 12_000 }),
               tool("Read client.ts", "read", "completed", {
                 locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
               }),

@@ -2119,19 +2119,26 @@ def _operation_catalog(
     for operation in ("workspace.rename",):
         if operation not in operations:
             continue
-        name_field = (
-            operations.get(operation, {}).get("params", {}).get("fields", {}).get("name")
+        params = operations.get(operation, {}).get("params", {})
+        fields = params.get("fields", {})
+        name_field = fields.get("name")
+        # A release (hq#1957) keeps the current name, so only it may omit one.
+        release = fields.get("release")
+        name_optional_for_release = (
+            isinstance(release, dict)
+            and release.get("type") == {"kind": "primitive", "name": "boolean"}
+            and "name is required unless release is true." in params.get("constraints", [])
         )
         if (
             not isinstance(name_field, dict)
-            or name_field.get("required") is not True
+            or name_field.get("required") is not (not name_optional_for_release)
             or name_field.get("type") != {"kind": "primitive", "name": "string"}
         ):
             _catalog_diagnostic(
                 diagnostics,
                 path,
                 text,
-                f"{operation} name must be a required unrestricted string",
+                f"{operation} name must be an unrestricted string, required unless a release",
                 operation,
             )
     nullable_name = {
@@ -2501,12 +2508,20 @@ def _operation_catalog(
             "deleted",
             "recoverable",
             "extra",
+            "platform",
+            "capabilities",
         }
         if (
             set(machine_fields) != expected_machine_fields
             or machine_fields.get("name", {}).get("required") is not True
             or machine_fields.get("origin", {}).get("type", {}).get("values")
-            != ["local"]
+            != ["local", "cloud", "ssh", "server"]
+            or machine_fields.get("platform") != {"required": False, "type": {"kind": "nullable", "value": {"kind": "ref", "name": "MachinePlatform"}}}
+            or machine_fields.get("capabilities") != {"required": False, "type": {"kind": "array", "items": {"kind": "primitive", "name": "string"}}}
+            or types.get("MachinePlatform") != {
+                "kind": "object", "extra": False,
+                "fields": {key: {"required": False, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}} for key in ("os", "arch")},
+            }
             or machine_fields.get("status", {}).get("type", {}).get("values")
             != ["running", "connecting", "sleeping", "stopped", "unavailable"]
         ):
@@ -2514,7 +2529,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "MachineSnapshot must describe only the endpoint's local machine",
+                "MachineSnapshot must keep the native owner and bounded remote catalog metadata contract",
                 "MachineSnapshot",
             )
 

@@ -205,6 +205,7 @@ mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
+mod ledger_maintenance;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -313,6 +314,7 @@ mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
 mod workspace_rename;
+use workspace_rename::workspace_resource_upsert;
 
 use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
@@ -449,29 +451,6 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
-fn workspace_resource_upsert(
-    sequence: usize,
-    session_id: &str,
-    workspace_id: &WorkspacePublicId,
-    name: &str,
-    index: usize,
-    focused: bool,
-) -> Value {
-    serde_json::json!({
-        "kind":"upsert",
-        "sequence":sequence,
-        "resource":"workspace",
-        "id":workspace_id,
-        "value":{
-            "id":workspace_id,
-            "session_id":session_id,
-            "name":name,
-            "index":index,
-            "focused":focused,
-        },
-    })
-}
-
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
 }

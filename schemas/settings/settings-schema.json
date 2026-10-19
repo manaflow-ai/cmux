@@ -513,6 +513,7 @@
               "agentPane.showContextUsage",
               "agentPane.showDictation",
               "agentPane.zoom",
+              "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -539,6 +540,16 @@
             "title" : {
               "key" : "settings.group.freeModel",
               "text" : "AI Models"
+            }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
             }
           }
         ],
@@ -574,7 +585,8 @@
               "notifications.suppressWhileTypingSeconds",
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
-              "notifications.dockBadge"
+              "notifications.dockBadge",
+              "notifications.dockBounce"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -907,7 +919,18 @@
           "machines"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.phone",
+            "rows" : [
+              "phone.allowConnections",
+              "phone.startSessions",
+              "phone.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.phone",
+              "text" : "Phone Access"
+            }
+          }
         ],
         "id" : "accounts",
         "lead" : [
@@ -2208,8 +2231,8 @@
     {
       "accepts" : [
         32,
-        200,
-        116
+        320,
+        176
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2250,15 +2273,15 @@
         "tabMinActiveWidth"
       ],
       "range" : {
-        "max" : 200,
+        "max" : 320,
         "min" : 32,
         "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -136,
-        368,
+        -256,
+        608,
         "1"
       ],
       "section" : "general",
@@ -2272,8 +2295,8 @@
     {
       "accepts" : [
         16,
-        120,
-        68
+        320,
+        168
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2314,15 +2337,15 @@
         "tabMinInactiveWidth"
       ],
       "range" : {
-        "max" : 120,
+        "max" : 320,
         "min" : 16,
         "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -88,
-        224,
+        -288,
+        624,
         "1"
       ],
       "section" : "general",
@@ -3718,6 +3741,251 @@
       "title" : {
         "key" : "settings.freeModel.enabled",
         "text" : "Free AI Model Without Sign-In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwake.help",
+        "text" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "caffeinate",
+        "battery",
+        "power",
+        "agents"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.keepAwake",
+        "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.allowConnections.help",
+        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.allowConnections",
+      "keywords" : [
+        "iphone",
+        "ios",
+        "mobile",
+        "remote",
+        "phone",
+        "pair",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "allowConnections"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.allowConnections",
+        "text" : "Let Your Phone Use This Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.startSessions.help",
+        "text" : "Off, your phone can still follow, type into and answer what's already running."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.startSessions",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "remote",
+        "workspace",
+        "terminal",
+        "start"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "startSessions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.startSessions",
+        "text" : "Let Your Phone Start New Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.phoneKeepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.phoneKeepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.phoneKeepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.keepAwake.help",
+        "text" : "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "iphone",
+        "remote",
+        "battery",
+        "power"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.keepAwake",
+        "text" : "Keep Mac Awake for Your Phone"
       },
       "validation" : "portable"
     },
@@ -22949,6 +23217,77 @@
     },
     {
       "accepts" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOnce",
+            "text" : "Once"
+          },
+          "value" : "once"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceUntilActive",
+            "text" : "Until You Switch to cmux"
+          },
+          "value" : "untilActive"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "once",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.dockBounce.help",
+        "text" : "When a notification alerts while cmux isn't the active app."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.dockBounce",
+      "keywords" : [
+        "dock",
+        "bounce",
+        "attention",
+        "badge"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "dockBounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.dockBounce",
+        "text" : "Bounce Dock Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -24332,6 +24671,82 @@
     },
     {
       "accepts" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.permissionFullAccess",
+            "text" : "Full Access"
+          },
+          "value" : "fullAccess"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionStandard",
+            "text" : "Harness Default"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionAsk",
+            "text" : "Ask Before Changes"
+          },
+          "value" : "ask"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "fullAccess",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaultPermissionMode.help",
+        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaultPermissionMode",
+      "keywords" : [
+        "permission",
+        "mode",
+        "full access",
+        "ask",
+        "approval",
+        "yolo",
+        "bypass",
+        "agent",
+        "new chat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaultPermissionMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.defaultPermissionMode",
+        "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -25122,7 +25537,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "d422c3c70c8d65dfe476d3a3e3a69da467af5ffa38c707ae18cbe8d2a29b938f",
+  "schema_hash" : "f5119e2c9dc4d35636278485f5c5f917acddeb28852bdf4b6333a676002f5da0",
   "sections" : [
     {
       "id" : "general",
