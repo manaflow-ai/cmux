@@ -1138,3 +1138,81 @@ async fn peer_pending_legit_is_relayed() {
     assert_eq!(got[0]["peer"], "l", "{got:?}");
     assert_eq!(got[0]["via"], "peer", "{got:?}");
 }
+
+/// A fake token, assembled so no file holds one.
+fn github_token() -> String {
+    format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234")
+}
+
+/// B's session after a prompt with a pasted token, as A's client lists it,
+/// as B's own client lists it, and as A's watcher hears of it live after a
+/// second such prompt. B trusts the devices in `trusted`.
+async fn listed_through_a_peer(tag: &str, trusted: Vec<String>) -> (Value, Value, Value) {
+    let mut cfg = config(PermissionPolicy::Ask);
+    cfg.trusted_peers = trusted;
+    let b = hub(cfg).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), tag).await;
+    let mut cb = client(b.clone()).await;
+    let name = format!("secret-{tag}");
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": name}}})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let text = format!("push with {}", github_token());
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+    )
+    .await
+    .unwrap();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    assert_eq!(a.peers()[0]["servedAs"], "peer", "{:?}", a.peers());
+    let mut ca = client(a.clone()).await;
+    let pick = |v: Value, want: &str| {
+        v["sessions"].as_array().unwrap().iter().find(|x| x["name"] == want).cloned().unwrap_or(v)
+    };
+    let on_a = pick(ca.call(method::MUX_SESSIONS, json!({})).await.unwrap(), &format!("b/{name}"));
+    let on_b = pick(cb.call(method::MUX_SESSIONS, json!({})).await.unwrap(), &name);
+    ca.call(method::MUX_WATCH, json!({})).await.unwrap();
+    let again = format!("again {}", github_token());
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": again}]}),
+    )
+    .await
+    .unwrap();
+    let mirrored = format!("b/{name}");
+    let changed = ca
+        .wait(method::MUX_SESSION_CHANGED, |p| {
+            p["session"]["name"] == mirrored.as_str() && p["kind"] == "turn_end"
+        })
+        .await;
+    (on_a, on_b, changed["session"].clone())
+}
+
+/// hq#2509: a session's own words reach a peer masked, and B's own client
+/// keeps them raw.
+#[tokio::test]
+async fn a_peer_lists_a_sessions_text_masked_and_the_owning_daemon_keeps_it_raw() {
+    let (on_a, on_b, live) = listed_through_a_peer("masked", vec![]).await;
+    let mask = "[GitHub Personal Access Token]";
+    assert_eq!(on_a["lastPrompt"], format!("push with {mask}"), "{on_a}");
+    assert_eq!(on_a["preview"], format!("echo: push with {mask}"), "{on_a}");
+    assert_eq!(on_a["lastMessage"]["text"], format!("echo: push with {mask}"), "{on_a}");
+    assert!(!on_a.to_string().contains("ghp_"), "{on_a}");
+    assert_eq!(on_b["lastPrompt"], format!("push with {}", github_token()), "{on_b}");
+    // A change B sends while A watches is masked too.
+    assert_eq!(live["lastPrompt"], format!("again {mask}"), "{live}");
+    assert!(!live.to_string().contains("ghp_"), "{live}");
+}
+
+/// hq#2509: a device B names in `trustedPeers` gets the raw text.
+#[tokio::test]
+async fn a_trusted_peer_device_lists_the_raw_text() {
+    let me = acpmux::server::peer_text::device_name();
+    let (on_a, _, live) = listed_through_a_peer("trusted", vec![me]).await;
+    assert_eq!(on_a["lastPrompt"], format!("push with {}", github_token()), "{on_a}");
+    assert_eq!(live["lastPrompt"], format!("again {}", github_token()), "{live}");
+}

@@ -24,7 +24,7 @@ fn a_running_turns_step_is_its_prompt_on_one_line() {
 fn a_secret_in_the_prompt_is_masked_in_the_step() {
     let token = github_token();
     let step = lane(&running(&format!("push with GITHUB_TOKEN={token} now")))["step"].clone();
-    assert_eq!(step, "push with GITHUB_TOKEN=[github token] now");
+    assert_eq!(step, "push with GITHUB_TOKEN=[GitHub Personal Access Token] now");
     assert!(!step.to_string().contains(&token));
 }
 
@@ -35,7 +35,7 @@ fn a_secret_past_the_cut_is_masked_before_the_cut() {
     let prompt = format!("{} {token} tail", "word ".repeat(46).trim_end());
     let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
     assert!(!step.contains("ghp_"), "{step}");
-    assert!(step.contains(" [github"), "the mask starts where the token did: {step}");
+    assert!(step.contains(" [GitHub"), "the mask starts where the token did: {step}");
 }
 
 #[test]
@@ -55,7 +55,22 @@ fn a_failed_turns_error_is_masked_too() {
                         "lastTurn": {"endedAt": 8, "status": "failed", "errorText": format!("401 for token {token}")}});
     let lane = lane(&failed);
     assert_eq!(lane["state"], "failed", "{lane}");
-    assert_eq!(lane["error"], "401 for token [github token]");
+    assert_eq!(lane["error"], "401 for token [GitHub Personal Access Token]");
+}
+
+/// A failed turn's error can be a whole pasted log: only its head is
+/// scanned, and the error is cut there, masked first.
+#[test]
+fn a_huge_error_is_cut_before_it_is_scanned_and_its_head_still_masked() {
+    let token = github_token();
+    let error = format!("401 for {token} {}", "x".repeat(4_000_000));
+    let failed = json!({"status": "idle", "turnCount": 1, "updatedAt": 9,
+                        "lastTurn": {"endedAt": 8, "status": "failed", "errorText": error}});
+    let lane = lane(&failed);
+    let error = lane["error"].as_str().unwrap();
+    assert!(error.starts_with("401 for [GitHub Personal Access Token] x"), "{}", &error[..60]);
+    assert!(error.ends_with('…'), "the error was not cut");
+    assert!(error.chars().count() <= 4_097, "{} chars", error.chars().count());
 }
 
 #[test]
@@ -63,10 +78,10 @@ fn the_lanes_title_is_masked_and_falls_back_to_the_masked_latest_prompt() {
     let token = github_token();
     let titled = json!({"status": "idle", "turnCount": 1, "updatedAt": 9, "title": format!("rotate {token}"),
                         "lastPrompt": "unused"});
-    assert_eq!(lane(&titled)["title"], "rotate [github token]");
+    assert_eq!(lane(&titled)["title"], "rotate [GitHub Personal Access Token]");
     let untitled = json!({"status": "idle", "turnCount": 1, "updatedAt": 9,
                           "lastPrompt": format!("push with\n{token}")});
-    assert_eq!(lane(&untitled)["title"], "push with [github token]");
+    assert_eq!(lane(&untitled)["title"], "push with [GitHub Personal Access Token]");
     assert!(lane(&json!({"status": "idle", "updatedAt": 9}))["title"].is_null());
 }
 
@@ -76,7 +91,7 @@ fn a_huge_prompt_is_cut_before_it_is_scanned_and_its_step_still_masks_the_head()
     let token = github_token();
     let prompt = format!("deploy {token} {}", "x".repeat(4_000_000));
     let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
-    assert!(step.starts_with("deploy [github token] x"), "{step}");
+    assert!(step.starts_with("deploy [GitHub Personal Access Token] x"), "{step}");
 }
 
 #[test]
@@ -86,5 +101,5 @@ fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
     let token = github_token();
     let prompt = format!("{}{token} tail", " ".repeat(4_090));
     let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
-    assert_eq!(step, "[github token] tail");
+    assert_eq!(step, "[GitHub Personal Access Token] tail");
 }

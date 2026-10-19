@@ -467,6 +467,11 @@ pub struct Config {
     pub harnesses: BTreeMap<String, HarnessProfile>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub peers: BTreeMap<String, PeerConfig>,
+    /// `trustedPeers`: peer devices (the name a peer daemon sends, its
+    /// hostname) that read this daemon's session text raw
+    /// (`server/peer_text.rs`). Default empty: every peer reads it masked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trusted_peers: Vec<String>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
     /// More login-shell variables agents get, beyond the allow-list
