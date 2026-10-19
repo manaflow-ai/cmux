@@ -153,7 +153,8 @@ pub fn enroll(
             let response = match transport.begin(&api, &body) {
                 Ok(response) => response,
                 Err(error)
-                    if error.kind == crate::ExitKind::Rejected || error.message == network::UNSENT =>
+                    if error.kind == crate::ExitKind::Rejected
+                        || error.message == network::UNSENT =>
                 {
                     // The begin route's 4xx replies acknowledge that no code
                     // was issued, and an unsent begin made none. Keep the key
