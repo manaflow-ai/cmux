@@ -9118,6 +9118,79 @@ refresh implicitly. Registry observations cannot complete an execution job.
 
 ## Agent CLI updates
 
+### Cached owner-job plan
+
+The internal acpmux operation `_acpmux/harness/update/plan {cli}` requires
+`harnessUpdatePlan` on the captured link. It accepts only a bounded CLI family
+identifier, never a profile, machine, session, command, prefix or package. It is
+local-socket-only and never forwards to a peer. This is an internal carrier,
+not a generic SDK command or permission to execute.
+
+The response is exactly `{cached:true, cli, argv:[...]}`. Selection uses one
+cached snapshot, comparable installed/latest versions and an outdated plan
+that does not need elevated rights. Identical targets across profile aliases
+deduplicate; distinct targets refuse as ambiguous. Bound npm plans preserve
+the recorded package or fork and absolute prefix. Native plans require the
+cached absolute executable and its known update verb. Bun and Homebrew plans
+refuse until they bind their installation explicitly. A cache above 256 rows
+refuses rather than silently omitting another target.
+
+Planning never probes a CLI or credentials, checks registries, starts an owner,
+rescans profiles, changes preferences or schedules an update. An empty cache is
+unavailable. Unknown or unusable version/target evidence is not updatable;
+neither means an already-current success. Execution must separately admit the
+caller, revalidate the actual installation, and create a visible job on this
+owner. A cached argv is advisory and must not be treated as execution authority.
+
+Malformed params return invalid params; nonlocal origins refuse before params.
+Selection failures use `harness_update_plan.unavailable`, `.not_updatable` or
+`.ambiguous` in the RPC error's `data.reason`. No legacy fallback is permitted.
+
+The separately negotiated `harnessUpdatePrepare` operation
+`_acpmux/harness/update/prepare {cli}` uses the same strict input, origin and
+selection rules. It revalidates every matching cached installation against
+the filesystem, refuses a changed channel, package, prefix or native target,
+and captures an absolute npm manager from this owner. It returns only
+`{cli, argv}`. A cache or home change during preparation refuses as
+`harness_update_plan.busy`. It never probes versions/auth, queries registries,
+writes preferences or executes the plan. The admitted job owner must persist
+the exact argv and audit context before execution. Preparation is not a grant
+and cannot complete a job.
+
+### Native visible update job
+
+`agent-cli-update-job-v1` adds the internal native carrier
+`{id, cmd:"agent-cli-update-job", expected_machine_id, expected_session_id, cli, idempotency_key}`.
+Only a proved main-app Unix connection without an agent binding may call it.
+The canonical machine and session conditions are required and checked before
+worker admission or socket access. A machine can host multiple daemon sessions;
+the same machine ID cannot authorize a replacement session to execute a job.
+An enriched `identify {machine_metadata:true}` includes `session_resource_id`
+alongside `machine_id`; the legacy registry UUID is not a public session ID.
+Unknown fields, including argv, shell, socket, session selectors and
+actor claims, refuse. The daemon derives the audit actor from the connection.
+App `agent_cli.update` execution scopes remain unsupported; this carrier does
+not grant one or upgrade an opaque actor forwarded by a provider.
+
+The Rust owner serializes preparation, then looks up stable intent in its
+existing correlated workspace-creation journal before requiring acpmux. The
+intent binds machine, session, CLI, operation and actor to the original mutation key.
+A receipt replays with acpmux offline or inventory changed; a changed intent
+conflicts. A new job negotiates `harnessUpdatePrepare` on one captured local
+link and sends only `{cli}`. There is no legacy update, owner start, handoff,
+focused-pane or shell-typing fallback. The exact prepared argv and original
+audit actor are journaled before a dedicated terminal workspace is executed.
+
+Successful data is `{machine, session, cli, path, revision, replayed}`, where path is
+the existing public created-terminal path and revision is decimal text. This
+acknowledges creation, not update completion. The same owner's
+`terminal.wait_exit` supplies the durable outcome; inventory invalidations
+cannot settle the job. A disconnected observer does not end the owner job.
+Executing-unknown recovery stays `mutation.indeterminate` and never triggers
+an automatic new-key run. An unexecuted reservation can resume only when fresh
+preparation still matches its exact persisted argv. Worker admission shares
+the bounded inventory budget; concurrent job preparation may refuse busy.
+
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
 local (Unix) client, the app's Update Everything on this Mac or through the
 SSH or Cloud carrier, update this machine's agent CLIs and move its chats

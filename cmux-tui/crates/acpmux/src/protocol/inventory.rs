@@ -13,3 +13,10 @@ pub struct InventoryWatchParams {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InventoryRefreshParams {}
+
+// CLI family evidence, never a profile, machine, session or command selector.
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HarnessUpdatePlanParams {
+    pub cli: String,
+}

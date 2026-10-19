@@ -67,6 +67,8 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
+    method::MUX_HARNESS_UPDATE_PLAN,
+    method::MUX_HARNESS_UPDATE_PREPARE,
     method::MUX_HARNESS_UPDATE,
     method::MUX_SESSIONS_RESTART_HARNESS,
 ];
@@ -77,6 +79,26 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if matches!(m, method::MUX_HARNESS_UPDATE_PLAN | method::MUX_HARNESS_UPDATE_PREPARE) {
+        if origin != Origin::Local {
+            return Err(RpcError::invalid_params("harness_update_plan.not_trusted"));
+        }
+        if !params.is_object() {
+            return Err(RpcError::invalid_params("harness_update_plan.bad_request"));
+        }
+        let params = serde_json::from_value::<crate::protocol::inventory::HarnessUpdatePlanParams>(
+            params.clone(),
+        )
+        .map_err(|_| RpcError::invalid_params("harness_update_plan.bad_request"))?;
+        return if m == method::MUX_HARNESS_UPDATE_PREPARE {
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || hub.health.prepare_update(&params.cli))
+                .await
+                .map_err(joined)?
+        } else {
+            hub.health.cached_update_plan(&params.cli)
+        };
+    }
     if m == method::MUX_HARNESS_INVENTORY_REFRESH {
         if origin != Origin::Local {
             return Err(RpcError::invalid_params("harness_inventory.not_trusted"));

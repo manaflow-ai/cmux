@@ -9,6 +9,9 @@ mod watch;
 #[path = "agent_inventory_refresh_tests.rs"]
 mod refresh;
 
+#[path = "agent_cli_job_tests.rs"]
+mod jobs;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -70,9 +73,9 @@ impl Owner {
                 sent.send(frame.clone()).unwrap();
                 let result = match frame["method"].as_str().unwrap() {
                     "initialize" => json!({"_meta":{"acpmux":{"features":features}}}),
-                    "_acpmux/harness/health" | "_acpmux/harness/inventory/refresh" => {
-                        inventory.clone()
-                    }
+                    "_acpmux/harness/health"
+                    | "_acpmux/harness/inventory/refresh"
+                    | "_acpmux/harness/update/prepare" => inventory.clone(),
                     "_acpmux/harness/inventory/watch" => {
                         if hold_watch {
                             let _ = watch_ready_tx.send(());
