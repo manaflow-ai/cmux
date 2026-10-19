@@ -22,7 +22,8 @@ final class TabContentCache {
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
-    /// Shown tabs whose content does not exist yet (a Chromium page being created): their `mount` token, answered at install.
+    /// Shown tabs whose content did not exist yet (a Chromium page being
+    /// created): the token of their `mount`, answered when it installs.
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm (memory budget; pressure).
     var warmBudget = WarmSetBudget.standard
@@ -202,7 +203,7 @@ final class TabContentCache {
 
     /// The page for a daemon browser tab on the engine its record names,
     /// written back to the record (url, title, favicon) while it lives.
-    /// CEF starts lazily and creates tabs asynchronously (nil until ready); a New Tab page while it runs is made now.
+    /// CEF starts lazily and creates tabs asynchronously: nil until ready.
     /// A Chromium record opens in WebKit when CEF is missing or fails to
     /// start (`ChromiumFallbackLog`: typed reason, one notice per process);
     /// the record keeps naming Chromium, so a build with CEF restores it.
@@ -225,7 +226,6 @@ final class TabContentCache {
         }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
-        if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
         Task {
             defer { pendingBrowsers.remove(key) }

@@ -93,16 +93,6 @@ public final class CEFEngine: BrowserEngine {
         return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
     }
 
-    /// A user's page made now when Chromium already runs (its chrome shows in
-    /// the turn that asked for it), nil while Chromium has not started. Like
-    /// `makeUserTab`, it counts toward the launch warm start (`noteTabOpened`).
-    public func makeTabIfRunning(_ configuration: BrowserTabConfiguration) -> (any BrowserTab)? {
-        guard isRunning else { return nil }
-        let tab = makeReadyTab(configuration)
-        noteTabOpened(configuration)
-        return tab
-    }
-
     /// Maps the Chromium framework on a background thread without starting
     /// CEF, so the first Chromium tab opens sooner. Idempotent and cheap to
     /// call when a Chromium tab becomes likely (the "+" menu or the palette
