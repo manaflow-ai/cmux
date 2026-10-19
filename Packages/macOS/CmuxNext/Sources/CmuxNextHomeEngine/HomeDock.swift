@@ -67,9 +67,7 @@ public final class HomeDock {
 
     /// Whether `pane` is in a left dock column with the agent chat role on `screen`.
     static func isDocked(_ pane: PaneModel, on screen: ScreenModel) -> Bool {
-        screen.columns.contains { column in
-            column.dock?.edge == .left && column.dock?.role == .agentChat && column.layout.paneIDs.contains(pane.handle)
-        }
+        dockColumn(pane, on: screen) != nil
     }
 
     /// One connect: the page tab in the home's left chat dock, and the home's Chief conversation
@@ -113,7 +111,7 @@ public final class HomeDock {
         // undocks a screen without a scrolling column, so with nothing the move leaves a terminal.
         let stays = placed.screen.panes.flatMap(\.tabs).contains { $0.surface != placed.tab.surface && !chiefs.contains($0.surface) }
         if !chiefs.isEmpty, stays || !docked { try await connection.closeTabs(Array(chiefs), endTerminals: false) }
-        if docked { return "home dock present" }
+        if docked { return try await pin(connection, store: store, workspace: workspace) ?? "home dock present" }
         let respawn: SplitRespawn? = stays ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
         moveInFlight = true
         defer { moveInFlight = false }
@@ -123,7 +121,34 @@ public final class HomeDock {
         guard moved else { return "home dock move failed (see the app log)" }
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
         _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
+        _ = try await pin(connection, store: store, workspace: workspace)
         return "home dock made"
+    }
+
+    /// `pinned-dock-v1` (Lawrence 2026-10-18: "I should not be able to close Home inside the Home
+    /// thing ... should not be able to create more tabs in the Home thing unless I explicitly enable
+    /// it"): the dock becomes a pinned column with the page tab first, so the daemon keeps that tab
+    /// (no close, move out or reorder away, for every client) and takes no other tab into the column
+    /// until the person turns on its `allow_tabs` (`column.update`). The column kind decides, never a
+    /// title. Nil when there is nothing to do (pinned already, an older daemon, the dock not shown).
+    private func pin(_ connection: DaemonConnection, store: DaemonStore,
+                     workspace: @MainActor @Sendable () -> WorkspaceModel?) async throws -> String? {
+        guard store.supports(DaemonCapabilities.shared.pinnedDock),
+              let placed = workspace().flatMap(Self.pageTab(in:)),
+              let dock = Self.dockColumn(placed.pane, on: placed.screen)?.dock, !dock.isPinned else { return nil }
+        if placed.pane.tabs.first?.surface != placed.tab.surface {
+            // The pinned tab is the column's first tab: the page goes first before the pin.
+            _ = try await connection.moveTab(placed.tab.surface, to: placed.pane.handle, index: 0)
+        }
+        _ = try await connection.request(SetColumnDockRequest(pane: placed.pane.handle, dock: dock, pinned: true))
+        return "home dock pinned"
+    }
+
+    /// The left chat dock column holding `pane` on `screen`, if any.
+    static func dockColumn(_ pane: PaneModel, on screen: ScreenModel) -> ColumnSnapshot? {
+        screen.columns.first { column in
+            column.dock?.edge == .left && column.dock?.role == .agentChat && column.layout.paneIDs.contains(pane.handle)
+        }
     }
 
     /// A Chief conversation tab: a conversation tab whose source is a conversation (not a page or
