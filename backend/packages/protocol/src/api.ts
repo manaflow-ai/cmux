@@ -142,7 +142,8 @@ export const TokenResponse = Schema.Struct({
 export class AuthGroup extends HttpApiGroup.make("auth")
   .add(
     HttpApiEndpoint.post("challenge", "/v1/auth/challenge", {
-      payload: Schema.Struct({ user: UserId, install: InstallId }),
+      // A client chooses its token's team here, before signing; existing tokens cannot be retargeted.
+      payload: Schema.Struct({ user: UserId, install: InstallId, team: Schema.optionalKey(TeamId) }),
       success: ChallengeResponse,
       error: [BadRequest, Forbidden]
     }),
@@ -179,5 +180,7 @@ export class CloudApi extends HttpApi.make("cmux-cloud")
   .add(OpsGroup)
   .annotateMerge(OpenApi.annotations({ title: "cmux Cloud API", version: "0.1.0" })) {}
 
-/** Message the install signs for a token (domain-separated per environment). */
-export const challengeMessagePrefix = (environment: string, install: string) => `cmux-auth-v1\n${environment}\n${install}\n`
+/** Validate this expected context before signing the nonce. Omitted team preserves legacy issuance. */
+export const challengeMessagePrefix = (environment: string, install: string, team?: string) => team === undefined
+  ? `cmux-auth-v1\n${environment}\n${install}\n`
+  : `cmux-auth-team-v1\n${environment}\n${install}\n${team}\n`

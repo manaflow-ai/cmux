@@ -175,9 +175,9 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
   handlers
     .handle("challenge", ({ payload }) =>
       Effect.gen(function* () {
-        const r = yield* Effect.tryPromise({ try: () => rpc<ChallengeResult>(userStub(payload.user).challenge(payload.user, payload.install)), catch: () => new Forbidden({ code: "auth.forbidden", message: "challenge failed" }) })
+        const r = yield* Effect.tryPromise({ try: () => rpc<ChallengeResult>(userStub(payload.user).challenge(payload.user, payload.install, payload.team)), catch: () => new Forbidden({ code: "auth.forbidden", message: "challenge failed" }) })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-        return { install: payload.install, nonce: r.nonce, expires_at: r.expires_at, message_prefix: challengeMessagePrefix(env.ENVIRONMENT, payload.install) }
+        return { install: payload.install, nonce: r.nonce, expires_at: r.expires_at, message_prefix: challengeMessagePrefix(env.ENVIRONMENT, payload.install, payload.team) }
       })
     )
     .handle("token", ({ payload }) =>

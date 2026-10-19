@@ -47,6 +47,7 @@ export class UserDO extends OwnerDO<UserState> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     this.homePush = new HomePushQueue(this.sqlStore)
     this.inbox = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "inbox",
@@ -464,17 +465,20 @@ export class UserDO extends OwnerDO<UserState> {
     return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 
-  async challenge(entity: string, install: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
+  async challenge(entity: string, install: string, team?: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
     const engine = this.existing()
     // One answer for every refusal, so the endpoint does not reveal which users or installs exist.
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, message: "challenge refused" }
     const inst = engine.currentState.installs[install]
     if (!inst || inst.revoked_at !== null) return { ok: false, message: "challenge refused" }
+    if (team !== undefined && (!/^team_[0-9a-f]{20}$/.test(team) || !isClientInstall(inst.kind))) return { ok: false, message: "challenge refused" }
     const now = Date.now()
     const nonce = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")
     const sql = this.ctx.storage.sql
     sql.exec(`DELETE FROM auth_challenges WHERE expires_at < ?`, now)
-    sql.exec(`INSERT INTO auth_challenges (nonce, install, expires_at) VALUES (?, ?, ?)`, nonce, install, now + CHALLENGE_TTL_MS)
+    sql.exec(`DELETE FROM auth_team_challenges WHERE expires_at < ?`, now)
+    if (team === undefined) sql.exec(`INSERT INTO auth_challenges (nonce, install, expires_at) VALUES (?, ?, ?)`, nonce, install, now + CHALLENGE_TTL_MS)
+    else sql.exec(`INSERT INTO auth_team_challenges (nonce, install, team, expires_at) VALUES (?, ?, ?, ?)`, nonce, install, team, now + CHALLENGE_TTL_MS)
     return { ok: true, nonce, expires_at: now + CHALLENGE_TTL_MS }
   }
 
@@ -511,25 +515,36 @@ export class UserDO extends OwnerDO<UserState> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
     const sql = this.ctx.storage.sql
-    const row = sql.exec<{ install: string; expires_at: number }>(`SELECT install, expires_at FROM auth_challenges WHERE nonce = ?`, nonce).toArray()[0]
+    const row = sql.exec<{ install: string; expires_at: number; team: string | null }>(`SELECT install, expires_at, NULL AS team FROM auth_challenges WHERE nonce = ? UNION ALL SELECT install, expires_at, team FROM auth_team_challenges WHERE nonce = ?`, nonce, nonce).toArray()[0]
     // Consume first: a nonce is single use even when the signature fails.
     sql.exec(`DELETE FROM auth_challenges WHERE nonce = ?`, nonce)
+    sql.exec(`DELETE FROM auth_team_challenges WHERE nonce = ?`, nonce)
     if (!row || row.install !== install || row.expires_at < Date.now()) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
     const state = engine.currentState
     const inst = state.installs[install]
     if (!inst || inst.revoked_at !== null || !state.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
     const grant = state.grants[inst.grant]
-    if (!grant || grant.revoked_at !== null) return { ok: false, code: "auth.forbidden", message: "grant revoked" }
-    const ok = await verifyInstallSignature(inst.public_jwk, `${challengeMessagePrefix(this.env.ENVIRONMENT, install)}${nonce}`, signature)
+    if (!grant || grant.revoked_at !== null || (grant.expires_at !== null && grant.expires_at <= Date.now())) return { ok: false, code: "auth.forbidden", message: "grant revoked or expired" }
+    if (row.team !== null && (!isClientInstall(inst.kind) || agent !== undefined)) return { ok: false, code: "auth.forbidden", message: "a scoped challenge requires a client install" }
+    const ok = await verifyInstallSignature(inst.public_jwk, `${challengeMessagePrefix(this.env.ENVIRONMENT, install, row.team ?? undefined)}${nonce}`, signature)
     if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
-    // Re-read after the await: a revoke may have committed during the verify.
+    // Membership is checked only after proof of possession; the nonce, not a request header, selects the team.
+    if (row.team !== null && row.team !== state.user.personal_team) {
+      const role = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(row.team)).memberRole(row.team, entity)
+      if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
+    }
+    // Re-read after all awaits: revocation, expiry or replacement may have committed during verification or membership lookup.
     const now = engine.currentState
     const current = now.installs[install]
-    if (!current || current.revoked_at !== null || now.grants[grant.id]?.revoked_at !== null || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
+    const held = now.grants[grant.id]
+    if (!current || current.revoked_at !== null || current.grant !== grant.id || current.public_jwk.x !== inst.public_jwk.x || current.public_jwk.y !== inst.public_jwk.y || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || row.expires_at <= Date.now() || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
     // A chief token only for an unarchived chief of this user.
     if (agent !== undefined && (!chiefActive(now, agent) || isMachineInstallKind(current.kind))) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
     const emailDomain = emailDomainOf(now.user.email)
-    const team = (isMachineInstallKind(current.kind) || current.kind === "daemon") && current.bound_team ? current.bound_team : now.user.personal_team
+    if (row.team !== null && !isClientInstall(current.kind)) return { ok: false, code: "auth.forbidden", message: "a scoped challenge requires a client install" }
+    const team = row.team ?? ((isMachineInstallKind(current.kind) || current.kind === "daemon") && current.bound_team ? current.bound_team : now.user.personal_team)
     return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
+
+const isClientInstall = (kind: string) => kind === "mac" || kind === "ios" || kind === "cli"
