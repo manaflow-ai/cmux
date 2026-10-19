@@ -19,6 +19,8 @@
     {"title": "Agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
      "optional": "agent chat views are not ported yet"},
     {"title": "Session tree: keycaps on the first rows", "cmux": ["settings", "set", "sidebar.sessionTree", "true"], "wait": 2,
+     "optional": "an app from before sidebar.sessionTree"},
+    {"title": "Session tree back off for later tours", "cmux": ["settings", "set", "sidebar.sessionTree", "false"], "shot": false,
      "optional": "an app from before sidebar.sessionTree"}
   ]
 }

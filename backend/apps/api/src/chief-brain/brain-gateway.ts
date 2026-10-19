@@ -35,7 +35,8 @@ export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => Bra
   return {
     who: () => {
       const n = now()
-      return { run: n.run, generation: live.generationId, conversation: n.conversation, agent: n.config.agent, owner: n.config.owner }
+      const marks = n.run ? ctx.storage.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `marks:${n.run}`).toArray()[0]?.value : undefined
+      return { run: n.run, generation: live.generationId, conversation: n.conversation, agent: n.config.agent, owner: n.config.owner, cache_blocks: marks }
     },
     hooks: {
       event: (e) => live.event(e),

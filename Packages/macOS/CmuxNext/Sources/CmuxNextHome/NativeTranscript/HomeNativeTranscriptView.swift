@@ -174,6 +174,26 @@ public final class HomeNativeTranscriptView: NSView {
         window?.makeFirstResponder(primaryInput) ?? false
     }
 
+    /// Whether Home getting focus should move the keyboard from `responder`
+    /// to ``primaryInput``: yes, unless a text view or field has it, the
+    /// transcript holds or makes a text selection, or the person moves
+    /// through the first-run panel's rows with the keyboard.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should focus ``primaryInput``.
+    public func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHiddenOrHasHiddenAncestor {
+            return false
+        }
+        return transcript.primaryInputShouldTakeKeyboard(from: responder)
+    }
+
+    /// Cmd+V from the first-run panel (the transcript's own pane handles it
+    /// below this view): the message box takes the keyboard and the paste.
+    @objc public func paste(_ sender: Any?) { transcript.pasteIntoPrimaryInput(sender) }
+
+    /// Whether ``paste(_:)`` has text, files or pictures for the message box.
+    public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
+
     /// The live interface scale applies to the native first-run chrome. The
     /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {

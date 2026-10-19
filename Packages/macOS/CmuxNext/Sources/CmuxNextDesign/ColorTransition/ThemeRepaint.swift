@@ -194,16 +194,25 @@ enum ThemeRepaint {
                               seen: inout Set<ObjectIdentifier>) -> [NSView] {
         var result: [NSView] = []
         let anyStale = stale.count > 0
-        func visit(_ view: NSView) {
-            guard seen.insert(ObjectIdentifier(view)).inserted else { return }
-            if lazy, view.isHidden { return markStale(view, scope: scope, layout: layout) }
-            // Painted now: a mark from an earlier pass is done.
-            if anyStale, let region = stale.object(forKey: view) { forget(view, region) }
-            result.append(view)
-            for subview in view.subviews where !rootsOther(subview, than: scope) { visit(subview) }
+        for root in roots where !rootsOther(root, than: scope) {
+            visit(root, scope: scope, layout: layout, lazy: lazy, anyStale: anyStale, seen: &seen, into: &result)
         }
-        for root in roots where !rootsOther(root, than: scope) { visit(root) }
         return result
+    }
+
+    /// One view of ``views(under:scope:layout:lazy:seen:)`` and its subtree, in order. A static
+    /// function with inout state, not a local function that captures it (Swift 6.3.3's
+    /// SendNonSendable pass crashed now and then on such captures in Release).
+    private static func visit(_ view: NSView, scope: ThemeScope?, layout: Bool, lazy: Bool, anyStale: Bool,
+                              seen: inout Set<ObjectIdentifier>, into result: inout [NSView]) {
+        guard seen.insert(ObjectIdentifier(view)).inserted else { return }
+        if lazy, view.isHidden { return markStale(view, scope: scope, layout: layout) }
+        // Painted now: a mark from an earlier pass is done.
+        if anyStale, let region = stale.object(forKey: view) { forget(view, region) }
+        result.append(view)
+        for subview in view.subviews where !rootsOther(subview, than: scope) {
+            visit(subview, scope: scope, layout: layout, lazy: lazy, anyStale: anyStale, seen: &seen, into: &result)
+        }
     }
 
     // MARK: Hidden subtrees
