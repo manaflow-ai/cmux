@@ -11,7 +11,7 @@ move's main-thread work plus any main-thread backlog. After the column drag, one
 (`list-workspaces` through the app socket) shows how far the daemon fell behind. The app's own
 log is read for `timed out` errors. Prints one JSON summary; writes it to OUT/drag-lag.json.
 """
-import argparse, json, os, socket, statistics, subprocess, sys, tempfile, time
+import argparse, json, os, socket, statistics, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
@@ -64,10 +64,42 @@ def daemon_round_trip():
     """One daemon command through the app socket (the bundled cmux-tui's `raw operation`): its wall time in ms."""
     tui = os.path.join(os.path.dirname(CLI), "cmux-tui")
     started = time.monotonic()
-    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", "list-workspaces",
+    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", "workspace.list",
                           "--params-json", '{"machine":"current","session":"current"}'],
                          capture_output=True, text=True, timeout=60, env=env())
-    return {"ms": round((time.monotonic() - started) * 1000, 1), "ok": out.returncode == 0}
+    result = {"ms": round((time.monotonic() - started) * 1000, 1), "ok": out.returncode == 0}
+    if out.returncode != 0:
+        result["error"] = (out.stdout + out.stderr)[:200]
+    return result
+
+
+class DaemonProbe:
+    """Daemon round-trips every 150 ms on a thread while a drag runs (and for `tail` seconds after)."""
+
+    def __init__(self):
+        self.samples, self.stop = [], threading.Event()
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+
+    def loop(self):
+        while not self.stop.is_set():
+            self.samples.append(daemon_round_trip())
+            self.stop.wait(0.15)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self.stop.set()
+        self.thread.join(70)
+
+    def summary(self):
+        ok = [s["ms"] for s in self.samples if s["ok"]]
+        failed = [s for s in self.samples if not s["ok"]]
+        result = {"probes": len(self.samples), "failed": len(failed), **{k: v for k, v in stats(ok).items() if k != "n"}}
+        if failed:
+            result["first_error"] = failed[0].get("error")
+        return result
 
 
 def wait(predicate, timeout):
@@ -148,7 +180,7 @@ def center(frame):
 
 
 def app_errors(since):
-    pid = subprocess.run(["pgrep", "-n", "-f", os.path.join(APP, "Contents/MacOS")], capture_output=True, text=True).stdout.strip()
+    pid = subprocess.run(["pgrep", "-n", "-f", f"{os.path.basename(APP)}/Contents/MacOS"], capture_output=True, text=True).stdout.strip()
     if not pid:
         return {}
     out = subprocess.run(["log", "show", "--start", since, "--style", "compact", "--predicate", f"processID == {pid} AND messageType >= 16"],
@@ -161,13 +193,14 @@ def app_errors(since):
 launch()
 since = time.strftime("%Y-%m-%d %H:%M:%S")
 try:
-    for name in ("Alpha", "Beta", "Gamma", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliet"):
-        cli("workspace", "create", "--name", name)
+    for index in range(30):
+        cli("workspace", "create", "--name", f"Workspace {index:02d}")
     action("newTab", focus=True)
     time.sleep(2)
-    action("newColumn", focus=True)
-    time.sleep(1.5)
-    action("newColumn", focus=True)
+    for _ in range(4):
+        action("newColumn", focus=True)
+        time.sleep(1.5)
+    action("splitRight", focus=True)
     time.sleep(1.5)
     action("newSurface", focus=True)
     time.sleep(2)
@@ -176,10 +209,11 @@ try:
     edges = wait(column_edges, 20)
     if edges:
         x, y = edges[0]
-        SUMMARY["column_drag"] = paced_drag(x, y, x + 240, y, opts.moves)
-        SUMMARY["daemon_after_column_drag"] = daemon_round_trip()
-        time.sleep(3)
-        SUMMARY["daemon_3s_after_column_drag"] = daemon_round_trip()
+        with DaemonProbe() as probe:
+            SUMMARY["column_drag"] = paced_drag(x, y, x + 240, y, opts.moves)
+            SUMMARY["column_drag_back"] = paced_drag(x + 240, y, x, y, opts.moves)
+            time.sleep(3)
+        SUMMARY["daemon_during_and_3s_after_column_drags"] = probe.summary()
     else:
         SUMMARY["column_drag"] = {"error": "no column edge"}
 
@@ -192,7 +226,10 @@ try:
         if frame and target:
             sx, sy = center(frame)
             tx, ty = center(target)
-            SUMMARY["tab_drag"] = paced_drag(sx, sy, tx, ty + 200, opts.moves)
+            with DaemonProbe() as probe:
+                SUMMARY["tab_drag"] = paced_drag(sx, sy, tx, ty + 200, opts.moves)
+                time.sleep(2)
+            SUMMARY["daemon_during_tab_drag"] = probe.summary()
     SUMMARY.setdefault("tab_drag", {"error": f"no two-tab strip: {json.dumps(strips())[:400]}"})
 
     rows = sidebar_rows()
@@ -202,7 +239,10 @@ try:
         if frame and far:
             sx, sy = center(frame)
             _, ty = center(far)
-            SUMMARY["sidebar_drag"] = paced_drag(sx, sy, sx, ty, opts.moves)
+            with DaemonProbe() as probe:
+                SUMMARY["sidebar_drag"] = paced_drag(sx, sy, sx, ty, opts.moves)
+                time.sleep(2)
+            SUMMARY["daemon_during_sidebar_drag"] = probe.summary()
     SUMMARY.setdefault("sidebar_drag", {"error": f"rows={len(rows)}"})
     time.sleep(2)
     SUMMARY["app_errors"] = app_errors(since)
