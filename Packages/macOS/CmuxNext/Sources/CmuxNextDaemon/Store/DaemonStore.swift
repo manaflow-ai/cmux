@@ -388,7 +388,10 @@ public final class DaemonStore: StateResourceQueries {
         guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
         guard checkedListGeneration != listGeneration else { return }
         checkedListGeneration = listGeneration
-        let list = sidebarSections.flatMap(\.workspaces).map(\.id) + ["|"] + workspaces.map(\.id)
+        // A stand-in (Cmd-N's provisional workspace) the daemon's workspace took over counts as a
+        // change: the window places the workspace then (a placement moves a daemon workspace).
+        let name = { (workspace: WorkspaceModel) in workspace.isProvisional ? workspace.id + "~" : workspace.id }
+        let list = sidebarSections.flatMap(\.workspaces).map(name) + ["|"] + workspaces.map(name)
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
         hook()

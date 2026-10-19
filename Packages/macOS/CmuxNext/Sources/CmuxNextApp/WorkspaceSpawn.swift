@@ -187,13 +187,15 @@ struct WorkspaceSpawner {
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
         let cwd = spawn.cwd ?? (daemon.isLocal ? room?.defaults : nil)?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
         guard services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
-        // Claimed first, so the reconcile the intent runs places and selects it in this window in this turn.
+        // Claimed first, so the reconcile the intent runs places and selects it in this window in this turn;
+        // its slot is placed in the turn the daemon's workspace takes the stand-in over.
+        NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
                                                            on: daemon, repair: repair) else { return nil }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
-        let spawn = spawn, windows = windows, onListed = spawn.onListed
+        let windows = windows
         return {
             do {
                 return try await WorkspaceLanes.shared.create(key, window: windowID, close: { id in
@@ -204,13 +206,11 @@ struct WorkspaceSpawner {
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
                         try await home.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
-                    let id = try await shown.confirm()
-                    // Placed at its slot now that the daemon has it (a move names a daemon workspace).
-                    NewWorkspacePlacements.expect(id, in: windowID, slot: spawn.slot, byDefault: rule, then: onListed, windows: windows)
-                    return id
+                    return try await shown.confirm()
                 }
             } catch {
                 shown.abandon()
+                windows.pendingPlacements[key.rawValue] = nil
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }
