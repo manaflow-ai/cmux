@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -147,7 +148,7 @@ extension RemoteTerminalService {
     /// The name stored on a reference (the placeholder label while the
     /// session is away).
     func sessionName(of daemon: DaemonService) -> String {
-        if daemon.isLocal { return daemon.identity?.machineName ?? MacName.kernelHostName() }
+        if daemon.isLocal { return daemon.identity?.machineName ?? MacName().kernelHostName() }
         return services.machines.machineName(daemon.machineID) ?? daemon.identity?.machineName ?? daemon.identity?.session ?? daemon.machineID
     }
 

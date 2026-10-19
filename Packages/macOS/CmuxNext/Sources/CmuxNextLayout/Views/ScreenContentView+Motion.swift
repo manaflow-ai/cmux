@@ -55,46 +55,46 @@ extension ScreenContentView {
 
     /// New dock columns' panes still growing in from their screen edge (their frames).
     var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
+    /// Lays every pane out at the rect its spring presents this frame (live, as a window resize
+    /// is: the host, its tab strip and its terminal or page take that size now), then clips each
+    /// host by the docks and by the panes in front of it.
     func applyPresentation() {
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
-        var clips: [(host: PaneHostView, scrolls: Bool, revealing: CGRect?)] = []
+        var clips: [(host: PaneHostView, scrolls: Bool)] = []
+        let scale = self.scale
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
-            let shift = CGVector(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
-            if heldFrames[pane] != nil, frame.rect == frame.targetRect { heldFrames[pane] = nil }
-            let held = heldFrames[pane].map { SplitMotion.placed(held: $0, shown: frame.rect) }
-            // The zooming pane keeps its full size under its spring rect (`PaneZoomMotion`); an arriving
-            // pane slides in at its final size; a held one keeps its frame. Each shows only the presented
-            // rect (a split's: the padded content, rounded as at rest).
-            let zoomed = zoomMotion.presentation(of: pane, frame)
-            let revealing = zoomed != nil ? frame.rect.offsetBy(dx: shift.dx, dy: shift.dy)
-                : arriving.contains(pane) || held != nil
-                ? SplitMotion.visible(frame.rect, padding: host.padding).offsetBy(dx: shift.dx, dy: shift.dy) : nil
-            let placed = (zoomed ?? held ?? (arriving.contains(pane) ? PaneArrival.presentation(shown: frame.rect, target: frame.targetRect) : frame.rect))
-                .offsetBy(dx: shift.dx, dy: shift.dy)
+            // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
+            // apart (a pane and the divider beside it, both on the one spring) stay that far apart.
+            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
-            let rest = frame.targetRect.offsetBy(dx: scrolls ? restStrip : 0, dy: shift.dy)
+            let rest = frame.targetRect.offsetBy(dx: scrolls ? restStrip : 0, dy: -rowOffset(of: pane))
             host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
-            if host.frame != placed { host.frame = placed }
-            (host.alphaValue, host.isDocked, host.revealRect) = (frame.alpha.value, !scrolls, revealing)
-            // The zooming pane's ring and border trace its spring rect; the strip's dock clip does not cut it.
-            host.chromeFrame = zoomed != nil ? revealing : nil
-            clips.append((host, scrolls && zoomed == nil, revealing))
+            if host.frame != placed {
+                host.frame = placed
+                // Its tab strip and content lay out in this frame's step, with the frame: never a
+                // layout pass behind it (`PaneContentView.layout` sizes the strip).
+                host.layoutSubtreeIfNeeded()
+            }
+            (host.alphaValue, host.isDocked) = (frame.alpha.value, !scrolls)
+            // The zooming pane is above the docks (`rank`) until it lands: the strip's dock clip does not cut it.
+            zoomMotion.track(pane, frame)
+            clips.append((host, scrolls && pane != zoomMotion.pane))
         }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
         if zoomMotion.pane != zooming { ensureStacking() }
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`).
         let above = panesAbove()
-        for (host, scrolls, revealing) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing, above: above) }
+        for (host, scrolls) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, above: above) }
         for host in coveredHosts { clipToStrip(host, scrolls: false, clip: nil, above: above) }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
-            view.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: kind))
+            view.frame = frame.rect.pixelEdges(scale).offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: kind))
             view.alphaValue = frame.alpha.value
             // A strip divider under a docked column must not take its clicks.
             let hidden = scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5
@@ -119,4 +119,14 @@ extension ScreenContentView {
     }
     var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
     var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
+}
+
+extension CGRect {
+    /// This rect with each edge on the nearest device pixel (`scale` pixels per point).
+    func pixelEdges(_ scale: CGFloat) -> CGRect {
+        guard scale > 0 else { return self }
+        let minX = (self.minX * scale).rounded() / scale, maxX = (self.maxX * scale).rounded() / scale
+        let minY = (self.minY * scale).rounded() / scale, maxY = (self.maxY * scale).rounded() / scale
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
 }
