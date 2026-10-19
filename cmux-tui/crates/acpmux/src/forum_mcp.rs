@@ -62,6 +62,22 @@ fn ok(text: String, structured: Value) -> Value {
     json!({"content": [{"type": "text", "text": text}], "structuredContent": structured, "isError": false})
 }
 
+/// What an announce did, as the agent or the CLI reads it.
+pub fn announce_text(r: &Value) -> String {
+    let id = r["post"]["id"].as_str().unwrap_or_default();
+    if r["proposed"] == true {
+        return format!(
+            "A person's rule holds this key; your post {id} is a proposal they will see."
+        );
+    }
+    let n = |k: &str| r[k].as_array().map_or(0, Vec::len);
+    format!(
+        "Posted {id}. Sessions read it on their next prompt; pushed to {} now, {} still on the way.",
+        n("pushed"),
+        n("pending")
+    )
+}
+
 /// The rules as an agent reads them: one paragraph per key.
 pub fn rules_text(rules: &Value) -> String {
     let rows = rules["rules"].as_array().cloned().unwrap_or_default();
@@ -103,21 +119,7 @@ async fn call(daemon: &Client, params: &Value) -> Value {
                 o.remove("account");
             }
             match daemon.request(method::MUX_FORUM_ANNOUNCE, args).await {
-                Ok(r) => {
-                    let id = r["post"]["id"].as_str().unwrap_or_default();
-                    let text = if r["proposed"] == true {
-                        format!(
-                            "A person's rule holds this key; your post {id} is a proposal they will see."
-                        )
-                    } else {
-                        let n = |k: &str| r[k].as_array().map_or(0, Vec::len);
-                        let (pushed, pending) = (n("pushed"), n("pending"));
-                        format!(
-                            "Posted {id}. Sessions read it on their next prompt; pushed to {pushed} now, {pending} still on the way."
-                        )
-                    };
-                    ok(text, r)
-                }
+                Ok(r) => ok(announce_text(&r), r),
                 Err(e) => error_result(format!("{e:#}")),
             }
         }

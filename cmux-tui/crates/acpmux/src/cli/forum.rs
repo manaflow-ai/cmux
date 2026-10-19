@@ -43,10 +43,14 @@ pub async fn run(cmd: ForumCmd, json_out: bool) -> Result<()> {
     };
     let client = crate::daemon::connect(false).await?;
     let reply = client.request(m, params).await?;
-    if json_out || m != method::MUX_FORUM_RULES {
+    if json_out {
         println!("{}", serde_json::to_string_pretty(&reply)?);
-    } else {
+    } else if m == method::MUX_FORUM_RULES {
         println!("{}", crate::forum_mcp::rules_text(&reply));
+    } else if m == method::MUX_FORUM_ANNOUNCE {
+        println!("{}", crate::forum_mcp::announce_text(&reply));
+    } else {
+        println!("Acknowledged.");
     }
     Ok(())
 }
