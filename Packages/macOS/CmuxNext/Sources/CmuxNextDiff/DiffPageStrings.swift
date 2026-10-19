@@ -2,17 +2,17 @@ import Foundation
 
 /// The diff viewer host's strings (table `DiffPage`). The page's own labels
 /// ship with the page (webviews/src/labels.ts, English and Japanese).
-nonisolated enum DiffPageStrings {
-    static var tabTitle: String {
+public nonisolated enum DiffPageStrings {
+    public static var tabTitle: String {
         String(localized: "diff.page.tabTitle", defaultValue: "Diff", table: "DiffPage", bundle: .module)
     }
 
-    static var notRepository: String {
+    public static var notRepository: String {
         String(localized: "diff.page.notRepository", defaultValue: "This folder is not in a git repository.",
                table: "DiffPage", bundle: .module)
     }
 
-    static var unavailable: String {
+    public static var unavailable: String {
         String(localized: "diff.page.unavailable", defaultValue: "The diff viewer is not available in this build.",
                table: "DiffPage", bundle: .module)
     }
@@ -22,7 +22,7 @@ nonisolated enum DiffPageStrings {
                table: "DiffPage", bundle: .module)
     }
 
-    static var noDiffTab: String {
+    public static var noDiffTab: String {
         String(localized: "diff.page.noDiffTab", defaultValue: "No diff viewer has the keyboard.",
                table: "DiffPage", bundle: .module)
     }

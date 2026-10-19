@@ -393,12 +393,13 @@ public struct DaemonCapabilities: Sendable {
     public let sessionJournal = "session-journal-v1"
     /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
     public let terminalResources = "terminal-resources-v1"
-    /// `identify` carries the daemon's machine identity (HandshakeLines' machine check).
+    /// Owner machine metadata on `identify` (`HandshakeLines`).
     public let machineIdentity = "machine-identity-v1"
-    /// The agent CLI app provider (AppProviderSession) and its invalidation carrier.
+    /// Registered `agent_cli` app providers (`AppProviderSession`).
     public let agentCLIAppProvider = "agent-cli-app-provider-v1"
+    /// Agent inventory invalidation events for app providers (`AppProviderSession`).
     public let agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
-    /// Receipts on the agent inventory watch (DaemonReadyConnection).
+    /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
     public let agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
@@ -419,8 +420,8 @@ public struct DaemonCapabilities: Sendable {
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing, machineIdentity,
-                                            agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission] }
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
