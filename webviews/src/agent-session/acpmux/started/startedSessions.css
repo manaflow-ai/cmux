@@ -101,7 +101,11 @@
 .acpmux-session-status[data-status="closed"] {
   color: var(--agent-danger);
 }
+/* New activity: the unread dot in the text colour, the word as quiet as the rest of the line. */
 .acpmux-session-status[data-status="unread"] {
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-session-status[data-status="unread"] > svg {
   color: var(--agent-text);
 }
 .acpmux-session-status[data-status="done"],
