@@ -486,6 +486,16 @@ fn a_purge_whose_token_is_refused_waits_for_a_new_one_instead_of_reconnecting_at
     let attempts = backend.connected().len();
     assert!(attempts <= 3, "{attempts} connects while the token is refused");
     assert_eq!(status(&mux, client)["purge_pending"], true);
+
+    // The app's answer (CloudHostReplicaFollower): a new lease, then the purge again.
+    backend.wires.lock().unwrap().clear();
+    let again = connect_again(&backend, json!({}));
+    lease(&mux, client, &INSTALL_TOKEN.replace(".sig", ".sig2")).unwrap();
+    run(&mux, client, json!({"cmd":"cloud-host-replica-clear","purge":true})).unwrap();
+    wait_frame(&again, "the purge with the new token", |f| f["t"] == "replica.purge");
+    again.push_text(json!({"t":"replica.purged"}).to_string());
+    wait_until("off", || status(&mux, client)["state"] == "off");
+    assert_ne!(status(&mux, client)["purge_pending"], true);
 }
 
 /// A Mac clock ahead of the cloud's (every new token reads as expiring) and

@@ -8,8 +8,8 @@ use super::Inner;
 
 impl Inner {
     /// Asks the app for a new lease: once per reason, and again after
-    /// `reask` (an app connection may have missed it). The pace holds across
-    /// leases, so a Mac clock ahead of the cloud's (every new token reads as
+    /// `reask` (an app connection may have missed it). Each reason keeps its
+    /// own pace across leases, so a Mac clock ahead of the cloud's (every new token reads as
     /// expiring) or a cloud that refuses every new token (401) asks at that
     /// pace, not in a loop of token mints.
     pub(super) fn need(&self, reason: &'static str) {
@@ -20,13 +20,11 @@ impl Inner {
             let Some(expires_at) = state.lease.as_ref().map(|lease| lease.expires_at) else {
                 return;
             };
-            if let Some((asked_reason, at)) = state.asked
-                && asked_reason == reason
-                && now.saturating_sub(at) < reask
-            {
+            let slot = &mut state.asked[usize::from(reason != "expiring")];
+            if slot.is_some_and(|at| now.saturating_sub(at) < reask) {
                 return;
             }
-            state.asked = Some((reason, now));
+            *slot = Some(now);
             expires_at
         };
         let sink = self.sink.lock().unwrap_or_else(PoisonError::into_inner).clone();

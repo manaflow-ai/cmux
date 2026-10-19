@@ -261,8 +261,8 @@ impl Phase {
 
 struct State {
     lease: Option<Lease>,
-    /// The lease generation the driver stopped on (401, 403, 410).
-    blocked: Option<u64>,
+    /// The lease generation the driver stopped on (401, 403, 410), and why.
+    blocked: Option<(u64, Phase)>,
     /// Set by `clear(purge: true)`; the driver purges, then drops the lease.
     purge: bool,
     phase: Phase,
@@ -278,8 +278,8 @@ struct State {
     purge_unconfirmed: bool,
     /// The driver thread runs (the capability is advertised only then).
     running: bool,
-    /// The last ask: (reason, when in Unix ms).
-    asked: Option<(&'static str, u64)>,
+    /// When the last ask went, in Unix ms: `[expiring, unauthenticated]`.
+    asked: [Option<u64>; 2],
     /// The last lease generation given; only goes up.
     generations: u64,
 }
@@ -326,7 +326,7 @@ impl HostReplica {
                     removed_install: None,
                     purge_unconfirmed: false,
                     running: false,
-                    asked: None,
+                    asked: [None; 2],
                     generations: 0,
                 }),
                 wake: Condvar::new(),
@@ -407,7 +407,7 @@ impl HostReplica {
             state.purge_unconfirmed = false;
             if removed {
                 // A token refresh does not bring a removed host back.
-                state.blocked = Some(generation);
+                state.blocked = Some((generation, Phase::Forbidden));
                 state.phase = Phase::Forbidden;
                 state.last_error = Some(
                     "the cloud removed this host; clear the replica and lease again to enroll it again"
@@ -652,7 +652,7 @@ impl Driver {
                             state.purge_unconfirmed = true;
                             state.phase = Phase::Off;
                         } else if same {
-                            state.blocked = Some(lease.generation);
+                            state.blocked = Some((lease.generation, blocked));
                         }
                         // A purge still pending after another publisher took the socket
                         // (4000) tries again after a backoff; a refused token waits for a
@@ -672,9 +672,11 @@ impl Driver {
     fn current(&self) -> Option<Use> {
         let state = self.inner.lock();
         let lease = state.lease.as_ref()?;
-        // A pending purge retries a replaced socket, never a refused token.
-        let retries = state.purge && state.phase != Phase::Unauthenticated;
-        if state.blocked == Some(lease.generation) && !retries {
+        if let Some((generation, why)) = state.blocked
+            && generation == lease.generation
+            // A pending purge retries a replaced socket, never a refused token.
+            && !(state.purge && why != Phase::Unauthenticated)
+        {
             return None;
         }
         let ws_origin = lease.url("", true);
