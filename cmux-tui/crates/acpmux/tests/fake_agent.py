@@ -830,6 +830,9 @@ def main():
                 offered = [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]
                 if os.environ.get("FAKE_FULL_ACCESS") == "1":
                     offered.append({"id": "full-access", "name": "Full access"})
+                # FAKE_LOAD_ONLY_MODE=1: the loaded chat offers only that mode, nothing lower.
+                if os.environ.get("FAKE_LOAD_ONLY_MODE") == "1":
+                    offered = [m for m in offered if m["id"] == load_mode]
                 send({"jsonrpc": "2.0", "id": rid, "result": {"modes": {"currentModeId": load_mode, "availableModes": offered}}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": None})

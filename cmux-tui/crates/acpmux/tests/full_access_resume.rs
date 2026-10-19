@@ -54,6 +54,8 @@ fn home(name: &str, extra: Value) -> PathBuf {
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             // An ACP adapter whose session/load restores the chat's full-access mode itself.
             "restores": {"argv": ["env", "FAKE_FULL_ACCESS=1", "FAKE_LOAD_MODE=full-access", "python3", FAKE_AGENT]},
+            // One that restores full access and offers no lower mode after the load.
+            "stuck": {"argv": ["env", "FAKE_FULL_ACCESS=1", "FAKE_LOAD_MODE=full-access", "FAKE_LOAD_ONLY_MODE=1", "python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -158,6 +160,8 @@ async fn a_restarted_chat_saved_in_full_access_comes_back_without_it_when_off() 
     assert_eq!(mode, "agent-full-access");
     let (restores, mode) = app.chat(&dir, "restores").await;
     assert_eq!(mode, "full-access");
+    let (stuck, mode) = app.chat(&dir, "stuck").await;
+    assert_eq!(mode, "full-access");
 
     // Turned off, then both harnesses restart: neither gets full access back.
     std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": false}}"#).unwrap();
@@ -179,5 +183,15 @@ async fn a_restarted_chat_saved_in_full_access_comes_back_without_it_when_off() 
         assert_eq!(r["result"]["harness"], harness, "{r}");
         assert_eq!(r["result"]["modes"]["currentModeId"], mode, "{harness}: {r}");
     }
+    // A chat that cannot leave full access does not run: its restart fails, and so does a prompt.
+    let r = cli.call("_acpmux/sessions/restart_harness", json!({"sessions": [&stuck]})).await;
+    assert_eq!(r["result"]["failed"], json!(1), "{r}");
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": stuck, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
