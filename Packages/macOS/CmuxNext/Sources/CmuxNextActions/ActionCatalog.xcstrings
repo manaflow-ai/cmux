@@ -43630,7 +43630,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark Tab as Unread"
+            "value": "Mark Tab Unread"
           }
         },
         "ja": {
@@ -58957,13 +58957,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Unread"
+            "value": "Toggle Tab Unread"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未読を切り替え"
+            "value": "タブの未読を切り替え"
           }
         },
         "ar": {
