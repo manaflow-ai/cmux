@@ -62,6 +62,8 @@ public actor InstallAuthClient {
     private let signer: any InstallSigner
     private let sessionToken: SessionToken?
     private let stackUser: String
+    /// One immutable requested team per client; its token cache cannot cross scopes.
+    private let team: String?
     /// The API's `ENVIRONMENT` (`staging`, `production`, `development`,
     /// `local`), learned from the server: the challenge prefix names it and
     /// the minted token's issuer (`https://cmux-api/<environment>`) must
@@ -92,13 +94,14 @@ public actor InstallAuthClient {
     ///   - onRecord: persists the record (Keychain) the moment it changes.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
                 stackUser: String, deviceName: String, clientVersion: String?, record: InstallRecord?,
-                profile: InstallProfile = .ios,
+                profile: InstallProfile = .ios, team: String? = nil,
                 onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
         self.signer = signer
         self.sessionToken = sessionToken
         self.stackUser = stackUser
+        self.team = team
         self.deviceName = deviceName
         self.profile = profile
         self.clientVersion = clientVersion
