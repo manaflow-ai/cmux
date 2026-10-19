@@ -332,7 +332,7 @@
   height: 32px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 50%;
   background: transparent;
   color: var(--agent-muted);
   cursor: default;
