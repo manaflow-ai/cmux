@@ -110,7 +110,9 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
-        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
+        // How the CLI was started is read once, while it runs: at its session start.
+        let process = surface.process_id().filter(|_| is_session_start);
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, process);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
