@@ -77,7 +77,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
 ${tooltips}
 <div class="page-menu" id="page-menu">Sort</div>
 <div class="icon-bar-pill" id="icon-bar-pill">Icons</div>
-<div class="md-link-card" id="md-link-card">https://example.com</div>
+<div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
@@ -88,7 +88,7 @@ ${tooltips}
       "menu",
       "page-menu",
       "icon-bar-pill",
-      "md-link-card",
+      "md-link-bubble",
       "md-link-popover",
       "hc-msg-toolbar",
       "lg-palette",
