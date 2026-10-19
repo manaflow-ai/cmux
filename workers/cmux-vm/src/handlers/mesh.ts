@@ -1416,6 +1416,7 @@ export const USER_DELETED_WEBHOOK_ACTOR = "system:stack-user-deleted-webhook";
 export interface RevocationResult {
   readonly devicesRevoked: number;
   readonly meshesReapplied: number;
+  readonly serversRevoked: number;
 }
 
 /**
@@ -1444,7 +1445,9 @@ export const revokeMemberDevices = (tenantId: Principal["tenantId"], userId: Use
   Effect.gen(function* () {
     const cache = yield* MembershipCache;
     yield* cache.revoke(tenantId, userId, eventAt).pipe(Effect.catchAll(dependencyDown("membership.revoke")));
-    const result: RevocationResult = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const devices = yield* closeUserDevices(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const serversRevoked = yield* revokeUserOverlayServers(tenantId, userId, eventAt, MEMBERSHIP_WEBHOOK_ACTOR);
+    const result: RevocationResult = { ...devices, serversRevoked };
     return result;
   });
 
@@ -1464,16 +1467,45 @@ export const revokeDeletedUser = (userId: UserId, listedTenants: ReadonlyArray<P
     const withDevices = yield* store
       .listTenantsWithDevicesCreatedBy(actorRef({ kind: "session", userId }))
       .pipe(Effect.catchAll(dependencyDown("mesh.listTenantsWithDevicesCreatedBy")));
-    const tenants = [...new Set([...listedTenants, ...withDevices])];
+    const withServers = yield* store
+      .listTenantsWithOverlayServersCreatedBy(actorRef({ kind: "session", userId }))
+      .pipe(Effect.catchAll(dependencyDown("overlay.listTenantsCreatedBy")));
+    const tenants = [...new Set([...listedTenants, ...withDevices, ...withServers])];
     let devicesRevoked = 0;
     let meshesReapplied = 0;
+    let serversRevoked = 0;
     for (const tenantId of tenants) {
       const done = yield* closeUserDevices(tenantId, userId, null, USER_DELETED_WEBHOOK_ACTOR);
       devicesRevoked += done.devicesRevoked;
       meshesReapplied += done.meshesReapplied;
+      serversRevoked += yield* revokeUserOverlayServers(tenantId, userId, null, USER_DELETED_WEBHOOK_ACTOR);
     }
-    const result: RevocationResult = { devicesRevoked, meshesReapplied };
+    const result: RevocationResult = { devicesRevoked, meshesReapplied, serversRevoked };
     return result;
+  });
+
+/**
+ * Revokes every live provider-free overlay server `userId` enrolled in
+ * `tenantId` (created at or before `cutoff`; null: all), one audit row per
+ * server as `auditActor` for the user. Servers have no tunnel or provider
+ * firewall rule, and policy reads compile live, so nothing is re-applied: the
+ * server leaves every peer's policy and its own signed reads answer 404, also
+ * after the user is added back.
+ */
+const revokeUserOverlayServers = (tenantId: Principal["tenantId"], userId: UserId, cutoff: Date | null, auditActor: string) =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const audit = yield* AuditStore;
+    const ownerRef = actorRef({ kind: "session", userId });
+    const at = yield* now;
+    const revoked = yield* store.revokeOverlayServersCreatedBy(tenantId, ownerRef, cutoff, at).pipe(Effect.catchAll(dependencyDown("overlay.revokeCreatedBy")));
+    for (const row of revoked) {
+      const entry = { tenantId, actor: auditActor, ownerActor: ownerRef, action: "overlay_server.revoke", cmuxId: row.deviceId, outcome: "ok", at };
+      yield* audit.append(entry).pipe(
+        Effect.catchAll(() => Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: entry.at.toISOString() })))),
+      );
+    }
+    return revoked.length;
   });
 
 /**
@@ -1546,6 +1578,6 @@ const closeUserDevices = (tenantId: Principal["tenantId"], userId: UserId, cutof
         }
       }),
     );
-    const result: RevocationResult = { devicesRevoked: devices.length, meshesReapplied: meshes.size };
+    const result: Omit<RevocationResult, "serversRevoked"> = { devicesRevoked: devices.length, meshesReapplied: meshes.size };
     return result;
   });
