@@ -11,8 +11,12 @@ const JWT = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g;
 const API_KEY = /\b(?:sk|srt)[_-][A-Za-z0-9_-]{8,}\b/g;
 const URL_CREDENTIALS = /([A-Za-z][A-Za-z0-9+.\-]*:\/\/)[^/?#\s]+@/g;
 const EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
+const CREDENTIAL_HEADER =
+  /\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+/gi;
+const SECRET_QUERY =
+  /([?&](?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|password|secret)=)[^&#\s"']+/gi;
 const SECRET_ASSIGNMENT =
-  /\b([A-Za-z0-9_]*(?:password|passwd|secret|token|credential|authorization|cookie|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_]*)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/gi;
+  /\b([A-Za-z0-9_]*(?:password|passwd|secret|token|credential|authorization|cookie|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/gi;
 
 /**
  * Defense in depth for telemetry. Product code must still avoid attaching
@@ -75,6 +79,8 @@ function scrubValue(value: unknown): void {
     if (typeof child === "string") {
       (value as Record<string, unknown>)[childKey] = child
         .replace(URL_CREDENTIALS, "$1[Filtered credentials]@")
+        .replace(CREDENTIAL_HEADER, "$1$2[Filtered]")
+        .replace(SECRET_QUERY, "$1[Filtered]")
         .replace(ROUTE_TOKEN, "[Filtered route token]")
         .replace(HANDOFF_LEASE, "[Filtered handoff lease]")
         .replace(BEARER_TOKEN, "Bearer [Filtered]")
