@@ -140,8 +140,10 @@ export function useFolderTrustAsk(
     let live = true;
     const answered = answers.current;
     void readFolderTrust(source, cwd).then((trust) => {
-      if (!live || answers.current !== answered) return;
+      if (!live) return;
       setReading(false);
+      // An answer saved since this read began is newer than it: the answer stands.
+      if (answers.current !== answered) return;
       // A folder the pane can't read is not asked about (a known answer stays); acpmux still
       // refuses its prompts.
       if (!trust) return;
