@@ -820,7 +820,7 @@ export interface paths {
         put?: never;
         /**
          * Create the team's mesh
-         * @description Create the team's mesh. Requires the mesh:write scope. A session must be a team admin. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+         * @description Create the team's mesh. Requires the mesh:write scope. A session must be a team admin. An Idempotency-Key retains the team's original creation across retries; changed intent is 409 and a deleted key cannot create another mesh. Retry an uncertain result with the same key. Experiment: answers 404 unless the mesh experiment is enabled for the team.
          */
         post: operations["mesh.createMesh"];
         delete?: never;
@@ -6327,6 +6327,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
                 };
             };
             /** @description QuotaExceeded */

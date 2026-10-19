@@ -15692,7 +15692,7 @@ impl Client {
     }
     /**Create the team's mesh
 
-    Create the team's mesh. Requires the mesh:write scope. A session must be a team admin. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+    Create the team's mesh. Requires the mesh:write scope. A session must be a team admin. An Idempotency-Key retains the team's original creation across retries; changed intent is 409 and a deleted key cannot create another mesh. Retry an uncertain result with the same key. Experiment: answers 404 unless the mesh experiment is enabled for the team.
 
     Sends a `POST` request to `/v1/meshes`
 
@@ -15744,6 +15744,7 @@ impl Client {
             402u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),
