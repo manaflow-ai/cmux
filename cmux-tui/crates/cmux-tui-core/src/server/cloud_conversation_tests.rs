@@ -655,4 +655,20 @@ fn a_gap_resyncs_replays_the_buffered_events_and_a_reconnect_resumes_after_them(
     assert_eq!(subscribe["after_seq"], 6, "{subscribe}");
     // The replayed 6 is a duplicate: 7 follows 6 exactly once.
     assert_eq!(stream_seqs(&seen)[5..], [changed(7)], "{seen:#?}");
+
+    // The owner lost its tail (a recreated owner): it answers the resume
+    // with a snapshot behind the position, which replaces it.
+    let third = backend.wire();
+    second.push_close(None);
+    third.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    third.push_text(conversation_snapshot(1));
+    third.push_text(message_event(2));
+    wait_until("the events of the recreated owner", || {
+        seen.extend(cloud_events(&events));
+        stream_seqs(&seen).len() >= 8
+    });
+    assert_eq!(stream_seqs(&seen)[6..], [resynced(1), changed(2)], "{seen:#?}");
 }

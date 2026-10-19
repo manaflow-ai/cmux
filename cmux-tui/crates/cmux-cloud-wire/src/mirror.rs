@@ -38,6 +38,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// keys after 7 days, so a resend can never reach an owner that pruned it.
 pub const INTENT_TTL_MS: i64 = 24 * 3600 * 1000;
 
+/// Most events a mirror buffers while it waits for a snapshot. Past it the
+/// buffer is dropped: the snapshot, or the gap the next event opens, covers
+/// them, and a snapshot that never comes cannot grow the buffer forever.
+pub const MAX_BUFFERED_EVENTS: usize = 1024;
+
 /// A new op while the owner is unreachable: refused, nothing queues (U5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OwnerUnreachable;
@@ -193,6 +198,10 @@ pub struct Resume {
     /// `subscribe {after_seq}` when the mirror holds a confirmed position;
     /// `None`: subscribe fresh, the owner answers a snapshot.
     pub after_seq: Option<u64>,
+    /// The keys to report in the subscribe's `pending` (pending and expired
+    /// intents). When it is not empty the owner answers with a snapshot whose
+    /// `decided` settles them instead of replaying the gap.
+    pub pending: Vec<String>,
     /// Pending intents to resend with their keys (after the subscribe).
     pub send: Vec<ClientOut>,
 }
@@ -217,6 +226,10 @@ pub struct StreamMirror<R: Reducer = EffectsOnly> {
     desyncs: u64,
     /// A snapshot or an event was applied since creation or [`StreamMirror::reset`].
     positioned: bool,
+    /// A resume went out and nothing answered it yet: the owner's answer may
+    /// be a snapshot behind the position (a reset or recreated owner), which
+    /// then replaces it.
+    resumed: bool,
     /// False for a relay that keeps only the head and the position.
     track_rows: bool,
     applied: Vec<Applied>,
@@ -249,6 +262,7 @@ impl<R: Reducer> StreamMirror<R> {
             awaiting: false,
             desyncs: 0,
             positioned: false,
+            resumed: false,
             track_rows: true,
             applied: Vec::new(),
         }
@@ -283,6 +297,7 @@ impl<R: Reducer> StreamMirror<R> {
         self.issued_at.clear();
         self.awaiting = false;
         self.positioned = false;
+        self.resumed = false;
         self.applied.clear();
     }
 
@@ -297,7 +312,12 @@ impl<R: Reducer> StreamMirror<R> {
         self.expire_stale(now);
         let after_seq = self.resume_seq();
         self.awaiting = after_seq.is_none();
-        Resume { after_seq, send: self.pending.iter().map(Intent::frame).collect() }
+        self.resumed = after_seq.is_some();
+        Resume {
+            after_seq,
+            pending: self.reported_keys(),
+            send: self.pending.iter().map(Intent::frame).collect(),
+        }
     }
 
     /// Asks for a snapshot unless one is already asked for: the caller could
@@ -439,17 +459,28 @@ impl<R: Reducer> StreamMirror<R> {
         self.pending = keep;
     }
 
+    /// Pending and expired keys: expired ones are asked about (a query, never
+    /// a resend) so a decided one leaves `expired`.
+    fn reported_keys(&self) -> Vec<String> {
+        self.pending.iter().chain(&self.expired).map(|i| i.idempotency_key.clone()).collect()
+    }
+
     fn request_snapshot(&mut self, out: &mut Vec<ClientOut>) {
         self.awaiting = true;
-        // Expired keys are asked about (a query, never a resend) so a decided one leaves `expired`.
-        let pending =
-            self.pending.iter().chain(&self.expired).map(|i| i.idempotency_key.clone()).collect();
+        let pending = self.reported_keys();
         out.push(ClientOut::SnapshotRequest { pending });
+    }
+
+    fn buffer(&mut self, e: EventFrame) {
+        if self.buffered.len() >= MAX_BUFFERED_EVENTS {
+            self.buffered.clear();
+        }
+        self.buffered.push(e);
     }
 
     fn on_event(&mut self, e: EventFrame, out: &mut Vec<ClientOut>) {
         if self.awaiting {
-            self.buffered.push(e);
+            self.buffer(e);
             return;
         }
         if e.seq == self.seq + 1 {
@@ -458,7 +489,7 @@ impl<R: Reducer> StreamMirror<R> {
                 self.flush_held();
             }
         } else if e.seq > self.seq + 1 {
-            self.buffered.push(e);
+            self.buffer(e);
             self.request_snapshot(out);
         }
     }
@@ -497,6 +528,7 @@ impl<R: Reducer> StreamMirror<R> {
     fn applied_event(&mut self, e: EventFrame) {
         self.seq = e.seq;
         self.positioned = true;
+        self.resumed = false;
         self.applied.push(Applied::Event(Box::new(e)));
     }
 
@@ -529,13 +561,19 @@ impl<R: Reducer> StreamMirror<R> {
 
     fn on_snapshot(&mut self, snap: SnapshotFrame, out: &mut Vec<ClientOut>) {
         self.awaiting = false;
-        if snap.seq >= self.seq {
+        let behind = snap.seq < self.seq;
+        // A snapshot behind the position answers only a resume (the owner
+        // lost its tail): it replaces the position. Any other one is stale.
+        if !behind || std::mem::take(&mut self.resumed) {
+            self.resumed = false;
             self.state = snap.state.clone();
             self.seq = snap.seq;
             self.positioned = true;
             // Rows held from before may be stale; keep only what the snapshot sends.
-            if let (Some(rows), true) = (&snap.rows, self.track_rows) {
+            if self.track_rows && (behind || snap.rows.is_some()) {
                 self.rows.clear();
+            }
+            if let (Some(rows), true) = (&snap.rows, self.track_rows) {
                 self.rows.load(&rows.table, &rows.rows);
             }
             for d in &snap.decided {

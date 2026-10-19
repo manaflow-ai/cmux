@@ -46,6 +46,8 @@ pub struct OwnershipIntent {
     pub idempotency_key: String,
     pub op: String,
     pub params_json: String,
+    /// The wire value (`user`, `cli`, `mcp`, `script`, `remote`).
+    pub origin: String,
 }
 
 /// The mirror as a view renders it.
@@ -85,6 +87,9 @@ pub struct OwnershipIssued {
 pub struct OwnershipResume {
     /// `subscribe {after_seq}` when set; otherwise subscribe fresh.
     pub after_seq: Option<u64>,
+    /// The subscribe's `pending` keys, when not empty (the owner then
+    /// answers with a snapshot that settles them).
+    pub pending: Vec<String>,
     /// Pending intents to send after the subscribe, with their keys.
     pub send: Vec<String>,
 }
@@ -105,6 +110,10 @@ fn intents(list: &[cmux_mobile_core::wire::mirror::Intent]) -> Vec<OwnershipInte
             idempotency_key: intent.idempotency_key.clone(),
             op: intent.op.clone(),
             params_json: intent.params.to_string(),
+            origin: serde_json::to_value(intent.origin)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default(),
         })
         .collect()
 }
@@ -144,7 +153,8 @@ impl OwnershipMirror {
     }
 
     /// One owner frame of this stream (route frames by `stream`: one mirror
-    /// per stream). A frame of another kind is ignored.
+    /// per stream). A frame of another kind is ignored. `Invalid` means the
+    /// frame did not apply: for an event, call `resync` and send its frames.
     pub fn receive(&self, frame_json: String) -> Result<OwnershipStep, OwnershipMirrorError> {
         let frame = OwnerFrame::from_value(serde_json::from_str(&frame_json)?)?;
         let received = self.lock().receive_applied(frame);
@@ -190,7 +200,11 @@ impl OwnershipMirror {
     /// A new socket subscribes: where to resume and what to resend.
     pub fn resume(&self, now_ms: i64) -> OwnershipResume {
         let resume = self.lock().resume(now_ms);
-        OwnershipResume { after_seq: resume.after_seq, send: frames(resume.send) }
+        OwnershipResume {
+            after_seq: resume.after_seq,
+            pending: resume.pending,
+            send: frames(resume.send),
+        }
     }
 
     /// Asks for a snapshot unless one is asked for (a frame the app could

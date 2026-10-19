@@ -52,7 +52,8 @@ pub use envelope::{HttpError, OpError, OpRequest, OpResponse, Origin, ReadRespon
 pub use frames::{ClientOut, OwnerFrame};
 pub use generated::*;
 pub use mirror::{
-    Applied, INTENT_TTL_MS, OwnerUnreachable, PositionOnly, Received, Resume, StreamMirror,
+    Applied, INTENT_TTL_MS, MAX_BUFFERED_EVENTS, OwnerUnreachable, PositionOnly, Received, Resume,
+    StreamMirror,
 };
 pub use op::{Op, OpVisitor, WireClass, WireError, WireIdempotency, WirePrincipal};
 pub use value::{BoolLit, WireNumber};

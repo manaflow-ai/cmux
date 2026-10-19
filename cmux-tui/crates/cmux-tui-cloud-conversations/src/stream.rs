@@ -279,10 +279,15 @@ impl StreamState {
 
     fn subscribe(&mut self) -> Vec<StreamAction> {
         self.subscribed = true;
-        let resume = self.mirror.resume(now_ms());
+        // The log is always empty (ops go over HTTP), so no intent can expire
+        // and the clock does not matter.
+        let resume = self.mirror.resume(0);
         let mut frame = self.frame("subscribe");
         if let Some(after) = resume.after_seq {
             frame["after_seq"] = json!(after);
+        }
+        if !resume.pending.is_empty() {
+            frame["pending"] = json!(resume.pending);
         }
         let mut actions = vec![StreamAction::Send(frame.to_string())];
         actions.extend(self.send(resume.send));
@@ -387,9 +392,14 @@ impl StreamState {
         if !self.subscribed || !self.mine(&frame) {
             return Vec::new();
         }
+        let is_event = frame.get("t").and_then(Value::as_str) == Some("event");
         let Ok(frame) = OwnerFrame::from_value(frame) else {
-            // A frame of this stream that does not decode: the snapshot
-            // replaces whatever it carried.
+            // An event that does not decode: the snapshot replaces whatever
+            // it carried. A snapshot that does not decode is not asked for
+            // again (the owner would send the same one); the next gap does.
+            if !is_event {
+                return Vec::new();
+            }
             let out = self.mirror.resync();
             return self.send(out);
         };
@@ -414,7 +424,7 @@ impl StreamState {
         match applied {
             Applied::Snapshot(snapshot) => {
                 let seq = snapshot.seq;
-                let Ok(frame) = serde_json::to_value(&*snapshot) else { return Translated::Resync };
+                let Ok(frame) = serde_json::to_value(&*snapshot) else { return Translated::Nothing };
                 match &self.target {
                     Target::Inbox => {
                         Translated::Emit(CloudEvent::InboxReset { seq, account: None })
@@ -485,10 +495,4 @@ enum Translated {
     Nothing,
     /// The frame applied but has no daemon event: resync from a snapshot.
     Resync,
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }

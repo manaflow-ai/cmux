@@ -524,7 +524,8 @@ Phase 1, slice 2 (built 2026-10-19):
   `StreamMirror`. A behavior change: the events that arrive after a gap are buffered and reach
   clients after the snapshot (before, they were dropped until the next gap). The daemon test
   `a_gap_resyncs_replays_the_buffered_events_and_a_reconnect_resumes_after_them` was red before
-  the change and is green after it.
+  the change and is green after it. A snapshot behind the position replaces it only when it
+  answers a resume (an owner that lost its tail); a gap buffers at most 1024 events.
 - `cmux-mobile-ffi/src/ownership.rs`: `OwnershipMirror`, a uniffi object with a JSON-text surface
   (frames in and out as the socket carries them, `view()` for rendering). No listener: the app
   reads `view()` after a call that applied frames. `tests/ownership_vectors.rs` replays every
