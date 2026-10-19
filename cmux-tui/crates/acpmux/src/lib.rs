@@ -67,6 +67,7 @@ pub mod routes;
 pub mod rpc;
 pub mod schema;
 pub mod secret_mcp;
+pub mod session_mcp;
 pub mod server;
 pub mod session_env;
 pub mod session_identity;
