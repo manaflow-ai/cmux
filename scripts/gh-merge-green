@@ -906,9 +906,17 @@ fast_gate() {
   gate_checked="${gate_checked:-no fast lane reported}, conflict markers, freezes"
   reds=$(sed -n 's/^red=//p' <<<"$gate_out")
   [ -n "$reds" ] || return 0
-  # merge_fast_gate.py itself refuses a red lint or risk evidence check, which is
-  # never waived or base-excused; the reds left may be waived by --override or the base.
+  # merge_fast_gate.py itself refuses a red risk evidence check. A red lint check is
+  # never waived by --override; the base excuses it only when it prints every finding.
   if [ -n "$override_reason" ]; then
+    local red_name
+    while IFS= read -r red_name; do
+      if [[ "$(tr '[:upper:]' '[:lower:]' <<<"$red_name")" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]]; then
+        refuse \
+          "not green: '$red_name' is failure on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
+          "fix what '$red_name' reports on the exact head, or drop --override so the base comparison can excuse a base red"
+      fi
+    done <<<"$reds"
     printf 'note: --override waives %s on %s\n' "$(paste -sd ';' - <<<"$reds" | sed 's/;/; /g')" "$sha" >&2
     return 0
   fi
