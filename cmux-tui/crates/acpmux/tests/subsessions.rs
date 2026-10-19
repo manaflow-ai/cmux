@@ -177,8 +177,7 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     // A reply cut at its length cap is masked before the cut: a key that
     // straddles the cap leaves no unmasked head behind.
     let pad = "a".repeat(3983);
-    p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": format!("{pad} {key}")}))
-        .await;
+    p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": format!("{pad} {key}")})).await;
     p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
     let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
     let reply = got["lastReply"].as_str().unwrap_or_default();
