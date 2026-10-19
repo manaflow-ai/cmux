@@ -52,7 +52,8 @@ import Testing
         for a in core.freezeStream(before: k1, in: store.state) { store.dispatch(a) }
         store.dispatch(.setDraft("There's a bug here"))
         store.dispatch(.send)
-        #expect(core.recordSend(k1, in: store.state))
+        let recordedk1 = core.recordSend(k1, in: store.state)
+        #expect(recordedk1)
         #expect(Self.shown(store) == ["Find Cmd+P", "Started the agent.", "There's a bug here"])
 
         // HomeStore lists my send; nothing moves, nothing rebuilds.
@@ -74,7 +75,8 @@ import Testing
         for a in core.freezeStream(before: k2, in: store.state) { store.dispatch(a) }
         store.dispatch(.setDraft("Also check Enter"))
         store.dispatch(.send)
-        #expect(core.recordSend(k2, in: store.state))
+        let recordedk2 = core.recordSend(k2, in: store.state)
+        #expect(recordedk2)
         #expect(Self.shown(store) == ["Find Cmd+P", "Started the agent.", "There's a bug here", "It runs on the builder.", "Also check Enter"])
 
         // The owner posts the whole reply after both sends (its seq is newer): only the rest shows, at the bottom.
@@ -114,7 +116,8 @@ import Testing
         var core = ProjectionCore(me: Self.me)
         let (conv, w) = core.install(Self.id, items: [], summary: Self.summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
-        #expect(core.freezeStream(before: IdempotencyKey("s"), in: store.state).isEmpty)
+        let actions = core.freezeStream(before: IdempotencyKey("s"), in: store.state)
+        #expect(actions.isEmpty)
         #expect(core.frozen.isEmpty)
     }
 }
