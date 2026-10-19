@@ -413,6 +413,16 @@ fn tmux_utf8_test_lines() {
 }
 
 #[test]
+fn tmux_utf8_test_raw_c1_bytes() {
+    // UTF-8-test.txt 3.1.9 holds the bare bytes 0x80-0xbf. In a UTF-8 stream
+    // each is a malformed sequence, not an 8-bit C1 control: 0x90 is not DCS,
+    // 0x9b is not CSI and 0x9d is not OSC.
+    let mut p = Pane::new(20, 4);
+    p.tty(b"\"\x90\"X\n\"\x9b\"Y\n\"\x9d\"Z\n");
+    assert_eq!(p.capture(), "\"\u{FFFD}\"X\n\"\u{FFFD}\"Y\n\"\u{FFFD}\"Z");
+}
+
+#[test]
 fn tmux_utf8_test_del() {
     // UTF-8-test.txt 2.2.1 is a quoted DEL (0x7F), which a terminal ignores.
     let mut p = Pane::new(20, 3);
