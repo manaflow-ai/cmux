@@ -95,8 +95,13 @@ print(json.dumps(json.loads(open(%(beads)r).read())))
 
 
 class IdeaLedgerTest(unittest.TestCase):
+    def temp_dir(self) -> Path:
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        return Path(holder.name)
+
     def run_ledger(self, *extra, raw=None, env_extra=None):
-        temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        temp = self.temp_dir()
         (temp / "bin").mkdir()
         (temp / "bin/gh").write_text(FAKE_GH % {"shipped": SHIPPED_SHA})
         (temp / "beads.json").write_text(json.dumps(BEADS))
@@ -157,7 +162,7 @@ class IdeaLedgerTest(unittest.TestCase):
         self.assertTrue({"stalled", "no-owner"} & set(first["flags"]), first)
 
     def test_passing_mentions_and_words_do_not_link(self):
-        temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        temp = self.temp_dir()
         raw = json.loads(json.dumps(RAW))
         # A body that mentions another PR's bead, and a branch name that looks like a bead.
         raw["open"][3]["body"] = "Follows the Now Playing work (cx-np1) on cx-next."
@@ -176,7 +181,7 @@ class IdeaLedgerTest(unittest.TestCase):
             self.assertEqual(items[(pr["number"],)]["fold"], [])
 
     def test_a_pull_request_joins_only_its_first_cluster(self):
-        temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        temp = self.temp_dir()
         (temp / "clusters.json").write_text(json.dumps([{"name": "a", "prs": [100, 101]},
                                                         {"name": "b", "prs": [101, 102]}]))
         items, _, _ = self.run_ledger("--clusters", str(temp / "clusters.json"))
@@ -206,7 +211,7 @@ class IdeaLedgerTest(unittest.TestCase):
         self.assertEqual(items[(10,)]["state"], "shipped")
 
     def test_curated_clusters_win(self):
-        temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        temp = self.temp_dir()
         (temp / "clusters.json").write_text(json.dumps([{"name": "font and playing", "prs": [3, 4]}]))
         items, _, _ = self.run_ledger("--clusters", str(temp / "clusters.json"))
         merged = items[(3, 4)]

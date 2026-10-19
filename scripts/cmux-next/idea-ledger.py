@@ -56,6 +56,8 @@ CLOSES_BEAD = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+(" 
 CLOSES_ISSUE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b", re.I)
 VERIFIED = re.compile(r"<!--\s*cmux-gallery-link\b[^>]*\bverified\b|\bgallery:\s*verified\b|✅\s*verified", re.I)
 GALLERY_URL = re.compile(r"https://[^\s)>\"]{0,200}gallery[^\s)>\"]{0,200}", re.I)
+# Only an org member's comment can mark a landed PR verified; a body or outside comment can't.
+TRUSTED = ("OWNER", "MEMBER")
 STATES = ("idea", "building", "pr-open", "merged", "shipped", "verified")
 # Files nearly every change touches say nothing about which idea a change is.
 GENERATED = re.compile(r"(Localizable\.xcstrings|/generated/|\.sha256$|Package\.(swift|resolved)$|"
@@ -73,7 +75,7 @@ query($q: String!, $after: String) {
       author { login }
       files(first: 100) { nodes { path } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
-      comments(last: 30) { nodes { body createdAt author { login } } }
+      comments(last: 30) { nodes { body createdAt authorAssociation author { login } } }
     } }
   }
 }
@@ -85,7 +87,7 @@ query($q: String!, $after: String) {
     nodes { ... on PullRequest {
       number title body url mergedAt headRefName mergeCommit { oid }
       author { login }
-      comments(last: 30) { nodes { body author { login } } }
+      comments(last: 30) { nodes { body authorAssociation author { login } } }
     } }
   }
 }
@@ -445,7 +447,9 @@ def reconcile(open_pulls: list[dict], merged: list[dict], issues: list[dict], be
             last = max(landed, key=lambda p: p["mergedAt"])
             sha = (last.get("mergeCommit") or {}).get("oid")
             shipped = nightly if sha and sha in in_nightly else None
-            verified = any(VERIFIED.search(t) for p in landed for t in pull_texts(p))
+            verified = any(VERIFIED.search(c.get("body") or "") for p in landed
+                           for c in (p.get("comments") or {}).get("nodes", [])
+                           if c.get("authorAssociation") in TRUSTED)
             gallery = next((m.group(0) for p in landed for t in pull_texts(p) for m in [GALLERY_URL.search(t)] if m),
                            None)
             item.update(state="verified" if verified and shipped else "shipped" if shipped else "merged",

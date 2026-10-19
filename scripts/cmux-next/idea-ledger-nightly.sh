@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Nightly idea ledger: rebuild the page from the latest merged script and put it in the ledger issue.
 #
-# Runs idea-ledger.py as it is on origin/feat-cmux-next, or LEDGER_REF (so a merged fix takes
-# effect the next night), inside LEDGER_CHECKOUT so merge ancestry is answered by local git, not
+# Runs idea-ledger.py as it is on origin/feat-cmux-next, or main with LEDGER_REF=main (so a
+# merged fix takes effect the next night), inside LEDGER_CHECKOUT so merge ancestry is answered by local git, not
 # the API. Waits for the shared GraphQL quota (as glaeda-gh last saw it) instead of draining it, keeps each night's
 # output under LEDGER_STATE/<date>, and replaces the body of LEDGER_ISSUE (OWNER/REPO#N) with the
-# Markdown page. With LEDGER_ISSUE unset it only writes the files.
+# Markdown page, only when that repo is private. With LEDGER_ISSUE unset it only writes the files.
 #
 # Env: LEDGER_CHECKOUT (a manaflow-ai/cmux clone, default ~/Projects/cmux), LEDGER_REF, LEDGER_STATE
 # (default ~/.local/state/cmux-idea-ledger), LEDGER_ISSUE, LEDGER_CLUSTERS (curated clusters JSON),
@@ -17,7 +17,12 @@ night="$(date -u +%Y-%m-%d)"
 out="$state/$night"
 mkdir -p "$out"
 
+# Only reviewed code runs here: the ledger script comes from a protected branch, never a PR branch.
 ref="${LEDGER_REF:-feat-cmux-next}"
+case "$ref" in
+  feat-cmux-next|main) ;;
+  *) echo "idea-ledger: LEDGER_REF must be feat-cmux-next or main, not $ref" >&2; exit 2 ;;
+esac
 git -C "$checkout" fetch --quiet origin "$ref" nightly-next
 git -C "$checkout" show "origin/$ref:scripts/cmux-next/idea-ledger.py" > "$state/idea-ledger.py"
 
@@ -43,6 +48,12 @@ ln -sfn "$out" "$state/latest"
 if [ -n "${LEDGER_ISSUE:-}" ]; then
   repo="${LEDGER_ISSUE%#*}"
   number="${LEDGER_ISSUE#*#}"
+  # The page carries board titles and assignees, which are private: never into a public repo.
+  visibility="$(gh repo view "$repo" --json visibility --jq .visibility)"
+  if [ "$visibility" != PRIVATE ] && [ "$visibility" != INTERNAL ]; then
+    echo "idea-ledger: $repo is ${visibility:-unknown}, not private; the page stays in $out" >&2
+    exit 2
+  fi
   { echo "Rebuilt every night by \`scripts/cmux-next/idea-ledger-nightly.sh\` in manaflow-ai/cmux; edits here are overwritten."
     echo
     cat "$out/ledger.md"; } > "$out/issue-body.md"

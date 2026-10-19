@@ -5,11 +5,9 @@ Description=Nightly cmux idea ledger (scripts/cmux-next/idea-ledger.py)
 Type=oneshot
 Nice=10
 Environment=LEDGER_CHECKOUT=%h/Projects/cmux
-# The branch whose runner and script run (a PR branch, to try a change before it merges).
-Environment=LEDGER_REF=feat-cmux-next
 # User units get a bare PATH; gh, glaeda-gh, codex and claude live in these.
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/cmux-idea-ledger.env
-# Run the runner as it is on LEDGER_REF, whatever branch the checkout has out, from a file
+# Run the runner as merged on feat-cmux-next, whatever branch the checkout has out, from a file
 # (a piped script would share stdin with its children) and failing if it can't be read.
-ExecStart=/bin/bash -c 'set -euo pipefail; git -C "$${LEDGER_CHECKOUT}" fetch --quiet origin "$${LEDGER_REF}"; runner="$$(mktemp)"; trap "rm -f $${runner}" EXIT; git -C "$${LEDGER_CHECKOUT}" show "origin/$${LEDGER_REF}:scripts/cmux-next/idea-ledger-nightly.sh" > "$${runner}"; bash "$${runner}" < /dev/null'
+ExecStart=/bin/bash -c 'set -euo pipefail; git -C "$${LEDGER_CHECKOUT}" fetch --quiet origin feat-cmux-next; runner="$$(mktemp)"; trap "rm -f $${runner}" EXIT; git -C "$${LEDGER_CHECKOUT}" show origin/feat-cmux-next:scripts/cmux-next/idea-ledger-nightly.sh > "$${runner}"; bash "$${runner}" < /dev/null'
