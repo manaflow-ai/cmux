@@ -65,7 +65,12 @@ export function settledMachineName(): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
-/// Keeps `name`; a handshake without one keeps the last.
+/// The New Tab chip's machine: the handshake's name, else the last New Tab page's.
+export function newTabMachineName(handshake: string | undefined): string | undefined {
+  return handshake ?? settledMachineName();
+}
+
+/// Keeps `name` (a New Tab page's handshake: this Mac); a handshake without one keeps the last.
 export function rememberMachineName(name: string | undefined): void {
   if (name && name !== settledMachineName()) write(MACHINE_KEY, name);
 }

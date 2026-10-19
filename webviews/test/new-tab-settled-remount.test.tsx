@@ -98,10 +98,12 @@ test("a chat that changed while no list was mounted is read once by the next lis
   expect(host.textContent).toContain("cg-steward-old");
 });
 
-test("the machine chip's name is known before the handshake of a page that mounts later", async () => {
-  const { rememberMachineName, settledMachineName } = await import("../src/agent-session/acpmux/newtab/settledCache");
+test("a New Tab machine chip names this Mac before the handshake of a page that mounts later", async () => {
+  const { newTabMachineName, rememberMachineName } = await import("../src/agent-session/acpmux/newtab/settledCache");
   rememberMachineName("cosmic-gray");
-  expect(settledMachineName()).toBe("cosmic-gray");
+  expect(newTabMachineName(undefined)).toBe("cosmic-gray");
+  // A handshake without a name keeps the last; the page's own handshake wins once it answers.
   rememberMachineName(undefined);
-  expect(settledMachineName()).toBe("cosmic-gray");
+  expect(newTabMachineName(undefined)).toBe("cosmic-gray");
+  expect(newTabMachineName("huge-blue")).toBe("huge-blue");
 });

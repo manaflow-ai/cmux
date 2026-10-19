@@ -47,7 +47,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { rememberMachineName, settledMachineName } from "./newtab/settledCache";
+import { newTabMachineName, rememberMachineName } from "./newtab/settledCache";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -2388,9 +2388,11 @@ function AcpmuxPane() {
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
-  /// This Mac's name, from the handshake; until then the name the last page's handshake gave
-  /// (newtab/settledCache.ts), so the machine chip never flips from "This Mac" to it.
-  const [machineName, setMachineName] = useState<string | undefined>(settledMachineName);
+  /// This Mac's name, from the handshake.
+  const [machineName, setMachineName] = useState<string | undefined>();
+  /// A New Tab page runs on this Mac: before its handshake its chip names the Mac the last New Tab
+  /// page's handshake named (newtab/settledCache.ts), so it never flips from "This Mac" to it.
+  const newTabMachine = useMemo(() => newTabMachineName(machineName), [machineName]);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -3816,8 +3818,10 @@ function AcpmuxPane() {
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         const hostMachine = typeof host.machineName === "string" && host.machineName ? host.machineName : undefined;
-        rememberMachineName(hostMachine);
-        setMachineName(hostMachine ?? settledMachineName());
+        // Only a New Tab page's: a chat on another machine names that machine.
+        if (host.newTab === true || (typeof host.newTab === "object" && host.newTab !== null))
+          rememberMachineName(hostMachine);
+        setMachineName(hostMachine);
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;
@@ -5493,7 +5497,7 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
-              {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
+              {...((newTab.host ?? newTabMachine) ? { machineName: (newTab.host ?? newTabMachine)! } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(
@@ -5526,7 +5530,7 @@ function AcpmuxPane() {
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
-              host={newTab.host ?? machineName}
+              host={newTab.host ?? newTabMachine}
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
