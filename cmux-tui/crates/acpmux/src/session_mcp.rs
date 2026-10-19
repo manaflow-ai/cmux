@@ -638,23 +638,58 @@ struct Worktree {
     base: String,
 }
 
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    // The repository is the agent's to write: none of its hooks, fsmonitor
-    // or system config runs in this process, outside the agent's sandbox.
-    let out = Command::new("git")
+fn git_output(dir: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+    // The repository is the agent's to write: none of its hooks, fsmonitor,
+    // submodule recursion or system config runs in this process, outside the
+    // agent's sandbox. Its checkout filters are refused ([`refuse_own_filters`]).
+    Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
+        .args(["-c", "submodule.recurse=false"])
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .args(args)
         .output()
-        .map_err(|e| format!("git did not run: {e}"))?;
+        .map_err(|e| format!("git did not run: {e}"))
+}
+
+fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let out = git_output(dir, args)?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!("git {} failed: {}", args.join(" "), err.trim()));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
+/// Refuses a repository whose own config (local, worktree or an include of
+/// them) names a checkout filter: `git worktree add` would run it here, outside
+/// the agent's sandbox. The user's global filters (Git LFS) stay allowed.
+fn refuse_own_filters(folder: &Path) -> Result<(), String> {
+    let args = ["config", "--show-scope", "--get-regexp", r"^filter\..*\.(smudge|process)$"];
+    let out = git_output(folder, &args)?;
+    match out.status.code() {
+        Some(0) => {}
+        // No filter configured anywhere.
+        Some(1) => return Ok(()),
+        _ => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            return Err(format!("could not read the repository's git config: {}", err.trim()));
+        }
+    }
+    let listed = String::from_utf8_lossy(&out.stdout);
+    let own: Vec<&str> = listed
+        .lines()
+        .filter(|line| !line.starts_with("global\t") && !line.starts_with("system\t"))
+        .collect();
+    if own.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "this repository's own git config sets a checkout filter ({}), which a worktree checkout would run outside your sandbox: make the worktree yourself and pass it as cwd",
+        own.join(", ")
+    ))
 }
 
 /// Lowercase ASCII letters and digits, every other run one `-`, at most 48
@@ -681,6 +716,7 @@ pub fn slug(text: &str) -> String {
 fn make_worktree(folder: &Path, title: &str) -> Result<Worktree, String> {
     let common =
         PathBuf::from(git(folder, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
+    refuse_own_filters(folder)?;
     let main = if common.file_name().is_some_and(|n| n == ".git") {
         common.parent().map(Path::to_path_buf)
     } else {
