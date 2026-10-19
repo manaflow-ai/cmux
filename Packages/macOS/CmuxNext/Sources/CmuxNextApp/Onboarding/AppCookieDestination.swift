@@ -29,7 +29,10 @@ struct AppCookieDestination: CookieDestination {
         case .lax: .lax
         case .strict: .strict
         }
-        return ChromiumCookieWrite(url: url, name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path,
+        // CEF makes any non-empty domain a domain cookie. Preserve a source host-only cookie by
+        // supplying only its URL, as CEFCookieStore.set does; a leading dot remains domain-scoped.
+        let domain = cookie.domain.hasPrefix(".") ? cookie.domain : ""
+        return ChromiumCookieWrite(url: url, name: cookie.name, value: cookie.value, domain: domain, path: cookie.path,
                                    secure: cookie.secure, httpOnly: cookie.httpOnly, sameSite: sameSite,
                                    expires: cookie.expires, created: cookie.created, lastAccess: cookie.lastAccess)
     }

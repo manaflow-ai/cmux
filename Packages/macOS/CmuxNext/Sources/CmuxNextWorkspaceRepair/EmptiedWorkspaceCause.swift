@@ -1,7 +1,7 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 /// Why a workspace this connection saw with a pane has none now.
-enum EmptiedWorkspaceCause: Equatable {
+public enum EmptiedWorkspaceCause: Equatable {
     /// Its last tab was closed or its last process ended (exit or signal):
     /// the workspace closes (dogfood nxdog9).
     case tabClosed
@@ -17,7 +17,7 @@ extension EmptiedWorkspaceCause {
     /// recently ended terminal decides. A process end (exit, signal) is a
     /// closed tab; an unobserved end (outcome `unknown`) is a lost terminal.
     /// With no ended terminal on record the tab was closed by a client.
-    static func from(_ terminals: [TerminalRegistryEntry], workspace key: WorkspaceKey) -> EmptiedWorkspaceCause {
+    public static func from(_ terminals: [TerminalRegistryEntry], workspace key: WorkspaceKey) -> EmptiedWorkspaceCause {
         let ended = terminals.filter { $0.workspaceKey == key.rawValue }.compactMap(\.exit)
         guard let last = ended.max(by: { $0.exitedAtMs < $1.exitedAtMs }) else { return .tabClosed }
         return last.outcomeKind == "unknown" ? .terminalLost : .tabClosed

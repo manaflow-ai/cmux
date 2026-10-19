@@ -55,6 +55,10 @@ jobs:
       - name: Check SDK schema against runtime inventory
         run: python3 cmux-tui/scripts/check-sdk-schema.py
 
+      # A schema change can change what a phone may send (DaemonLanePolicy+Fields.generated.swift).
+      - name: Check the phone lane field allowlist
+        run: python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+
       - name: Test public resource boundary checker
         run: python3 cmux-tui/scripts/test_check_resource_api_boundary.py
 
