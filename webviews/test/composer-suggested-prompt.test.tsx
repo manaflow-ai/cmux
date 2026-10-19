@@ -200,3 +200,15 @@ test("Tab writes the suggestion without sending; Shift-Tab does not take it; Esc
   await press("Tab");
   expect(field().textContent).toBe("");
 });
+
+// Greptile on #21882: a typed space hides the placeholder, so the suggestion is
+// gone from view. Tab then must not swap that space for text the user can no longer see.
+test("after a typed space the hidden suggestion is not taken by Tab", async () => {
+  await render(fresh([prChat()]));
+  type Field = HTMLElement & { acpmuxMarkdownField?: { insertTyped(text: string): void } };
+  const editor = [...host.querySelectorAll<Field>("*")].find((node) => node.acpmuxMarkdownField);
+  await act(async () => editor!.acpmuxMarkdownField!.insertTyped(" "));
+  expect(host.querySelector<HTMLElement>(".acpmux-md-placeholder")?.hidden).toBe(true);
+  await press("Tab");
+  expect(field().textContent).not.toContain("Continue PR #123");
+});
