@@ -41,6 +41,10 @@ public final class NewTabInputBuffer {
         return true
     }
 
+    /// Drops every held key: the page they were typed into closed before it existed ("Close
+    /// before create"), so they go with it, never to another tab.
+    public func discard() { events.removeAll() }
+
     /// Gives every held key, in typing order, to the normal dispatch (whatever has focus now).
     public func release() {
         guard !replaying else { return }

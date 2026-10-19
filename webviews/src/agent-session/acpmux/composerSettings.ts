@@ -33,7 +33,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   modelMenu: "full",
-  plainFooter: false,
+  plainFooter: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter";

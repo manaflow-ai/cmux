@@ -45,8 +45,9 @@ import Testing
         #expect(metrics.minInactiveTabWidth == 32 && metrics.minActiveTabWidth == 56, "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
         #expect(metrics.minActiveTabWidth >= metrics.minInactiveTabWidth)
         #expect(harness.unselectedWidths.allSatisfy { $0 == metrics.minInactiveTabWidth }, "\(Set(harness.unselectedWidths))")
+        // The selected tab is as wide as the others: a selection never moves a tab (2026-10-19).
         let selected = try #require(harness.strip.result.slot(harness.selected))
-        #expect(selected.width == metrics.minActiveTabWidth)
+        #expect(selected.width == metrics.minInactiveTabWidth)
         #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "60 tabs at the minimum fit, nothing scrolls")
         let cell = try #require(harness.strip.cells[harness.selected])
         #expect(cell.frame.maxX <= harness.strip.tabsClip.bounds.maxX + 0.5, "the selected last tab is scrolled out of view")
