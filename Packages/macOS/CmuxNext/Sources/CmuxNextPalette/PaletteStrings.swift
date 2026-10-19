@@ -47,6 +47,30 @@ nonisolated enum PaletteStrings {
     static var turnOff: String { String(localized: "palette.command.turnOff", defaultValue: "Turn Off", bundle: .module) }
     static var workspaceKeyword: String { String(localized: "palette.keyword.workspace", defaultValue: "workspace", bundle: .module) }
     static var tabKeyword: String { String(localized: "palette.keyword.tab", defaultValue: "tab", bundle: .module) }
+    static var groupKeyword: String { String(localized: "palette.keyword.group", defaultValue: "group", bundle: .module) }
+    static var paneKeyword: String { String(localized: "palette.keyword.pane", defaultValue: "pane", bundle: .module) }
+    static var sectionGroups: String { String(localized: "palette.section.groups", defaultValue: "Groups", bundle: .module) }
+    static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
+    static var goToAnythingPlaceholder: String {
+        String(localized: "palette.placeholder.goToAnything", defaultValue: "Search workspaces, groups, panes and tabs…", bundle: .module)
+    }
+    static var copySessionID: String { String(localized: "palette.command.copySessionID", defaultValue: "Copy Session ID", bundle: .module) }
+    static var goToGroup: String { String(localized: "palette.command.goToGroup", defaultValue: "Go to Group", bundle: .module) }
+    static var focusPane: String { String(localized: "palette.command.focusPane", defaultValue: "Focus Pane", bundle: .module) }
+    static func groupWorkspaceCount(_ count: Int) -> String {
+        String(localized: "palette.group.workspaceCount", defaultValue: "Workspaces: \(count)", bundle: .module)
+    }
+    // The kind of a Go to Workspace row, drawn at its right edge.
+    static var kindGroup: String { String(localized: "palette.kind.group", defaultValue: "Group", bundle: .module) }
+    static var kindPane: String { String(localized: "palette.kind.pane", defaultValue: "Pane", bundle: .module) }
+    static var kindTab: String { String(localized: "palette.kind.tab", defaultValue: "Tab", bundle: .module) }
+    static var kindTerminal: String { String(localized: "palette.kind.terminal", defaultValue: "Terminal", bundle: .module) }
+    static var kindBrowser: String { String(localized: "palette.kind.browser", defaultValue: "Browser", bundle: .module) }
+    static var kindRemoteTerminal: String { String(localized: "palette.kind.remoteTerminal", defaultValue: "Remote Terminal", bundle: .module) }
+    static var kindAgentChat: String { String(localized: "palette.kind.agentChat", defaultValue: "Agent Chat", bundle: .module) }
+    static var kindMarkdown: String { String(localized: "palette.kind.markdown", defaultValue: "Markdown", bundle: .module) }
+    static var kindFile: String { String(localized: "palette.kind.file", defaultValue: "File", bundle: .module) }
+    static var kindPage: String { String(localized: "palette.kind.page", defaultValue: "Page", bundle: .module) }
     static var switchToWorkspace: String { String(localized: "palette.command.switchToWorkspace", defaultValue: "Switch to Workspace", bundle: .module) }
     static var renameWorkspace: String { String(localized: "palette.command.renameWorkspace", defaultValue: "Rename Workspace…", bundle: .module) }
     static var closeWorkspace: String { String(localized: "palette.command.closeWorkspace", defaultValue: "Close Workspace", bundle: .module) }
