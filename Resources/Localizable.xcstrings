@@ -671652,6 +671652,543 @@
           }
         }
       }
+    },
+    "sessionPersistence.omittedPanels.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Session restore left out %lld panel from this workspace. Only the first 512 panels are saved."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Session restore left out %lld panels from this workspace. Only the first 512 panels are saved."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Die Sitzungswiederherstellung hat %lld Panel aus diesem Arbeitsbereich ausgelassen. Gespeichert werden nur die ersten 512 Panels."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Die Sitzungswiederherstellung hat %lld Panels aus diesem Arbeitsbereich ausgelassen. Gespeichert werden nur die ersten 512 Panels."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld panneau de cet espace de travail. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld panneaux de cet espace de travail. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld de panneaux de cet espace de travail. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld panel de este espacio de trabajo. Solo se guardan los primeros 512 paneles."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld paneles de este espacio de trabajo. Solo se guardan los primeros 512 paneles."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld de paneles de este espacio de trabajo. Solo se guardan los primeros 512 paneles."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "セッションの復元で、このワークスペースから %lld 個のパネルが外れました。保存されるのは最初の 512 パネルだけです。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "会话恢复时，此工作区有 %lld 个面板未能保存。每个工作区只保存前 512 个面板。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "工作階段還原時，此工作區有 %lld 個面板未能儲存。每個工作區只儲存前 512 個面板。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "세션을 복원하면서 이 작업 공간에서 패널 %lld개를 빼 두었습니다. 작업 공간마다 처음 512개 패널만 저장됩니다."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم تُستبعد أي لوحة من مساحة العمل هذه عند استعادة الجلسة (%lld). يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت لوحة واحدة (%lld) من مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت لوحتان (%lld) من مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت %lld لوحات من مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت %lld لوحة من مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعد %lld من اللوحات من مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "sessionPersistence.omittedPanels.workspaceDock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Session restore left out %lld panel from this workspace's Dock. Only the first 512 panels are saved."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Session restore left out %lld panels from this workspace's Dock. Only the first 512 panels are saved."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Die Sitzungswiederherstellung hat %lld Panel aus dem Dock dieses Arbeitsbereichs ausgelassen. Gespeichert werden nur die ersten 512 Panels."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Die Sitzungswiederherstellung hat %lld Panels aus dem Dock dieses Arbeitsbereichs ausgelassen. Gespeichert werden nur die ersten 512 Panels."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld panneau du Dock de cet espace de travail. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld panneaux du Dock de cet espace de travail. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld de panneaux du Dock de cet espace de travail. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld panel del Dock de este espacio de trabajo. Solo se guardan los primeros 512 paneles."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld paneles del Dock de este espacio de trabajo. Solo se guardan los primeros 512 paneles."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld de paneles del Dock de este espacio de trabajo. Solo se guardan los primeros 512 paneles."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "セッションの復元で、このワークスペースの Dock から %lld 個のパネルが外れました。保存されるのは最初の 512 パネルだけです。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "会话恢复时，此工作区的 Dock 有 %lld 个面板未能保存。每个 Dock 只保存前 512 个面板。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "工作階段還原時，此工作區的 Dock 有 %lld 個面板未能儲存。每個 Dock 只儲存前 512 個面板。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "세션을 복원하면서 이 작업 공간의 Dock에서 패널 %lld개를 빼 두었습니다. Dock마다 처음 512개 패널만 저장됩니다."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم تُستبعد أي لوحة من Dock مساحة العمل هذه عند استعادة الجلسة (%lld). يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت لوحة واحدة (%lld) من Dock مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت لوحتان (%lld) من Dock مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت %lld لوحات من Dock مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت %lld لوحة من Dock مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعد %lld من اللوحات من Dock مساحة العمل هذه عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "sessionPersistence.omittedPanels.windowDock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Session restore left out %lld panel from this window's Dock. Only the first 512 panels are saved."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Session restore left out %lld panels from this window's Dock. Only the first 512 panels are saved."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Die Sitzungswiederherstellung hat %lld Panel aus dem Dock dieses Fensters ausgelassen. Gespeichert werden nur die ersten 512 Panels."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Die Sitzungswiederherstellung hat %lld Panels aus dem Dock dieses Fensters ausgelassen. Gespeichert werden nur die ersten 512 Panels."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld panneau du Dock de cette fenêtre. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld panneaux du Dock de cette fenêtre. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauration de session a écarté %lld de panneaux du Dock de cette fenêtre. Seuls les 512 premiers panneaux sont enregistrés."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld panel del Dock de esta ventana. Solo se guardan los primeros 512 paneles."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld paneles del Dock de esta ventana. Solo se guardan los primeros 512 paneles."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "La restauración de la sesión dejó fuera %lld de paneles del Dock de esta ventana. Solo se guardan los primeros 512 paneles."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "セッションの復元で、このウィンドウの Dock から %lld 個のパネルが外れました。保存されるのは最初の 512 パネルだけです。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "会话恢复时，此窗口的 Dock 有 %lld 个面板未能保存。每个 Dock 只保存前 512 个面板。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "工作階段還原時，此視窗的 Dock 有 %lld 個面板未能儲存。每個 Dock 只儲存前 512 個面板。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "세션을 복원하면서 이 창의 Dock에서 패널 %lld개를 빼 두었습니다. Dock마다 처음 512개 패널만 저장됩니다."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "لم تُستبعد أي لوحة من Dock هذه النافذة عند استعادة الجلسة (%lld). يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت لوحة واحدة (%lld) من Dock هذه النافذة عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت لوحتان (%lld) من Dock هذه النافذة عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت %lld لوحات من Dock هذه النافذة عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعدت %lld لوحة من Dock هذه النافذة عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "استُبعد %lld من اللوحات من Dock هذه النافذة عند استعادة الجلسة. يُحفظ أول 512 لوحة فقط."
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "version": "1.0"

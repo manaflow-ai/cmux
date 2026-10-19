@@ -18,6 +18,47 @@ enum SessionSnapshotSchema {
     static let currentVersion = 1
 }
 
+/// Which saved container left panels out of a session snapshot.
+enum SessionSnapshotOmittedPanelContainer: Sendable {
+    case workspace
+    case workspaceDock
+    case windowDock
+
+    /// Stable diagnostic token. The workspace log uses `warning(omittedCount:)`.
+    var logLabel: String {
+        switch self {
+        case .workspace:
+            return "workspace"
+        case .workspaceDock:
+            return "workspace-dock"
+        case .windowDock:
+            return "window-dock"
+        }
+    }
+
+    /// User-facing restore warning. The 512 in the sentence is
+    /// `SessionPersistencePolicy.maxPanelsPerWorkspace`.
+    func warning(omittedCount: Int) -> String {
+        switch self {
+        case .workspace:
+            return String(
+                localized: "sessionPersistence.omittedPanels.workspace",
+                defaultValue: "Session restore left out \(omittedCount) panels from this workspace. Only the first 512 panels are saved."
+            )
+        case .workspaceDock:
+            return String(
+                localized: "sessionPersistence.omittedPanels.workspaceDock",
+                defaultValue: "Session restore left out \(omittedCount) panels from this workspace's Dock. Only the first 512 panels are saved."
+            )
+        case .windowDock:
+            return String(
+                localized: "sessionPersistence.omittedPanels.windowDock",
+                defaultValue: "Session restore left out \(omittedCount) panels from this window's Dock. Only the first 512 panels are saved."
+            )
+        }
+    }
+}
+
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
     // Keep the default equal to the minimum so a fresh sidebar starts at the minimum width.
@@ -37,9 +78,37 @@ enum SessionPersistencePolicy {
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
+    /// Panels kept for one workspace and for one Dock.
+    ///
+    /// Snapshot construction keeps this prefix and records anything past it
+    /// as `omittedPanelCount` on the workspace or Dock snapshot. Restore
+    /// cannot bring those panels back; it warns in the workspace log instead.
+    /// Layout and focus stay limited to the panels that were saved. The
+    /// bound is documented in `docs/session-snapshots.md`.
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
+
+    /// The prefix of `panelIds` a workspace or Dock snapshot keeps, plus how
+    /// many ids past `maxPanelsPerWorkspace` were left out.
+    ///
+    /// Callers prune layout to `keptPanelIds` and clear focus when it names
+    /// an omitted panel. `omittedCount` is zero when every id fits.
+    static func cappedPanelIds<S: Sequence>(
+        _ panelIds: S
+    ) -> (keptPanelIds: [UUID], omittedCount: Int) where S.Element == UUID {
+        var keptPanelIds: [UUID] = []
+        keptPanelIds.reserveCapacity(maxPanelsPerWorkspace)
+        var omittedCount = 0
+        for panelId in panelIds {
+            if keptPanelIds.count < maxPanelsPerWorkspace {
+                keptPanelIds.append(panelId)
+            } else {
+                omittedCount += 1
+            }
+        }
+        return (keptPanelIds, omittedCount)
+    }
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
@@ -1896,6 +1965,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
+    /// Panels past `SessionPersistencePolicy.maxPanelsPerWorkspace` that this
+    /// workspace snapshot left out. Nil when every panel fit, and on
+    /// snapshots written before the field existed, so older files still decode.
+    var omittedPanelCount: Int? = nil
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 

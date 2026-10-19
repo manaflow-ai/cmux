@@ -31,6 +31,7 @@ import CmuxProductAnalytics
 import CryptoKit
 import Darwin
 import Network
+import os
 import CoreText
 import CmuxTextActions
 
@@ -70,6 +71,11 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
+private let sessionPersistenceLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "SessionPersistence"
+)
+
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
@@ -108,8 +114,9 @@ extension Workspace {
                 for: self,
                 panelIds: Set(allPanelIds)
             )
-        let builtPanelSnapshots = allPanelIds
-            .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+        let panelCap = SessionPersistencePolicy.cappedPanelIds(allPanelIds)
+        let omittedPanelIds = Set(allPanelIds.dropFirst(panelCap.keptPanelIds.count))
+        let builtPanelSnapshots = panelCap.keptPanelIds
             .compactMap { panelId in
                 sessionPanelSnapshot(
                     panelId: panelId,
@@ -158,9 +165,15 @@ extension Workspace {
                     timestamp: entry.timestamp.timeIntervalSince1970
                 )
             }
-        let logEntriesForSnapshot = isDefaultFreestyleSSHDRemoteWorkspace
-            ? logEntries.filter { !Self.isProxyOnlyRemoteLogEntry($0) }
-            : logEntries
+        let logEntriesForSnapshot = logEntries.filter { entry in
+            if entry.source == Self.sessionPersistenceOmissionLogSource {
+                return false
+            }
+            if isDefaultFreestyleSSHDRemoteWorkspace, Self.isProxyOnlyRemoteLogEntry(entry) {
+                return false
+            }
+            return true
+        }
         let logSnapshots = logEntriesForSnapshot.map { entry in
             SessionLogEntrySnapshot(
                 message: entry.message,
@@ -198,10 +211,13 @@ extension Workspace {
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             currentDirectory: currentDirectory,
-            focusedPanelId: focusedPanelId,
+            focusedPanelId: focusedPanelId.flatMap { omittedPanelIds.contains($0) ? nil : $0 },
             layout: layout,
             layoutMode: layoutMode.rawValue,
-            canvasPanes: canvasSessionPaneSnapshots(),
+            canvasPanes: canvasPanesOmittingDroppedPanels(
+                canvasSessionPaneSnapshots(),
+                omittedPanelIds: omittedPanelIds
+            ),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -213,7 +229,8 @@ extension Workspace {
             },
             surfaceProjections: surfaceProjectionRecordsForSession,
             cloudMachineTeams: cloudMachineTeamsForSession,
-            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
+            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment,
+            omittedPanelCount: panelCap.omittedCount > 0 ? panelCap.omittedCount : nil
         )
         snapshot.captureTodoState(from: self)
         snapshot.dock = _dockSplit?.sessionSnapshot(
@@ -224,6 +241,62 @@ extension Workspace {
                 downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
         return snapshot
+    }
+
+    /// Log source for the restore warning that names panels the snapshot left
+    /// out. The line is derived from `omittedPanelCount` on each restore, so
+    /// snapshots do not persist it.
+    static let sessionPersistenceOmissionLogSource = "session-persistence"
+
+    /// Records a workspace-log warning when a snapshot left panels out.
+    /// The diagnostic log is written even when no workspace can show it.
+    static func recordOmittedPanelRestore(
+        _ omittedCount: Int?,
+        container: SessionSnapshotOmittedPanelContainer,
+        on workspace: Workspace?
+    ) {
+        guard let omittedCount, omittedCount > 0 else { return }
+        sessionPersistenceLogger.warning(
+            "Omitted \(omittedCount, privacy: .public) session panels container=\(container.logLabel, privacy: .public)"
+        )
+        guard let workspace else { return }
+        let message = container.warning(omittedCount: omittedCount)
+        if workspace.logEntries.contains(where: {
+            $0.source == sessionPersistenceOmissionLogSource && $0.message == message
+        }) {
+            return
+        }
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: message,
+                level: .warning,
+                source: sessionPersistenceOmissionLogSource,
+                timestamp: Date()
+            )
+        )
+    }
+
+    /// Drops canvas panes that only referred to panels the snapshot omitted,
+    /// and removes those panels from panes that also kept others.
+    private func canvasPanesOmittingDroppedPanels(
+        _ panes: [SessionCanvasPaneSnapshot]?,
+        omittedPanelIds: Set<UUID>
+    ) -> [SessionCanvasPaneSnapshot]? {
+        guard !omittedPanelIds.isEmpty, let panes else { return panes }
+        let pruned = panes.compactMap { pane -> SessionCanvasPaneSnapshot? in
+            var copy = pane
+            if let panelIds = pane.panelIds {
+                let kept = panelIds.filter { !omittedPanelIds.contains($0) }
+                guard let first = kept.first else { return nil }
+                copy.panelIds = kept
+                copy.panelId = first
+                copy.selectedPanelId = pane.selectedPanelId.flatMap { kept.contains($0) ? $0 : nil } ?? first
+                return copy
+            }
+            guard !omittedPanelIds.contains(pane.panelId) else { return nil }
+            return copy
+        }
+        return pruned.isEmpty ? nil : pruned
     }
 
     /// Rebuilds workspace state while keeping structured terminal restores
@@ -396,10 +469,12 @@ extension Workspace {
                 source: entry.source,
                 timestamp: Date(timeIntervalSince1970: entry.timestamp)
             )
-        }
+        }.filter { $0.source != Self.sessionPersistenceOmissionLogSource }
         if isDefaultFreestyleSSHDRemoteWorkspace {
             clearProxyOnlyRemoteSidebarArtifacts()
         }
+        Self.recordOmittedPanelRestore(snapshot.omittedPanelCount, container: .workspace, on: self)
+        Self.recordOmittedPanelRestore(snapshot.dock?.omittedPanelCount, container: .workspaceDock, on: self)
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
         let hasCloudProvenance = cloudVMBinding != nil || (snapshot.surfaceProjections ?? []).contains { !$0.resource.machine.isLocal }
         gitBranch = hasCloudProvenance
