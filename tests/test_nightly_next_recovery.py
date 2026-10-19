@@ -429,12 +429,13 @@ class FailureIssueTests(unittest.TestCase):
         jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "resolve-nightly-cmux-tui-client",
                 "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly",
                 "verify-recovered-nightly-next", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
-                "sign-release-notes", "publish-release-notes")
+                "sign-release-notes", "check-release-notes", "publish-release-notes")
         outcome = dict.fromkeys(jobs, "success")
         if source == "own":
             outcome["verify-recovered-nightly-next"] = "skipped"
         if source == "recovered":
-            outcome.update({"generate-nightly-deltas": "skipped", "sign-release-notes": "skipped", "publish-release-notes": "skipped"})
+            outcome.update({"generate-nightly-deltas": "skipped", "sign-release-notes": "skipped",
+                            "check-release-notes": "skipped", "publish-release-notes": "skipped"})
         outcome.update(results)
         outputs = dict(self.OUTPUTS, **{"publish-nightly": dict(self.OUTPUTS["publish-nightly"], source=source)})
         return job_runs("report-nightly-failure", outcome, outputs), job_runs("close-nightly-failure-issue", outcome, outputs)
@@ -457,6 +458,22 @@ class FailureIssueTests(unittest.TestCase):
 
     def test_a_recovered_publication_that_failed_its_delta_republish_reports(self):
         self.assertEqual(self.publication("recovered", **{"republish-nightly-deltas": "failure"}), (True, False))
+
+    # The pre-publish check of the signed notes (scripts/cmux-next/check-release-notes.ts, Leo
+    # 2026-10-18): notes that fail it are not uploaded, and the failure issue names the check.
+    def test_notes_that_fail_their_check_are_not_published_and_report(self):
+        jobs = workflow()["jobs"]
+        check = jobs["check-release-notes"]
+        self.assertIn("sign-release-notes", check["needs"])
+        self.assertIn("bun scripts/cmux-next/check-release-notes.ts", json.dumps(check))
+        self.assertNotIn("secrets.", json.dumps(check))
+        self.assertIn("check-release-notes", jobs["report-nightly-failure"]["needs"])
+        publish = dict.fromkeys(jobs["publish-release-notes"]["needs"], "success")
+        outputs = {"decide": {"should_publish": "true", "track": "nightly-next"}, "publish-nightly": {"source": "own"}}
+        self.assertTrue(job_runs("publish-release-notes", publish, outputs))
+        self.assertFalse(job_runs("publish-release-notes", dict(publish, **{"check-release-notes": "failure"}), outputs))
+        self.assertEqual(self.publication("own", **{"check-release-notes": "failure", "publish-release-notes": "skipped"}),
+                         (True, False))
 
     def test_an_already_published_recovered_build_neither_reports_nor_closes(self):
         # Another run published this build and owns the issue; this run's
