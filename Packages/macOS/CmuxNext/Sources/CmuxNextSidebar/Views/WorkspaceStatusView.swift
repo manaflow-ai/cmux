@@ -79,7 +79,9 @@ final class WorkspaceStatusView: NSView {
                 continue
             }
             let width = Self.pillWidth(for: labels[index], maxWidth: bounds.width)
-            pills[index].isHidden = false
+            // The text arrives in updateLayer(), after the first layout; an
+            // empty pill would flash as a bare sliver until then.
+            pills[index].isHidden = labels[index].attributedStringValue.length == 0
             pills[index].frame = NSRect(x: 0, y: rowY, width: width, height: labelHeight)
             labels[index].frame = NSRect(x: Self.pillHorizontalPadding, y: rowY,
                                          width: max(0, width - Self.pillHorizontalPadding * 2), height: labelHeight)
@@ -110,13 +112,11 @@ final class WorkspaceStatusView: NSView {
         return false
     }
 
+    /// The cells own size includes the text fields inset, so the label fits
+    /// its text without truncating it.
     private static func pillWidth(for label: NSTextField, maxWidth: CGFloat) -> CGFloat {
-        let available = CGSize(width: .greatestFiniteMagnitude, height: label.bounds.height)
-        let measured = label.attributedStringValue.boundingRect(
-            with: available,
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        ).width
-        return min(maxWidth, ceil(measured) + pillHorizontalPadding * 2)
+        let natural = label.cell?.cellSize.width ?? label.intrinsicContentSize.width
+        return min(maxWidth, ceil(natural) + pillHorizontalPadding * 2)
     }
 
     // theme-scoped: called only from updateLayer(), inside performWithTheme
