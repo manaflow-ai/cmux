@@ -65,7 +65,18 @@ public final class SidebarModel {
     /// top-section item while the window shows its page, else the shown
     /// workspace. The App derives it from the window state; the one
     /// highlight, stepping and numbering read it.
-    public var selectedItem: SidebarItem?
+    ///
+    /// The focused workspace is always listed (sidebar-focused-visible): a
+    /// new workspace selection opens the collapsed sections that hide it
+    /// (`expandSections(hiding:)`), and the list scrolls it into view
+    /// (`ListViewport.settle`). Every selection path (a click, Cmd-P, a link,
+    /// the CLI, an agent's focus, a new workspace) sets this one property.
+    public var selectedItem: SidebarItem? {
+        didSet {
+            guard selectedItem != oldValue, case let .workspace(id)? = selectedItem else { return }
+            expandSections(hiding: id)
+        }
+    }
     /// The workspace shown in the window: the selection when it is a workspace.
     public var activeWorkspaceID: WorkspaceID? {
         get { if case .workspace(let id)? = selectedItem { id } else { nil } }
@@ -349,6 +360,26 @@ public final class SidebarModel {
             guard path.member != nil, case let .group(group) = storedSections[path.section].nodes[path.node] else { return false }
             return group.isCollapsed
         }
+    }
+
+    /// Opens the collapsed sections that hide workspace `id` (a machine or
+    /// Pinned section, a document section), so the focused workspace has a
+    /// row. A collapsed group stays closed: it draws its active member as its
+    /// one row (`SidebarLayout.make`). Called on a selection change only, so
+    /// the user can still collapse the section the focused workspace is in.
+    func expandSections(hiding id: WorkspaceID) {
+        var sectionIDs: Set<SectionID> = [], layoutIDs: Set<LayoutSectionID> = []
+        for path in listedPaths(of: id) {
+            let section = storedSections[path.section]
+            if collapsedSections.contains(section.id) || section.isCollapsed { sectionIDs.insert(section.id) }
+            if case let .custom(custom) = section.kind, collapsedLayoutSections.contains(LayoutSectionID(custom.id)) {
+                layoutIDs.insert(LayoutSectionID(custom.id))
+            }
+        }
+        if !layoutIDs.isEmpty { collapsedLayoutSections.subtract(layoutIDs) }
+        guard !sectionIDs.isEmpty else { return }
+        collapsedSections.subtract(sectionIDs)
+        setSections(sections)
     }
 
     private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {

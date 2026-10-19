@@ -46,4 +46,12 @@ import Testing
         let offset = new.settle(from: old, offset: 200, focused: 1, newFocus: 1, padding: 0, userMoved: false)
         #expect(offset > 100, "an unrelated close scrolled back to the focused row: \(offset)")
     }
+
+    @Test func aCloseBesideTheFocusedRowIsNoMove() {
+        let old = Self.list(Array(1...6))
+        let new = Self.list([1, 2, 4, 5, 6])
+        #expect(!old.movedByItself(2, in: new))
+        #expect(!old.movedByItself(4, in: new))
+        #expect(old.movedByItself(1, in: Self.list([2, 3, 1, 4, 5, 6])))
+    }
 }
