@@ -3,13 +3,14 @@ import { Freestyle, FreestyleApiError } from "freestyle";
 import { makeHarness } from "../support/harness.ts";
 
 const allScopes = ["vm:read", "vm:write", "vm:exec", "vm:files", "vm:terminal", "snapshot:*", "snapshot:read", "snapshot:write"] as const;
+const sdkFetch = (handler: (request: Request) => Promise<Response>) => (input: URL | string | Request, init?: RequestInit) => handler(input instanceof Request ? input : new Request(input, init));
 
 describe("Freestyle SDK compatibility", () => {
   it("keeps the SDK lifecycle and identity surfaces wire-compatible", async () => {
     const h = await makeHarness();
     try {
       const key = await h.addKey("team_alpha", allScopes);
-      const client = new Freestyle({ baseUrl: "https://vm.test", apiKey: key, fetch: h.handler });
+      const client = new Freestyle({ baseUrl: "https://vm.test", apiKey: key, fetch: sdkFetch(h.handler) });
       const created = await client.vms.create({ firewall: { rules: [] } });
       expect(created.vmId).toMatch(/^vm-/u);
       expect((await client.vms.get(created.vmId)).id).toBe(created.vmId);
@@ -24,7 +25,7 @@ describe("Freestyle SDK compatibility", () => {
       const permission = await identity.identity.permissions.vm.grant({ vmId: created.vmId });
       expect(permission.vmId).toBe(created.vmId);
       const token = await identity.identity.tokens.create();
-      const identityClient = new Freestyle({ baseUrl: "https://vm.test", identityAccessToken: token.token, fetch: h.handler });
+      const identityClient = new Freestyle({ baseUrl: "https://vm.test", identityAccessToken: token.token, fetch: sdkFetch(h.handler) });
       expect((await identityClient.vms.ref(created.vmId).exec("echo identity")).statusCode).toBe(0);
       await identity.identity.tokens.list();
       await identity.identity.tokens.revoke(token.id);
@@ -41,8 +42,8 @@ describe("Freestyle SDK compatibility", () => {
     try {
       const keyA = await h.addKey("team_alpha", allScopes);
       const keyB = await h.addKey("team_bravo", allScopes);
-      const a = new Freestyle({ baseUrl: "https://vm.test", apiKey: keyA, fetch: h.handler });
-      const b = new Freestyle({ baseUrl: "https://vm.test", apiKey: keyB, fetch: h.handler });
+      const a = new Freestyle({ baseUrl: "https://vm.test", apiKey: keyA, fetch: sdkFetch(h.handler) });
+      const b = new Freestyle({ baseUrl: "https://vm.test", apiKey: keyB, fetch: sdkFetch(h.handler) });
       const created = await a.vms.create({ firewall: { rules: [] } });
       await expect(b.vms.get(created.vmId)).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
       expect((await b.vms.list()).totalCount).toBe(0);

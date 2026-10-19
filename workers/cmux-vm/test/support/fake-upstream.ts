@@ -1,3 +1,4 @@
+/* oxlint-disable gdp-ts/no-type-assertion, gdp-ts/no-proof-assertion */
 /**
  * An in-memory stand-in for the upstream VM provider, behind the real upstream
  * client. It speaks the pinned provider API (upstream/openapi.json) for the

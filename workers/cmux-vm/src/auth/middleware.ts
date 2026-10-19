@@ -47,9 +47,11 @@ export const authenticateCompat = (
       const service = yield* serviceKeys.find(hash);
       if (Option.isSome(service)) {
         if (Option.isNone(tenant)) return yield* Effect.fail(unauthorized("Service keys must name a team in the X-Cmux-Team-Id header"));
-        const proof = serviceMayActFor(service.value, tenant.value);
-        if (proof === null) return yield* Effect.fail(new Forbidden({ message: "This service key may not act for this team" }));
-        return servicePrincipal(service.value, tenant.value, proof);
+        return yield* name(service.value, (serviceKey) => name(tenant.value, (team) => {
+          const proof = serviceMayActFor(serviceKey, team);
+          if (proof === null) return Effect.fail(new Forbidden({ message: "This service key may not act for this team" }));
+          return Effect.succeed(servicePrincipal(serviceKey, team, proof));
+        }));
       }
       const record = yield* apiKeys.findActiveByHash(hash, now).pipe(Effect.mapError(() => unavailable()));
       if (Option.isNone(record)) return yield* Effect.fail(unauthorized());

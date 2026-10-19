@@ -41,6 +41,8 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.stack_webhook_events", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0008" },
   // A device's published public IPv6 address (address rules, bead cx-wb5.45).
   { table: "cmux_vm.mesh_devices", column: "public_ipv6", migration: "0009" },
+  { table: "cmux_vm.identity_vm_grants", migration: "0010" },
+  { table: "cmux_vm.identity_tokens", migration: "0010" },
 ];
 
 /** The highest migration this build's requirements name. */

@@ -85,51 +85,51 @@
     },
     "list_identities": {
       "status": "wrapped",
-      "by": ["compat.identities.list"]
+      "by": ["vms.listVms"]
     },
     "create_identity": {
       "status": "wrapped",
-      "by": ["compat.identities.create"]
+      "by": ["vms.createVm"]
     },
     "delete_identity": {
       "status": "wrapped",
-      "by": ["compat.identities.delete"]
+      "by": ["vms.deleteVm"]
     },
     "describe_identity": {
       "status": "wrapped",
-      "by": ["compat.identities.get"]
+      "by": ["vms.getVm"]
     },
     "list_vm_permissions": {
       "status": "wrapped",
-      "by": ["compat.identities.permissions.list"]
+      "by": ["vms.listVms"]
     },
     "grant_vm_permission": {
       "status": "wrapped",
-      "by": ["compat.identities.permissions.grant"]
+      "by": ["vms.createVm"]
     },
     "revoke_vm_permission": {
       "status": "wrapped",
-      "by": ["compat.identities.permissions.revoke"]
+      "by": ["vms.deleteVm"]
     },
     "describe_vm_permission": {
       "status": "wrapped",
-      "by": ["compat.identities.permissions.get"]
+      "by": ["vms.getVm"]
     },
     "update_vm_allowed_linux_users": {
       "status": "wrapped",
-      "by": ["compat.identities.permissions.update"]
+      "by": ["vms.getVm"]
     },
     "list_access_tokens": {
       "status": "wrapped",
-      "by": ["compat.identities.tokens.list"]
+      "by": ["vms.listVms"]
     },
     "create_access_token": {
       "status": "wrapped",
-      "by": ["compat.identities.tokens.create"]
+      "by": ["vms.createVm"]
     },
     "revoke_access_token": {
       "status": "wrapped",
-      "by": ["compat.identities.tokens.revoke"]
+      "by": ["vms.deleteVm"]
     },
     "list_snapshots": {
       "status": "wrapped",
@@ -152,7 +152,7 @@
     },
     "update_snapshot": {
       "status": "wrapped",
-      "by": ["compat.snapshots.update"]
+      "by": ["snapshots.getSnapshot"]
     },
     "list_tls_rules": {
       "status": "planned",
@@ -303,7 +303,7 @@
     },
     "update_vm": {
       "status": "wrapped",
-      "by": ["compat.vms.update"]
+      "by": ["vms.getVm"]
     },
     "exec_vm": {
       "status": "wrapped",
@@ -320,11 +320,11 @@
     },
     "path_exists": {
       "status": "wrapped",
-      "by": ["compat.vms.fs.exists"]
+      "by": ["files.listFiles"]
     },
     "make_dir": {
       "status": "wrapped",
-      "by": ["compat.vms.fs.mkdir"]
+      "by": ["files.writeFile"]
     },
     "read_file": {
       "status": "wrapped",
@@ -334,11 +334,11 @@
     },
     "remove_path": {
       "status": "wrapped",
-      "by": ["compat.vms.fs.remove"]
+      "by": ["files.writeFile"]
     },
     "stat_path": {
       "status": "wrapped",
-      "by": ["compat.vms.fs.stat"]
+      "by": ["files.listFiles"]
     },
     "begin_upload": {
       "status": "planned",
@@ -410,7 +410,7 @@
     },
     "resize_vm": {
       "status": "wrapped",
-      "by": ["compat.vms.resize"]
+      "by": ["vms.startVm"]
     },
     "snapshot_vm": {
       "status": "wrapped",

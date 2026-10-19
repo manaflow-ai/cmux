@@ -312,6 +312,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
 
   return {
     dispose,
+    handler,
     upstream,
     /** Every upstream call, in order. */
     upstreamRequests,

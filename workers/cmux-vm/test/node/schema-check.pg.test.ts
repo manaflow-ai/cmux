@@ -17,10 +17,11 @@ import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import meshM4 from "../../migrations/0007_cmux_vm_mesh_m4.sql?raw";
 import meshM4Retries from "../../migrations/0008_cmux_vm_mesh_m4_retries.sql?raw";
 import deviceAddress from "../../migrations/0009_cmux_vm_mesh_device_address.sql?raw";
+import identities from "../../migrations/0010_cmux_vm_identities.sql?raw";
 import { checkSchema, makeSchemaGate } from "../../src/db/schema-check.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 
-const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress];
+const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress, identities];
 
 const problemsOn = async (migrations: ReadonlyArray<string>) => {
   const db = new PGlite();
@@ -35,14 +36,14 @@ const problemsOn = async (migrations: ReadonlyArray<string>) => {
 describe("checkSchema", () => {
   it("finds nothing missing on a database with every migration", async () => {
     expect(await problemsOn(ALL)).toEqual([]);
-  });
+  }, 15_000);
 
   it("names the table of a migration that was not applied (0008)", async () => {
-    expect(await problemsOn(ALL.slice(0, 7))).toEqual(["cmux_vm.stack_webhook_events: missing", "cmux_vm.mesh_devices.public_ipv6: missing"]);
+    expect(await problemsOn(ALL.slice(0, 7))).toEqual(["cmux_vm.stack_webhook_events: missing", "cmux_vm.mesh_devices.public_ipv6: missing", "cmux_vm.identity_vm_grants: missing", "cmux_vm.identity_tokens: missing"]);
   });
 
   it("names the column of 0009 when only it was not applied", async () => {
-    expect(await problemsOn(ALL.slice(0, 8))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
+    expect(await problemsOn(ALL.slice(0, 8))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing", "cmux_vm.identity_vm_grants: missing", "cmux_vm.identity_tokens: missing"]);
   });
 
   it("names added columns and tables of older missing migrations (0007 and 0008)", async () => {
@@ -51,6 +52,8 @@ describe("checkSchema", () => {
     expect(problems).toContain("cmux_vm.stack_memberships: missing");
     expect(problems).toContain("cmux_vm.stack_webhook_deliveries: missing");
     expect(problems).toContain("cmux_vm.stack_webhook_events: missing");
+    expect(problems).toContain("cmux_vm.identity_vm_grants: missing");
+    expect(problems).toContain("cmux_vm.identity_tokens: missing");
   });
 
   it("names a privilege the Worker role lacks", async () => {

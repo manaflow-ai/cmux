@@ -41,6 +41,7 @@ import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-crea
 import { tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamClient, type SizeRequest, type UpstreamError, type UpstreamVm } from "../upstream/client.ts";
 import { audited, auditableVmId, withCaller, withOwnedVm } from "./common.ts";
+import { UsageRecorder } from "../metering/recorder.ts";
 
 const KNOWN_STATES: ReadonlyArray<VmState> = ["starting", "running", "pausing", "paused", "stopped"];
 
@@ -217,6 +218,7 @@ const createRecorded = <C, S>(
         Effect.tapError(() => created.discard),
         Effect.mapError(() => unavailable()),
       );
+    yield* (yield* UsageRecorder).record({ kind: "vm_started", tenantId: caller.value.tenantId, upstreamVmId: created.upstreamId, at: createdAt, vcpus: vm.resources.cpu, memoryMb: vm.resources.memory, storageMb: vm.resources.storage }).pipe(Effect.ignore);
     return toVm(cmuxId, spec, vm);
     // Uninterruptible: a client that disconnects mid-create must not leave an
     // upstream VM that is neither recorded nor discarded.
@@ -534,6 +536,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             const started = yield* upstream
               .startVm(vm, proofs)
               .pipe(Effect.mapError(onVm("The VM cannot start now: it no longer exists or no capacity is available")));
+            yield* (yield* UsageRecorder).record({ kind: "vm_started", tenantId: _caller.value.tenantId, upstreamVmId: vm.value, at: new Date(), vcpus: started.resources.cpu, memoryMb: started.resources.memory, storageMb: started.resources.storage }).pipe(Effect.ignore);
             return toVm(vm.value, proofs.owns, started);
           }),
         ),
@@ -553,6 +556,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             const resumed = yield* upstream
               .startVm(vm, proofs)
               .pipe(Effect.mapError(onVm("The VM cannot resume now: no capacity is available")));
+            yield* (yield* UsageRecorder).record({ kind: "vm_started", tenantId: _caller.value.tenantId, upstreamVmId: vm.value, at: new Date(), vcpus: resumed.resources.cpu, memoryMb: resumed.resources.memory, storageMb: resumed.resources.storage }).pipe(Effect.ignore);
             return toVm(vm.value, proofs.owns, resumed);
           }),
         ),
@@ -566,6 +570,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
             const paused = yield* upstream.pauseVm(vm, proofs).pipe(Effect.mapError(onVm("Only a running VM can be paused")));
+            yield* (yield* UsageRecorder).record({ kind: "vm_stopped", tenantId: _caller.value.tenantId, upstreamVmId: vm.value, at: new Date(), reason: "pause" }).pipe(Effect.ignore);
             return toVm(vm.value, proofs.owns, paused);
           }),
         ),
@@ -584,6 +589,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
               return yield* Effect.fail(conflict("Only a running VM can be stopped; resume a paused VM first"));
             }
             yield* upstream.shutdownVm(vm, proofs).pipe(Effect.mapError(onVm("The VM did not accept the shutdown")));
+            yield* (yield* UsageRecorder).record({ kind: "vm_stopped", tenantId: _caller.value.tenantId, upstreamVmId: vm.value, at: new Date(), reason: "stop" }).pipe(Effect.ignore);
             const after = yield* upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead));
             return toVm(vm.value, proofs.owns, after);
           }),
@@ -613,6 +619,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             yield* store
               .markDeleted(TenantId.make(caller.value.tenantId), "vm", vm.value, now)
               .pipe(Effect.mapError(() => unavailable()));
+            yield* (yield* UsageRecorder).record({ kind: "vm_stopped", tenantId: caller.value.tenantId, upstreamVmId: vm.value, at: now, reason: "delete" }).pipe(Effect.ignore);
           }),
         ),
       ),
