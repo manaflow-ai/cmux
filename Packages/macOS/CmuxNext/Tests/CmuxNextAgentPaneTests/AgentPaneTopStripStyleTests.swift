@@ -1,3 +1,4 @@
+import CmuxNextSettings
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -44,5 +45,14 @@ struct AgentPaneModelMenuStyleTests {
         #expect(AgentPaneTunables.modelMenu.descriptor.key == "agent.modelMenu")
         #expect(AgentPaneTunables.modelMenu.value == .compact)
         #expect(AgentPaneTunables.all.contains { $0.key == "agent.modelMenu" })
+    }
+
+    /// The choice rides the `composer` event beside the settings, read pane-side as the event is made
+    /// (as `plainFooter` is), so the page opens the compact menu unless Debug Settings says `full`.
+    @Test func theComposerEventCarriesTheModelMenuChoice() {
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["modelMenu"]?.stringValue == AgentPaneTunables.modelMenu.value.rawValue)
+        #expect(value?["plainFooter"]?.boolValue == AgentPaneTunables.composerPlainFooter.value)
+        #expect(value?["showContextUsage"]?.boolValue == true)
     }
 }

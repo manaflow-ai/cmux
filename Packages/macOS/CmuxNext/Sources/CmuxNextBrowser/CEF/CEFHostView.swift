@@ -68,7 +68,7 @@ final class CEFHostView: NSView {
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self))
+        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
     }
 
     /// The chrome's rects plus the window's interactive overlays over this

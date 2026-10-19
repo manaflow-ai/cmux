@@ -8,6 +8,9 @@
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
 // slider instead of its list of levels. Only Debug Settings changes it. `modelMenu` is the Debug
 // Settings choice `agent.modelMenu` (compact by default in the app): what the model chip opens.
+// `plainFooter` is no cmux.json key either: Debug Settings' "Agent composer: plain footer" (Swift
+// AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY builds) rides the same event and draws the
+// footer's chips as plain text at rest (composerLocation.css, [data-footer-look="plain"]).
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
@@ -21,6 +24,7 @@ export type ComposerSettings = {
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
   modelMenu: ModelMenuStyle;
+  plainFooter: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -29,9 +33,10 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   modelMenu: "full",
+  plainFooter: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
-type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider";
+type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -44,6 +49,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
     modelMenu: raw.modelMenu === "compact" ? "compact" : "full",
+    plainFooter: flag("plainFooter"),
   };
 }
 

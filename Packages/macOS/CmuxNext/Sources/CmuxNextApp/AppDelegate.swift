@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextPalette
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -88,6 +89,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
+        let lagSpikes = LagSpikeReporter(reporter: reporter)
+        lagSpikes.setContextProvider {
+            MainActor.assumeIsolated {
+                let windows = NSApp.windows
+                return ["windows": String(windows.count), "visible_windows": String(windows.filter(\.isVisible).count),
+                        "app_active": NSApp.isActive ? "yes" : "no"]
+            }
+        }
+        control.watchdog.onStall = { record in
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
+        }
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -238,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.start()
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
@@ -387,15 +401,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.daemon.shutdownConnection()
     }
 
-    /// The app stays running with no windows (standard macOS behavior): a
-    /// window closes when its last workspace closes, and the daemon keeps
-    /// every terminal regardless.
+    /// The app stays running with no windows (standard macOS behavior): a window closes when its
+    /// last workspace closes, and the daemon keeps every terminal regardless.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back
-    /// with its workspaces, else a new window with a new workspace.
+    /// Dock click with no window open: the last closed window comes back with its workspaces, else a new window with a new workspace.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         guard !hasVisibleWindows, let windows = services?.windows else { return true }
         windows.reopenOrCreateWindow()
