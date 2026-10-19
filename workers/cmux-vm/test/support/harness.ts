@@ -154,6 +154,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() => {
         if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);
       }),
+    findDeleted: (tenantId, kind, cmuxId) =>
+      Effect.sync(() =>
+        Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && !live(row))),
+      ),
   });
 
   const auditStore = Layer.succeed(AuditStore, {
