@@ -8,6 +8,7 @@ import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { readyEntries, type EntryState } from "../entryStore";
 import { LOCALES, PSEUDO_LOCALES, type GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
+import { choiceLabel } from "../options";
 import { ageText, liveStatus, type LiveStatus } from "../liveStatus";
 import { getEntryStore } from "../registry";
 import { DEFAULT_DARK_THEME, themeIsDark } from "../theme/ghostty";
@@ -21,6 +22,7 @@ import { CompareView } from "./CompareView";
 import { BrowseView } from "./BrowseView";
 import { Controls, SAMPLE_THEMES, Stage, useRoom } from "./Stage";
 import { Tunables } from "./Tunables";
+import { EntryOptions } from "./EntryOptions";
 import { EXPERIMENTAL_AREA, sidebarGroups } from "./groups";
 import { experimentalLabel } from "./strings";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -136,16 +138,35 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
   const [active, setActive] = useState(-1);
   const [browseAll, setBrowseAll] = useState(false);
   const needle = filter.trim().toLowerCase();
+  const words = needle.split(/\s+/).filter(Boolean);
   const entries = readyEntries(states);
   const groups = sidebarGroups(states);
   const experimental = experimentalLabel(address.search.locale);
   const focusedEntry = entries.find((entry) => entry.id === address.entry);
   const focused = !needle && !browseAll;
-  const entryMatches = (entry: GalleryEntry) =>
-    !needle ||
-    `${entry.area} ${entry.title} ${entry.id} ${entry.experimental ? experimental : ""}`.toLowerCase().includes(needle);
-  const variantsOf = (entry: GalleryEntry) =>
-    Object.keys(entry.variants).filter((variant) => entryMatches(entry) || variant.includes(needle));
+  // Every word of the filter must appear somewhere in the entry's text or the variant's: "columns
+  // iphone" finds the iPhone variant of the columns sidebar. Options' labels and choices count too.
+  const entryText = (entry: GalleryEntry) =>
+    [
+      entry.area,
+      entry.title,
+      entry.id,
+      entry.experimental ? experimental : "",
+      ...(entry.keywords ?? []),
+      ...(entry.options ?? []).flatMap((option) => [
+        option.label,
+        ...(option.kind === "choice" ? option.choices.map((choice) => choiceLabel(choice)) : []),
+      ]),
+    ]
+      .join(" ")
+      .toLowerCase();
+  const variantsOf = (entry: GalleryEntry) => {
+    const text = entryText(entry);
+    return Object.keys(entry.variants).filter((variant) => {
+      const haystack = `${text} ${variant} ${entry.variants[variant]?.note ?? ""}`.toLowerCase();
+      return words.every((word) => haystack.includes(word));
+    });
+  };
   // The filter's arrow keys walk every visible variant in order; Return opens the active one.
   const visibleGroups = groups.filter(
     (group) => !focused || group.states.some((state) => known(state)?.id === address.entry),
@@ -158,7 +179,10 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
     ),
   );
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
-  const open = (target: { entry: string; variant: string }) => go({ ...target, search: address.search });
+  /** Another entry's options mean nothing here: opening it drops them. */
+  const searchFor = (entryId: string) =>
+    entryId === address.entry ? address.search : { ...address.search, opts: "" };
+  const open = (target: { entry: string; variant: string }) => go({ ...target, search: searchFor(target.entry) });
   const browseSearch = { ...address.search, view: "browse" as const };
   return (
     <nav className="gallery-list" aria-label="Gallery entries">
@@ -232,7 +256,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
                 render={(entry) => (
                   <div className="gallery-entry">
                     <div className="gallery-entry-title">
-                      <Highlight text={entry.title} needle={needle} />
+                      <Highlight text={entry.title} needle={words[0] ?? ""} />
                       <span className="gallery-entry-id">{entry.id}</span>
                     </div>
                     <ul className="gallery-variants">
@@ -243,7 +267,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
                           <li key={variant}>
                             <a
                               ref={current || index === active ? reveal : undefined}
-                              href={href({ entry: entry.id, variant, search: address.search })}
+                              href={href({ entry: entry.id, variant, search: searchFor(entry.id) })}
                               aria-current={current ? "page" : undefined}
                               data-active={index === active ? "" : undefined}
                               onClick={(event) => {
@@ -251,7 +275,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
                                 open({ entry: entry.id, variant });
                               }}
                             >
-                              <Highlight text={variant} needle={needle} />
+                              <Highlight text={variant} needle={words[words.length - 1] ?? ""} />
                             </a>
                           </li>
                         );
@@ -423,6 +447,7 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
                   view: search.view,
                   compare: search.compare,
                   tune: search.tune,
+                  opts: search.opts,
                   browse: search.browse,
                 },
               },
@@ -520,6 +545,14 @@ function EntryView({ entry, address, status }: { entry: GalleryEntry; address: A
           />
         </Toolbar>
         <GalleryLinks address={address} />
+        {entry.options && entry.options.length > 0 && entry.host === "component" && (
+          <EntryOptions
+            options={entry.options}
+            opts={search.opts}
+            props={(entry.variants[variant]?.props ?? {}) as Record<string, unknown>}
+            onChange={(opts) => go({ ...address, search: { ...search, opts } }, true)}
+          />
+        )}
         {entry.tunables && entry.tunables.length > 0 && (
           <Tunables
             tunables={entry.tunables}
@@ -558,6 +591,7 @@ function EntryView({ entry, address, status }: { entry: GalleryEntry; address: A
                 state={name}
                 env={env}
                 tune={search.tune}
+                opts={search.opts}
                 sourcePath={address.sourcePath}
                 available={{ width: 420, height: room.height }}
                 thumbnail
@@ -572,6 +606,7 @@ function EntryView({ entry, address, status }: { entry: GalleryEntry; address: A
               state={stage.variant}
               env={stage.env}
               tune={search.tune}
+              opts={search.opts}
               sourcePath={address.sourcePath}
               label={stage.label}
               available={{

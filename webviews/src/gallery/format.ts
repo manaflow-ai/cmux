@@ -26,6 +26,7 @@ import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
 import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
 import { validateTunables, type Tunable } from "../experiments/tunable";
+import { validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
 import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -320,6 +321,13 @@ type EntryBase<V> = {
   experiment?: GalleryExperiment;
   /** Values the stage edits live (a curve editor each; experiments/tunable.ts). */
   tunables?: readonly Tunable[];
+  /**
+   * Switches the header shows (options.ts): each sets one prop of a component entry's variant
+   * (a layout, a platform frame, a count). The URL keeps only the values the viewer changed.
+   */
+  options?: readonly GalleryOption[];
+  /** Extra words the gallery's filter matches (synonyms a person may type). */
+  keywords?: readonly string[];
   variants: Record<string, V>;
 };
 
@@ -423,6 +431,9 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
         if (!armIds(definition).includes(arm)) problems.push(`${entry.id}: a measurement names no arm ${arm}`);
     }
     for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
+    for (const problem of validateOptions(entry.options ?? [])) problems.push(`${entry.id}: ${problem}`);
+    if (entry.options?.length && entry.host !== "component")
+      problems.push(`${entry.id}: options set props, so only component entries take them`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
     for (const [name, variant] of Object.entries(entry.variants))
       for (const problem of checkReasons(variant.checks)) problems.push(`${entry.id}#${name}: ${problem}`);
