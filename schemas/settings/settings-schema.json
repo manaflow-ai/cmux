@@ -2231,8 +2231,8 @@
     {
       "accepts" : [
         32,
-        200,
-        116
+        320,
+        176
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2273,15 +2273,15 @@
         "tabMinActiveWidth"
       ],
       "range" : {
-        "max" : 200,
+        "max" : 320,
         "min" : 32,
         "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -136,
-        368,
+        -256,
+        608,
         "1"
       ],
       "section" : "general",
@@ -2295,8 +2295,8 @@
     {
       "accepts" : [
         16,
-        120,
-        68
+        320,
+        168
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2337,15 +2337,15 @@
         "tabMinInactiveWidth"
       ],
       "range" : {
-        "max" : 120,
+        "max" : 320,
         "min" : 16,
         "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -88,
-        224,
+        -288,
+        624,
         "1"
       ],
       "section" : "general",
@@ -25537,7 +25537,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "01618b3130227f81d62bb56dc71fc908906b1043090b7c672dd20fa25772ee5c",
+  "schema_hash" : "f5119e2c9dc4d35636278485f5c5f917acddeb28852bdf4b6333a676002f5da0",
   "sections" : [
     {
       "id" : "general",
