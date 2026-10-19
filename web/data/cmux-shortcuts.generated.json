@@ -7133,7 +7133,7 @@
         {
           "id": "toggleUnread",
           "title": {
-            "en": "Toggle Unread",
+            "en": "Toggle Tab Unread",
             "ar": "تبديل غير المقروء",
             "bs": "Prebaci nepročitano",
             "da": "Skift ulæst",
@@ -7141,7 +7141,7 @@
             "es": "Alternar no leído",
             "fr": "Marquer comme lu/non lu",
             "it": "Segna come letto/non letto",
-            "ja": "未読を切り替え",
+            "ja": "タブの未読を切り替え",
             "km": "បិទ/បើកមិនទាន់អាន",
             "ko": "읽지 않음 토글",
             "no": "Veksle ulest",
