@@ -358,7 +358,7 @@ authorization analysis and policy tests.
    Local-only per-peer tier, folder and agent allowlist, expiry, and an
    append-only audit log with a Settings › Devices view. Paired peers
    default to None. No new remote method yet. The `cmux-remote` store and
-   `cmux remote trust` CLI are in review as manaflow-ai/cmux#PEERTRUST; the
+   `cmux remote trust` CLI are in review as manaflow-ai/cmux#22031; the
    Mac view follows.
 4. **`machine.session.request` on a live connection.** The typed schema, the
    admission path through the trust record, and the receipt, behind a
