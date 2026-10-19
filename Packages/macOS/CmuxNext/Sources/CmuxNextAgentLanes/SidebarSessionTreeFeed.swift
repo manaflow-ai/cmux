@@ -86,8 +86,9 @@ public final class SidebarSessionTreeFeed {
 }
 
 /// The pull request of each session folder's branch, for the sidebar's session tree: read with the
-/// chat header's reader (two gh calls at a time, never prompting), at most once a minute per folder,
-/// when the tree passes again (a lane or a workspace changed). Nothing else polls.
+/// chat header's reader (two gh calls at a time, never prompting), at most once every five minutes
+/// per folder, when the tree passes again (a lane or a workspace changed). Nothing else polls. The
+/// chat header's chip shares those two calls, so the sidebar asks seldom and never stalls it.
 @MainActor @Observable
 final class SidebarPullRequestStore {
     /// By folder; a folder whose branch has no pull request has none.
@@ -97,7 +98,7 @@ final class SidebarPullRequestStore {
     @ObservationIgnored private let reader: AgentChatPullRequestReader
     @ObservationIgnored private let freshness: Duration
 
-    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
+    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(300)) {
         self.reader = reader
         self.freshness = freshness
     }

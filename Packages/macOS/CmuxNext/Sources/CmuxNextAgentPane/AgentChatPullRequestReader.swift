@@ -60,7 +60,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     }
 
     /// The process, for the deadline.
-    private final class Held: @unchecked Sendable {
+    private final class Held: @unchecked Sendable { // crash-allow: holds only a Process; the deadline calls only isRunning and terminate(), which Foundation makes thread-safe
         let process = Process()
     }
 
