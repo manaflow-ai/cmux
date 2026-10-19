@@ -93,7 +93,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// an older phone. Notification changes do not emit `feed.changed`.
     static func combinedMobileFeedRevision(
         workstream: Int,
-        notifications: Int
+        notifications _: Int
     ) -> Int {
         // The wire contract is a signed Int on older phones. A full 32-bit
         // high lane becomes negative once shifted into bit 63. Preserve the
@@ -109,16 +109,14 @@ final class FeedCoordinator: @unchecked Sendable {
             let continuation = cutoverPacked + (workstreamValue - legacyCutover)
             return Int(min(continuation, UInt64(Int.max)))
         }
-        // A zero notification revision means the notification journal has not
-        // finished loading yet. Returning the raw workstream byte count here
-        // would drop from the legacy packed namespace and can make an older
-        // phone discard the first post-upgrade invalidation. Reserve the top
-        // low-lane value while the notification revision is unknown; the
-        // append-only workstream generation still advances the high lane.
+        // Notification history never invalidates this Feed and can be at a
+        // different loading stage for each request. Keep the low lane at its
+        // reserved high-water value instead of allowing an async journal load
+        // to move the combined revision backward under an older phone's
+        // cached packed revision. The append-only workstream generation still
+        // advances the high lane.
         let high = workstreamValue
-        let low = notifications > 0
-            ? UInt64(notifications) & 0xFFFF_FFFF
-            : UInt64.max & 0xFFFF_FFFF
+        let low = UInt64.max & 0xFFFF_FFFF
         return Int((high << 32) | low)
     }
 

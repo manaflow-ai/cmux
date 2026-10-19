@@ -21,7 +21,7 @@ struct FeedCoordinatorTests {
             notifications: 7
         )
 
-        #expect(cachedRevision == ((12 << 32) | 7))
+        #expect(cachedRevision == ((12 << 32) | 0xFFFF_FFFF))
         #expect(upgradedRevision > cachedRevision)
     }
 
@@ -70,7 +70,7 @@ struct FeedCoordinatorTests {
             notifications: 0
         )
 
-        #expect(whileLoading > withNotifications)
+        #expect(whileLoading == withNotifications)
         #expect(whileLoading == ((12 << 32) | 0xFFFF_FFFF))
     }
 
