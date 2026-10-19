@@ -1864,6 +1864,33 @@
       "title" : "ManagedTeam",
       "type" : "string"
     },
+    "markdown.code.blockSize" : {
+      "default" : 14,
+      "description" : "markdown.code.blockSize",
+      "maximum" : 32,
+      "minimum" : 8,
+      "title" : "Code Font Size",
+      "type" : "number"
+    },
+    "markdown.font.lineHeight" : {
+      "default" : 1.6,
+      "description" : "markdown.font.lineHeight",
+      "maximum" : 2.4,
+      "minimum" : 1,
+      "title" : "Line Height",
+      "type" : "number"
+    },
+    "markdown.font.preset" : {
+      "default" : "system",
+      "description" : "markdown.font.preset",
+      "enum" : [
+        "system",
+        "serif",
+        "mono"
+      ],
+      "title" : "Font",
+      "type" : "string"
+    },
     "markdown.font.size" : {
       "default" : 16,
       "description" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.",
@@ -1871,6 +1898,49 @@
       "minimum" : 8,
       "title" : "Default Font Size",
       "type" : "number"
+    },
+    "markdown.layout.fullWidth" : {
+      "default" : false,
+      "description" : "Text fills the whole pane instead of the text width.",
+      "title" : "Full Width",
+      "type" : "boolean"
+    },
+    "markdown.layout.width" : {
+      "default" : 72,
+      "description" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.",
+      "maximum" : 160,
+      "minimum" : 40,
+      "title" : "Text Width",
+      "type" : "number"
+    },
+    "markdown.spacing.paragraph" : {
+      "default" : 1,
+      "description" : "The gap after each paragraph, as a share of the text size.",
+      "maximum" : 3,
+      "minimum" : 0,
+      "title" : "Paragraph Spacing",
+      "type" : "number"
+    },
+    "markdown.tables" : {
+      "default" : "scroll",
+      "description" : "markdown.tables",
+      "enum" : [
+        "scroll",
+        "wrap"
+      ],
+      "title" : "Wide Tables",
+      "type" : "string"
+    },
+    "markdown.theme" : {
+      "default" : "app",
+      "description" : "markdown.theme",
+      "enum" : [
+        "app",
+        "light",
+        "dark"
+      ],
+      "title" : "Page Theme",
+      "type" : "string"
     },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
