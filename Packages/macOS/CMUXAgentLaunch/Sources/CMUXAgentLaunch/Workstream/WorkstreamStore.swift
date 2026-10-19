@@ -12,6 +12,10 @@ public let WorkstreamDefaultRingCapacity = 2_000
 public let WorkstreamDefaultInitialLoadLimit = 300
 public let WorkstreamDefaultHistoryPageSize = 300
 public let WorkstreamDefaultStartupBudgetNanoseconds: UInt64 = 2_000_000_000
+/// Bounds one user-triggered walk through malformed or duplicate history. A
+/// later request can continue from the durable byte cursor without allowing a
+/// single UI action to scan an unbounded append-only file.
+public let WorkstreamDefaultHistoryPageWalkLimit = 16
 
 nonisolated private let workstreamPersistenceLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -59,6 +63,7 @@ public final class WorkstreamStore {
     private let ringCapacity: Int
     private let initialLoadLimit: Int
     private let historyPageSize: Int
+    private let historyPageWalkLimit: Int
     private let startupBudgetNanoseconds: UInt64?
     private let startupHardBudgetNanoseconds: UInt64?
     private let clock: @Sendable () -> Date
@@ -106,13 +111,15 @@ public final class WorkstreamStore {
         },
         titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil },
         startupBudgetNanoseconds: UInt64? = WorkstreamDefaultStartupBudgetNanoseconds,
-        startupHardBudgetNanoseconds: UInt64? = nil
+        startupHardBudgetNanoseconds: UInt64? = nil,
+        historyPageWalkLimit: Int = WorkstreamDefaultHistoryPageWalkLimit
     ) {
         self.transport = transport
         self.persistence = persistence
         self.ringCapacity = ringCapacity
         self.initialLoadLimit = initialLoadLimit
         self.historyPageSize = historyPageSize
+        self.historyPageWalkLimit = max(1, historyPageWalkLimit)
         self.startupBudgetNanoseconds = startupBudgetNanoseconds
         self.startupHardBudgetNanoseconds = startupHardBudgetNanoseconds
         self.clock = clock
@@ -200,7 +207,9 @@ public final class WorkstreamStore {
         defer { isLoadingOlderItems = false }
 
         var cursor = oldestLoadedPersistenceOffset
+        var pageWalks = 0
         while true {
+            pageWalks += 1
             guard let page = try? await persistence.loadPage(
                 endingBefore: cursor,
                 limit: historyPageSize
@@ -235,6 +244,15 @@ public final class WorkstreamStore {
             // permanently hide older recoverable history.
             cursor = nextCursor
             self.oldestLoadedPersistenceOffset = nextCursor
+
+            if pageWalks >= historyPageWalkLimit {
+                // Keep the cursor and `hasMorePersistedItems` intact so a
+                // subsequent explicit request can continue. This prevents a
+                // corrupt or duplicate-heavy tail from monopolizing the
+                // caller while preserving access to older valid rows.
+                hasMorePersistedItems = page.hasMoreBefore
+                return
+            }
         }
     }
 

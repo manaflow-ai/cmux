@@ -1774,7 +1774,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         rawValue: rawValue
                     )
                 },
-                titleProvider: Self.feedWorkstreamTitle(for:)
+                titleProvider: Self.feedWorkstreamTitle(for:),
+                // Keep startup fail-closed even when a large or damaged
+                // append-only history is slow to decode. The diagnostic
+                // budget remains shorter and reports pressure without
+                // discarding otherwise recoverable rows.
+                startupHardBudgetNanoseconds: 5_000_000_000
             )
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")

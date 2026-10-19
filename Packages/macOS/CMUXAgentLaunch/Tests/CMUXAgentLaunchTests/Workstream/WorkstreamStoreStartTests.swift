@@ -178,6 +178,45 @@ struct WorkstreamStoreStartTests {
         #expect(store.items.map(\.workstreamId) == ["old", "new"])
         #expect(!store.hasMorePersistedItems)
     }
+
+    @Test("Paging bounds a duplicate or malformed history walk per request")
+    func pagingWalkLimitPreservesCursor() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-start-page-limit-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+        let writer = try FileHandle(forWritingTo: tmp)
+        try writer.seekToEnd()
+        for _ in 0..<12 {
+            try writer.write(contentsOf: Data("not-json\n".utf8))
+        }
+        try writer.close()
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "new",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            initialLoadLimit: 1,
+            historyPageSize: 1,
+            historyPageWalkLimit: 2
+        )
+        await store.start()
+        await store.loadOlderItems()
+
+        #expect(store.items.map(\.workstreamId) == ["new"])
+        #expect(store.hasMorePersistedItems)
+    }
 }
 
 private actor CountingWorkstreamTransport: WorkstreamTransport {
