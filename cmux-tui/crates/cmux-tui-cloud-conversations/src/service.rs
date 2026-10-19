@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_cloud_wire::SnapshotBackoff;
 use serde_json::{Value, json};
 
 use super::CloudError;
@@ -146,6 +147,8 @@ pub struct ServiceOptions {
     pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// How a stream asks again for a snapshot that did not decode.
+    pub snapshot_backoff: SnapshotBackoff,
     /// API origins beyond the built-in cmux Cloud ones that a lease from a
     /// connection that is not the app may name (`CMUX_CLOUD_API_ORIGINS`).
     pub api_origins: Vec<String>,
@@ -167,6 +170,7 @@ impl Default for ServiceOptions {
                 .filter(|entry| !entry.is_empty())
                 .map(str::to_string)
                 .collect(),
+            snapshot_backoff: SnapshotBackoff::default(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -984,6 +988,11 @@ impl Inner {
     }
 
     /// Time left before an idle subscription retires, capped at `cap`.
+    /// Unix milliseconds as the mirror counts them.
+    fn now(&self) -> i64 {
+        i64::try_from((self.options.now_ms)()).unwrap_or(i64::MAX)
+    }
+
     fn idle_wait(&self, target: &Target, cap: Duration) -> Duration {
         let subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
         match subscriptions.get(target).and_then(|subscription| subscription.idle_since) {
@@ -1044,7 +1053,7 @@ enum Ended {
 }
 
 fn run_driver(inner: &Arc<Inner>, target: Target) {
-    let mut stream = StreamState::new(target.clone());
+    let mut stream = StreamState::new(target.clone(), inner.options.snapshot_backoff);
     let mut reporter = StateReporter { inner, target: target.clone(), last: None };
     let mut backoff = inner.options.backoff_min;
     let poll = inner.options.poll;
@@ -1152,12 +1161,26 @@ fn pump(
                 }
             }
         }
-        match wire.recv(inner.idle_wait(target, inner.options.poll)) {
+        let now = inner.now();
+        // A snapshot that did not decode is asked for again when its backoff ends.
+        for action in stream.snapshot_retry_due(now) {
+            if let StreamAction::Send(frame) = action
+                && wire.send(&frame).is_err()
+            {
+                return Ended::Dropped;
+            }
+        }
+        let mut wait = inner.idle_wait(target, inner.options.poll);
+        if let Some(at) = stream.snapshot_retry_at() {
+            let until = u64::try_from(at.saturating_sub(now)).unwrap_or(0);
+            wait = wait.min(Duration::from_millis(until));
+        }
+        match wire.recv(wait) {
             WireRecv::Idle => {}
             WireRecv::Closed { code: Some(4401) } => return Ended::Unauthenticated,
             WireRecv::Closed { .. } => return Ended::Dropped,
             WireRecv::Text(text) => {
-                for action in stream.on_text(&text) {
+                for action in stream.on_text(&text, inner.now()) {
                     match action {
                         StreamAction::Send(frame) => {
                             if wire.send(&frame).is_err() {
@@ -1165,12 +1188,17 @@ fn pump(
                             }
                         }
                         StreamAction::Emit(event) => inner.emit(event.with_account(account)),
-                        StreamAction::Live => {
-                            *backoff = inner.options.backoff_min;
-                            reporter.report("live", None, account);
-                        }
+                        StreamAction::Live => reporter.report("live", None, account),
+                        StreamAction::Drop => return Ended::Dropped,
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }
+                }
+                // The backoff resets only when the stream works: a snapshot or
+                // an event reached clients and no snapshot is failing. A
+                // welcome alone, or a snapshot that keeps failing, keeps it,
+                // so those reconnects slow down.
+                if stream.take_progress() && stream.is_healthy() {
+                    *backoff = inner.options.backoff_min;
                 }
             }
         }

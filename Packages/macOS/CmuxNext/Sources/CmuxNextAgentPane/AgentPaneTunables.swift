@@ -298,29 +298,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    /// Every agent-pane tunable, one per line in alphabetical order, so two pull requests that each
-    /// add one insert different lines and merge cleanly (#21946). Debug Settings lists them in this
-    /// order. Declare a new tunable in its feature's own file (`extension AgentPaneTunables`) when you
-    /// can, so the declarations above do not collide either.
-    public static var all: [TunableDescriptor] {
-        [
-            chatWidth.descriptor,
-            codexToolRuns.descriptor,
-            composerPlainFooter.descriptor,
-            foldLongThoughts.descriptor,
-            liveThoughtViewport.descriptor,
-            pageHost.descriptor,
-            reasoningSlider.descriptor,
-            reasoningSliderStyle.descriptor,
-            sessionStatus.descriptor,
-            sidebarPreviewVariant.descriptor,
-            sideSessions.descriptor,
-            suggestedTasks.descriptor,
-            terminalButtonAdds.descriptor,
-            thoughtFoldThreshold.descriptor,
-            thoughtHeader.descriptor,
-            topStripStyle.descriptor,
-            turnActionsPlacement.descriptor,
-        ]
-    }
+    public static var all: [TunableDescriptor] { [chatWidth.descriptor, codexToolRuns.descriptor, composerPlainFooter.descriptor, foldLongThoughts.descriptor, liveThoughtViewport.descriptor, pageHost.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sessionStatus.descriptor, sidebarPreviewVariant.descriptor, sideSessions.descriptor, suggestedTasks.descriptor, newTabWidgets.descriptor, terminalButtonAdds.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor] }
 }

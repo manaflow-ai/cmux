@@ -1376,9 +1376,10 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
+/** Send's arrow: iMessage's bold arrow.up, a heavier stroke than the bar's other glyphs. */
 export const ArrowUpIcon = () => (
   <Icon>
-    <path d="M8 13.4V2.8M3.4 7.3 8 2.7l4.6 4.6" />
+    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" strokeWidth={2.1} />
   </Icon>
 );
 export const StopIcon = () => (
