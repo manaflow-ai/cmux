@@ -17,7 +17,7 @@ package final class AgentRenderPreviewRequests {
     }
 
     /// Captures the requesting session's local pane after validating the transport parameters.
-    package func capture(_ params: [String: JSONValue], pane: (String) -> AgentPaneView?,
+    package func capture(_ params: [String: JSONValue], pane: @MainActor (String) -> AgentPaneView?,
                          park: @escaping @MainActor (WKWebView) -> (@MainActor () -> Void)) async throws -> JSONValue {
         guard Set(params.keys).isSubset(of: ["agent_session", "html", "width", "after", "origin"]),
               let session = params["agent_session"]?.stringValue, !session.isEmpty,
