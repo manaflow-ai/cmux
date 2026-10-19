@@ -61,3 +61,26 @@ test("switching back to a chat shows its last read permission state before the r
   expect(client.state.chatAllowance).toBe(true);
   expect(client.state.groups.map((group) => group.groupId)).toEqual(["group-chat-a"]);
 });
+
+test("groups shown from a chat's last read go when its refresh fails", async () => {
+  let fail = false;
+  const client = new PermissionGroupClient(
+    async (_method, params) => {
+      if (fail) throw new Error("disconnected");
+      return list(String(params.sessionId), true);
+    },
+    () => {},
+    storage,
+  );
+  client.configure(true);
+  client.select("chat-c");
+  await client.refresh();
+  client.select("chat-d");
+  await client.refresh();
+  fail = true;
+  client.select("chat-c");
+  expect(client.state.groups.length).toBe(1);
+  await client.refresh().catch(() => {});
+  expect(client.state.groups).toEqual([]);
+  expect(client.state.chatAllowance).toBe(false);
+});

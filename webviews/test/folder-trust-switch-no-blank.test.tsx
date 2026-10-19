@@ -86,3 +86,32 @@ test("a folder never read before still waits for its answer", async () => {
   await show(trust, "chat-new", "/work/new-unread", seen);
   expect(seen[0]).toEqual({ sessionId: "chat-new", blocked: true, trusted: false });
 });
+
+test("an answer given while a read is in flight is not undone by that read", async () => {
+  let answerRead: (value: unknown) => void = () => {};
+  const reads = new Map<string, number>();
+  const trust: TrustSource = {
+    get: (cwd) => {
+      const count = (reads.get(cwd) ?? 0) + 1;
+      reads.set(cwd, count);
+      if (count === 1) return Promise.resolve({ cwd, level: "unknown", decided: true });
+      return new Promise((resolve) => (answerRead = resolve));
+    },
+    set: () => Promise.resolve({}),
+  };
+  let latest: ReturnType<typeof useFolderTrustAsk> | undefined;
+  function Answering(props: { sessionId: string; cwd: string }) {
+    latest = useFolderTrustAsk(trust, { sessionId: props.sessionId, cwd: props.cwd, prompts: 0 });
+    return null;
+  }
+  await act(async () => root.render(<Answering sessionId="chat-q" cwd="/work/q" />));
+  await act(async () => root.render(<Answering sessionId="chat-r" cwd="/work/r" />));
+  // Back to chat Q: its known "unknown" asks at once while the second read is out; the user trusts.
+  await act(async () => root.render(<Answering sessionId="chat-q" cwd="/work/q" />));
+  expect(latest!.ask?.state).toBe("ask");
+  await act(async () => latest!.trust());
+  expect(latest!.trusted).toBe(true);
+  await act(async () => answerRead({ cwd: "/work/q", level: "unknown", decided: true }));
+  expect(latest!.trusted).toBe(true);
+  expect(latest!.blocked).toBeUndefined();
+});
