@@ -42,6 +42,9 @@ nonisolated enum SidebarPerfCounters {
         counts.withLock { $0[counter, default: 0] += amount }
     }
 
+    /// The current count of `counter`.
+    static func count(_ counter: Counter) -> Int { counts.withLock { $0[counter] ?? 0 } }
+
     /// `add`, also counted under its caller.
     static func add(_ counter: Counter, from file: StaticString, line: UInt) {
         add(counter)
