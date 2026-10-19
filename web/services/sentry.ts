@@ -1,14 +1,15 @@
 import type { Event } from "@sentry/nextjs";
 
 const SECRET_KEY_MARKER =
-  /(?:^|_)(?:authorization|body|completion|content|cookie|credential|email|handoff|lease|output|password|passwd|prompt|provider_account|response|secret|session|token)(?:_|$)/;
+  /(?:^|_)(?:auth|authorization|body|completion|content|cookie|credentials?|email|handoff|lease|output|password|passwd|prompt|provider_account|response|secret|session|token)(?:_|$)/;
 const SECRET_KEY_SHAPE =
   /(?:^|_)(?:(?:api|access|private|client)_?key|ciphertext|encrypted_data_key)(?:_|$)/;
 const ROUTE_TOKEN = /\b(?:crt|crk)_[A-Za-z0-9_-]{32,}\b/g;
 const HANDOFF_LEASE = /\bcrh_[A-Za-z0-9_-]{32,}\b/g;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
 const JWT = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g;
-const API_KEY = /\b(?:sk|srt)[_-][A-Za-z0-9_-]{8,}\b/g;
+const PROVIDER_SECRET =
+  /\b(?:(?:sk|srt|pk|rk|ghp|gho|ghu|ghs|ghr|github_pat|xox[abprs])[-_][A-Za-z0-9_-]{8,}|(?:AKIA|ASIA)[A-Z0-9]{16})\b/g;
 const URL_CREDENTIALS = /([A-Za-z][A-Za-z0-9+.\-]*:\/\/)[^/?#\s]+@/g;
 const EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
 const CREDENTIAL_HEADER =
@@ -16,7 +17,7 @@ const CREDENTIAL_HEADER =
 const SECRET_QUERY =
   /([?&](?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|password|secret)=)[^&#\s"']+/gi;
 const SECRET_ASSIGNMENT =
-  /\b([A-Za-z0-9_]*(?:password|passwd|secret|token|credential|authorization|cookie|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/gi;
+  /\b([A-Za-z0-9_]*(?:password|passwd|secret|token|credentials?|auth|authorization|cookie|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/gi;
 
 /**
  * Defense in depth for telemetry. Product code must still avoid attaching
@@ -85,7 +86,7 @@ function scrubValue(value: unknown): void {
         .replace(HANDOFF_LEASE, "[Filtered handoff lease]")
         .replace(BEARER_TOKEN, "Bearer [Filtered]")
         .replace(JWT, "[Filtered JWT]")
-        .replace(API_KEY, "[Filtered API key]")
+        .replace(PROVIDER_SECRET, "[Filtered provider secret]")
         .replace(SECRET_ASSIGNMENT, "$1$2[Filtered]")
         .replace(EMAIL, "[Filtered email]");
     } else {
