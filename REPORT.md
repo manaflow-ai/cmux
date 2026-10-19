@@ -67,5 +67,5 @@ The full table is in PLAN.md section 1.
 
 ## Commits
 
-- `e4dafbc811b`: PLAN.md and `images/cmux-vm/pin-cmux-tui.ts`
-- This report is in the commit after it, on feat-cmux-next.
+- `d8848c6b778`: PLAN.md and `images/cmux-vm/pin-cmux-tui.ts`
+- `c77b58ee93e`: this report (this line was corrected in the next commit after the rebase).
