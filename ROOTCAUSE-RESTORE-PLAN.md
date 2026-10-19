@@ -227,7 +227,7 @@ after Xcode reported `BUILD SUCCEEDED`.
 ## Exact-head validation update (2026-10-19)
 
 The current repair worktree head is
-[`ceaa0b9428b0dc1c0296f3c75cf9c08f679dabd0`](https://github.com/danielraffel/cmux/commit/ceaa0b9428b0dc1c0296f3c75cf9c08f679dabd0).
+[`1c1ccb4b5ea9c1226400357dcb440aaceead0c79`](https://github.com/danielraffel/cmux/commit/1c1ccb4b5ea9c1226400357dcb440aaceead0c79).
 The code head for the implementation change is
 [`63814044655fcac6f862ca86ee88fb346e6a2112`](https://github.com/danielraffel/cmux/commit/63814044655fcac6f862ca86ee88fb346e6a2112).
 The earlier provider repair remains at
