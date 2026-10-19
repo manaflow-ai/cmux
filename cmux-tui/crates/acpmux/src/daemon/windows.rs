@@ -399,7 +399,7 @@ fn spawn_this(
 /// Starts `<exe> [prefix] daemon run --ready-fd <handle>` (see the module
 /// comment) and returns the read end of its readiness pipe.
 pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
-    std::fs::create_dir_all(home)?;
+    crate::config::private_state_dir(home)?;
     let log_path = home.join("daemon.log");
     // Owner-only, as on Unix: the log can carry agent output and requests.
     let log = crate::owner_only::open_append(&log_path)

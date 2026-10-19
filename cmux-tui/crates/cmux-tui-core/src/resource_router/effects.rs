@@ -51,17 +51,30 @@ pub(super) fn prepare(
 
     let intent = make_intent()?;
     let durable_intent = durable_intent(&intent, &operation)?;
-    let preparation = mux
-        .prepare_resource_effect(
+    // A new intent is recorded as executing in the same commit: each commit
+    // is a full fsync, and this one runs before the reply.
+    let (preparation, executing) = mux
+        .prepare_resource_effect_executing(
             &request.mutation().map_err(resource_operation_error)?,
             &operation,
             &fingerprint,
             &durable_intent,
-            None,
             expected_revision(&request.fields)?,
         )
         .map_err(resource_operation_error)?;
-    resolve_preparation(mux, idempotency_key, operation, fingerprint, &request.fields, preparation)
+    match preparation {
+        ResourceEffectPreparation::Execute { intent, .. } if executing => {
+            start_execution(mux, idempotency_key, operation, fingerprint, &request.fields, intent)
+        }
+        preparation => resolve_preparation(
+            mux,
+            idempotency_key,
+            operation,
+            fingerprint,
+            &request.fields,
+            preparation,
+        ),
+    }
 }
 
 fn resolve_preparation(
@@ -86,26 +99,39 @@ fn resolve_preparation(
             Ok(EffectPreparation::Complete(Err(indeterminate_error(idempotency_key, &operation))))
         }
         ResourceEffectPreparation::Execute { .. } => {
-            let mut intent = mux
+            let intent = mux
                 .mark_resource_effect_executing(idempotency_key, &operation, &fingerprint)
                 .map_err(resource_operation_error)?;
-            if sensitive_input_operation(&operation)
-                && restore_runtime_fields(&mut intent, &operation, request_fields).is_err()
-            {
-                let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
-                return Ok(EffectPreparation::Complete(Err(indeterminate_error(
-                    idempotency_key,
-                    &operation,
-                ))));
-            }
-            Ok(EffectPreparation::Execute(PreparedEffect {
-                idempotency_key: idempotency_key.to_string(),
-                operation,
-                fingerprint,
-                intent,
-            }))
+            start_execution(mux, idempotency_key, operation, fingerprint, request_fields, intent)
         }
     }
+}
+
+/// The intent is durably `executing`: restore the runtime-only fields of
+/// sensitive input and hand the effect to the caller.
+fn start_execution(
+    mux: &Arc<Mux>,
+    idempotency_key: &str,
+    operation: String,
+    fingerprint: Value,
+    request_fields: &Map<String, Value>,
+    mut intent: Value,
+) -> Result<EffectPreparation, ResourceError> {
+    if sensitive_input_operation(&operation)
+        && restore_runtime_fields(&mut intent, &operation, request_fields).is_err()
+    {
+        let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
+        return Ok(EffectPreparation::Complete(Err(indeterminate_error(
+            idempotency_key,
+            &operation,
+        ))));
+    }
+    Ok(EffectPreparation::Execute(PreparedEffect {
+        idempotency_key: idempotency_key.to_string(),
+        operation,
+        fingerprint,
+        intent,
+    }))
 }
 
 pub(super) fn commit_success(
