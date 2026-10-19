@@ -14,4 +14,3 @@ export class UsageRecorder extends Context.Tag("cmux-vm/UsageRecorder")<
 
 /** Records nothing; the default until the metering layer is wired. */
 export const noopUsageRecorderLayer = Layer.succeed(UsageRecorder, { record: () => Effect.void });
-
