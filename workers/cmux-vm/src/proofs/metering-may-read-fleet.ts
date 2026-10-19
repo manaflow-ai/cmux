@@ -7,5 +7,8 @@ export interface MeteringMayReadFleet extends Proof<"MeteringMayReadFleet", ["sc
 const MeteringMayReadFleet = defineProof("MeteringMayReadFleet");
 
 /** The only minting path: the caller is named inside this scheduled-only helper. */
-export const withMeteringMayReadFleet = <A>(run: (proof: MeteringMayReadFleet) => Effect.Effect<A>): Effect.Effect<A> =>
-  name("scheduled", (caller) => run(MeteringMayReadFleet.prove(caller) as unknown as MeteringMayReadFleet));
+export const withMeteringMayReadFleet = <A>(controller: ScheduledController, run: (proof: MeteringMayReadFleet) => Effect.Effect<A>): Effect.Effect<A> =>
+  name("scheduled", (caller) => {
+    void controller;
+    return run(MeteringMayReadFleet.prove(caller) as unknown as MeteringMayReadFleet);
+  });

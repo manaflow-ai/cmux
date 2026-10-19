@@ -11,24 +11,33 @@ export interface ProviderPrices {
   readonly transferGbMicrodollars: number;
 }
 
-export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, ProviderPrices>>>> = {
+export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, ReadonlyArray<ProviderPrices>>>>> = {
   freestyle: {
-    "*": {
-      effective_from: "2026-10-17T00:00:00.000Z",
-      vcpuHourMicrodollars: 40_320,
-      memoryGibHourMicrodollars: 12_900,
-      storageGibHourMicrodollars: 86,
-      transferGbMicrodollars: 20_000,
-    },
+    "*": [
+      {
+        effective_from: "2026-10-17T00:00:00.000Z",
+        vcpuHourMicrodollars: 40_320,
+        memoryGibHourMicrodollars: 12_900,
+        storageGibHourMicrodollars: 86,
+        transferGbMicrodollars: 20_000,
+      },
+      {
+        effective_from: "2026-10-19T00:00:00.000Z",
+        vcpuHourMicrodollars: 50_000,
+        memoryGibHourMicrodollars: 15_000,
+        storageGibHourMicrodollars: 100,
+        transferGbMicrodollars: 20_000,
+      },
+    ],
   },
 };
 
 export const pricesFor = (provider: string, region: string, _at: Date): ProviderPrices | null => {
   const prices = PROVIDER_PRICES[provider]?.[region] ?? PROVIDER_PRICES[provider]?.["*"];
-  if (prices === undefined) return null;
-  // A later table entry must never make earlier historical hours unpriceable;
-  // the earliest published price remains the fallback before its effective date.
-  return prices;
+  if (prices === undefined || prices.length === 0) return null;
+  const ordered = [...prices].sort((left, right) => Date.parse(left.effective_from) - Date.parse(right.effective_from));
+  const matching = ordered.filter((price) => Date.parse(price.effective_from) <= _at.getTime()).at(-1);
+  return matching ?? ordered[0] ?? null;
 };
 
 /** Invalid markup disables export; it never makes request handling fail. */

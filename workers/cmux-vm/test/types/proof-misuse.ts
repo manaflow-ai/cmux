@@ -11,6 +11,7 @@ import { UpstreamId, type VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
+import { withMeteringMayReadFleet } from "../../src/proofs/metering-may-read-fleet.ts";
 
 export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {
@@ -51,6 +52,8 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
         // @ts-expect-error fleet reads require the scheduled-only metering proof
         yield* upstream.getVmForMetering(UpstreamId.make("provider-vm"), "scheduled");
+        // @ts-expect-error only a ScheduledController may mint fleet-read proof
+        yield* withMeteringMayReadFleet({}, () => Effect.void);
       }),
     );
 

@@ -230,9 +230,13 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
       }) =>
         Effect.gen(function* () {
           const current = yield* openFor(input.tenantId, input.upstreamVmId);
+          const resource = yield* resourceFor(input.tenantId, input.upstreamVmId);
+          if (resource !== null && resource.deleted_at !== null) {
+            if (current !== null) yield* closeOpen(input.tenantId, input.upstreamVmId, new Date(Math.max(current.startedAt.getTime(), resource.deleted_at.getTime())), "reconcile");
+            return;
+          }
           if (current !== null && current.startedAt.getTime() > input.at.getTime()) return;
           if (current !== null && current.computeBilled === input.computeBilled && sameShape(current, input.shape)) return;
-          const resource = input.provider === undefined || input.region === undefined ? yield* resourceFor(input.tenantId, input.upstreamVmId) : null;
           const provider = input.provider ?? resource?.provider ?? "freestyle";
           const region = input.region ?? resource?.region ?? "*";
           if (current !== null) yield* closeOpen(input.tenantId, input.upstreamVmId, input.at, input.source);
@@ -342,7 +346,7 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               const observedAt = new Date(Math.max(runStartedAt.getTime(), Date.now()));
               const current = yield* openFor(resource.tenantId, resource.upstreamVmId);
               if (resource.deletedAt !== null) {
-                if (current !== null) yield* closeOpen(resource.tenantId, resource.upstreamVmId, resource.deletedAt, "reconcile");
+                if (current !== null) yield* closeOpen(resource.tenantId, resource.upstreamVmId, new Date(Math.max(current.startedAt.getTime(), resource.deletedAt.getTime())), "reconcile");
                 return;
               }
               const provider = resource.provider ?? "freestyle";
@@ -386,19 +390,21 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               },
               catch: (cause) => new StoreError({ operation: "metering.stripe", cause }),
             });
-          const isDuplicate = (result: { readonly status: number; readonly body: string }) => {
+          const isDuplicate = (result: { readonly status: number; readonly body: string }, identifier: string) => {
             if (result.status !== 400) return false;
             try {
               const parsed: unknown = JSON.parse(result.body);
               if (typeof parsed !== "object" || parsed === null) return false;
               const error = Reflect.get(parsed, "error");
-              return typeof error === "object" && error !== null && Reflect.get(error, "code") === "meter_event_duplicate";
+              if (typeof error !== "object" || error === null) return false;
+              if (Reflect.get(error, "code") === "duplicate_meter_event") return true;
+              return Reflect.get(error, "type") === "invalid_request_error" && typeof Reflect.get(error, "message") === "string" && String(Reflect.get(error, "message")).includes(`already exists with identifier ${identifier}`);
             } catch { return false; }
           };
           yield* Effect.forEach(accountsRows, (account) => Effect.gen(function* () {
-            const watermarkRows = yield* sql.query("metering.exportWatermark", `SELECT max(hour_start) AS watermark FROM cmux_vm.usage_exports WHERE tenant_id = $1 AND status = 'exported'`, [account.tenantId]).pipe(Effect.flatMap(decodeRows(WatermarkRow, "metering.exportWatermark")));
-            const watermark = watermarkRows[0]?.watermark?.getTime() ?? lower;
-            const start = Math.max(lower, watermark - HOUR_MS);
+            const watermarkRows = yield* sql.query("metering.exportWatermark", `SELECT min(hour_start) AS watermark FROM cmux_vm.usage_exports WHERE tenant_id = $1 AND status <> 'exported'`, [account.tenantId]).pipe(Effect.flatMap(decodeRows(WatermarkRow, "metering.exportWatermark")));
+            const nonFinal = watermarkRows[0]?.watermark?.getTime();
+            const start = hourStart(nonFinal === undefined || nonFinal === null ? now.getTime() - 72 * HOUR_MS : Math.min(now.getTime() - 72 * HOUR_MS, nonFinal));
             const rows = yield* queryIntervals(`SELECT ${intervalColumns} FROM cmux_vm.usage_intervals WHERE tenant_id = $1 AND started_at < $2::timestamptz AND (ended_at IS NULL OR ended_at > $3::timestamptz)`, [account.tenantId, new Date(cutoff).toISOString(), new Date(start).toISOString()], "metering.exportIntervals");
             const charges = new Map<string, HourCharge>();
             for (const interval of rows) {
@@ -406,7 +412,7 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               const to = Math.min(interval.endedAt?.getTime() ?? cutoff, cutoff);
               if (to > from && addHourCharge(charges, interval, from, to, markupBps) === null) yield* Effect.fail(unknownPricing(interval.provider, interval.region));
             }
-            for (const charge of charges.values()) {
+            for (const charge of [...charges.values()].sort((left, right) => left.hourStart.getTime() - right.hourStart.getTime())) {
               if (charge.hourStart.getTime() + HOUR_MS > cutoff) continue;
               const key = `${charge.tenantId}\u0000${charge.hourStart.getTime()}`;
               const prior = exportedByHour.get(key);
@@ -417,7 +423,7 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               if (prior === undefined) yield* sql.query("metering.exported.pending", `INSERT INTO cmux_vm.usage_exports (tenant_id, hour_start, stripe_customer_id, identifier, value_microdollars, status, attempts) VALUES ($1, $2::timestamptz, $3, $4, $5, 'pending', 0) ON CONFLICT DO NOTHING`, [account.tenantId, charge.hourStart.toISOString(), account.stripeCustomerId, baseIdentifier, baseSent]);
               if (!baseReady) {
                 const result = yield* sendEvent(account, baseSent, baseIdentifier, charge.hourStart);
-                if (result.status >= 200 && result.status < 300 || isDuplicate(result)) {
+                if (result.status >= 200 && result.status < 300 || isDuplicate(result, baseIdentifier)) {
                   yield* sql.query("metering.exported.done", `UPDATE cmux_vm.usage_exports SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString()]);
                   baseReady = true;
                 } else if (result.status >= 400 && result.status < 500) {
@@ -427,16 +433,23 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               }
               if (!baseReady) continue;
               const priorAdjustments = adjustmentsByHour.get(key) ?? [];
-              const sentAdjustments = priorAdjustments.filter((row) => row.status === "exported").reduce((sum, row) => sum + Number(row.value_microdollars), 0);
+              const pendingAdjustment = priorAdjustments.find((row) => row.status === "pending");
+              if (pendingAdjustment !== undefined) {
+                const retry = yield* sendEvent(account, Number(pendingAdjustment.value_microdollars), pendingAdjustment.identifier, charge.hourStart);
+                if (retry.status >= 200 && retry.status < 300 || isDuplicate(retry, pendingAdjustment.identifier)) yield* sql.query("metering.adjustment.done", `UPDATE cmux_vm.usage_adjustments SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString(), pendingAdjustment.identifier]);
+                else continue;
+              }
+              const sentAdjustments = priorAdjustments.filter((row) => row.status === "exported" || row.status === "pending").reduce((sum, row) => sum + Number(row.value_microdollars), 0);
               const delta = charge.valueMicrodollars - baseSent - sentAdjustments;
               if (delta === 0) continue;
               if (delta < 0) { yield* Effect.logError("cmux-vm usage correction is not exportable as a negative Stripe meter value"); continue; }
-              const adjustmentIdentifier = yield* digestIdentifier("cmux-vm-adj-", `${baseIdentifier}\u0000${String(delta)}`);
+              const sequence = priorAdjustments.length;
+              const adjustmentIdentifier = yield* digestIdentifier("cmux-vm-adj-", `${baseIdentifier}\u0000${String(sequence)}`);
               const existingAdjustment = priorAdjustments.find((row) => row.identifier === adjustmentIdentifier);
               if (existingAdjustment?.status === "failed" || existingAdjustment?.status === "exported") continue;
               if (existingAdjustment === undefined) yield* sql.query("metering.adjustment.pending", `INSERT INTO cmux_vm.usage_adjustments (tenant_id, hour_start, stripe_customer_id, identifier, value_microdollars, status, attempts) VALUES ($1, $2::timestamptz, $3, $4, $5, 'pending', 0) ON CONFLICT DO NOTHING`, [account.tenantId, charge.hourStart.toISOString(), account.stripeCustomerId, adjustmentIdentifier, delta]);
               const correction = yield* sendEvent(account, delta, adjustmentIdentifier, charge.hourStart);
-              if (correction.status >= 200 && correction.status < 300 || isDuplicate(correction)) yield* sql.query("metering.adjustment.done", `UPDATE cmux_vm.usage_adjustments SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString(), adjustmentIdentifier]);
+              if (correction.status >= 200 && correction.status < 300 || isDuplicate(correction, adjustmentIdentifier)) yield* sql.query("metering.adjustment.done", `UPDATE cmux_vm.usage_adjustments SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString(), adjustmentIdentifier]);
               else if (correction.status >= 400 && correction.status < 500) yield* sql.query("metering.adjustment.failed", `UPDATE cmux_vm.usage_adjustments SET status = 'failed', attempts = attempts + 1, last_error = $3 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4`, [account.tenantId, charge.hourStart.toISOString(), correction.body.slice(0, 500), adjustmentIdentifier]);
             }
           }).pipe(Effect.catchAll((error) => Effect.logError("cmux-vm Stripe export tenant failed").pipe(Effect.annotateLogs({ operation: error instanceof StoreError ? error.operation : "export" }), Effect.asVoid))), { concurrency: 1 });

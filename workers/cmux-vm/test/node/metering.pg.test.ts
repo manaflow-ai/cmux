@@ -45,7 +45,7 @@ describe("metering migration", () => {
       query: (operation, text, params) => Effect.tryPromise({ try: async () => (await pg.query(text, [...params])).rows, catch: (cause) => new StoreError({ operation, cause }) }),
     });
     await pg.query("INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, provider, region) VALUES ('vm_00000000000000000000000000', 'team_a', 'vm', 'up-race', 'user:test', 'freestyle', '*')");
-    await pg.query(`INSERT INTO cmux_vm.usage_intervals (tenant_id, provider, region, upstream_vm_id, cmux_vm_id, started_at, vcpus, memory_mb, storage_mb, compute_billed, source) VALUES ('team_a', 'freestyle', '*', 'up-race', 'vm_00000000000000000000000000', now() - interval '10 seconds', 4, 8192, 32768, true, 'api')`);
+    await pg.query(`INSERT INTO cmux_vm.usage_intervals (tenant_id, provider, region, upstream_vm_id, cmux_vm_id, started_at, vcpus, memory_mb, storage_mb, compute_billed, source) VALUES ('team_a', 'freestyle', '*', 'up-race', 'vm_00000000000000000000000000', now() + interval '10 seconds', 4, 8192, 32768, true, 'api')`);
     const metering = meteringLayer({ markupBps: 0 }).pipe(Layer.provide(sql));
     await Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.reconcile(new Date(), () => Effect.succeed({ kind: "present" as const, vm: { state: "running", vcpus: 4, memoryMb: 8192, storageMb: 32768 } }))), metering));
     const openCount = await pg.query<{ count: string }>("SELECT count(*)::text AS count FROM cmux_vm.usage_intervals WHERE ended_at IS NULL");

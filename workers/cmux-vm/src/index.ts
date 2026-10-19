@@ -103,13 +103,13 @@ const liveServices = (env: Env) => {
   );
 };
 
-const runScheduled = (env: Env): Promise<void> => {
+const runScheduled = (env: Env, controller: ScheduledController): Promise<void> => {
   if (!env.HYPERDRIVE || !env.UPSTREAM_API_KEY) return Promise.resolve();
   const now = new Date();
   const effect = Effect.gen(function* () {
     const ledger = yield* MeteringLedger;
     const upstream = yield* UpstreamClient;
-    yield* withMeteringMayReadFleet((proof) => Effect.gen(function* () {
+    yield* withMeteringMayReadFleet(controller, (proof) => Effect.gen(function* () {
     yield* ledger.reconcile(now, (resource) =>
           upstream
             .getVmForMetering(UpstreamId.make(resource.upstreamVmId), proof)
@@ -177,7 +177,7 @@ export default {
     if (cached === undefined || cached.env !== env) cached = { env, handler: makeHandler(env) };
     return cached.handler(request);
   },
-  scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
-    ctx.waitUntil(runScheduled(env));
+  scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(runScheduled(env, controller));
   },
 } satisfies ExportedHandler<Env>;

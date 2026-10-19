@@ -111,9 +111,9 @@ export const makeLiveMetering = (
       }
       case "metering.usage":
       case "metering.exportIntervals": {
-        const tenant = operation === "metering.usage" ? String(params[0]) : null;
-        const from = operation === "metering.usage" ? asDate(params[1] ?? null).getTime() : Number.NEGATIVE_INFINITY;
-        const to = operation === "metering.usage" ? asDate(params[2] ?? null).getTime() : asDate(params[0] ?? null).getTime();
+        const tenant = operation === "metering.usage" ? String(params[0]) : String(params[0]);
+        const from = operation === "metering.usage" ? asDate(params[1] ?? null).getTime() : asDate(params[2] ?? null).getTime();
+        const to = operation === "metering.usage" ? asDate(params[2] ?? null).getTime() : asDate(params[1] ?? null).getTime();
         const vmId = operation === "metering.usage" && params[3] !== null ? String(params[3]) : null;
         return intervals.filter((row) => (tenant === null || row.tenant_id === tenant) && row.started_at.getTime() < to && (row.ended_at === null || row.ended_at.getTime() > from) && (vmId === null || row.cmux_vm_id === vmId));
       }
@@ -126,8 +126,8 @@ export const makeLiveMetering = (
       case "metering.exported":
         return [...exports.values()];
       case "metering.exportWatermark": {
-        const rows = [...exports.values()].filter((row) => row.tenant_id === String(params[0]) && row.status === "exported");
-        return [{ watermark: rows.length === 0 ? null : rows.reduce((latest, row) => row.hour_start > latest ? row.hour_start : latest, rows[0]!.hour_start) }];
+        const rows = [...exports.values()].filter((row) => row.tenant_id === String(params[0]) && row.status !== "exported");
+        return [{ watermark: rows.length === 0 ? null : rows.reduce((earliest, row) => row.hour_start < earliest ? row.hour_start : earliest, rows[0]!.hour_start) }];
       }
       case "metering.adjustments":
         return [...adjustments.values()];

@@ -7,6 +7,7 @@ import migration11 from "../../migrations/0011_cmux_vm_usage.sql?raw";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { MeteringLedger } from "../../src/metering/ledger.ts";
 import { meteringLayer } from "../../src/metering/live.ts";
+import { pricesFor } from "../../src/metering/prices.ts";
 
 let pg: PGlite;
 const migration = `${migration1}\n${migration2}\n${migration11}`;
@@ -51,6 +52,13 @@ beforeEach(async () => {
 });
 
 describe("Stripe metering export", () => {
+  it("uses the dated price in force for each hour", () => {
+    const before = pricesFor("freestyle", "*", new Date("2026-10-18T12:00:00Z"));
+    const after = pricesFor("freestyle", "*", new Date("2026-10-19T12:00:00Z"));
+    expect(before?.vcpuHourMicrodollars).toBe(40_320);
+    expect(after?.vcpuHourMicrodollars).toBe(50_000);
+  });
+
   it("exports each tenant-hour once with a stable identifier", async () => {
     const requests: Request[] = [];
     await pg.query(
@@ -104,7 +112,10 @@ describe("Stripe metering export", () => {
     await run();
     const adjustments = await pg.query<{ count: string }>("SELECT count(*)::text AS count FROM cmux_vm.usage_adjustments WHERE status = 'exported'");
     expect(adjustments.rows[0]?.count).toBe("2");
+    await run();
     expect(requests).toHaveLength(3);
+    const values = await Promise.all(requests.map(async (request) => Number(new URLSearchParams(await request.clone().text()).get("payload[value]"))));
+    expect(values).toEqual([267232, 133616, 200424]);
   });
 
   it("aggregates overlapping VMs, clips open intervals at a completed hour, and honors activation", async () => {
@@ -116,7 +127,7 @@ describe("Stripe metering export", () => {
     await Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering));
     expect(requests).toHaveLength(1);
     const body = new URLSearchParams(await requests[0]!.text());
-    expect(Number(body.get("payload[value]"))).toBeGreaterThan(0);
+    expect(Number(body.get("payload[value]"))).toBe(133616);
     expect(body.get("timestamp")).toBe("1792281600");
   });
 
@@ -125,7 +136,7 @@ describe("Stripe metering export", () => {
     await seedInterval({ started: "2026-10-18T00:00:00Z", ended: "2026-10-18T01:00:00Z" });
     let calls = 0;
     let duplicate = false;
-    const metering = meteringLayer({ markupBps: 0, stripeSecretKey: "sk_test", stripeMeterEvent: "vm_usage", fetch: async () => { calls += 1; return duplicate ? new Response('{"error":{"code":"meter_event_duplicate"}}', { status: 400 }) : new Response("{}", { status: 200 }); } }).pipe(Layer.provide(sqlLayer("metering.exported.done")));
+    const metering = meteringLayer({ markupBps: 0, stripeSecretKey: "sk_test", stripeMeterEvent: "vm_usage", fetch: async (request) => { calls += 1; if (duplicate) { const body = new URLSearchParams(await request.text()); return new Response(JSON.stringify({ error: { type: "invalid_request_error", message: `An event already exists with identifier ${body.get("identifier")}` } }), { status: 400 }); } return new Response("{}", { status: 200 }); } }).pipe(Layer.provide(sqlLayer("metering.exported.done")));
     await Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering));
     duplicate = true;
     await Effect.runPromise(Effect.provide(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))), metering));
