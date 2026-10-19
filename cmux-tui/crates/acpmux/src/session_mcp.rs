@@ -20,11 +20,27 @@
 //!   shows it as this agent's message, never as the person's words.
 //!
 //! Limits, since this server runs outside the harness's own sandbox:
-//! - A new session never asks less than the caller: a child whose effective
-//!   policy is laxer gets the caller's (`_acpmux/set_policy`) before its
-//!   first prompt. A folder the person marked untrusted is refused.
-//! - `send_to_session` reaches only sessions this chat started (its
-//!   `spawnedBy` tag) and the chat that started this one. Reads are open.
+//! - A new session never asks less than the caller. A child whose effective
+//!   acpmux policy is laxer gets the caller's (`_acpmux/set_policy`) before
+//!   its first prompt, and a caller whose policy acpmux does not know counts
+//!   as `ask`. A `harness` profile whose own mode or sandbox is laxer
+//!   (bypassPermissions, Codex with no sandbox or danger-full-access) is
+//!   refused unless the caller already runs that lax.
+//! - A new session's folder is inside the caller's own folder, or under a
+//!   folder the person trusts (the nearest folder with a trust level, itself
+//!   or an ancestor, is trusted). A folder marked untrusted on the way,
+//!   anything else, and any trust lookup that fails, is refused; the agent
+//!   asks the person.
+//! - "This chat's family" is the sessions it started (their `spawnedBy` tag),
+//!   the session it hangs under (its `spawnedBy`, or `parentId` for a fork or
+//!   side session) and that session's other children. `send_to_session` and
+//!   `read_session` reach only the family. `list_sessions` lists every
+//!   session, but another chat's title and last message are left out.
+//! - Starting, reading or messaging a session never clears its unread mark:
+//!   the server attaches with `visible: false`.
+//! - One `read_session` call waits at most 50 s (harness tool calls time out
+//!   sooner than the documented 600 s); a longer wait is several calls. Each
+//!   reply comes back at most 16 KiB, the cut marked.
 //! - The worktree's git runs with hooks and fsmonitor off, so a hook the
 //!   agent wrote in its own repository does not run here.
 //! - What `list_sessions` and `read_session` return is masked
@@ -48,6 +64,14 @@ pub const MAX_LIST: usize = 200;
 pub const MAX_WAIT_SECONDS: u64 = 600;
 /// Most replies one `read_session` call returns.
 const MAX_REPLIES: u64 = 5;
+/// The longest one read_session call waits: harness MCP clients time a tool
+/// call out sooner than MAX_WAIT_SECONDS (Codex after about 60 s), so a
+/// longer wait is several calls.
+const MAX_WAIT_PER_CALL: u64 = 50;
+/// The most of one reply read_session returns, after masking.
+const MAX_REPLY_BYTES: usize = 16 * 1024;
+/// The most transcript bytes read_session loads to find the last replies.
+const MAX_READ_BYTES: u64 = 4 * 1024 * 1024;
 /// Characters of each session's last message `list_sessions` shows.
 const PREVIEW_CHARS: usize = 200;
 
@@ -336,8 +360,14 @@ async fn start(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Valu
     // Starting a session is not looking at it: its turns stay unread.
     let target = json!({"sessionId": child, "peer": host});
     attach_hidden(daemon, &target).await?;
+    // The tag puts the child under this chat in cmux and makes it this chat's
+    // family for read_session; one retry, then the result says it is missing.
     let set = json!({crate::hub::views::SPAWNED_BY_TAG: id_of(&me)});
-    let _ = daemon.request(method::MUX_TAG, json!({"sessionId": child, "set": set})).await;
+    let tag = json!({"sessionId": child, "set": set});
+    let untagged = match daemon.request(method::MUX_TAG, tag.clone()).await {
+        Ok(_) => None,
+        Err(_) => daemon.request(method::MUX_TAG, tag).await.err().map(|e| format!("{e:#}")),
+    };
     let fresh = if caller_full {
         info(daemon, &child).await.unwrap_or_else(|_| created.clone())
     } else {
@@ -370,10 +400,16 @@ async fn start(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Valu
         out["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
     }
     let place = made.as_ref().map(|w| format!(" in worktree {} ({})", w.root.display(), w.branch));
-    let text = format!(
+    let mut text = format!(
         "Started session {name} ({child}){}. It runs on its own and appears in cmux under this chat. Tell the user; call read_session with wait_seconds when you need its result.",
         place.unwrap_or_default()
     );
+    if let Some(why) = &untagged {
+        out["spawnedByTagged"] = json!(false);
+        text.push_str(&format!(
+            " It is not marked as this chat's session ({why}), so cmux may list it on its own and read_session may refuse it."
+        ));
+    }
     ok(text, out)
 }
 
@@ -570,6 +606,25 @@ fn started_by(info: &Value) -> Option<&str> {
     info["tags"][crate::hub::views::SPAWNED_BY_TAG].as_str().or_else(|| info["spawnedBy"].as_str())
 }
 
+/// The sessions `info` hangs under: the chat that started it (`spawnedBy`)
+/// and the session it was forked or opened beside (`parentId`).
+fn parents(info: &Value) -> [Option<&str>; 2] {
+    [started_by(info), info["parentId"].as_str()]
+}
+
+/// Whether `other` is in `me`'s family, the sessions `read_session` reads
+/// and `list_sessions` previews: one `me` started or forked, `me`'s parent,
+/// or another session of that parent.
+fn family(me: &Value, other: &Value) -> bool {
+    let (me_id, id) = (id_of(me), id_of(other));
+    if me_id.is_empty() || id.is_empty() {
+        return false;
+    }
+    let theirs = parents(other);
+    theirs.contains(&Some(me_id.as_str()))
+        || parents(me).into_iter().flatten().any(|p| p == id || theirs.contains(&Some(p)))
+}
+
 /// `text` with every secret `secret_scan` finds masked, so one chat's agent
 /// never reads a key the person pasted into another chat. Masked before any
 /// cut, which could leave a key the scan no longer knows.
@@ -610,6 +665,8 @@ async fn list(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Value
     };
     let status = text_arg(args, "status")?;
     let mine = args.get("mine").and_then(Value::as_bool).unwrap_or(false);
+    // Without this chat's own record no session is family: no previews.
+    let me = info(daemon, session).await.unwrap_or(Value::Null);
     let reply =
         daemon.request(method::MUX_SESSIONS, json!({})).await.map_err(|e| format!("{e:#}"))?;
     let mut all: Vec<Value> = reply["sessions"].as_array().cloned().unwrap_or_default();
@@ -635,6 +692,12 @@ async fn list(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Value
         .map(|s| {
             let mut r = row(s);
             r["state"] = json!(state(s));
+            // Another chat's words are its own: listed by name, never previewed,
+            // and without its title (titled from its first prompt).
+            if !family(&me, s) {
+                r["lastMessage"] = Value::Null;
+                r["title"] = Value::Null;
+            }
             r
         })
         .collect();
@@ -703,7 +766,14 @@ async fn read(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Value
     if id == session {
         return Err("that is this chat: read_session reads other sessions".into());
     }
-    let timed_out = wait > 0 && !settle(daemon, &id, wait).await?;
+    let me = info(daemon, session).await?;
+    if !family(&me, &target) {
+        return Err(format!(
+            "{id} is not a session of this chat's: read_session reads only sessions this chat started, the chat that started this one and that chat's other sessions. Ask the user what it said."
+        ));
+    }
+    let waited = wait.min(MAX_WAIT_PER_CALL);
+    let timed_out = waited > 0 && !settle(daemon, &id, waited).await?;
     let replies = last_replies(daemon, &id, count as usize).await?;
     let now = info(daemon, &id).await.unwrap_or(target);
     let status = now["status"].as_str().unwrap_or_default().to_owned();
@@ -716,7 +786,9 @@ async fn read(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Value
         ));
     }
     if timed_out {
-        head.push_str(&format!("; its turn had not ended after {wait} s"));
+        head.push_str(&format!(
+            "; its turn had not ended after {waited} s (one call waits at most {MAX_WAIT_PER_CALL} s: call read_session again with wait_seconds to keep waiting)"
+        ));
     }
     let body =
         if replies.is_empty() { "(no reply yet)".to_owned() } else { replies.join("\n\n---\n\n") };
@@ -801,7 +873,8 @@ async fn settle(daemon: &Client, id: &str, seconds: u64) -> Result<bool, String>
 /// chat (`visible: false`), so reading it never clears its unread mark.
 async fn last_replies(daemon: &Client, id: &str, count: usize) -> Result<Vec<String>, String> {
     use crate::transcript::{Item, Transcript};
-    let params = json!({"sessionId": id, "limit": 5000, "visible": false});
+    let params =
+        json!({"sessionId": id, "limit": 5000, "maxBytes": MAX_READ_BYTES, "visible": false});
     let attached =
         daemon.request(method::MUX_ATTACH, params).await.map_err(|e| format!("{e:#}"))?;
     let mut transcript = Transcript::default();
@@ -813,13 +886,30 @@ async fn last_replies(daemon: &Client, id: &str, count: usize) -> Result<Vec<Str
         .iter()
         .rev()
         .filter_map(|item| match item {
-            Item::Assistant { text } => Some(masked(text)),
+            Item::Assistant { text } => Some(capped(masked(text))),
             _ => None,
         })
         .take(count.max(1))
         .collect();
     out.reverse();
     Ok(out)
+}
+
+/// `text` cut to [`MAX_REPLY_BYTES`] at a character boundary, the cut marked.
+fn capped(text: String) -> String {
+    if text.len() <= MAX_REPLY_BYTES {
+        return text;
+    }
+    let mut end = MAX_REPLY_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n\n[reply cut at {} KiB of {} KiB]",
+        &text[..end],
+        MAX_REPLY_BYTES / 1024,
+        text.len() / 1024
+    )
 }
 
 /// A worktree [`make_worktree`] made.
@@ -904,16 +994,26 @@ fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktr
             )
             .is_err()
     };
-    let chosen = std::iter::once(name.clone())
-        .chain((2..=99).map(|n| format!("{name}-{n}")))
-        .find(|c| free(c))
-        .ok_or(format!("every worktree name from {name} to {name}-99 is taken"))?;
     std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-    let root = parent.join(&chosen);
-    let branch = format!("cmux/{chosen}");
-    git(folder, &["worktree", "add", "-b", &branch, &root.to_string_lossy(), &base])?;
-    git(folder, &["config", &format!("branch.{branch}.cmuxBase"), &base])?;
-    Ok(Worktree { root, branch, base })
+    // Another start may take a free name before this one adds it: git then
+    // says it already exists, and the next name is tried.
+    for chosen in std::iter::once(name.clone()).chain((2..=99).map(|n| format!("{name}-{n}"))) {
+        if !free(&chosen) {
+            continue;
+        }
+        let root = parent.join(&chosen);
+        let branch = format!("cmux/{chosen}");
+        match git(folder, &["worktree", "add", "-b", &branch, &root.to_string_lossy(), &base]) {
+            Ok(_) => {}
+            Err(e) if e.contains("already exists") || e.contains("is already checked out") => {
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+        git(folder, &["config", &format!("branch.{branch}.cmuxBase"), &base])?;
+        return Ok(Worktree { root, branch, base });
+    }
+    Err(format!("every worktree name from {name} to {name}-99 is taken"))
 }
 
 #[cfg(test)]

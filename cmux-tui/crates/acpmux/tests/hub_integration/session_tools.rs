@@ -209,10 +209,7 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
     assert!(last.contains("cut"), "the cut is not marked: {}", &last[..200.min(last.len())]);
 
     // The child messages the chat that started it; the parent's turn stays unread too.
-    person
-        .request("_acpmux/view", json!({"sessionId": parent, "visible": false}))
-        .await
-        .unwrap();
+    person.request("_acpmux/view", json!({"sessionId": parent, "visible": false})).await.unwrap();
     let mut child_mcp = spawn_mcp(&scratch, &socket, &child_id);
     child_mcp.request("initialize", json!({"protocolVersion": "2025-06-18"})).await;
     let up = child_mcp.call("send_to_session", json!({"session": parent, "text": "done"})).await;
