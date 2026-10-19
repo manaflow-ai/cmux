@@ -165,6 +165,11 @@ class NightlyTrustedRouting(unittest.TestCase):
         # Other failed jobs of the run still report.
         self.assertIn("!(replaced && k === 'build-nightly-app')", script)
         self.assertNotIn("getRef", script)
+        # listJobsForWorkflowRun needs Actions read; without it the timeout this
+        # must still report would throw before any issue is opened.
+        self.assertEqual(DOC['jobs']['report-nightly-failure']['permissions'].get('actions'), 'read')
+        # An unreadable job list reports rather than going silent.
+        self.assertIn("catch (error)", script.split("listJobsForWorkflowRun")[1][:600])
 
     def test_runner_guard_accepts_only_the_complete_nightly_capability_tuple(self):
         source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
