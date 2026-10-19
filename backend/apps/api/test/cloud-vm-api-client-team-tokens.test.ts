@@ -93,10 +93,14 @@ describe("client team-scoped token issuance", () => {
 
   it("keeps the selected team's SSO gate at mint", async () => {
     const f = await fixture(), stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(f.team))
-    // Isolate the existing policy gate; provisioning an OIDC connection is covered by team-sso-login.
+    // Seed a serving connection; its provisioning is covered by team-sso-login. The policy RPC and mint gates run normally.
     await inDO(stub, async (owner) => {
-      vi.spyOn(owner, "signInRules").mockResolvedValue({ sso_required: true, minimum_version: null, allowed_classes: [] })
+      const state = owner.boundEngine.currentState
+      state.domains = { "client-sso.test": { domain: "client-sso.test", state: "verified" } }
+      state.sso_connections = { ssoc_test: { id: "ssoc_test", kind: "oidc", state: "active", domains: ["client-sso.test"], oidc: { issuer: "https://idp.test", client_id: "test", scopes: ["openid"], authorization_endpoint: "https://idp.test/auth", token_endpoint: "https://idp.test/token", jwks_uri: "https://idp.test/jwks" }, secret_set: true, jit: { enabled: false, default_role: "member" }, created_at: Date.now(), updated_at: Date.now() } }
     })
+    const changed = await call("/v1/ops", f.creator.token, { op: "team.policy.update", params: { changes: ["sso.enforce", "sso.enforceForOwners"].map((key) => ({ key, value: { value: true, mode: "enforced" } })), expected_version: 0, reason: "test" }, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": f.team })
+    expect(changed.json.ok).toBe(true)
     clearSignInRules()
     const token = await f.redeem(await f.challenge(f.team))
     expect(token.status).toBe(403)
@@ -123,21 +127,28 @@ describe("client team-scoped token issuance", () => {
   })
 
   it.each(["install", "expiry"])("rechecks %s invalidation committed during membership lookup", async (kind) => {
-    const f = await fixture(), stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(f.team))
-    await inDO(stub, async (owner) => {
-      const original = owner.memberRole.bind(owner)
-      vi.spyOn(owner, "memberRole").mockImplementationOnce(async () => {
+    const f = await fixture()
+    let lookups = 0
+    await inDO(f.userStub, async (owner) => {
+      const original = owner.tokenTeamMember.bind(owner)
+      owner.tokenTeamMember = async (team: string, user: string) => {
+        const role = await original(team, user)
+        expect(role).not.toBeNull()
+        lookups++
         if (kind === "install") {
           const revoked = await call("/v1/ops", f.creator.token, { op: "install.revoke", params: { install: f.install }, idempotency_key: crypto.randomUUID(), origin: "cli" })
           expect(revoked.json.ok).toBe(true)
-        } else await inDO(f.userStub, async (user) => {
-          const state = user.boundEngine.currentState
+        } else {
+          const state = owner.boundEngine.currentState
           state.grants[state.installs[f.install].grant].expires_at = Date.now() - 1
-        })
-        return original(f.team, f.creator.user)
-      })
+        }
+        return role
+      }
     })
-    expect((await f.redeem(await f.challenge(f.team))).status).toBe(403)
+    const token = await f.redeem(await f.challenge(f.team))
+    expect(lookups).toBe(1)
+    expect(token.status).toBe(403)
+    expect(token.json.message).toBe("install unknown or revoked")
   })
 
   it("keeps a paired daemon's bound team and refuses client-style team selection", async () => {
