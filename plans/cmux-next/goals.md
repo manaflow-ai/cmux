@@ -1,88 +1,83 @@
 # Goals in cmux NEXT
 
-cmux NEXT should make an agent's current goal visible without turning every run
-into a wall of status text. The goal is a compact, dismissible strip above the
-Home/Chief conversation, with the detailed run history still available below.
+cmux NEXT shows a conversation's unresolved work as a compact strip above the
+Home/Chief timeline, so the user can see what the Chief is doing without
+reading run cards. This doc describes what shipped in #21254 and #21277 and
+lists the work that is still open.
 
-## User-facing behavior
+## What landed
 
-When a conversation has an active goal, the strip shows:
-
-- a short goal title and the full objective in an accessible label;
-- the current state: `Working`, `Waiting`, `Stalled`, `Completed`, or `Failed`;
-- the latest meaningful update time;
-- one primary action: resume the conversation, open the relevant run, or
-  reopen the goal details;
-- a disclosure affordance for progress and recent blockers.
-
-The default view is quiet. The strip stays one line tall when healthy, and the
-progress disclosure is collapsed. A stalled goal remains visible after the
-agent run ages out so the user can see why the Chief stopped looking active.
-Completed goals move into the conversation history and do not keep a live
-banner. Failed goals keep the error summary and the retry action until the
-user dismisses or retries them.
-
-The strip uses the same measured disclosure motion as agent-chat history and
-respects `prefers-reduced-motion`. A state change changes color and icon with a
-short fade; it must not move the timeline or steal focus. Keyboard focus lands
-on the strip's disclosure button, then the primary action.
-
-## Data ownership
-
-The daemon remains the source of truth. Add an optional goal projection to the
-Home conversation snapshot rather than deriving it from rendered text:
+`webviews/src/pages/home-channels/goal.ts` defines a view-only projection:
 
 ```ts
+type HomeGoalState = "working" | "stalled" | "failed";
+
 interface HomeGoal {
-  id: string;
+  run: HomeRun;
+  state: HomeGoalState;
   title: string;
-  objective: string;
-  state: "working" | "waiting" | "stalled" | "completed" | "failed";
-  updatedAt: number;
-  blocker?: string;
-  runId?: string;
-  conversation: string;
+  detail?: string;
 }
 ```
 
-`HomeRun` remains the detailed execution record. A goal may reference the
-current run, but a missing or stale run must not erase the goal. The existing
-`isStale` rule in `webviews/src/pages/home-channels/runs.ts` supplies the
-initial `stalled` transition; the owner persists the resulting state so every
-client agrees about whether the goal is still active.
+There is no owner-side goal record. `projectGoal(entries, now)` derives the
+goal from the run book:
 
-The webview receives goal changes through the same owner event stream as
-conversation and run changes. It keeps a bounded goal book keyed by
-`conversation + goal.id`, applies revision ordering, and clears only goals
-for conversations the owner explicitly removed.
+- `RunBook.goalEntry(conversation)` picks the newest run (by `updatedAt`) in
+  the conversation whose status is `running` or `failed`.
+- A `running` run is `working`, or `stalled` once `isStale` in `runs.ts` holds
+  (no update for `STALE_RUN_MS`, 30 minutes). Runs with `updatedAt` 0 never
+  go stale.
+- A `failed` run is `failed`, and `detail` carries `run.error`.
+- `done` and other ended runs produce no goal, so the strip disappears when
+  the work completes.
+- `title` is `run.title` only. `answers` holds message IDs, not display text,
+  so it is never used as a title (#21277). An empty title falls back to the
+  localized `run.title` label in the view.
 
-## Rendering seam
+`GoalStrip.tsx` renders the projection. `HomeChannelsPage` mounts it at the
+top of `.lg-stage`, directly above `Timeline`, with the run book, the open
+conversation id, and `runs.onOpen`. The strip:
 
-`HomeChannelsPage` should render a `GoalStrip` immediately above the timeline
-when the selected conversation has an active or recently failed goal. The
-strip gets the selected conversation, its goal projection, the matching
-`RunEntry`, and the existing `RunsContextValue` actions. It must not reach into
-the run store directly or duplicate the run-state reducer.
+- is an `<output>` with `aria-live="polite"`, `aria-label` set to the title,
+  and `aria-busy` while working;
+- shows the shared `RunMark`, the localized state (`run.status.running`,
+  `run.status.stale`, `run.status.failed`), the title, and the error detail
+  when present;
+- has one action, `run.open`, which opens the run sheet for the goal's run;
+- ticks its clock once a second (`useNow`) only while the run is running, so
+  the stalled transition shows without a new owner event;
+- colors failed and stalled states in `ledger.css`, fades between states over
+  180 ms, and turns the transition off under `prefers-reduced-motion`.
 
-`GoalStrip` should reuse the existing status mark, `RunSheet`, and `RunCard`
-language. The first implementation can use the current run title as a
-fallback title while the daemon starts emitting the explicit `HomeGoal`
-projection; it must label that fallback as inferred and never persist it as a
-goal.
+`webviews/test/goal-strip.test.ts` covers the working, stalled, failed, and
+completed projections and the answer-ID title case. The gallery lists
+`GoalStrip` as a source but has no goal-specific variants yet.
 
-## Acceptance criteria
+## Open work (proposals)
 
-- A long-running goal remains visible while its run card folds or virtualizes.
-- A stale run changes the strip to `Stalled` without making the whole Chief
-  appear active.
-- Starting a new run for the same goal returns it to `Working` and clears the
-  old blocker only after the owner acknowledges the new run.
-- Reloading the Home page preserves the goal state and disclosure state is
-  reset per conversation.
-- VoiceOver can announce the goal title, state, blocker, and primary action.
-- The strip has gallery fixtures for working, stalled, failed, and completed
-  states, including reduced-motion coverage.
+These are not built. Each should land as its own PR.
 
-This is intentionally a projection and rendering seam first. Goal creation,
-editing, and cross-conversation goal management should follow after the
-read-only strip has stable owner events and accessibility coverage.
+1. **Owner goal record.** The goal is inferred from the newest unresolved
+   run, so a new run replaces the previous goal and a stalled or failed state
+   is computed per client. If the daemon starts owning goals, add an optional
+   projection to the Home conversation snapshot and the owner event stream,
+   persist the `stalled` transition there so every client agrees, and keep
+   `HomeRun` as the execution record a goal points at. When that lands, the
+   view-only `HomeGoal` should take the owner shape instead of a second type
+   being added beside it, and the run-derived projection becomes the
+   fallback for owners that do not emit goals.
+2. **More states.** `waiting` (blocked on the user) and `completed` (briefly
+   shown, then moved to history) need an owner signal; the run status alone
+   cannot tell them apart.
+3. **Dismiss and retry.** A failed goal stays until a newer run replaces it.
+   There is no dismiss or retry action on the strip yet.
+4. **Disclosure.** The strip is a single line. A collapsed disclosure for
+   progress and recent blockers, using the agent-chat disclosure motion, is
+   still to do; keyboard focus would then land on the disclosure before the
+   primary action.
+5. **Gallery fixtures.** Add home-channels gallery variants for working,
+   stalled, and failed strips, including a reduced-motion check.
+
+Goal creation, editing, and cross-conversation goal management come after the
+owner record exists.
