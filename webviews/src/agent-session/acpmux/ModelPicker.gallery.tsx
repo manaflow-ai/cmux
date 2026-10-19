@@ -209,6 +209,31 @@ export default componentEntry<ModelPickerProps>({
       },
     },
     curated: { props: curated, play: openModels },
+    // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
+    // Codex's models and More models, with no harness rail and no Add harness….
+    "started-chat": {
+      props: {
+        ...curated,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openModels,
+    },
+    // The same chat on the compact menu: Codex's numbered models with no rail.
+    "started-chat-quick-menu": {
+      props: {
+        ...quick,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openQuick,
+    },
     "quick-menu": { props: quick, play: openQuick },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
     "quick-menu-rail": {
