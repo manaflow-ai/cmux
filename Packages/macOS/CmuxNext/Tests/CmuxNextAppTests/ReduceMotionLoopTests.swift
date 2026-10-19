@@ -86,7 +86,7 @@ import Testing
         MessagesLabHomeView.reduceMotionOverride = true
         cell.startTypingBreath(insert: CACurrentMediaTime())
         // Hoisted: #expect wraps a rethrowing call in a throwing closure ("call can throw").
-        let breathLoops = [cell.typingContainer, cell.typingClip].flatMap { Self.loops(under: $0) }
+        let breathLoops: [String] = [cell.typingContainer, cell.typingClip].flatMap { Self.loops(under: $0) }
         #expect(breathLoops == [])
     }
 
