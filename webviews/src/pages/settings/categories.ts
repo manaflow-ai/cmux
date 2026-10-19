@@ -17,6 +17,7 @@ export const CATEGORY_CARDS = [
   "machines",
   "accounts",
   "agentHarnesses",
+  "agentIntegrations",
   "advancedInfo",
   "advancedActions",
   "backdrops",
