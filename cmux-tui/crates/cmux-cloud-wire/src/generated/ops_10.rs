@@ -5,6 +5,41 @@
 use super::*;
 
 wire_op! {
+    /// Make an install's presence key unusable at once (device lost); its nonces are dropped.
+    UserPresenceKeyRevokeOp {
+        name: "user.presence_key.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: UserPresenceKeyRevokeParams,
+        result: Value,
+        error: UserPresenceKeyRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserPresenceKeyRevokeParams {
+    pub install: String,
+}
+
+wire_errors! {
+    /// The error codes user.presence_key.revoke declares.
+    UserPresenceKeyRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        TextConfirmLocked = "text_confirm.locked",
+        TextConfirmProofRequired = "text_confirm.proof_required",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// List the teams the caller may act in with x-cmux-team (a team not listed answers team.not_member; one with sso_required answers auth.sso_required until the person signs in with its SSO): the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out.
     UserTeamsListOp {
         name: "user.teams.list",
