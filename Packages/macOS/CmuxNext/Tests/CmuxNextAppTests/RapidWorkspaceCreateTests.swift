@@ -233,6 +233,12 @@ struct RapidWorkspaceCreateTests {
         let window = state.id
         let bridge = try #require(services.windows.controller(for: window)?.sidebar)
         let sidebar = bridge.model
+        let notices = Notices()
+        let shows = services.registry.refusalObserver
+        services.registry.refusalObserver = { reason, quiet in
+            notices.shown.append(reason)
+            shows?(reason, quiet)
+        }
         // The report's path: the sidebar document orders the rows (the older paths held the row by a pending edit).
         await Self.wait(within: .seconds(30)) { SidebarDocWiring.isActive }
         try #require(SidebarDocWiring.isActive, "the same-tree daemon serves no sidebar document")
@@ -299,10 +305,10 @@ struct RapidWorkspaceCreateTests {
         var failures: [String] = []
         for task in work { if let failure = await task.value { failures.append(failure.message) } }
         let end = layout()
-        print("cmdN-beside-group: places=\(places) before: \(start) after: \(end)")
+        print("cmdN-beside-group: places=\(places) before: \(start) after: \(end) notices: \(notices.shown)")
         await launched.stop()
 
-        #expect(ready, "setup: no group first with the shown workspace loose after it: \(start) \(seedFailures)")
+        #expect(ready, "setup: no group first with the shown workspace loose after it: \(start) \(seedFailures) \(notices.shown)")
         #expect(added != nil, "no new row")
         #expect(settledAt != nil, "never the workspace's own row: \(end)")
         #expect(places.count == 1, "the new row moved through \(places) rows above it: \(start) -> \(end)")
