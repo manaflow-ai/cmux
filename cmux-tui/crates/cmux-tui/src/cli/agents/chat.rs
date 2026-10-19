@@ -36,6 +36,10 @@ const MAX_READ_TEXT_BYTES: usize = 160 * 1024;
 /// acpmux events one read takes per request, and requests per read.
 const EVENT_PAGE: u64 = 500;
 const MAX_EVENT_PAGES: usize = 20;
+/// Pages a full read still takes to find the turn end that settles a tool
+/// call it returns. A tool in the chat's running turn has none yet, so a
+/// read of a live chat must not load on to `MAX_EVENT_PAGES` for it.
+const SETTLE_PAGES: usize = 2;
 
 /// One `cmux agents chat` verb.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -314,6 +318,7 @@ fn load(
     // whole and its continuation is not read as a new item.
     let mut cursor = after.saturating_sub(1);
     let mut more = true;
+    let mut settle_pages = 0;
     for _ in 0..MAX_EVENT_PAGES {
         let page = events(cursor)?;
         let events = page["events"].as_array().cloned().unwrap_or_default();
@@ -324,8 +329,14 @@ fn load(
         more = page["hasMore"] == true && !events.is_empty();
         let ready = transcript.items.iter().filter(|item| item.id > after).count();
         let full = ready > limit || transcript.text_bytes > MAX_READ_TEXT_BYTES;
-        if !more || (full && !transcript.waiting_on_tool(after)) {
+        if !more || (full && !transcript.held_on_tool(after, limit)) {
             break;
+        }
+        if full {
+            if settle_pages == SETTLE_PAGES {
+                break;
+            }
+            settle_pages += 1;
         }
     }
     Ok((transcript, more, cursor))
@@ -485,13 +496,28 @@ impl Transcript {
         }
     }
 
-    /// Whether an unfinished tool call follows `after`: the read keeps
-    /// loading events until its turn ends, so the turn end is seen.
-    fn waiting_on_tool(&self, after: u64) -> bool {
-        self.items
-            .iter()
-            .enumerate()
-            .any(|(index, item)| item.id > after && item.role == "tool" && !self.complete(index))
+    /// Whether a read returns an unfinished tool call, which holds its
+    /// `next_after`: the read loads a few pages more, so a turn end that
+    /// settles it is seen. A tool call past the returned items holds nothing.
+    fn held_on_tool(&self, after: u64, limit: usize) -> bool {
+        self.returned(after, limit)
+            .into_iter()
+            .any(|index| self.items[index].role == "tool" && !self.complete(index))
+    }
+
+    /// The indices of the items a read after `after` returns: at most
+    /// `limit`, and no more once their text passes `MAX_READ_TEXT_BYTES`.
+    fn returned(&self, after: u64, limit: usize) -> Vec<usize> {
+        let mut indices = Vec::new();
+        let mut bytes = 0;
+        for (index, item) in self.items.iter().enumerate().filter(|(_, item)| item.id > after) {
+            if indices.len() == limit || (!indices.is_empty() && bytes > MAX_READ_TEXT_BYTES) {
+                break;
+            }
+            bytes += item.text.len().min(MAX_ITEM_TEXT_BYTES);
+            indices.push(index);
+        }
+        indices
     }
 
     /// The items after `after`, at most `limit`. `next_after` never passes
@@ -500,27 +526,22 @@ impl Transcript {
     /// item read is finished and returned, it moves to `scanned`, the last
     /// event read, so a long run of events with no item is not read again.
     fn page(&self, chat: &str, after: u64, limit: usize, more_events: bool, scanned: u64) -> Value {
-        let candidates: Vec<(usize, &Item)> =
-            self.items.iter().enumerate().filter(|(_, item)| item.id > after).collect();
+        let candidates = self.items.iter().filter(|item| item.id > after).count();
+        let returned = self.returned(after, limit);
         let mut items = Vec::new();
         let mut next_after = after;
         let mut settled = true;
-        let mut bytes = 0;
-        let mut returned = 0;
-        for (index, item) in &candidates {
-            if returned == limit || (returned > 0 && bytes > MAX_READ_TEXT_BYTES) {
-                break;
-            }
-            let complete = self.complete(*index);
+        for &index in &returned {
+            let item = &self.items[index];
+            let complete = self.complete(index);
             settled &= complete;
             if settled {
                 next_after = item.id;
             }
-            bytes += item.text.len().min(MAX_ITEM_TEXT_BYTES);
             items.push(item.json(!complete));
-            returned += 1;
         }
-        if settled && returned == candidates.len() {
+        let returned = returned.len();
+        if settled && returned == candidates {
             next_after = next_after.max(scanned);
         }
         json!({
@@ -528,7 +549,7 @@ impl Transcript {
             "chat": chat,
             "items": items,
             "next_after": next_after,
-            "has_more": returned < candidates.len() || more_events,
+            "has_more": returned < candidates || more_events,
         })
     }
 }
