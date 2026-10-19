@@ -112,12 +112,32 @@ describe("app host network identity binding", () => {
       }, legacyKey)
     })
     expect((await f.directory()).hosts.find((h: { id: string }) => h.id === f.host).network).not.toHaveProperty("install_grant")
+    f.setStatus(503)
+    expect((await f.bind(key)).json.ok).toBe(false)
+    expect((await f.directory()).hosts.find((h: { id: string }) => h.id === f.host).network).not.toHaveProperty("install_grant")
+    f.setStatus(200)
     const refreshed = await f.bind(key), retry = await f.bind(key)
     expect(refreshed.json.ok).toBe(true)
     expect(refreshed.json.value.network).toMatchObject({ install_grant: f.grant })
     expect(refreshed.json.replayed).toBe(false)
     expect(retry.json).toMatchObject({ ok: true, replayed: true, value: refreshed.json.value })
-    expect(f.requests).toHaveLength(2)
+    expect(f.requests).toHaveLength(3)
+  })
+
+  it.each(["mac", "cli"] as const)("keeps a confirmed %s grant when a historical command omits it", async (kind) => {
+    const f = await fixture(kind)
+    expect((await f.bind()).json.ok).toBe(true)
+    const before = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.host).network
+    const owner = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(f.team.team))
+    await inDO(owner, async (instance) => {
+      instance.submitSystem("host.network.bound", {
+        host: f.host, install: f.install, owner_user: f.team.creator.user, wg_public_key: f.wg,
+        network: { tenant: f.team.stackTeam, mesh: MESH, device: DEVICE }
+      }, crypto.randomUUID())
+    })
+    const after = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.host).network
+    expect(after).toEqual(before)
+    expect(after.install_grant).toBe(f.grant)
   })
 
   it.each(["mac", "cli"] as const)("binds the Native identity to the actual %s host without persisting proof or policy material", async (kind) => {
