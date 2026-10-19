@@ -239,7 +239,10 @@ function ArtifactFrame({ html, title }: { html: string; title: string }) {
 }
 
 function RunningFrame({ html, title }: { html: string; title: string }) {
-  const { frame } = useRenderFrame(html);
+  const { frame, stopped, error } = useRenderFrame(html);
+  const t = useT();
+  if (stopped)
+    return <div className="acpmux-render-note" role="status">{t("render.error")} {error}</div>;
   return (
     <iframe
       ref={frame}

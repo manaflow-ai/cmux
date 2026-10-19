@@ -356,6 +356,7 @@ function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
                   version,
                   at: row.at,
                   kind: RENDER,
+                  renderLive: row.renderLive,
                   items: [item],
                 },
               ]

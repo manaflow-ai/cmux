@@ -622,7 +622,14 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} renderId={renderId} turnStreaming={turnStreaming} />
+          <Blocks
+            blocks={block.children}
+            opts={opts}
+            depth={depth}
+            code={code === "plain" ? "plain" : undefined}
+            renderId={renderId}
+            turnStreaming={turnStreaming}
+          />
         </blockquote>
       );
     case "list": {
@@ -646,6 +653,7 @@ function Block({
                 {it.children.length > 0 && (
                   <Blocks
                     blocks={it.children}
+                    code={code === "plain" ? "plain" : undefined}
                     opts={opts}
                     depth={depth + 1}
                     renderId={`${renderId}/item/${i}`}
@@ -702,7 +710,13 @@ function Block({
         const render = renderFence(block.lang, block.code) ?? {
           html: block.lang.toLowerCase() === "cmux-react" ? REACT_MARKER + block.code : block.code,
         };
-        return <RenderCard call={{ ...render, id: rowId ? renderId : undefined }} streaming={!!block.open} />;
+        return (
+          <RenderCard
+            call={{ ...render, id: rowId ? renderId : undefined }}
+            streaming={!!block.open}
+            turnStreaming={turnStreaming}
+          />
+        );
       }
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
@@ -727,12 +741,14 @@ function Block({
 }
 
 function Blocks({
+  code,
   blocks,
   opts,
   depth,
   renderId,
   turnStreaming,
 }: {
+  code?: "open" | "handoff" | "final" | "plain";
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
@@ -743,7 +759,14 @@ function Blocks({
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <BlockView block={b} opts={opts} depth={depth} renderId={`${renderId}/${i}`} turnStreaming={turnStreaming} />
+          <BlockView
+            block={b}
+            code={code}
+            opts={opts}
+            depth={depth}
+            renderId={`${renderId}/${i}`}
+            turnStreaming={turnStreaming}
+          />
         </Fragment>
       ))}
     </>
@@ -967,7 +990,7 @@ export function Markdown({
         depth={0}
         turnStreaming={turnStreaming}
         enter={streaming && live}
-        code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
+        code={plainCode ? "plain" : open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={entry.key === revealedBlocks.at(-1)?.key && !receivedRender(entry.block) ? freshTail : undefined}
       />
     );

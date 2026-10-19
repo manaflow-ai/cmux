@@ -419,6 +419,7 @@ test("live render rows have no card head or floating Copy", async () => {
     {
       ...prompt("render-copy", "card source"),
       kind: "render",
+      renderLive: true,
       items: [
         {
           kind: "tool",

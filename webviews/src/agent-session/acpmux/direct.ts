@@ -1594,7 +1594,7 @@ export class AcpmuxDirectClient {
     this.events.push(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
-    this.reduce(event);
+    this.reduce(event, true);
     this.emitInFrame(event.kind);
   }
 
@@ -1730,17 +1730,17 @@ export class AcpmuxDirectClient {
     this.stopAfterSeq = undefined;
   }
 
-  private reduce(event: EventRecord): void {
+  private reduce(event: EventRecord, live = false): void {
     this.rows.current = event.seq;
     try {
-      this.reduceEvent(event);
+      this.reduceEvent(event, live);
     } finally {
       this.rows.current = undefined;
       if (event.seq) this.rows.saw(event.seq);
     }
   }
 
-  private reduceEvent(event: EventRecord): void {
+  private reduceEvent(event: EventRecord, live: boolean): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
     if (update?.sessionUpdate === USAGE_KIND) {
@@ -1925,6 +1925,7 @@ export class AcpmuxDirectClient {
         kind: "assistant",
         text: `${existing?.text ?? ""}${text}`,
         streaming: true,
+        renderLive: existing?.renderLive ?? live,
       });
       this.streamingAssistant = id;
       this.streamingAssistantMessageId = messageId;
@@ -1943,6 +1944,7 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
+        renderLive: existing?.renderLive ?? live,
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
       });
@@ -1971,6 +1973,7 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
+        renderLive: existing?.renderLive ?? live,
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
       });
