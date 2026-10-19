@@ -96,8 +96,7 @@ fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
             return None;
         }
         let pid = u32::try_from(record["pid"].as_u64()?).ok()?;
-        registered_runs(pid, record["startedAt"].as_u64())
-            .then_some(LiveUse::Registered { pid })
+        registered_runs(pid, record["startedAt"].as_u64()).then_some(LiveUse::Registered { pid })
     })
 }
 
