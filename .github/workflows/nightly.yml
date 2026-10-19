@@ -3765,6 +3765,24 @@ jobs:
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
 
+      # The nightly canary (docs/ci/nightly-next-canary.md): a visible window,
+      # a New Tab, an agent session that answers a prompt (acpmux's test
+      # agent), and no crash in the first minute. Repository variable
+      # NIGHTLY_NEXT_CANARY: unset or `report` runs it and only reports a
+      # failure; `enforce` fails this job, so publish-nightly publishes
+      # nothing; `off` skips it.
+      - name: Canary the signed app
+        if: env.TRACK == 'nightly-next' && vars.NIGHTLY_NEXT_CANARY != 'off'
+        continue-on-error: ${{ vars.NIGHTLY_NEXT_CANARY != 'enforce' }}
+        run: |
+          set -euo pipefail
+          if ! ./scripts/smoke-signed-app-cli.sh "$CHANNEL_APP_PATH" --canary; then
+            echo "::error title=nightly-next canary::the signed app failed the canary (NIGHTLY_NEXT_CANARY=${NIGHTLY_NEXT_CANARY:-report})"
+            exit 1
+          fi
+        env:
+          NIGHTLY_NEXT_CANARY: ${{ vars.NIGHTLY_NEXT_CANARY }}
+
       # The notarize step stapled the final DMG with its launch smokes
       # deferred. Smoke the app inside that exact DMG and record what was
       # tested; publish-nightly publishes only these bytes. A build still in
