@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 public import Sentry
 
 /// A crash-reporting event for a finished main-thread lag spike (a stall

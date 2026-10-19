@@ -9,17 +9,22 @@ import Testing
 
     @Test func shortSpikesAreNeverAdmitted() {
         var limiter = LagSpikeRateLimiter(minimumNanos: 250 * Self.ms, capacity: 3, refillNanos: 1_000 * Self.ms)
-        #expect(!limiter.admit(durationNanos: 249 * Self.ms, nowNanos: 0))
-        #expect(limiter.admit(durationNanos: 250 * Self.ms, nowNanos: 0))
+        let admitted1 = limiter.admit(durationNanos: 249 * Self.ms, nowNanos: 0)
+        #expect(!admitted1)
+        let admitted2 = limiter.admit(durationNanos: 250 * Self.ms, nowNanos: 0)
+        #expect(admitted2)
     }
 
     @Test func aBurstIsCappedThenRefillsOverTime() {
         var limiter = LagSpikeRateLimiter(minimumNanos: 1, capacity: 3, refillNanos: 1_000 * Self.ms)
         let burst = (0..<10).map { _ in limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 10 * Self.ms) }
         #expect(burst.filter { $0 }.count == 3)
-        #expect(!limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 900 * Self.ms))
-        #expect(limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 1_010 * Self.ms))
-        #expect(!limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 1_020 * Self.ms))
+        let admitted3 = limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 900 * Self.ms)
+        #expect(!admitted3)
+        let admitted4 = limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 1_010 * Self.ms)
+        #expect(admitted4)
+        let admitted5 = limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 1_020 * Self.ms)
+        #expect(!admitted5)
         // A long quiet time refills only up to the capacity.
         let later = (0..<10).map { _ in limiter.admit(durationNanos: 300 * Self.ms, nowNanos: 100_000 * Self.ms) }
         #expect(later.filter { $0 }.count == 3)
@@ -97,13 +102,13 @@ private actor SpikeStore {
     }
 }
 
-private final class SpikeRecorder: Sendable {
+private nonisolated final class SpikeRecorder: Sendable {
     let store = SpikeStore()
     func add(_ spike: LagSpikeEvent) { Task { await store.add(spike) } }
     func wait(for count: Int) async -> [LagSpikeEvent] { await store.wait(for: count) }
 }
 
 /// A fixed monotonic clock (a class: `Mutex` cannot be captured).
-private final class SpikeClock: Sendable {
+private nonisolated final class SpikeClock: Sendable {
     let now = Mutex<UInt64>(0)
 }
