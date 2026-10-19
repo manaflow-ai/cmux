@@ -63,7 +63,7 @@ enum BrowserToolbarHandlers {
 
     /// Wires a new browser page's buttons (`TabContentCache.onBrowserEntryCreated`).
     static func install(on entry: BrowserEntry, services: AppServices) {
-        let key = entry.tab.id.rawValue
+        let key = tabKey(entry)
         let buttons = entry.chrome.toolbarButtons
         buttons.onPress = { [weak services, weak entry] button in
             guard let services, let entry else { return }
@@ -74,7 +74,9 @@ enum BrowserToolbarHandlers {
             return services?.registry.shortcutDisplay(for: actionID(for: button))
         }
         buttons.profileName = profileName(forTab: key, services: services)
-        buttons.downloads = { [weak services] in services?.cache.pageRequests.downloads.toolbarSummary ?? BrowserToolbarDownloads() }
+        buttons.downloads = { [weak services] in
+            services?.cache.pageRequests.downloads.toolbarSummary(forTab: key) ?? BrowserToolbarDownloads()
+        }
         buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
         buttons.pins = { [weak services] in (services?.settings.map(BrowserToolbarButtonsSetting.current) ?? .fallback).pinned }
     }
@@ -92,7 +94,14 @@ enum BrowserToolbarHandlers {
     }
 
     private static func tabTarget(_ entry: BrowserEntry) -> ActionTargetRef {
-        ActionTargetRef(kind: .tab, id: entry.tab.id.rawValue)
+        ActionTargetRef(kind: .tab, id: tabKey(entry))
+    }
+
+    /// The tab id the App keys `entry` by (`TabContentCache`): the address
+    /// bar's, which an adopted page (a popup or link opened into a new tab)
+    /// keeps although its own page id differs.
+    private static func tabKey(_ entry: BrowserEntry) -> String {
+        entry.chrome.addressBar.tabKey ?? entry.tab.id.rawValue
     }
 
     /// System, Light and Dark, each running `browserTheme`; the

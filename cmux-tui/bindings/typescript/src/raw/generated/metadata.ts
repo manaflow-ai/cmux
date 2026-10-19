@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691. */
+/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691" as const;
+export const SDK_IR_SHA256 = "bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2620,6 +2620,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "dock-columns-v1",
     "fields": {
+      "pinned": {
+        "since": 12,
+        "capability": "pinned-dock-v1"
+      },
       "role": {
         "since": 12,
         "capability": "dock-column-role-v1"
@@ -2629,6 +2633,7 @@ export const COMMAND_METADATA = {
     "constraints": [
       "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
       "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
+      "pinned: true (pinned-dock-v1) marks the column pinned (the Home dock); false or omitted keeps the current value, and allow_tabs changes only with column.update. A pinned column keeps its first tab, takes no other tab unless allow_tabs is on, and refuses an undock, edge change or replacement with error_code \"dock-column-pinned\".",
       "See spec/commands.md for the result object."
     ]
   },
@@ -24105,6 +24110,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "default": null,
           "nullable": true,
           "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "pinned": {
+          "capability": "pinned-dock-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "boolean"
