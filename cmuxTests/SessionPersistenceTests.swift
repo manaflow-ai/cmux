@@ -8155,6 +8155,66 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testLegacySubrouterCodexRestoreStripsOnlyCanonicalWorkingDirectoryPrefix() throws {
+        let cwd = "/tmp/project with spaces"
+        let canonical = TerminalStartupWorkingDirectoryPrefix.prefix(
+            "codex -c model_provider=subrouter",
+            workingDirectory: cwd
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.codex.rawValue,
+            command: canonical,
+            cwd: cwd,
+            checkpointId: "codex-session",
+            autoResume: true
+        )
+        let launch = AgentLaunchCommandSnapshot(arguments: ["codex", "-c", "model_provider=subrouter"])
+        let input = try XCTUnwrap(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: binding.kind,
+                sessionID: binding.checkpointId,
+                launchCommand: launch,
+                resumeBinding: binding,
+                workingDirectory: cwd
+            )
+        )
+        XCTAssertTrue(input.contains("'sr' 'codex' 'resume' 'codex-session'"), input)
+
+        let mismatched = SurfaceResumeBindingSnapshot(
+            kind: binding.kind,
+            command: canonical,
+            cwd: "/tmp/other",
+            checkpointId: binding.checkpointId,
+            autoResume: true
+        )
+        XCTAssertNil(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: mismatched.kind,
+                sessionID: mismatched.checkpointId,
+                launchCommand: launch,
+                resumeBinding: mismatched,
+                workingDirectory: "/tmp/other"
+            )
+        )
+
+        let arbitraryShell = SurfaceResumeBindingSnapshot(
+            kind: binding.kind,
+            command: "echo ok && codex -c model_provider=subrouter",
+            cwd: cwd,
+            checkpointId: binding.checkpointId,
+            autoResume: true
+        )
+        XCTAssertNil(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: arbitraryShell.kind,
+                sessionID: arbitraryShell.checkpointId,
+                launchCommand: launch,
+                resumeBinding: arbitraryShell,
+                workingDirectory: cwd
+            )
+        )
+    }
+
     func testLegacySubrouterRestoreRejectsConflictingSourcesAndSpoofedCodex() throws {
         let subrouterBinding = SurfaceResumeBindingSnapshot(
             kind: RestorableAgentKind.codex.rawValue,

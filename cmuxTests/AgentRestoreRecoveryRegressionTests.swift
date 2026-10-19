@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -10,6 +11,26 @@ import Testing
 @MainActor
 @Suite("Restore execution owns admission", .serialized)
 struct AgentRestoreRecoveryRegressionTests {
+    @Test("A managed-only Subrouter Codex binding survives workspace restore")
+    func managedOnlySubrouterCodexBindingRoutesThroughSubrouter() throws {
+        try verifyManagedOnlyProviderRestore(kind: .codex, routed: true)
+    }
+
+    @Test("A managed-only Subrouter Claude binding survives workspace restore")
+    func managedOnlySubrouterClaudeBindingRoutesThroughSubrouter() throws {
+        try verifyManagedOnlyProviderRestore(kind: .claude, routed: true)
+    }
+
+    @Test("A managed-only direct Codex binding remains a direct restore")
+    func managedOnlyDirectCodexBindingDoesNotInventSubrouterRouting() throws {
+        try verifyManagedOnlyProviderRestore(kind: .codex, routed: false)
+    }
+
+    @Test("A managed-only direct Claude binding remains a direct restore")
+    func managedOnlyDirectClaudeBindingDoesNotInventSubrouterRouting() throws {
+        try verifyManagedOnlyProviderRestore(kind: .claude, routed: false)
+    }
+
     @Test("An unavailable topology scan retains the exact Codex execution selector")
     func unavailableScanPreservesCodexRestore() throws {
         try verifyCodexRestore(index: .unavailable)
@@ -165,5 +186,148 @@ struct AgentRestoreRecoveryRegressionTests {
             $0.agent?.sessionId == sessionID
         }
         #expect(continuation?.wasAgentRunning == true, "Pending recovery must survive another quit")
+    }
+
+    private enum ManagedOnlyProviderKind {
+        case codex
+        case claude
+
+        var rawValue: String {
+            switch self {
+            case .codex: "codex"
+            case .claude: "claude"
+            }
+        }
+    }
+
+    private func verifyManagedOnlyProviderRestore(
+        kind: ManagedOnlyProviderKind,
+        routed: Bool
+    ) throws {
+        let defaultsName = "cmux-managed-only-restore-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let sessionID = "managed-only-\(kind.rawValue)-\(UUID().uuidString.lowercased())"
+        let cwd = "/tmp/cmux managed-only"
+        let launch: AgentLaunchCommandSnapshot
+        let environment: [String: String]?
+        let command: String
+        switch (kind, routed) {
+        case (.codex, true):
+            launch = AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: cwd,
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            )
+            environment = nil
+            command = "codex -c model_provider=subrouter"
+        case (.claude, true):
+            let marker = "sr claude proxy --resume"
+            environment = [
+                SubrouterClaudeResumeRouting.environmentKey: marker,
+                SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+            ]
+            launch = AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                arguments: ["claude"],
+                workingDirectory: cwd,
+                environment: environment,
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            )
+            command = "claude --resume \(sessionID)"
+        case (.codex, false):
+            launch = AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                arguments: ["codex", "resume", sessionID],
+                workingDirectory: cwd,
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            )
+            environment = nil
+            command = "codex resume \(sessionID)"
+        case (.claude, false):
+            launch = AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                arguments: ["claude", "--resume", sessionID],
+                workingDirectory: cwd,
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            )
+            environment = nil
+            command = "claude --resume \(sessionID)"
+        }
+        let binding = SurfaceResumeBindingSnapshot(
+            name: kind.rawValue.capitalized,
+            kind: kind.rawValue,
+            command: routed
+                ? TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
+                : command,
+            cwd: cwd,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            environment: environment,
+            launchCommand: launch,
+            autoResume: true,
+            updatedAt: 1_800_000_000
+        )
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        snapshot.panels[panelIndex].terminal?.managedAgentResumeBinding = binding
+        snapshot.panels[panelIndex].terminal?.agent = SessionRestorableAgentSnapshot(
+            kind: {
+                switch kind {
+                case .codex: .codex
+                case .claude: .claude
+                }
+            }(),
+            sessionId: sessionID,
+            workingDirectory: cwd,
+            launchCommand: launch
+        )
+        snapshot.panels[panelIndex].terminal?.resumeBinding = nil
+        snapshot.panels[panelIndex].terminal?.wasAgentRunning = !routed
+
+        let directRoutingInput = Workspace.legacySubrouterResumeStartupInput(
+            kind: binding.kind,
+            sessionID: binding.checkpointId,
+            launchCommand: binding.launchCommand,
+            resumeBinding: binding,
+            workingDirectory: cwd
+        )
+        if routed {
+            #expect(directRoutingInput != nil, Comment(rawValue: "directRoutingInput=\(directRoutingInput ?? "nil")"))
+        } else {
+            #expect(directRoutingInput == nil, Comment(rawValue: "directRoutingInput=\(directRoutingInput ?? "nil")"))
+        }
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredIDs[sourcePanelID])
+        let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
+        let input = try #require(terminal.surface.debugInitialInputForTesting())
+
+        if routed {
+            #expect(input.contains("'sr' '\(kind.rawValue)'"), Comment(rawValue: input))
+            #expect(!input.contains("cmux restore"), Comment(rawValue: input))
+        } else {
+            #expect(!input.contains("'sr'"), Comment(rawValue: input))
+            #expect(input.contains(sessionID), Comment(rawValue: input))
+        }
+        #expect(
+            restored.surfaceResumeBinding(panelId: restoredPanelID) == nil,
+            "A managed-only binding must not be reintroduced as a stale compatibility binding"
+        )
     }
 }
