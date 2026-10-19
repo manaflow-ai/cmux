@@ -51,6 +51,8 @@ mod generated;
 pub use envelope::{HttpError, OpError, OpRequest, OpResponse, Origin, ReadResponse};
 pub use frames::{ClientOut, OwnerFrame};
 pub use generated::*;
-pub use mirror::{INTENT_TTL_MS, OwnerUnreachable, StreamMirror};
+pub use mirror::{
+    Applied, INTENT_TTL_MS, OwnerUnreachable, PositionOnly, Received, Resume, StreamMirror,
+};
 pub use op::{Op, OpVisitor, WireClass, WireError, WireIdempotency, WirePrincipal};
 pub use value::{BoolLit, WireNumber};

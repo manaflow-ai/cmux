@@ -513,8 +513,24 @@ Phase 1, slice 1 (built 2026-10-18, branch `feat-cmux-next-object-sync`):
   disconnects, retries, a clock jump past the TTL), 754 steps; `bun run catalog:check` fails on
   drift. `tests/mirror_vectors.rs` replays every step and compares the frames sent and the whole
   client state after it. Result: `cargo test`, `clippy -D warnings` and `fmt --check` green on rbx.
-- Next slice: bind `StreamMirror` in `cmux-mobile-ffi` (uniffi object with a listener), then use
-  it in `cmux-tui-cloud-conversations` instead of its own `last_seq` tracking.
+
+Phase 1, slice 2 (built 2026-10-19):
+
+- `cmux-cloud-wire` mirror gains the relay surface: `without_rows`, `PositionOnly`, `resume`
+  (subscribe `after_seq` or buffer until the snapshot), `resync`, `reset` for a new principal, and
+  `receive_applied` (the applied frames in order). Event and snapshot frames keep unknown fields,
+  so a relay passes them on unchanged.
+- `cmux-tui-cloud-conversations/src/stream.rs` keeps no position of its own: the daemon proxy uses
+  `StreamMirror`. A behavior change: the events that arrive after a gap are buffered and reach
+  clients after the snapshot (before, they were dropped until the next gap). The daemon test
+  `a_gap_resyncs_replays_the_buffered_events_and_a_reconnect_resumes_after_them` was red before
+  the change and is green after it.
+- `cmux-mobile-ffi/src/ownership.rs`: `OwnershipMirror`, a uniffi object with a JSON-text surface
+  (frames in and out as the socket carries them, `view()` for rendering). No listener: the app
+  reads `view()` after a call that applied frames. `tests/ownership_vectors.rs` replays every
+  vector through the exported surface.
+- Next slice: the phone's Cloud Chief uses `OwnershipMirror` (phase 2, iOS lane) instead of its
+  Swift stream code.
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
 `feat-cmux-next` in small slices as soon as its slice is green (Lawrence, 2026-10-18: "cut our

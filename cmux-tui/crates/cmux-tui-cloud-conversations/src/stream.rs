@@ -1,9 +1,12 @@
 //! One upstream `cmux.wire/1` stream as a pure state machine
 //! (home-cloud-proxy.md sections 5 and 7): frames in, frames to send and
-//! daemon events out. It keeps the last applied stream seq so a reconnect
-//! resumes with `after_seq`, drops duplicates, and answers a gap with
-//! `snapshot.request`, so events reach clients in seq order exactly once.
+//! daemon events out. The position is the shared `cmux.wire/1` mirror
+//! (cmux-cloud-wire `StreamMirror`, the engine the phone apps use): a
+//! reconnect resumes with `after_seq`, a duplicate is dropped, a gap is
+//! buffered and answered with `snapshot.request`, and the buffered events
+//! replay after the snapshot, so events reach clients in seq order exactly once.
 
+use cmux_cloud_wire::{Applied, ClientOut, OwnerFrame, PositionOnly, StreamMirror};
 use serde_json::{Value, json};
 
 use super::contract::{
@@ -210,26 +213,32 @@ pub(crate) enum StreamAction {
 #[derive(Debug)]
 pub(crate) struct StreamState {
     target: Target,
-    /// The last stream seq applied (from a snapshot or an event).
-    last_seq: Option<u64>,
+    /// The stream position and the head, without rows (the daemon's clients
+    /// hold the rows): the shared `cmux.wire/1` mirror decides which events
+    /// apply, buffers a gap's events until the snapshot that closes it, and
+    /// says where a new connection resumes.
+    mirror: StreamMirror<PositionOnly>,
     /// The principal of the last `welcome` (also the inbox owner). A
-    /// different principal (another account signed in) drops `last_seq`, so
+    /// different principal (another account signed in) resets the mirror, so
     /// the stream starts again from a snapshot instead of resuming another
     /// user's position.
     user: Option<String>,
-    awaiting_snapshot: bool,
     /// This connection's `welcome` came and the subscribe went out.
     subscribed: bool,
 }
 
 impl StreamState {
     pub(crate) fn new(target: Target) -> Self {
-        Self { target, last_seq: None, user: None, awaiting_snapshot: false, subscribed: false }
+        // The daemon sends ops over HTTP, never on this socket, so the
+        // mirror issues no keys; the prefix only names it.
+        let mirror =
+            StreamMirror::with_reducer(PositionOnly, "daemon-proxy", Value::Null).without_rows();
+        Self { target, mirror, user: None, subscribed: false }
     }
 
     /// A new connection starts; the next `welcome` subscribes again.
     pub(crate) fn on_connect(&mut self) {
-        self.awaiting_snapshot = false;
+        self.mirror.disconnect();
         self.subscribed = false;
     }
 
@@ -246,25 +255,39 @@ impl StreamState {
         }
     }
 
-    fn frame(&self, kind: &str) -> String {
+    fn frame(&self, kind: &str) -> Value {
         let mut frame = json!({"t": kind});
         if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
             frame["stream"] = json!(stream);
         }
-        if kind == "subscribe"
-            && let Some(after) = self.last_seq
-        {
-            frame["after_seq"] = json!(after);
-        }
-        frame.to_string()
+        frame
     }
 
-    fn request_snapshot(&mut self) -> Vec<StreamAction> {
-        if self.awaiting_snapshot {
-            return Vec::new();
+    /// The mirror's frames as this socket sends them (the inbox names its
+    /// stream on every frame).
+    fn send(&self, out: Vec<ClientOut>) -> Vec<StreamAction> {
+        out.into_iter()
+            .map(|out| {
+                let mut frame = out.to_value();
+                if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
+                    frame["stream"] = json!(stream);
+                }
+                StreamAction::Send(frame.to_string())
+            })
+            .collect()
+    }
+
+    fn subscribe(&mut self) -> Vec<StreamAction> {
+        self.subscribed = true;
+        let resume = self.mirror.resume(now_ms());
+        let mut frame = self.frame("subscribe");
+        if let Some(after) = resume.after_seq {
+            frame["after_seq"] = json!(after);
         }
-        self.awaiting_snapshot = true;
-        vec![StreamAction::Send(self.frame("snapshot.request"))]
+        let mut actions = vec![StreamAction::Send(frame.to_string())];
+        actions.extend(self.send(resume.send));
+        actions.push(StreamAction::Live);
+        actions
     }
 
     /// Handles one text frame from the owner.
@@ -285,7 +308,7 @@ impl StreamState {
                 match user {
                     Some(user) => {
                         if self.user.as_deref() != Some(user) {
-                            self.last_seq = None;
+                            self.mirror.reset(Value::Null);
                             self.user = Some(user.to_string());
                         }
                     }
@@ -293,15 +316,13 @@ impl StreamState {
                     None if self.target == Target::Inbox => return vec![StreamAction::Forbidden],
                     // Unknown principal: never resume a position it may not own.
                     None => {
-                        self.last_seq = None;
+                        self.mirror.reset(Value::Null);
                         self.user = None;
                     }
                 }
-                self.subscribed = true;
-                vec![StreamAction::Send(self.frame("subscribe")), StreamAction::Live]
+                self.subscribe()
             }
-            Some("snapshot") => self.on_snapshot(&frame),
-            Some("event") => self.on_event(&frame),
+            Some("snapshot" | "event") => self.on_stream_frame(frame),
             // A Chief run change for this conversation's members (no seq: it
             // is never replayed, a page reads the run again after a gap).
             Some("conversation-run-changed") => match &self.target {
@@ -359,77 +380,115 @@ impl StreamState {
         }
     }
 
-    fn on_snapshot(&mut self, frame: &Value) -> Vec<StreamAction> {
-        if !self.mine(frame) {
+    /// An event or a snapshot of this stream goes through the mirror; what
+    /// it applies, in order, becomes daemon events.
+    fn on_stream_frame(&mut self, frame: Value) -> Vec<StreamAction> {
+        // Before the welcome, nothing is subscribed on this connection.
+        if !self.subscribed || !self.mine(&frame) {
             return Vec::new();
         }
-        let Some(seq) = frame.get("seq").and_then(Value::as_u64) else { return Vec::new() };
-        self.awaiting_snapshot = false;
-        self.last_seq = Some(seq);
-        let event = match &self.target {
-            Target::Inbox => CloudEvent::InboxReset { seq, account: None },
-            Target::Mux(_) => {
-                CloudEvent::MuxResynced { seq, pending: mux_pending(frame), account: None }
-            }
-            Target::Conversation(conversation) => match snapshot_parts(frame) {
-                Ok((summary, messages, rev, seq)) => CloudEvent::ConversationResynced {
-                    conversation: conversation.clone(),
-                    rev,
-                    seq,
-                    summary,
-                    messages,
-                    account: None,
-                },
-                Err(_) => return Vec::new(),
-            },
+        let Ok(frame) = OwnerFrame::from_value(frame) else {
+            // A frame of this stream that does not decode: the snapshot
+            // replaces whatever it carried.
+            let out = self.mirror.resync();
+            return self.send(out);
         };
-        vec![StreamAction::Emit(event)]
+        let received = self.mirror.receive_applied(frame);
+        let mut actions = self.send(received.send);
+        for applied in received.applied {
+            match self.translate(applied) {
+                Translated::Emit(event) => actions.push(StreamAction::Emit(event)),
+                Translated::Nothing => {}
+                // The events after it are covered by the snapshot asked for.
+                Translated::Resync => {
+                    let out = self.mirror.resync();
+                    actions.extend(self.send(out));
+                    break;
+                }
+            }
+        }
+        actions
     }
 
-    fn on_event(&mut self, frame: &Value) -> Vec<StreamAction> {
-        if !self.mine(frame) || self.awaiting_snapshot {
-            return Vec::new();
-        }
-        let Some(seq) = frame.get("seq").and_then(Value::as_u64) else { return Vec::new() };
-        // Before the first snapshot nothing is confirmed; the snapshot that
-        // answers the subscribe covers this event.
-        let Some(last) = self.last_seq else { return Vec::new() };
-        if seq <= last {
-            return Vec::new();
-        }
-        if seq != last + 1 {
-            return self.request_snapshot();
-        }
-        let transaction = frame.get("tx").and_then(Value::as_str).unwrap_or_default().to_string();
-        let event = match &self.target {
-            Target::Conversation(conversation) => match conversation_change(frame) {
-                Some((rev, change)) => CloudEvent::ConversationChanged {
-                    conversation: conversation.clone(),
-                    rev,
-                    seq,
-                    transaction,
-                    change,
-                    account: None,
-                },
-                None => return self.request_snapshot(),
-            },
-            Target::Mux(_) => {
-                let wakes = mux_wakes(frame);
-                self.last_seq = Some(seq);
-                // An ack or a configure changes no wake the brain must see.
-                if wakes.is_empty() {
-                    return Vec::new();
+    fn translate(&self, applied: Applied) -> Translated {
+        match applied {
+            Applied::Snapshot(snapshot) => {
+                let seq = snapshot.seq;
+                let Ok(frame) = serde_json::to_value(&*snapshot) else { return Translated::Resync };
+                match &self.target {
+                    Target::Inbox => {
+                        Translated::Emit(CloudEvent::InboxReset { seq, account: None })
+                    }
+                    Target::Mux(_) => Translated::Emit(CloudEvent::MuxResynced {
+                        seq,
+                        pending: mux_pending(&frame),
+                        account: None,
+                    }),
+                    // A snapshot without a conversation head has nothing to
+                    // show; the next one will.
+                    Target::Conversation(conversation) => match snapshot_parts(&frame) {
+                        Ok((summary, messages, rev, seq)) => {
+                            Translated::Emit(CloudEvent::ConversationResynced {
+                                conversation: conversation.clone(),
+                                rev,
+                                seq,
+                                summary,
+                                messages,
+                                account: None,
+                            })
+                        }
+                        Err(_) => Translated::Nothing,
+                    },
                 }
-                CloudEvent::MuxWake { seq, wakes, account: None }
             }
-            Target::Inbox => match inbox_entries(frame) {
-                Some(entries) => {
-                    CloudEvent::InboxChanged { seq, transaction, entries, account: None }
+            Applied::Event(event) => {
+                let (seq, transaction) = (event.seq, event.tx.clone());
+                let Ok(frame) = serde_json::to_value(&*event) else { return Translated::Resync };
+                match &self.target {
+                    Target::Conversation(conversation) => match conversation_change(&frame) {
+                        Some((rev, change)) => Translated::Emit(CloudEvent::ConversationChanged {
+                            conversation: conversation.clone(),
+                            rev,
+                            seq,
+                            transaction,
+                            change,
+                            account: None,
+                        }),
+                        None => Translated::Resync,
+                    },
+                    Target::Mux(_) => {
+                        let wakes = mux_wakes(&frame);
+                        // An ack or a configure changes no wake the brain must see.
+                        if wakes.is_empty() {
+                            Translated::Nothing
+                        } else {
+                            Translated::Emit(CloudEvent::MuxWake { seq, wakes, account: None })
+                        }
+                    }
+                    Target::Inbox => match inbox_entries(&frame) {
+                        Some(entries) => Translated::Emit(CloudEvent::InboxChanged {
+                            seq,
+                            transaction,
+                            entries,
+                            account: None,
+                        }),
+                        None => Translated::Resync,
+                    },
                 }
-                None => return self.request_snapshot(),
-            },
-        };
-        self.last_seq = Some(seq);
-        vec![StreamAction::Emit(event)]
+            }
+        }
     }
+}
+
+enum Translated {
+    Emit(CloudEvent),
+    Nothing,
+    /// The frame applied but has no daemon event: resync from a snapshot.
+    Resync,
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }

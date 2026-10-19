@@ -21,6 +21,11 @@
 //!   intent with its own key, then asks for a snapshot.
 //! - An intent older than [`INTENT_TTL_MS`] is never resent; it moves to
 //!   `expired` and is reported to the user.
+//!
+//! A relay (the daemon proxy) keeps no rows ([`StreamMirror::without_rows`]),
+//! moves its position on events without effects ([`PositionOnly`]), resumes
+//! a new connection with [`StreamMirror::resume`] and translates what
+//! [`StreamMirror::receive_applied`] reports.
 
 use crate::Origin;
 use crate::frames::{
@@ -154,6 +159,44 @@ pub struct EffectsOnly;
 
 impl Reducer for EffectsOnly {}
 
+/// The reducer of a relay that keeps only the head and the position: an
+/// event without effects (an ack the owner wrote no rows for) moves the
+/// position and keeps the head. The relay's clients interpret the frames.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PositionOnly;
+
+impl Reducer for PositionOnly {
+    fn apply(&self, state: &Value, _: &Rows, _: &EventFrame) -> Option<(Value, Vec<RowWrite>)> {
+        Some((state.clone(), Vec::new()))
+    }
+}
+
+/// A frame the mirror applied, in apply order (buffered events replay after
+/// their snapshot). A relay turns these into its own events; a view reads
+/// the mirror instead.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Applied {
+    Snapshot(Box<SnapshotFrame>),
+    Event(Box<EventFrame>),
+}
+
+/// What one owner frame did: frames to send and frames applied.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Received {
+    pub send: Vec<ClientOut>,
+    pub applied: Vec<Applied>,
+}
+
+/// How to subscribe on a new connection (see [`StreamMirror::resume`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resume {
+    /// `subscribe {after_seq}` when the mirror holds a confirmed position;
+    /// `None`: subscribe fresh, the owner answers a snapshot.
+    pub after_seq: Option<u64>,
+    /// Pending intents to resend with their keys (after the subscribe).
+    pub send: Vec<ClientOut>,
+}
+
 /// One stream's mirror and intent log.
 #[derive(Debug, Clone)]
 pub struct StreamMirror<R: Reducer = EffectsOnly> {
@@ -172,6 +215,11 @@ pub struct StreamMirror<R: Reducer = EffectsOnly> {
     connected: bool,
     awaiting: bool,
     desyncs: u64,
+    /// A snapshot or an event was applied since creation or [`StreamMirror::reset`].
+    positioned: bool,
+    /// False for a relay that keeps only the head and the position.
+    track_rows: bool,
+    applied: Vec<Applied>,
 }
 
 impl StreamMirror<EffectsOnly> {
@@ -200,7 +248,67 @@ impl<R: Reducer> StreamMirror<R> {
             connected: true,
             awaiting: false,
             desyncs: 0,
+            positioned: false,
+            track_rows: true,
+            applied: Vec::new(),
         }
+    }
+
+    /// Keeps no rows (a relay such as the daemon proxy, whose clients hold the
+    /// rows): the head state, the position and the intent log only, so memory
+    /// does not grow with the stream.
+    pub fn without_rows(mut self) -> Self {
+        self.track_rows = false;
+        self.rows.clear();
+        self
+    }
+
+    /// The seq to resume from, when the mirror holds a confirmed position.
+    pub fn resume_seq(&self) -> Option<u64> {
+        self.positioned.then_some(self.seq)
+    }
+
+    /// Forgets everything, intents included: the connection now belongs to
+    /// another principal, whose stream must start from a snapshot.
+    /// The key counter survives, so no key is ever issued twice.
+    pub fn reset(&mut self, initial: Value) {
+        self.state = initial;
+        self.seq = 0;
+        self.rows.clear();
+        self.pending.clear();
+        self.expired.clear();
+        self.held.clear();
+        self.buffered.clear();
+        self.settled_ok.clear();
+        self.issued_at.clear();
+        self.awaiting = false;
+        self.positioned = false;
+        self.applied.clear();
+    }
+
+    /// A new connection is open and subscribes (the daemon proxy's path; a
+    /// client with an open position may use [`StreamMirror::reconnect`]
+    /// instead). With a position the subscribe resumes after it and the
+    /// owner replays the events after it. Without one the owner answers
+    /// with a snapshot: events buffer until it comes, so none is lost.
+    pub fn resume(&mut self, now: i64) -> Resume {
+        self.connected = true;
+        self.buffered.clear();
+        self.expire_stale(now);
+        let after_seq = self.resume_seq();
+        self.awaiting = after_seq.is_none();
+        Resume { after_seq, send: self.pending.iter().map(Intent::frame).collect() }
+    }
+
+    /// Asks for a snapshot unless one is already asked for: the caller could
+    /// not use an applied frame (a relay whose translation failed).
+    pub fn resync(&mut self) -> Vec<ClientOut> {
+        let mut out = Vec::new();
+        if !self.awaiting {
+            self.desyncs += 1;
+            self.request_snapshot(&mut out);
+        }
+        out
     }
 
     pub fn state(&self) -> &Value {
@@ -276,18 +384,24 @@ impl<R: Reducer> StreamMirror<R> {
     /// Applies one owner frame. The caller routes frames by `stream`: one
     /// mirror per stream, and only that stream's frames reach it.
     pub fn receive(&mut self, frame: OwnerFrame) -> Vec<ClientOut> {
+        self.receive_applied(frame).send
+    }
+
+    /// [`StreamMirror::receive`], also returning the frames it applied in
+    /// order: a gap's buffered events come after the snapshot that closed it.
+    pub fn receive_applied(&mut self, frame: OwnerFrame) -> Received {
         let mut out = Vec::new();
-        if !self.connected {
-            return out;
+        self.applied.clear();
+        if self.connected {
+            match frame {
+                OwnerFrame::Event(e) => self.on_event(*e, &mut out),
+                OwnerFrame::Settled(s) => self.on_settled(s),
+                OwnerFrame::Snapshot(s) => self.on_snapshot(s, &mut out),
+                // Result and reject carry the value; the settle decides the log.
+                OwnerFrame::Result(_) | OwnerFrame::Reject(_) | OwnerFrame::Other(_) => {}
+            }
         }
-        match frame {
-            OwnerFrame::Event(e) => self.on_event(*e, &mut out),
-            OwnerFrame::Settled(s) => self.on_settled(s),
-            OwnerFrame::Snapshot(s) => self.on_snapshot(s, &mut out),
-            // Result and reject carry the value; the settle decides the log.
-            OwnerFrame::Result(_) | OwnerFrame::Reject(_) | OwnerFrame::Other(_) => {}
-        }
-        out
+        Received { send: out, applied: std::mem::take(&mut self.applied) }
     }
 
     pub fn disconnect(&mut self) {
@@ -357,16 +471,20 @@ impl<R: Reducer> StreamMirror<R> {
                 self.request_snapshot(out);
                 return;
             }
-            self.rows.apply(&effects.writes);
+            if self.track_rows {
+                self.rows.apply(&effects.writes);
+            }
             self.state = effects.state.clone();
-            self.seq = e.seq;
+            self.applied_event(e);
             return;
         }
         match self.reducer.apply(&self.state, &self.rows, &e) {
             Some((state, writes)) => {
-                self.rows.apply(&writes);
+                if self.track_rows {
+                    self.rows.apply(&writes);
+                }
                 self.state = state;
-                self.seq = e.seq;
+                self.applied_event(e);
             }
             // Version skew or no reducer for this domain: resync instead of diverging.
             None => {
@@ -374,6 +492,12 @@ impl<R: Reducer> StreamMirror<R> {
                 self.request_snapshot(out);
             }
         }
+    }
+
+    fn applied_event(&mut self, e: EventFrame) {
+        self.seq = e.seq;
+        self.positioned = true;
+        self.applied.push(Applied::Event(Box::new(e)));
     }
 
     fn on_settled(&mut self, s: SettledFrame) {
@@ -406,10 +530,11 @@ impl<R: Reducer> StreamMirror<R> {
     fn on_snapshot(&mut self, snap: SnapshotFrame, out: &mut Vec<ClientOut>) {
         self.awaiting = false;
         if snap.seq >= self.seq {
-            self.state = snap.state;
+            self.state = snap.state.clone();
             self.seq = snap.seq;
+            self.positioned = true;
             // Rows held from before may be stale; keep only what the snapshot sends.
-            if let Some(rows) = &snap.rows {
+            if let (Some(rows), true) = (&snap.rows, self.track_rows) {
                 self.rows.clear();
                 self.rows.load(&rows.table, &rows.rows);
             }
@@ -421,6 +546,7 @@ impl<R: Reducer> StreamMirror<R> {
                     self.settled_ok.insert(d.idempotency_key.clone());
                 }
             }
+            self.applied.push(Applied::Snapshot(Box::new(snap)));
         }
         let mut later = std::mem::take(&mut self.buffered);
         later.sort_by_key(|e| e.seq);
