@@ -344,7 +344,9 @@ class App:
                 rpc("debug.quit", {"press": "keep" if "keep" in default else default}, timeout=10)
         ended = wait(lambda: not self.alive(), 60, 0.25)
         say(f"  app pid {self.pid} {'exited' if ended else 'is STILL RUNNING after 60 s'}")
+        self.rebooted = False
         if ended and variant == "reboot":
+            self.rebooted = True
             return self.power_off()
         return bool(ended)
 
@@ -375,12 +377,18 @@ class App:
             roots |= {pid for pid, _, args in procs if "--bootstrap-stdio" in args and args.startswith(home + "/")}
         parent = {pid: ppid for pid, ppid, _ in procs}
         argv = {pid: args for pid, _, args in procs}
+        # Only from programs still running as the journey started them, and only to a host of
+        # this app (run from its bundle or the slot's HOME): a reused pid never leads elsewhere.
         known = [e.get("pid") for e in agent_events()] + [counter_pid()]
+        ours = lambda args: args.startswith(self.bundle + "/") or ("/cmux-capture/slots/" in home and args.startswith(home + "/"))
         for pid in known:
+            if not ("rj_fake_cli_agent.py" in argv.get(pid, "") or (pid and pid == counter_pid())):
+                continue
             seen = 0
             while isinstance(pid, int) and pid > 1 and seen < 20:
                 if "--bootstrap-stdio" in argv.get(pid, ""):
-                    roots.add(pid)
+                    if ours(argv[pid]):
+                        roots.add(pid)
                     break
                 pid, seen = parent.get(pid), seen + 1
         doomed, grew = set(roots), True
@@ -521,6 +529,8 @@ class Acpmux:
         self.connect()
 
     def connect(self):
+        if getattr(self, "conn", None):
+            self.conn.close()
         self.conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.conn.settimeout(60)
         self.conn.connect(self.path)
@@ -532,18 +542,29 @@ class Acpmux:
         it), connect again once and resend."""
         try:
             answer = self.send(method, params, timeout)
+        except socket.timeout:
+            # A slow answer is not a closed connection: never send it again.
+            return {"error": {"message": f"no answer to {method} within {timeout} s"}}
         except OSError:
             answer = {"error": {"message": "closed"}}
         if answer.get("error", {}).get("message") != "closed":
             return answer
         self.reconnects += 1
         say(f"  acpmux connection closed; reconnecting ({self.reconnects})")
+
+        def connected():
+            # A killed acpmux leaves its socket file: retry the connect itself until one answers.
+            try:
+                self.connect()
+                return True
+            except OSError:
+                return False
+        if not wait(connected, 60, 0.5):
+            return {"error": {"message": "reconnect failed: acpmux did not answer within 60 s"}}
         try:
-            wait(lambda: os.path.exists(self.path), 30)
-            self.connect()
             return self.send(method, params, timeout)
         except OSError as error:
-            return {"error": {"message": f"reconnect failed: {error}"}}
+            return {"error": {"message": f"after reconnecting: {error}"}}
 
     def send(self, method, params, timeout=60):
         self.next += 1
@@ -965,14 +986,18 @@ def acpmux_client():
             return None
         ACPMUX.update(home=home, client=configure_fake(home))
     elif "client" not in ACPMUX:
-        # After a reboot: the relaunched app starts acpmux again with the run's config still in place.
-        if not wait(lambda: os.path.exists(acpmux_socket_of(ACPMUX["home"])) and acpmux_home(), 60):
+        # After a reboot: the relaunched app starts acpmux again with the run's config still in
+        # place. Its old socket file may still be there: retry the connect itself.
+        def connect():
+            try:
+                return Acpmux(acpmux_socket_of(ACPMUX["home"]))
+            except OSError:
+                return None
+        client = wait(connect, 60, 0.5)
+        if not client:
+            say("  acpmux did not answer within 60 s after the reboot")
             return None
-        try:
-            ACPMUX["client"] = Acpmux(acpmux_socket_of(ACPMUX["home"]))
-        except OSError as error:
-            say(f"  acpmux reconnect failed: {error}")
-            return None
+        ACPMUX["client"] = client
     return ACPMUX["client"]
 
 
@@ -1055,10 +1080,15 @@ def screen_text(term):
 
 def agent_events(session=None):
     """The terminal agents' own log (rj_fake_cli_agent.py, RJ_AGENT_LOG): every start and answer."""
+    events = []
     try:
         with open(os.path.join(opts.out, "rj-agents.jsonl")) as f:
-            events = [json.loads(line) for line in f if line.strip()]
-    except (OSError, ValueError):
+            for line in f:
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue  # a line an agent is still writing
+    except OSError:
         return []
     return [e for e in events if session is None or e.get("session") == session]
 
@@ -1126,7 +1156,8 @@ def seed_tagents():
             wait(lambda: any(e.get("event") == "answer" and e.get("text") == f"rj tturn {label} {RUN}" for e in agent_events(start["session"])), 15, 0.5)
             TAGENTS.append({"label": label, "provider": provider, "terminal": term, "tab": made.get("tab_id"),
                             "session": start["session"], "flags": start.get("flags"), "hook": start.get("hook"), "pid": start.get("pid")})
-    cli("tab", ws["tab_id"], "focus")
+    if ws.get("tab_id"):
+        cli("tab", ws["tab_id"], "focus")
 
 
 def chat_items(label, items, raw):
@@ -1193,6 +1224,11 @@ def tagent_items(label, items, raw):
         raw[f"{a}.start"] = start
         raw[f"{a}.text"] = screen_text(agent["terminal"])[-4000:]
         items[f"{a}.running"] = bool(start) or f"no live agent; screen ends {raw[f'{a}.text'][-200:]!r}"
+        if start and getattr(APP, "rebooted", False):
+            # After a reboot the agent that runs is a new one, resumed into its session (the
+            # respawned terminal ran the resume command), not one that outlived the reboot.
+            items[f"{a}.running"] = (start.get("resumed") is True and start.get("pid") != agent.get("pid")) \
+                or f"the running agent was not resumed after the reboot: {start}"
         items[f"{a}.flags"] = start.get("flags") if start else None
         items[f"{a}.signed_in"] = bool(start) and start.get("signed_in") is True and not start.get("missing")
         # The seeded turn on screen (spaces out: a wrapped line loses the one at its break).
