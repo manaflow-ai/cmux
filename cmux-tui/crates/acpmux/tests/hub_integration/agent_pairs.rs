@@ -34,9 +34,13 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
     fn open(hub: &Arc<Hub>) -> Self {
+        Self::open_as(hub, Origin::Local)
+    }
+
+    fn open_as(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Self(in_tx, out_rx, 0)
     }
 
@@ -164,8 +168,11 @@ async fn a_sender_repeating_the_same_message_is_paused() {
     assert_eq!(paused[0]["reason"], "repeating", "{paused:?}");
 
     // The person prompting either session resumes the pair and delivers what it held.
-    c.call("session/prompt", json!({"sessionId": a, "prompt": [{"type": "text", "text": "stop and summarize"}]}))
-        .await;
+    c.call(
+        "session/prompt",
+        json!({"sessionId": a, "prompt": [{"type": "text", "text": "stop and summarize"}]}),
+    )
+    .await;
     c.wait_ran(&b, "r3").await;
     let resumed = c.records(&b, "agent_pair_resumed").await;
     assert_eq!(resumed.len(), 1, "{resumed:?}");
@@ -186,4 +193,32 @@ async fn sessions_whose_turns_do_work_are_never_paused() {
     }
     assert!(c.records(&a, "agent_pair_paused").await.is_empty());
     assert!(c.records(&b, "agent_pair_paused").await.is_empty());
+}
+
+/// The Debug Settings toggle off (`ACPMUX_AGENT_PAIR_GUARD=0`): nothing is paused.
+#[tokio::test]
+async fn the_guard_turned_off_pauses_nothing() {
+    let hub = hub();
+    hub.set_agent_pair_guard(acpmux::hub::PairGuard { enabled: false, ..Default::default() });
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..8 {
+        let (from, to) = if i % 2 == 0 { (&a, &b) } else { (&b, &a) };
+        let reply = c.message(from, to, &format!("o{i}"), "same words again").await;
+        assert!(reply.get("error").is_none(), "exchange {i} was delivered: {reply}");
+    }
+    assert!(c.records(&a, "agent_pair_paused").await.is_empty());
+}
+
+/// Resuming is the person's on this machine: a remote web client or a peer is refused.
+#[tokio::test]
+async fn a_remote_client_cannot_resume_a_pair() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let a = c.new_session().await;
+    for origin in [Origin::Web, Origin::Peer] {
+        let mut remote = Client::open_as(&hub, origin);
+        let reply = remote.reply(RESUME, json!({"sessionId": a})).await;
+        assert!(reply.get("error").is_some(), "{origin:?}: {reply}");
+    }
 }

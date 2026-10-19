@@ -219,6 +219,8 @@ pub mod method {
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
+    pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.

@@ -84,6 +84,8 @@ impl Hub {
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         let Some(prompt_id) = opts.prompt_id.clone() else {
+            // An agent message between a paused pair is held (`agent_pairs.rs`).
+            self.agent_pair_check(session, &blocks, client, steer, &mut opts)?;
             return self.run_prompt(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
@@ -127,6 +129,13 @@ impl Hub {
             }
             outcome.send_replace(Some(Ok(logged.clone())));
             return Ok(logged);
+        }
+        // An agent message between a paused pair is held, never recorded here
+        // (`agent_pairs.rs`): its id may come again once the pair resumes.
+        if let Err(e) = self.agent_pair_check(session, &blocks, client, steer, &mut opts) {
+            session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
+            outcome.send_replace(Some(Err(e.clone())));
+            return Err(e);
         }
         // Remember the outcome only for a prompt that reached the session:
         // one refused before that (no agent, a bad session) may be sent again.

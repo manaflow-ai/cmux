@@ -420,6 +420,10 @@ async fn dispatch_request(
                 provenance,
                 after_turn: None,
             };
+            // The person's own prompt resumes any agent pair this chat is in (`hub/agent_pairs.rs`).
+            if opts.provenance.is_none() {
+                hub.agent_pair_person_prompt(&s);
+            }
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
@@ -879,6 +883,12 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+        }
+        method::MUX_AGENT_PAIR_RESUME => {
+            // The person's call: the unix socket and the app; `remote_guard.rs` refuses the rest.
+            let s = hub.resolve(session_key(&params)?)?;
+            let peer = str_param(&params, "peerSessionId");
+            Ok(hub.agent_pair_resume(&s.id, peer))
         }
         method::MUX_PROMPT_WITHDRAW => {
             // The unix socket only; `remote_guard.rs` refuses every other origin first.

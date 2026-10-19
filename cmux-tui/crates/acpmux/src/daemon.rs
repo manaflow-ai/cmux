@@ -263,6 +263,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.set_probe_only(Hub::probe_only_from_env(
         std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
     ));
+    // The agent message runaway guard (`hub/agent_pairs.rs`): `ACPMUX_AGENT_PAIR_GUARD=0` turns
+    // it off; `ACPMUX_AGENT_PAIR_{ALTERNATIONS,REPEATS,SIMILARITY}` tune it.
+    hub.set_agent_pair_guard(crate::hub::PairGuard::from_env(|k| std::env::var(k).ok()));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
@@ -873,8 +876,9 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     let _ = link.shutdown(std::net::Shutdown::Both);
 }
 
-/// Run `notify_command` from the config on two transitions only: a
-/// permission request, and a turn that ended while no client was attached.
+/// Run `notify_command` from the config on three transitions only: a
+/// permission request, a turn that ended while no client was attached, and an
+/// agent pair the runaway guard paused (`hub/agent_pairs.rs`).
 async fn notify_loop(hub: Arc<Hub>) {
     let mut rx = hub.subscribe();
     loop {
@@ -884,7 +888,7 @@ async fn notify_loop(hub: Arc<Hub>) {
             Err(_) => break,
         };
         let kind = ev.record.kind.as_str();
-        if kind != "permission_request" && kind != "turn_result" {
+        if !matches!(kind, "permission_request" | "turn_result" | "agent_pair_paused") {
             continue;
         }
         let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
@@ -903,6 +907,10 @@ async fn notify_loop(hub: Arc<Hub>) {
                     .pointer("/request/toolCall/title")
                     .and_then(Value::as_str)
                     .unwrap_or("tool")
+            ),
+            "agent_pair_paused" => format!(
+                "{name} paused: it kept messaging {} without progress",
+                ev.record.msg.get("peerName").and_then(Value::as_str).unwrap_or("another agent")
             ),
             _ => format!(
                 "{name} finished ({})",
