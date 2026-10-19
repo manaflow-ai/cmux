@@ -9,8 +9,11 @@ import CmuxNextSettings
 /// Never a look inside a privacy-protected folder (LAUNCH-NO-TCC-PROMPTS): the folder and every
 /// candidate go through `ChatRootValidator` first, which checks the spelling, then resolves links
 /// with `readlink` only, and refuses `/`, the home folder, other volumes and the protected folders
-/// of the one list (cmux-tui/crates/acpmux/data/protected-folders.json). A refused path is never
-/// stat'ed or read, so a favicon linked into Documents is no icon.
+/// of the one list (cmux-tui/crates/acpmux/data/protected-folders.json). The disk matches names
+/// more loosely than a spelling check (`Documentſ`, `/System/Volumes/Data/Users/…`), so each path,
+/// before and after its links are resolved, must also reach no protected folder by identity
+/// (`reachesProtectedFolder`, `lstat` only). A refused path is never stat'ed or read, so a favicon
+/// linked into Documents is no icon; one linked elsewhere in the project is read at its target.
 nonisolated struct AgentPaneProjectIcon: Sendable {
     /// Larger files are skipped: a tile is 20pt, and the answer crosses the bridge as base64.
     static let maximumBytes = 64 * 1024
@@ -50,13 +53,29 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         return names.flatMap { name in folders.map { sub in sub.isEmpty ? "\(base)/\(name)" : "\(base)/\(sub)/\(name)" } }
     }
 
-    /// The first candidate in `folder` that may be read, is a regular file and is small enough.
-    func pick(in folder: String) -> (path: String, file: File)? {
-        guard folder.hasPrefix("/"), validator.refusal(folder) == nil else { return nil }
-        for path in Self.candidates(in: folder) where validator.refusal(path) == nil {
-            if let file = stat(path), file.size > 0, file.size <= Self.maximumBytes { return (path, file) }
+    /// True when `path` may be looked at: refused neither by its spelling nor by what it reaches.
+    func allows(_ path: String) -> Bool {
+        validator.refusal(path) == nil && !validator.reachesProtectedFolder(path)
+    }
+
+    /// The candidates in `folder` that may be read, are regular files and are small enough, best
+    /// first, each at its resolved path (a favicon linked within the project is read at its target).
+    func files(in folder: String) -> [(path: String, file: File)] {
+        guard folder.hasPrefix("/"), allows(folder) else { return [] }
+        var found: [(path: String, file: File)] = []
+        for candidate in Self.candidates(in: folder) where allows(candidate) {
+            // `realpath` reads only link entries and keeps `/private`, unlike `resolvingSymlinksInPath`.
+            guard let resolved = Self.realPath(candidate), resolved == candidate || allows(resolved),
+                  let file = stat(resolved), file.size > 0, file.size <= Self.maximumBytes else { continue }
+            found.append((resolved, file))
         }
-        return nil
+        return found
+    }
+
+    private static func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     /// The data URL of an image file, typed by its bytes; nil for anything that is not one.
@@ -65,9 +84,9 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         return "data:\(type);base64,\(data.base64EncodedString())"
     }
 
-    /// The icon of the project at `folder`, uncached.
+    /// The icon of the project at `folder`, uncached: the first candidate that is an image.
     func icon(in folder: String) -> String? {
-        pick(in: folder).flatMap { dataURL($0.path) }
+        files(in: folder).lazy.compactMap { dataURL($0.path) }.first
     }
 
     static func imageType(_ data: Data) -> String? {
@@ -77,7 +96,8 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
         if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
         // An SVG as an <img> runs no script; its root element must show up front.
-        if let head = String(data: data.prefix(1024), encoding: .utf8)?.lowercased(), head.contains("<svg") { return "image/svg+xml" }
+        // Decoded leniently: the first kilobyte can end inside a character.
+        if String(decoding: data.prefix(1024), as: UTF8.self).lowercased().contains("<svg") { return "image/svg+xml" }
         return nil
     }
 }
@@ -94,12 +114,18 @@ actor AgentPaneProjectIcons {
         self.reader = reader
     }
 
+    /// The first candidate that is an image; a cached answer stands until its file changes.
     func icon(for folder: String) -> String? {
-        guard let picked = reader.pick(in: folder) else { return nil }
-        if let known = cache[picked.path], known.file == picked.file { return known.url }
-        let url = reader.dataURL(picked.path)
-        if cache.count >= 512 { cache.removeAll() }
-        cache[picked.path] = (picked.file, url)
-        return url
+        for picked in reader.files(in: folder) {
+            if let known = cache[picked.path], known.file == picked.file {
+                if let url = known.url { return url }
+                continue
+            }
+            let url = reader.dataURL(picked.path)
+            if cache.count >= 512 { cache.removeAll() }
+            cache[picked.path] = (picked.file, url)
+            if let url { return url }
+        }
+        return nil
     }
 }

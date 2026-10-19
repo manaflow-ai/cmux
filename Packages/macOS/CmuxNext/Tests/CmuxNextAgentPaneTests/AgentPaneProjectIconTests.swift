@@ -23,9 +23,12 @@ struct AgentPaneProjectIconTests {
         let touches = Touches()
 
         init() throws {
-            home = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-                .appendingPathComponent("project-icon-\(UUID().uuidString)/home").path
-            try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+            // `realpath`, as the reader resolves: `resolvingSymlinksInPath` drops `/private`.
+            let made = FileManager.default.temporaryDirectory.appendingPathComponent("project-icon-\(UUID().uuidString)/home").path
+            try FileManager.default.createDirectory(atPath: made, withIntermediateDirectories: true)
+            guard let resolved = realpath(made, nil) else { throw CocoaError(.fileNoSuchFile) }
+            defer { free(resolved) }
+            home = String(cString: resolved)
         }
 
         func write(_ data: Data, _ relative: String) throws {
