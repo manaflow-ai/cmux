@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWorkspaceRepair
 import Foundation
 
 /// What a new workspace's first terminal starts with. The keyboard, menu,
