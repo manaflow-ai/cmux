@@ -77,6 +77,12 @@ else is image-only: design it so old machines keep working without it.
   only holder of its PTY) but honors a SIGTERM from PID 1, so a machine
   shutdown ends each terminal promptly through the host's normal exit path
   (exit record written), never after the stop timeout.
+- **A host PID may serve many terminals.** With
+  `CMUX_TUI_SHARED_TERMINAL_HOSTS=1` (off by default, never set by baked
+  units) one host process runs up to 64 terminals, each with its own record.
+  Never end a terminal by signaling its record's `host_pid`; send
+  `Terminate`. A daemon must keep adopting every record format a shared host
+  writes, because a host it cannot adopt is ended by its process group.
 - **Journal and registry migrations are forward-only and one-way.** The new
   daemon must open every older on-disk schema. After it migrates, the old
   binary may not start, so a rollback is only safe before the new daemon runs.

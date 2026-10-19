@@ -71,7 +71,10 @@ pub fn serve_terminal_host_stdio(
     };
 
     #[cfg(unix)]
-    let _shared_slot = shared_host_process().then(|| SharedTerminal::started(&shared));
+    if shared_host_process() {
+        // Its launcher may already have given it up (shared_host.rs, `K`).
+        unix::shared_host::note_started(&shared);
+    }
     let stopping = shared.clone();
     let watched = shared.clone();
     let owner_gone = shared.clone();
@@ -298,27 +301,6 @@ pub fn serve_terminal_host_stdio(
     thread::sleep(Duration::from_millis(20));
     drop(guard);
     Ok(())
-}
-
-/// A shared host's record of one of its running terminals, for the
-/// daemon's `K` (shared_host.rs); dropped when the terminal's serve loop
-/// ends.
-#[cfg(unix)]
-struct SharedTerminal(TerminalId);
-
-#[cfg(unix)]
-impl SharedTerminal {
-    fn started(shared: &Arc<HostShared>) -> Self {
-        unix::shared_host::note_started(shared);
-        Self(shared.terminal_id)
-    }
-}
-
-#[cfg(unix)]
-impl Drop for SharedTerminal {
-    fn drop(&mut self) {
-        unix::shared_host::note_ended(&self.0);
-    }
 }
 
 /// Test seam: when the FIFO that `variable` names exists, wait until a test

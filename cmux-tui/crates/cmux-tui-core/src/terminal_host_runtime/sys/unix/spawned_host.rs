@@ -14,14 +14,6 @@ pub(crate) struct SpawnedHostProcess {
 }
 
 impl SpawnedHostProcess {
-    /// The terminal this launch starts, so an uncommitted shared-host
-    /// launch can be ended without ending its host.
-    pub(crate) fn bind_terminal(&mut self, terminal: crate::terminal_host::TerminalId) {
-        if let Some(slot) = self.slot.as_mut() {
-            slot.bind_terminal(terminal);
-        }
-    }
-
     /// False once the host is gone (killed, or crashed before use).
     pub(crate) fn is_alive(&mut self) -> bool {
         match (self.slot.as_ref(), self.child.as_mut()) {

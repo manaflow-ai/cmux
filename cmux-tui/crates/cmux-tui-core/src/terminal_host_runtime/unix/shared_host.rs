@@ -31,19 +31,23 @@
 //! process's thread count.
 //!
 //! The control protocol is private to one daemon and the host it started
-//! (same build): a request is 20 bytes, `op:u8, reserved:[u8;3]=0,
-//! terminal_id:[u8;16]`, a reply 8 bytes, `op:u8, reserved:[u8;3]=0,
-//! count:u32` (terminals the host runs).
+//! (same build): a request is 8 bytes, `op:u8, reserved:[u8;3]=0,
+//! slot:u32`, a reply 12 bytes, `op:u8, reserved:[u8;3]=0, count:u32,
+//! slot:u32` (`count`: terminal slots the host runs; `slot`: the id of an
+//! accepted slot, else 0).
 //!
 //! | Request | Descriptor | Reply |
 //! | --- | --- | --- |
-//! | `T` new terminal | the host end of a bootstrap socket | `A` accepted, `F` full |
+//! | `T` new terminal | the host end of a fresh bootstrap socket | `A` accepted, `F` full |
 //! | `C` count | none | `C` |
-//! | `K` end an uncommitted launch of `terminal_id` | none | none |
+//! | `K` end the uncommitted launch on `slot` | none | none |
+//!
+//! A `K` names a slot, never a terminal id, so it cannot reach a later
+//! incarnation of the same terminal; a slot that already ended ignores it.
 
-use std::collections::HashSet;
 use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::sync::atomic::AtomicU32;
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError, Weak};
 use std::time::Instant;
 
@@ -62,8 +66,8 @@ pub(crate) const SHARED_HOST_CAPACITY_ENV: &str = "CMUX_TUI_SHARED_TERMINAL_HOST
 const DEFAULT_CAPACITY: u32 = 64;
 /// macOS allows 4,096 threads per process; a terminal uses about seven.
 const MAX_CAPACITY: u32 = 256;
-const REQUEST_LEN: usize = 20;
-const REPLY_LEN: usize = 8;
+const REQUEST_LEN: usize = 8;
+const REPLY_LEN: usize = 12;
 const OP_TERMINAL: u8 = b'T';
 const OP_COUNT: u8 = b'C';
 const OP_KILL: u8 = b'K';
@@ -91,68 +95,71 @@ pub(crate) fn is_shared_host(args: &[String]) -> bool {
     args.iter().any(|arg| arg == SHARED_HOST_FLAG)
 }
 
-fn request(op: u8, terminal: Option<&TerminalId>) -> [u8; REQUEST_LEN] {
+fn request(op: u8, slot: u32) -> [u8; REQUEST_LEN] {
     let mut bytes = [0u8; REQUEST_LEN];
     bytes[0] = op;
-    if let Some(terminal) = terminal {
-        bytes[4..].copy_from_slice(terminal.as_bytes());
-    }
+    bytes[4..8].copy_from_slice(&slot.to_le_bytes());
     bytes
 }
 
-fn reply(op: u8, count: u32) -> [u8; REPLY_LEN] {
+fn reply(op: u8, count: u32, slot: u32) -> [u8; REPLY_LEN] {
     let mut bytes = [0u8; REPLY_LEN];
     bytes[0] = op;
-    bytes[4..].copy_from_slice(&count.to_le_bytes());
+    bytes[4..8].copy_from_slice(&count.to_le_bytes());
+    bytes[8..12].copy_from_slice(&slot.to_le_bytes());
     bytes
+}
+
+fn word(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
 // ---------------------------------------------------------------------------
 // Host side.
 
-/// The terminals a shared host runs, by id, for `K`.
-static TERMINALS: Mutex<Vec<(TerminalId, Weak<HostShared>)>> = Mutex::new(Vec::new());
-/// `K` requests for terminals that had not started yet.
-static PENDING_KILLS: Mutex<Option<HashSet<[u8; 16]>>> = Mutex::new(None);
+/// One terminal slot of a shared host: the terminal it started, and whether
+/// its launcher gave it up (`K`) before that.
+struct SlotState {
+    id: u32,
+    host: Option<Weak<HostShared>>,
+    killed: bool,
+}
 
-/// Called by a shared host's terminal once it runs; ends it at once when
-/// its launcher already gave it up.
+/// The slots of this shared host; an entry lives as long as its thread.
+static SLOTS: Mutex<Vec<SlotState>> = Mutex::new(Vec::new());
+static NEXT_SLOT: AtomicU32 = AtomicU32::new(1);
+
+thread_local! {
+    /// The slot the current thread serves (0: none).
+    static CURRENT_SLOT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn slots() -> std::sync::MutexGuard<'static, Vec<SlotState>> {
+    SLOTS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Called by a shared host's terminal once it runs, on its slot's thread;
+/// ends it at once when its launcher already gave it up.
 pub(crate) fn note_started(shared: &Arc<HostShared>) {
-    let killed = PENDING_KILLS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_mut()
-        .is_some_and(|kills| kills.remove(shared.terminal_id.as_bytes()));
-    TERMINALS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .push((shared.terminal_id, Arc::downgrade(shared)));
+    let id = CURRENT_SLOT.with(std::cell::Cell::get);
+    let killed = slots().iter_mut().find(|slot| slot.id == id).is_some_and(|slot| {
+        slot.host = Some(Arc::downgrade(shared));
+        slot.killed
+    });
     if killed {
         shared.request_termination();
     }
 }
 
-/// Called by a shared host's terminal when its serve loop ends.
-pub(crate) fn note_ended(terminal: &TerminalId) {
-    TERMINALS.lock().unwrap_or_else(PoisonError::into_inner).retain(|(id, _)| id != terminal);
-}
-
-fn kill(terminal: TerminalId) {
-    let running = TERMINALS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .iter()
-        .find(|(id, _)| *id == terminal)
-        .and_then(|(_, host)| host.upgrade());
-    match running {
-        Some(host) => host.request_termination(),
-        None => {
-            PENDING_KILLS
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get_or_insert_with(HashSet::new)
-                .insert(*terminal.as_bytes());
-        }
+fn kill(id: u32) {
+    let started = {
+        let mut slots = slots();
+        let Some(slot) = slots.iter_mut().find(|slot| slot.id == id) else { return };
+        slot.killed = true;
+        slot.host.as_ref().and_then(Weak::upgrade)
+    };
+    if let Some(host) = started {
+        host.request_termination();
     }
 }
 
@@ -172,11 +179,7 @@ pub(crate) fn serve(args: &[String]) -> anyhow::Result<()> {
     // Many terminals need many descriptors; every shell still starts with
     // the limit cmux started with (`cmux_pty` restores it in the child).
     let _ = cmux_pty::raise_open_file_limit(cmux_pty::OPEN_FILE_LIMIT_CEILING);
-    // SAFETY: fd 0 is the control socket the daemon passed as stdin; this
-    // process owns it from here on.
-    let control = unsafe { UnixStream::from_raw_fd(libc::STDIN_FILENO) };
-    // SAFETY: fcntl on the descriptor owned above.
-    unsafe { libc::fcntl(control.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+    let control = take_control_socket()?;
     let live: Arc<(Mutex<u32>, Condvar)> = Arc::new((Mutex::new(0), Condvar::new()));
     let count =
         |live: &(Mutex<u32>, Condvar)| *live.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -186,22 +189,18 @@ pub(crate) fn serve(args: &[String]) -> anyhow::Result<()> {
         };
         match bytes[0] {
             OP_TERMINAL => {
-                let accepted = descriptor.and_then(|socket| start_slot(socket, &live, capacity));
-                let op = if accepted.is_some() { REPLY_ACCEPTED } else { REPLY_FULL };
-                if (&control).write_all(&reply(op, count(&live))).is_err() {
+                let slot = descriptor.and_then(|socket| start_slot(socket, &live, capacity));
+                let op = if slot.is_some() { REPLY_ACCEPTED } else { REPLY_FULL };
+                if (&control).write_all(&reply(op, count(&live), slot.unwrap_or(0))).is_err() {
                     break;
                 }
             }
             OP_COUNT => {
-                if (&control).write_all(&reply(OP_COUNT, count(&live))).is_err() {
+                if (&control).write_all(&reply(OP_COUNT, count(&live), 0)).is_err() {
                     break;
                 }
             }
-            OP_KILL => {
-                if let Ok(id) = <[u8; 16]>::try_from(&bytes[4..]) {
-                    kill(TerminalId::from_bytes(id));
-                }
-            }
+            OP_KILL => kill(word(&bytes, 4)),
             // A request this build does not know: the daemon is not the
             // one that started this host. Take no further terminal.
             _ => break,
@@ -217,8 +216,44 @@ pub(crate) fn serve(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Start one terminal slot on `socket`, if the host has room.
-fn start_slot(socket: OwnedFd, live: &Arc<(Mutex<u32>, Condvar)>, capacity: u32) -> Option<()> {
+/// The control socket the daemon passed as stdin, moved off fd 0 (a later
+/// `open` must never get descriptor 0); fd 0 becomes `/dev/null`.
+fn take_control_socket() -> anyhow::Result<UnixStream> {
+    // SAFETY: fcntl duplicates the inherited stdin to a new close-on-exec
+    // descriptor this process then owns.
+    let moved = unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_DUPFD_CLOEXEC, 3) };
+    if moved < 0 {
+        return Err(std_io::Error::last_os_error()).context("take the shared host control socket");
+    }
+    // SAFETY: `moved` was just returned by fcntl and is owned here.
+    let control = unsafe { UnixStream::from_raw_fd(moved) };
+    let null = OpenOptions::new().read(true).write(true).open("/dev/null")?;
+    // SAFETY: dup2 replaces fd 0 with this process's own /dev/null.
+    if unsafe { libc::dup2(null.as_raw_fd(), libc::STDIN_FILENO) } < 0 {
+        return Err(std_io::Error::last_os_error()).context("replace the shared host stdin");
+    }
+    Ok(control)
+}
+
+/// A running slot's count and registry entry; dropped when its thread ends,
+/// also by a panic.
+struct SlotGuard {
+    id: u32,
+    live: Arc<(Mutex<u32>, Condvar)>,
+}
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        slots().retain(|slot| slot.id != self.id);
+        let mut running = self.live.0.lock().unwrap_or_else(PoisonError::into_inner);
+        *running -= 1;
+        self.live.1.notify_all();
+    }
+}
+
+/// Start one terminal slot on `socket`, if the host has room. Returns the
+/// slot's id.
+fn start_slot(socket: OwnedFd, live: &Arc<(Mutex<u32>, Condvar)>, capacity: u32) -> Option<u32> {
     {
         let mut running = live.0.lock().unwrap_or_else(PoisonError::into_inner);
         if *running >= capacity {
@@ -226,14 +261,13 @@ fn start_slot(socket: OwnedFd, live: &Arc<(Mutex<u32>, Condvar)>, capacity: u32)
         }
         *running += 1;
     }
-    let slot_live = live.clone();
-    let release = move || {
-        let mut running = slot_live.0.lock().unwrap_or_else(PoisonError::into_inner);
-        *running -= 1;
-        slot_live.1.notify_all();
-    };
+    let id = NEXT_SLOT.fetch_add(1, Ordering::Relaxed);
+    slots().push(SlotState { id, host: None, killed: false });
+    let guard = SlotGuard { id, live: live.clone() };
     let stream = UnixStream::from(socket);
     let started = thread::Builder::new().name("terminal-host-slot".into()).spawn(move || {
+        let _guard = guard;
+        CURRENT_SLOT.with(|current| current.set(id));
         if let Ok(mut reader) = stream.try_clone() {
             let mut writer = stream;
             let args = ["--bootstrap-stdio".to_string()];
@@ -241,17 +275,9 @@ fn start_slot(socket: OwnedFd, live: &Arc<(Mutex<u32>, Condvar)>, capacity: u32)
                 eprintln!("terminal-host: a shared terminal ended with an error: {error}");
             }
         }
-        release();
     });
-    match started {
-        Ok(_) => Some(()),
-        Err(_) => {
-            let mut running = live.0.lock().unwrap_or_else(PoisonError::into_inner);
-            *running -= 1;
-            live.1.notify_all();
-            None
-        }
-    }
+    // A thread that did not start dropped its guard with the closure.
+    started.ok().map(|_| id)
 }
 
 // ---------------------------------------------------------------------------
@@ -286,20 +312,16 @@ static POOL: Mutex<Vec<PoolHost>> = Mutex::new(Vec::new());
 
 /// A bootstrap socket on a shared host, in place of a host process
 /// (`SpawnedHostProcess`). It is the launch-time ownership of one terminal
-/// of that host: dropped before `commit`, it asks the host to end the
-/// terminal; the host closes its end when the terminal is gone.
+/// of that host: dropped before `commit`, it asks the host to end that
+/// slot's terminal; the host closes its end when the terminal is gone.
 pub(crate) struct SharedHostSlot {
     socket: UnixStream,
     host_pid: u32,
-    terminal: Option<TerminalId>,
+    slot: u32,
     committed: bool,
 }
 
 impl SharedHostSlot {
-    pub(crate) fn bind_terminal(&mut self, terminal: TerminalId) {
-        self.terminal = Some(terminal);
-    }
-
     pub(crate) fn commit(mut self) {
         self.committed = true;
     }
@@ -356,34 +378,45 @@ impl SharedHostSlot {
 
 impl Drop for SharedHostSlot {
     fn drop(&mut self) {
-        if self.committed {
+        // A closed slot's terminal is gone already.
+        if self.committed || !self.is_open() {
             return;
         }
-        let Some(terminal) = self.terminal else { return };
         let pool = POOL.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(host) = pool.iter().find(|host| host.pid == self.host_pid) {
-            let _ = (&host.control).write_all(&request(OP_KILL, Some(&terminal)));
+            let _ = (&host.control).write_all(&request(OP_KILL, self.slot));
         }
+    }
+}
+
+/// Hand a fresh bootstrap socket to `host`. `Ok(None)`: the host is full.
+fn place(host: &PoolHost) -> std_io::Result<Option<(UnixStream, u32)>> {
+    // A fresh pair per attempt: a host that answered late (or not at all)
+    // keeps only its own copy, never a socket another host serves.
+    let (daemon_end, host_end) = UnixStream::pair()?;
+    let answer = host.call(&request(OP_TERMINAL, 0), Some(host_end.as_raw_fd()))?;
+    drop(host_end);
+    match answer[0] {
+        REPLY_ACCEPTED if word(&answer, 8) != 0 => Ok(Some((daemon_end, word(&answer, 8)))),
+        REPLY_FULL => Ok(None),
+        _ => Err(std_io::Error::other("unexpected shared host reply")),
     }
 }
 
 /// A terminal slot on a shared host: the next free one, or one on a new
 /// host when every host this daemon started is full.
 pub(crate) fn take_slot() -> anyhow::Result<StandbyTerminalHost> {
-    let (daemon_end, host_end) =
-        UnixStream::pair().context("create a terminal bootstrap socket")?;
-    let mut pool = POOL.lock().unwrap_or_else(PoisonError::into_inner);
-    let host_pid = 'placed: {
-        for refresh in [false, true] {
+    let placed = {
+        let mut pool = POOL.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut placed = None;
+        'search: for refresh in [false, true] {
             let mut index = pool.len();
             while index > 0 {
                 index -= 1;
                 if refresh && pool[index].full {
-                    match pool[index].call(&request(OP_COUNT, None), None) {
+                    match pool[index].call(&request(OP_COUNT, 0), None) {
                         Ok(answer) if answer[0] == OP_COUNT => {
-                            let count =
-                                u32::from_le_bytes([answer[4], answer[5], answer[6], answer[7]]);
-                            pool[index].full = count >= configured_capacity();
+                            pool[index].full = word(&answer, 4) >= configured_capacity();
                         }
                         _ => {
                             pool.remove(index);
@@ -394,37 +427,42 @@ pub(crate) fn take_slot() -> anyhow::Result<StandbyTerminalHost> {
                 if pool[index].full {
                     continue;
                 }
-                match pool[index].call(&request(OP_TERMINAL, None), Some(host_end.as_raw_fd())) {
-                    Ok(answer) if answer[0] == REPLY_ACCEPTED => break 'placed pool[index].pid,
-                    Ok(answer) if answer[0] == REPLY_FULL => pool[index].full = true,
+                match place(&pool[index]) {
+                    Ok(Some((socket, slot))) => {
+                        placed = Some((socket, slot, pool[index].pid));
+                        break 'search;
+                    }
+                    Ok(None) => pool[index].full = true,
                     // A host that does not answer takes no new terminal; its
                     // running terminals stay adoptable through their records.
-                    _ => {
+                    Err(_) => {
                         pool.remove(index);
                     }
                 }
             }
         }
-        let host = spawn_shared_host()?;
-        let answer = host
-            .call(&request(OP_TERMINAL, None), Some(host_end.as_raw_fd()))
-            .context("hand a terminal to a new shared host")?;
-        anyhow::ensure!(
-            answer[0] == REPLY_ACCEPTED,
-            "a new shared terminal host refused a terminal"
-        );
-        let pid = host.pid;
-        pool.push(host);
-        pid
+        placed
     };
-    drop(pool);
-    drop(host_end);
+    let (daemon_end, slot, host_pid) = match placed {
+        Some(placed) => placed,
+        None => {
+            // Outside the pool lock: starting a host (and its scope) must
+            // not hold up other launches or rollbacks.
+            let host = spawn_shared_host()?;
+            let (socket, slot) = place(&host)
+                .context("hand a terminal to a new shared host")?
+                .context("a new shared terminal host refused a terminal")?;
+            let pid = host.pid;
+            POOL.lock().unwrap_or_else(PoisonError::into_inner).push(host);
+            (socket, slot, pid)
+        }
+    };
     let socket = daemon_end.try_clone().context("keep a terminal bootstrap socket")?;
     let stdout = daemon_end.try_clone().context("read a terminal bootstrap socket")?;
     Ok(StandbyTerminalHost {
         process: SpawnedHostProcess {
             child: None,
-            slot: Some(SharedHostSlot { socket, host_pid, terminal: None, committed: false }),
+            slot: Some(SharedHostSlot { socket, host_pid, slot, committed: false }),
         },
         stdin: Box::new(daemon_end),
         stdout: Box::new(stdout),

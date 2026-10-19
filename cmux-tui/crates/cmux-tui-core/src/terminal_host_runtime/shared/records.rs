@@ -19,6 +19,7 @@ use super::super::*;
 use super::codec::{decode_hex_array, decode_lower_hex_array};
 use super::host_shared::HostShared;
 use super::host_state::HOST_EXIT_PERSIST_RETRY_MAX;
+use super::host_state::shared_host_process;
 
 pub(crate) static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -544,7 +545,20 @@ impl Drop for HostServiceGuard {
         // stale-record proof.
         self.shared.terminate_and_wait();
         if !self.shared.child_exited() {
-            return;
+            if !shared_host_process() {
+                // The process exit closes the master and ends the shell.
+                return;
+            }
+            // A shared host keeps running, and with it this terminal's PTY
+            // reader. Keep the lease (the terminal stays live, so no owner
+            // starts a second host on its master) until the shell ends.
+            let mut reported = false;
+            while !self.shared.wait_for_child_exit(Duration::from_secs(60)) {
+                if !std::mem::replace(&mut reported, true) {
+                    eprintln!("terminal-host: a shared terminal's shell outlived its termination");
+                }
+                self.shared.terminate_and_wait();
+            }
         }
         let owns_record = !self.published
             || fs::read(&self.record_path)

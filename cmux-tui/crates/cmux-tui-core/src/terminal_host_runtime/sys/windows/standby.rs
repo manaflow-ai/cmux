@@ -560,9 +560,6 @@ pub(crate) struct SpawnedHostProcess {
 }
 
 impl SpawnedHostProcess {
-    /// Windows hosts run one terminal each: nothing to bind.
-    pub(crate) fn bind_terminal(&mut self, _terminal: crate::terminal_host::TerminalId) {}
-
     /// The launch is committed: the host lives on its own.
     pub(crate) fn commit(mut self) {
         if let Some(process) = self.process.take() {

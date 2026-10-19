@@ -342,7 +342,7 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &mut DescriptorCleanup) -> 
 /// caller then probes every descriptor.
 #[cfg(target_os = "macos")]
 fn mark_listed_descriptors_close_on_exec(listing: &mut [libc::proc_fdinfo]) -> io::Result<bool> {
-    let capacity = listing.len() * size_of::<libc::proc_fdinfo>();
+    let capacity = size_of_val(listing);
     let Ok(capacity_arg) = libc::c_int::try_from(capacity) else { return Ok(false) };
     // SAFETY: `listing` is writable for `capacity` bytes; PROC_PIDLISTFDS
     // fills it with this (the child's) descriptor table.

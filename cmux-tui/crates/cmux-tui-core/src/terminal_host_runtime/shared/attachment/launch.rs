@@ -184,11 +184,10 @@ pub(crate) fn launch_terminal_host_seeded(
         seed: seed.to_vec(),
     };
 
-    let StandbyTerminalHost { mut process, mut stdin, mut stdout, host_pid } = match standby {
+    let StandbyTerminalHost { process, mut stdin, mut stdout, host_pid } = match standby {
         Some(standby) => standby,
         None => StandbyTerminalHost::spawn()?,
     };
-    process.bind_terminal(terminal_id);
     crate::debug_spans::mark("host.process_ready");
 
     let bootstrap = HostBootstrap {

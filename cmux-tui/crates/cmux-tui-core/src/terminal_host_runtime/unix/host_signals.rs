@@ -83,7 +83,9 @@ fn survived_signals() -> Vec<libc::c_int> {
     signals
 }
 
-/// Recorded signals per host process; later ones are only counted.
+/// Recorded signals per host process; later ones are only counted. A
+/// shared host, which may run for weeks, keeps the newest ones instead (a
+/// ring), so a terminal that joined late still records what reaches it.
 pub(crate) const MAX_RECORDED_SIGNALS: usize = 32;
 
 struct Slot {
@@ -92,8 +94,9 @@ struct Slot {
     /// The sender's real user id: still true after the sender exited.
     sender_uid: AtomicU32,
     at_ms: AtomicI64,
-    /// Set last by the handler: the slot is complete.
-    ready: AtomicI32,
+    /// Set last by the handler: the sequence number (index + 1) of the
+    /// signal the slot holds; 0 while empty or being rewritten.
+    ready: AtomicUsize,
 }
 
 static SLOTS: [Slot; MAX_RECORDED_SIGNALS] = [const {
@@ -102,7 +105,7 @@ static SLOTS: [Slot; MAX_RECORDED_SIGNALS] = [const {
         sender_pid: AtomicI32::new(0),
         sender_uid: AtomicU32::new(u32::MAX),
         at_ms: AtomicI64::new(0),
-        ready: AtomicI32::new(0),
+        ready: AtomicUsize::new(0),
     }
 }; MAX_RECORDED_SIGNALS];
 static NEXT_SLOT: AtomicUsize = AtomicUsize::new(0);
@@ -141,6 +144,9 @@ struct Entry {
     /// The slot of the `SIGTERM` that ended it (`usize::MAX`: none), so
     /// only that breadcrumb says `ended`.
     orphan_term_slot: AtomicUsize,
+    /// Signals a shared host's ring overwrote before this terminal wrote
+    /// them.
+    dropped: AtomicUsize,
     /// Dropped signals already summarized in its breadcrumb file.
     dropped_reported: AtomicUsize,
     /// A breadcrumb append failed (for example `EFBIG` past
@@ -214,7 +220,7 @@ pub(crate) fn register(hooks: TerminalSignalHooks) -> Registration {
     // sent to its terminal); a shared host's later terminal only those
     // after it joined.
     let start = if super::super::shared::host_state::shared_host_process() {
-        NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS)
+        NEXT_SLOT.load(Ordering::Acquire)
     } else {
         0
     };
@@ -225,12 +231,24 @@ pub(crate) fn register(hooks: TerminalSignalHooks) -> Registration {
         stop_acted: AtomicBool::new(false),
         orphan_term_acted: AtomicBool::new(false),
         orphan_term_slot: AtomicUsize::new(usize::MAX),
+        dropped: AtomicUsize::new(0),
         dropped_reported: AtomicUsize::new(0),
         failed: AtomicBool::new(false),
     });
     ENTRIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(entry.clone());
     act_on_service_manager_stop();
     Registration(entry)
+}
+
+/// The sequence numbers the slot table can still hold: the first ones in a
+/// one-terminal host, the newest ones in a shared host.
+fn recorded_range() -> (usize, usize) {
+    let next = NEXT_SLOT.load(Ordering::Acquire);
+    if super::super::shared::host_state::shared_host_process() {
+        (next.saturating_sub(MAX_RECORDED_SIGNALS), next)
+    } else {
+        (0, next.min(MAX_RECORDED_SIGNALS))
+    }
 }
 
 fn entries() -> Vec<Arc<Entry>> {
@@ -244,10 +262,11 @@ fn act_on_orphan_term() {
         return;
     }
     // The newest recorded SIGTERM is the one acted on.
-    let recorded = NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS);
-    let slot = (0..recorded).rev().find(|index| {
-        SLOTS[*index].ready.load(Ordering::Acquire) == 1
-            && SLOTS[*index].signal.load(Ordering::Relaxed) == libc::SIGTERM
+    let (first, end) = recorded_range();
+    let slot = (first..end).rev().find(|index| {
+        let slot = &SLOTS[index % MAX_RECORDED_SIGNALS];
+        slot.ready.load(Ordering::Acquire) == index + 1
+            && slot.signal.load(Ordering::Relaxed) == libc::SIGTERM
     });
     for entry in entries() {
         if (entry.hooks.orphaned)() && !entry.orphan_term_acted.swap(true, Ordering::AcqRel) {
@@ -322,8 +341,9 @@ extern "C" fn record_signal(
             TERM_PENDING.store(true, Ordering::Release);
         }
         let index = NEXT_SLOT.fetch_add(1, Ordering::AcqRel);
-        if index < MAX_RECORDED_SIGNALS {
-            let slot = &SLOTS[index];
+        if index < MAX_RECORDED_SIGNALS || super::super::shared::host_state::shared_host_process() {
+            let slot = &SLOTS[index % MAX_RECORDED_SIGNALS];
+            slot.ready.store(0, Ordering::Release);
             let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
             libc::clock_gettime(libc::CLOCK_REALTIME, &mut now);
             let at_ms = now.tv_sec.saturating_mul(1000) + now.tv_nsec / 1_000_000;
@@ -331,7 +351,7 @@ extern "C" fn record_signal(
             slot.sender_pid.store(sender, Ordering::Relaxed);
             slot.sender_uid.store(sender_uid, Ordering::Relaxed);
             slot.at_ms.store(at_ms, Ordering::Relaxed);
-            slot.ready.store(1, Ordering::Release);
+            slot.ready.store(index + 1, Ordering::Release);
         }
         let writer = WAKE_WRITER.load(Ordering::Acquire);
         if writer >= 0 {
@@ -431,19 +451,37 @@ fn flush_entry(entry: &Entry) {
     }
     let mut written = entry.written.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let recorded = NEXT_SLOT.load(Ordering::Acquire);
+    let shared = super::super::shared::host_state::shared_host_process();
+    let end = if shared { recorded } else { recorded.min(MAX_RECORDED_SIGNALS) };
     let mut lines = String::new();
-    while *written < recorded.min(MAX_RECORDED_SIGNALS) {
-        let slot = &SLOTS[*written];
-        if slot.ready.load(Ordering::Acquire) == 0 {
+    while *written < end {
+        let index = *written;
+        let slot = &SLOTS[index % MAX_RECORDED_SIGNALS];
+        let stamp = slot.ready.load(Ordering::Acquire);
+        if stamp != index + 1 {
+            if stamp > index + 1 {
+                // Overwritten by a newer signal before this terminal wrote it.
+                entry.dropped.fetch_add(1, Ordering::AcqRel);
+                *written += 1;
+                continue;
+            }
+            // The handler has not finished this slot yet.
             break;
         }
+        let signal = slot.signal.load(Ordering::Relaxed);
         let sender_pid = slot.sender_pid.load(Ordering::Relaxed);
         let at_ms = slot.at_ms.load(Ordering::Relaxed);
         let sender_uid = slot.sender_uid.load(Ordering::Relaxed);
+        if slot.ready.load(Ordering::Acquire) != index + 1 {
+            // Overwritten while it was read.
+            entry.dropped.fetch_add(1, Ordering::AcqRel);
+            *written += 1;
+            continue;
+        }
         let line = serde_json::json!({
             "terminal_id": breadcrumbs.terminal_id,
             "incarnation": breadcrumbs.incarnation,
-            "signal": slot.signal.load(Ordering::Relaxed),
+            "signal": signal,
             "sender_pid": sender_pid,
             // Who sent it (cx-0tgl LA), read while the sender usually still
             // runs: an external killer is named in the loss line.
@@ -452,10 +490,8 @@ fn flush_entry(entry: &Entry) {
             }),
             "sender_uid": (sender_uid != u32::MAX).then_some(sender_uid),
             "at_ms": at_ms,
-            "action": if honors(
-                slot.signal.load(Ordering::Relaxed),
-                slot.sender_pid.load(Ordering::Relaxed),
-            ) || entry.orphan_term_slot.load(Ordering::Acquire) == *written
+            "action": if honors(signal, sender_pid)
+                || entry.orphan_term_slot.load(Ordering::Acquire) == index
             {
                 "ended"
             } else {
@@ -466,9 +502,13 @@ fn flush_entry(entry: &Entry) {
         lines.push('\n');
         *written += 1;
     }
-    let dropped = recorded.saturating_sub(MAX_RECORDED_SIGNALS);
+    let (dropped, at_end) = if shared {
+        (entry.dropped.load(Ordering::Acquire), true)
+    } else {
+        (recorded.saturating_sub(MAX_RECORDED_SIGNALS), *written == MAX_RECORDED_SIGNALS)
+    };
     let reported = entry.dropped_reported.load(Ordering::Acquire);
-    if *written == MAX_RECORDED_SIGNALS && dropped > 0 && dropped >= reported.saturating_mul(2) {
+    if at_end && dropped > 0 && dropped >= reported.saturating_mul(2) {
         // Counted, not stored. A summary line each time the count doubles,
         // so frequent signals (a profiling timer, SIGXCPU) cannot grow the
         // file without bound.
