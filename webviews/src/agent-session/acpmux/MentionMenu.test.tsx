@@ -17,7 +17,17 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "customElements",
+    "HTMLTemplateElement",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -26,6 +36,9 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    // The file-type icon set (@pierre/trees) registers its tree element when it loads.
+    customElements: dom.window.customElements,
+    HTMLTemplateElement: dom.window.HTMLTemplateElement,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   return dom.window.document.getElementById("root")!;
@@ -116,6 +129,15 @@ test("@proje lists other chats, then folders, then files, each with its icon, bo
   // Every row has an icon: a chat, a folder, and a file's type.
   for (const row of rows(container)) expect(row.querySelector("[data-mention-icon]")).not.toBeNull();
   expect(file!.querySelector("[data-mention-icon]")?.getAttribute("data-mention-icon")).toBe("file");
+  // A file's icon is its type's, once the icon module lands: YAML, Python, TOML's default.
+  await act(async () => {
+    await import("./changes/FileTypeIcon");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const types = rows(container)
+    .filter((row) => row.dataset.mentionKind === "file")
+    .map((row) => row.querySelector("svg[data-icon]")?.getAttribute("data-icon"));
+  expect(types.slice(0, 2)).toEqual(["yml", "python"]);
 });
 
 test("a bare @ offers the most recent other chats before anything is typed", async () => {

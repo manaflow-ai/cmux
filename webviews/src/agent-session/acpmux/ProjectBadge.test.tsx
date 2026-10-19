@@ -17,7 +17,17 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "customElements",
+    "HTMLTemplateElement",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -26,6 +36,9 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    // The file-type icon set (@pierre/trees) registers its tree element when it loads.
+    customElements: dom.window.customElements,
+    HTMLTemplateElement: dom.window.HTMLTemplateElement,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   return dom.window.document.getElementById("root")!;
@@ -130,4 +143,47 @@ test("a failed ask is asked again by the next badge", async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(document.querySelector(".acpmux-project-badge img")?.getAttribute("src")).toBe(ICON);
+});
+
+/// The lazily loaded icon module lands, then React draws it.
+async function settleIcons() {
+  await act(async () => {
+    await import("./changes/FileTypeIcon");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+test("a project with no favicon shows its language's icon from its marker files", async () => {
+  setProjectIconHost(async () => ({ language: "swift" }));
+  const badge = await render({ cwd: "/Users/me/code/kit", label: "kit" });
+  await settleIcons();
+  expect(badge.dataset.projectLanguage).toBe("swift");
+  expect(badge.querySelector("svg[data-icon='swift']")).not.toBeNull();
+  expect(badge.textContent).toBe("");
+});
+
+test("a favicon wins over the language, and a language cmux has no icon for keeps the letters", async () => {
+  setProjectIconHost(async (_method, params) =>
+    params.cwd === "/Users/me/code/site" ? { src: ICON, language: "nextjs" } : { language: "cobol" },
+  );
+  const site = await render({ cwd: "/Users/me/code/site", label: "site" });
+  expect(site.querySelector("img")?.getAttribute("src")).toBe(ICON);
+  act(() => root?.unmount());
+  root = undefined;
+  const legacy = await render({ cwd: "/Users/me/code/ledger", label: "ledger" });
+  expect(legacy.querySelector("svg")).toBeNull();
+  expect(legacy.textContent).toBe("LE");
+});
+
+test("with the language icons experiment off, a project without a favicon keeps its letters", async () => {
+  setProjectIconHost(async () => ({ language: "rust" }));
+  globalThis.cmuxExperiments = { "project-language-icons": "off" };
+  try {
+    const badge = await render({ cwd: "/Users/me/code/tui", label: "tui" });
+    await settleIcons();
+    expect(badge.querySelector("svg")).toBeNull();
+    expect(badge.textContent).toBe("TU");
+  } finally {
+    globalThis.cmuxExperiments = undefined;
+  }
 });

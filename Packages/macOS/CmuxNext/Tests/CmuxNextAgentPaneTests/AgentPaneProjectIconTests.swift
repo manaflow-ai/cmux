@@ -155,6 +155,55 @@ struct AgentPaneProjectIconTests {
         #expect(await icons.icon(for: fixture.home + "/code/site")?.hasPrefix("data:image/x-icon;base64,") == true)
     }
 
+    /// A project with no favicon answers its language from its marker files, a framework before
+    /// its language's manifest; a folder with none answers nothing, and the page keeps the letters.
+    @Test func aProjectWithoutAFaviconAnswersItsLanguage() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Data("// swift-tools-version:6.0\n".utf8), "code/kit/Package.swift")
+        try fixture.write(Data("{}".utf8), "code/web/package.json")
+        try fixture.write(Data("{}".utf8), "code/web/tsconfig.json")
+        try fixture.write(Data("export default {}".utf8), "code/web/next.config.mjs")
+        try fixture.write(Data("[package]".utf8), "code/tui/Cargo.toml")
+        try FileManager.default.createDirectory(atPath: fixture.home + "/code/notes", withIntermediateDirectories: true)
+        let reader = fixture.reader
+        #expect(reader.language(in: fixture.home + "/code/kit") == "swift")
+        #expect(reader.language(in: fixture.home + "/code/web") == "nextjs")
+        #expect(reader.language(in: fixture.home + "/code/tui/") == "rust")
+        #expect(reader.language(in: fixture.home + "/code/notes") == nil)
+        // A folder named like a marker is not one.
+        try FileManager.default.createDirectory(atPath: fixture.home + "/code/odd/go.mod", withIntermediateDirectories: true)
+        #expect(reader.language(in: fixture.home + "/code/odd") == nil)
+    }
+
+    @Test func aMarkerInOrLinkedIntoAProtectedFolderIsNeverStated() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Data("[package]".utf8), "Documents/tui/Cargo.toml")
+        try fixture.write(Data("{}".utf8), "Documents/secret.json")
+        try FileManager.default.createDirectory(atPath: fixture.home + "/code/site", withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: fixture.home + "/code/site/package.json",
+                                                   withDestinationPath: fixture.home + "/Documents/secret.json")
+        let reader = fixture.reader
+        #expect(reader.language(in: fixture.home + "/Documents/tui") == nil)
+        #expect(reader.language(in: fixture.home) == nil, "the home folder is no project")
+        #expect(reader.language(in: fixture.home + "/code/site") == nil)
+        #expect(!fixture.touches.all.contains { $0.hasPrefix(fixture.home + "/Documents") || $0.hasSuffix("/code/site/package.json") },
+                "touched \(fixture.touches.all)")
+    }
+
+    /// The pane's request answers the favicon first, else the language.
+    @MainActor
+    @Test func theRequestAnswersTheLanguageWhenThereIsNoFavicon() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Data("module example.com/x\n".utf8), "code/svc/go.mod")
+        let model = AgentPaneModel(host: NoHost())
+        let value = await model.respond(to: .projectIcon(fixture.home + "/code/svc"))["value"] as? [String: Any]
+        #expect(value?["src"] == nil)
+        #expect(value?["language"] as? String == "go")
+    }
+
     @Test func anSVGWhoseFirstKilobyteEndsMidCharacterIsStillAnSVG() {
         var data = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><title>".utf8)
         data.append(Data(repeating: UInt8(ascii: "a"), count: 1023 - data.count))
