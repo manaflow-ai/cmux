@@ -76,15 +76,6 @@ const ExportRow = Schema.Struct({
   value_microdollars: NumberValue,
   status: Schema.Literal("pending", "exported", "failed"),
 });
-const AdjustmentRow = Schema.Struct({
-  tenant_id: Schema.String,
-  hour_start: DateValue,
-  stripe_customer_id: Schema.String,
-  identifier: Schema.String,
-  value_microdollars: NumberValue,
-  status: Schema.Literal("pending", "exported", "failed"),
-});
-
 const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
   Schema.decodeUnknown(Schema.Array(schema))(rows).pipe(Effect.mapError((cause) => new StoreError({ operation, cause })));
 
