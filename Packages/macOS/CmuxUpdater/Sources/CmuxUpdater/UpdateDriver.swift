@@ -60,6 +60,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         log: any UpdateLogging,
         clock: any UpdateClock,
         isDevLikeBundle: Bool = false,
+        relaunchAgentTimeout: Duration = UpdateRelaunchGate.agentTimeout,
         infoFeedURLProvider: @escaping () -> String? = {
             Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
         }
@@ -69,7 +70,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         self.clock = clock
         self.infoFeedURLProvider = infoFeedURLProvider
         self.isDevLikeBundle = isDevLikeBundle
-        self.relaunchGate = UpdateRelaunchGate(clock: clock, log: log)
+        self.relaunchGate = UpdateRelaunchGate(clock: clock, log: log, agentTimeout: relaunchAgentTimeout)
         super.init()
     }
 

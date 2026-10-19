@@ -29,8 +29,9 @@ private final class CallCounter: @unchecked Sendable {
     private let host = BlockerHost()
     private let model = UpdateStateModel()
 
-    private func makeDriver() -> UpdateDriver {
-        let driver = UpdateDriver(model: model, log: NoopUpdateLog(), clock: clock)
+    private func makeDriver(agentTimeout: Duration = UpdateRelaunchGate.agentTimeout) -> UpdateDriver {
+        let driver = UpdateDriver(model: model, log: NoopUpdateLog(), clock: clock,
+                                  relaunchAgentTimeout: agentTimeout)
         driver.actionDelegate = host
         return driver
     }
@@ -60,6 +61,49 @@ private final class CallCounter: @unchecked Sendable {
         let driver = makeDriver()
 
         #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    /// What the host reports right after a click: the click itself is input inside the quiet
+    /// window, and the daemon mirror may be reconnecting.
+    private static let clickTimeBlockers = UpdateRelaunchBlockers(
+        busyAgentCount: 0, runningCommandCount: 0, userInputActive: true, daemonStateUnavailable: true)
+
+    @Test func aClickInstallIsNotHeldByTheClickOrAnUnconfirmedDaemon() {
+        let driver = makeDriver()
+        host.blockers = Self.clickTimeBlockers
+
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func restartNowAfterLaterIsNotHeldByTheClickOrAnUnconfirmedDaemon() {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        installing?.dismiss()
+        #expect(model.text == "Restart to Complete Update")
+
+        host.blockers = Self.clickTimeBlockers
+        installing?.retryTerminatingApplication()
+
+        #expect(installs.count == 1)
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
+    @Test func restartNowAfterLaterStopsWaitingForBusyAgentsAtTheTimeout() async {
+        let driver = makeDriver(agentTimeout: .seconds(2))
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        installing?.dismiss()
+
+        installing?.retryTerminatingApplication()
+        #expect(installs.count == 0)
+        #expect(waitingBlockers?.busyAgentCount == 1)
+
+        await recheck { installs.count == 1 }
         #expect(!driver.relaunchGate.isWaiting)
     }
 
