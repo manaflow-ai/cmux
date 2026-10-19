@@ -309,21 +309,29 @@ jobs:
       - name: Build the web bundles
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
+      # The checks below are gates, not builds: each records its outcome and the
+      # last step fails the job on any of them, so a lint, format, budget or
+      # compiler miss does not hide the webview test results. A failed bundle
+      # build or engine install still stops everything after it.
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       - name: Generated bundle merge driver
+        id: merge-driver
+        continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
 
-      # A budget miss must not hide the checks and tests below: the step records its outcome and
-      # the job fails on it in the last step. A failed build still stops everything after it.
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
         continue-on-error: true
         run: node ./scripts/check-webviews-diff-budget.mjs
 
       - name: Verify React Compiler for webviews
+        id: react-compiler
+        continue-on-error: true
         run: ./scripts/check-webviews-react-compiler.mjs
 
       - name: Check webviews (Oxlint, Oxfmt, type check)
+        id: webviews-check
+        continue-on-error: true
         working-directory: webviews
         run: bun run check
 
@@ -334,7 +342,9 @@ jobs:
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
 
       - name: Check PR-scoped webview rules
+        id: pr-scoped-rules
         if: matrix.shard == 1
+        continue-on-error: true
         run: python3 scripts/tests/test_pr_scoped_webviews_checks.py
 
       # One bun process per test file with a per-file timeout: a single
@@ -346,11 +356,29 @@ jobs:
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
         run: ../scripts/ci/run-webviews-tests.sh
 
-      - name: Fail on the eager JS budget
-        if: ${{ !cancelled() && steps.eager-js-budget.outcome == 'failure' }}
+      - name: Fail on the gate checks
+        if: ${{ !cancelled() }}
+        env:
+          MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
+          EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
+          REACT_COMPILER: ${{ steps.react-compiler.outcome }}
+          WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
+          PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
         run: |
-          echo "::error::The webviews eager JS budget failed; see the step 'Check diff viewer eager JS budget'."
-          exit 1
+          failed=0
+          for gate in \
+            "MERGE_DRIVER|Generated bundle merge driver" \
+            "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
+            "REACT_COMPILER|Verify React Compiler for webviews" \
+            "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
+            "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
+            var="${gate%%|*}"
+            if [ "${!var}" = "failure" ]; then
+              echo "::error::Gate failed; see the step '${gate#*|}'."
+              failed=1
+            fi
+          done
+          exit "$failed"
 
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
@@ -452,11 +480,18 @@ jobs:
         working-directory: webviews
         run: bun install --frozen-lockfile
 
-      - name: Check Rust sidecar
+      # Format and clippy are gates: a miss is recorded and fails the job in the
+      # last step, so it no longer hides the cargo tests and checks below.
+      - name: Lint Rust sidecar (fmt, clippy)
+        id: sidecar-lint
+        continue-on-error: true
         run: |
           ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
           ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
           ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
+
+      - name: Test Rust sidecar
+        run: |
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
           ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
 
@@ -467,6 +502,12 @@ jobs:
         env:
           CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
         run: ./scripts/benchmark-diff-viewer.sh
+
+      - name: Fail on the Rust sidecar lint
+        if: ${{ !cancelled() && steps.sidecar-lint.outcome == 'failure' }}
+        run: |
+          echo "::error::Rust sidecar fmt or clippy failed; see the step 'Lint Rust sidecar (fmt, clippy)'."
+          exit 1
 
   web-db-migrations:
     needs: web-subarea-scope
