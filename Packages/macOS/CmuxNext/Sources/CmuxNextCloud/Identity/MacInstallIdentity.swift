@@ -1,4 +1,5 @@
 public import CmuxInstallAuthCore
+import CryptoKit
 public import Foundation
 import os
 
@@ -73,6 +74,38 @@ public actor MacInstallIdentity {
         let token = try await scoped.installToken()
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
         return token
+    }
+
+    func nativeContext(team: String) async throws -> NativeInstallContext {
+        guard let client, let stackUser = user else { throw Failure.signedOut }
+        let bound = generation
+        let token = try await installToken(team: team)
+        guard let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
+        let point = try await store.signer(for: stackUser).publicKeyX963()
+        guard bound == generation, user == stackUser, await client.currentRecord == record, point.count == 65, point.first == 4 else { throw Failure.signedOut }
+        return NativeInstallContext(account: stackUser, user: record.user, install: record.install, environment: environment,
+                                    point: point.base64EncodedString(), token: token, generation: bound, secureStorage: store.usesSecureEnclave)
+    }
+
+    func nativeCheck(_ context: NativeInstallContext) async throws {
+        guard context.generation == generation, context.account == user, !signingOut,
+              await client?.currentRecord == InstallRecord(user: context.user, install: context.install) else { throw Failure.signedOut }
+        guard context.generation == generation, context.account == user, !signingOut else { throw Failure.signedOut }
+    }
+
+    func nativeSign(_ message: String, context: NativeInstallContext) async throws -> String {
+        try await nativeCheck(context)
+        let signed = try await store.signer(for: context.account).sign(Data(message.utf8))
+        try await nativeCheck(context)
+        let signature = signed.count == 64 ? try P256.Signing.ECDSASignature(rawRepresentation: signed) : try P256.Signing.ECDSASignature(derRepresentation: signed)
+        return signature.rawRepresentation.base64EncodedString()
+    }
+
+    func nativeOwnerPost(_ body: Data, context: NativeInstallContext) async throws -> (status: Int, body: Data) {
+        try await nativeCheck(context)
+        let reply = try await transport.post("/v1/ops", json: body, bearer: context.token, headers: requestHeaders)
+        try await nativeCheck(context)
+        return reply
     }
 
     /// The owner refused the current token (401): the next call mints again.
