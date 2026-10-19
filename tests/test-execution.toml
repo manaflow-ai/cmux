@@ -501,6 +501,10 @@ path = "tests/test_cmux_next_tour.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_media_path_map.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
