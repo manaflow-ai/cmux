@@ -108,9 +108,10 @@ nonisolated enum CGSProbe {
     static func stop() { recording = false }
 
     static var json: JSONValue {
-        ["calls": .array(calls.sorted { $0.value > $1.value }.map { .string("\($0.value)x \($0.key)") }),
-         "hooked": .array(hooked.map { .string($0) }),
-         "seen": .array(seen.map { .string($0) }),
-         "stacks": .array(stacks.sorted { $0.value > $1.value }.map { .string("\($0.value)x \($0.key)") })]
+        let value: [String: JSONValue] = ["calls": .array(calls.sorted { $0.value > $1.value }.map { JSONValue.string("\($0.value)x \($0.key)") }),
+         "hooked": .array(hooked.map { JSONValue.string($0) }),
+         "seen": .array(seen.map { JSONValue.string($0) }),
+         "stacks": .array(stacks.sorted { $0.value > $1.value }.map { JSONValue.string("\($0.value)x \($0.key)") })]
+        return .object(value)
     }
 }
