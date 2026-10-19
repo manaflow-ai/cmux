@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Popover } from "../../../ui/Popover";
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { Icon } from "../icons";
 import { t, text } from "../strings";
 import { TextEditor } from "./TextEditor";
@@ -13,7 +13,7 @@ import type { EditorProps } from "./types";
  */
 export function DomainListEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
-  const domains = useSettingsState().domains;
+  const domains = useSettingsSelector((state) => state.domains);
   const names = row.kind === "theme" ? domains.themes : domains.font_families;
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");

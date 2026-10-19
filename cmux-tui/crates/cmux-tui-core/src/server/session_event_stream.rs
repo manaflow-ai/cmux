@@ -303,6 +303,16 @@ pub(super) fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
+    // Every journal commit (terminal output too) wakes every stream. Reading
+    // pages on the stream's own read-only connection keeps those reads off
+    // the registry lock, which every request and the journal writer need.
+    let mut reader = match mux.resource_event_reader() {
+        Ok(reader) => reader,
+        Err(error) => {
+            eprintln!("cmux-tui: session.events: open resource event reader: {error:#}");
+            None
+        }
+    };
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
@@ -317,7 +327,23 @@ pub(super) fn run_session_event_stream(
         }
         stream.epoch = epoch;
         loop {
-            let page = match mux.resource_events_after(stream.last_revision) {
+            let read = match &reader {
+                Some((reader, generation)) => {
+                    reader.resource_events_after(generation, stream.last_revision)
+                }
+                None => mux.resource_events_after(stream.last_revision),
+            };
+            // A reader error (a busy or replaced file) falls back to the
+            // registry, which decides between a page and a gap.
+            let read = match read {
+                Err(error) if reader.is_some() => {
+                    eprintln!("cmux-tui: session.events: resource event reader: {error:#}");
+                    reader = None;
+                    mux.resource_events_after(stream.last_revision)
+                }
+                read => read,
+            };
+            let page = match read {
                 Ok(page) => page,
                 Err(error) => {
                     let end = resource_stream_end(

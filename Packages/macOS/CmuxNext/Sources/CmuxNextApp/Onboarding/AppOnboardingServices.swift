@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -80,7 +81,7 @@ final class AppOnboardingServices: OnboardingServices {
         let cef = cache.cef
         // One Keychain prompt per browser for cookies and passwords together; the keys go when the run ends.
         let keys = OneReadSafeStorage(SafeStorageKeys().live())
-        let cookies = CookieImporter(destination: AppCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
+        let cookies = CookieImporter(destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
                                      keys: keys)
         // Passwords only from profiles the user agreed to on the consent screen (the plan carries no others).
         var passwords: PasswordImporter?

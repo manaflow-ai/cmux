@@ -216,6 +216,19 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // Typing in a Cloud conversation only to a connection that
+                // asked for it (`cloud-conversation-typing-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::Typing { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::cloud_conversations::CLOUD_TYPING_CAPABILITY,
+                    ) =>
+                {
+                    continue;
+                }
                 MuxEvent::PairingRequested(challenge) => json!({
                     "event": "pairing-requested",
                     "request": challenge.id,
