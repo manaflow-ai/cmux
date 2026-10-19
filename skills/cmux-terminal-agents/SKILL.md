@@ -28,7 +28,8 @@ $A close --all
   workspace named NAME, runs the harness with PROMPT as its first message, and adds the workspace
   to the sidebar group `Chief agents` (created when absent; `CMUX_TERMINAL_AGENTS_GROUP` renames
   it, `--no-group` skips it). Pass harness flags with `--extra`, for example
-  `--extra=--model --extra=sonnet`.
+  `--extra=--model --extra=sonnet`. `--harness claude` runs `sr2 claude` (Claude Code through
+  subrouter2); set `CMUX_TERMINAL_AGENTS_CLAUDE=claude` to run the plain `claude` instead.
 - `send` writes one bracketed paste plus CR (one cmux mutation), so a multi-line prompt arrives
   as one message.
 - `wait` ends on the first signal that fires and says which in `via`:
