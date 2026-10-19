@@ -34,7 +34,7 @@ fn token(record: &identity::Identity, transport: &dyn Transport) -> Result<Zeroi
         .ok_or_else(invalid)?;
     if challenge["install"] != paired.install
         || challenge["message_prefix"] != expected
-        || !challenge["expires_at"].as_u64().is_some_and(|at| at > transport.now_ms())
+        || challenge["expires_at"].as_u64().is_none_or(|at| at <= transport.now_ms())
     {
         return Err(invalid());
     }
@@ -54,7 +54,7 @@ fn token(record: &identity::Identity, transport: &dyn Transport) -> Result<Zeroi
         || answer["user"] != paired.user
         || answer["install"] != paired.install
         || answer["team"] != paired.team
-        || !answer["expires_at"].as_u64().is_some_and(|at| at > transport.now_ms())
+        || answer["expires_at"].as_u64().is_none_or(|at| at <= transport.now_ms())
     {
         return Err(invalid());
     }
