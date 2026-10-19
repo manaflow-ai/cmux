@@ -80,7 +80,7 @@ fn request(scope: &str) -> Request {
     // Deserialize the actual op line so the baseline compiles but demonstrates ignored metadata.
     serde_json::from_value(
         json!({"op": "cloud.snapshot.delete", "args": {"snapshot": "snap_s0000000000000000001"},
-        "idempotency_key": "same-intent", "expected_scope": scope}),
+        "idempotency_key": "same-intent", "origin": "user", "expected_scope": scope}),
     )
     .unwrap()
 }
