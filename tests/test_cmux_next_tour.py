@@ -29,6 +29,8 @@ server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(path)
 server.listen(8)
 lock = threading.Lock()
+with open(log, "a") as out:
+    out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
 def answer(connection):
     with connection:
         data = b""
@@ -174,6 +176,9 @@ class AppWindowCaptureTests(unittest.TestCase):
         done, _ = self.run_tour()
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertFalse(Path(f"{self.log}.osascript").exists())
+        launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
+        self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
 
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission

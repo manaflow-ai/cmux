@@ -493,7 +493,9 @@ class App:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
-        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll"]
+        # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
+        # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
+        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
