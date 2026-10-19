@@ -1276,6 +1276,7 @@ export type UserTeam = {
   readonly id: TeamId
   readonly display_name: string
   readonly kind: "personal" | "stack"
+  readonly stack_team?: string | null
   readonly role: TeamRole
   readonly sso_required: boolean
 }

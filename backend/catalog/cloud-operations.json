@@ -7548,6 +7548,18 @@
             ]
           }
         },
+        "stack_team": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
+        },
         "role": {
           "required": true,
           "type": {
@@ -62069,6 +62081,18 @@
                 "enum": [
                   "personal",
                   "stack"
+                ]
+              },
+              "stack_team": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "role": {

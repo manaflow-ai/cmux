@@ -615,10 +615,13 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** RPC from the Worker (team-select.ts): the user's role in this live team with its name and kind, or null. Never creates a team. */
-  async membership(entity: string, user: string): Promise<{ role: string; display_name: string; kind: "personal" | "stack" } | null> {
+  async membership(entity: string, user: string): Promise<{ role: string; display_name: string; kind: "personal" | "stack"; stack_team?: string } | null> {
     const state = this.isBound(entity) ? this.bind(entity).currentState : undefined
     const role = state?.team?.id === entity && state.team.deleted_at === undefined ? roleOf(state, this.rows, user) : undefined
-    return role && state?.team ? { role, display_name: state.team.display_name, kind: state.team.kind } : null
+    if (!role || !state?.team) return null
+    const stackTeam = state.team.kind === "stack" ? state.team.stack_team : undefined
+    const reference = stackTeam && stackTeamIdFor(this.env.STACK_PROJECT_ID, stackTeam) === entity ? { stack_team: stackTeam } : {}
+    return { role, display_name: state.team.display_name, kind: state.team.kind, ...reference }
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)

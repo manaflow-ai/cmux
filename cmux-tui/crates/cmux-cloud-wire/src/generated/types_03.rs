@@ -691,6 +691,8 @@ pub struct UserTeam {
     pub id: TeamId,
     pub display_name: String,
     pub kind: UserTeamKind,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub stack_team: Option<Option<String>>,
     pub role: TeamRole,
     pub sso_required: bool,
 }
