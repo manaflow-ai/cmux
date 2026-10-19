@@ -56,8 +56,9 @@ describe("provider-free overlay servers", () => {
     expect(await json(applied)).toMatchObject({ ruleCount: 0, overlayRuleCount: 1 });
     expect((await json(await call(`/v1/devices/${client}/overlay-policy`)))["peers"]).toEqual([expect.objectContaining({ deviceId: server, outbound: [{ protocol: "tcp", port: 4100 }], inbound: [] })]);
     expect((await json(await policy(server)))["peers"]).toEqual([expect.objectContaining({ deviceId: client, inbound: [{ protocol: "tcp", port: 4100 }], outbound: [] })]);
-    const refused = await call(`/v1/meshes/${mesh}/acl`, "PUT", { expectedVersion: 1, rules: [{ src: [server], dst: [client], allow: ["*"] }] });
-    expect(refused.status).toBe(400);
+    const granted = await call(`/v1/meshes/${mesh}/acl`, "PUT", { expectedVersion: 1, rules: [{ src: [server], dst: [client], allow: ["tcp:4100"] }] });
+    expect(granted.status).toBe(200);
+    expect((await json(await policy(server)))["peers"]).toEqual([expect.objectContaining({ deviceId: client, inbound: [], outbound: [{ protocol: "tcp", port: 4100 }] })]);
   });
 
   it("requires possession, current owner, scope and tenant; signatures cannot cross the gateway enroll domain", async () => {
