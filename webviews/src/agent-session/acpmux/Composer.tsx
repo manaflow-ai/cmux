@@ -9,6 +9,8 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+// Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
+import "../../theme/messages.css";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {

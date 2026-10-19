@@ -107,6 +107,21 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// The tab shows the empty state.
     var isPicking: Bool { file == nil && !isClosed }
 
+    /// When the editor reported that Monaco waits for the second key of a sequence
+    /// (`cmux.editor.keySequence`), in `uptime()` seconds; nil when none is pending.
+    private var keySequenceStarted: TimeInterval?
+    /// The clock for ``keySequencePending`` (seconds since boot); tests replace it.
+    var uptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// How long a pending sequence holds the next key, if the page never reports its end.
+    nonisolated static let keySequenceLimit: TimeInterval = 5
+
+    /// The editor waits for the second key of a key sequence: the app's key dispatcher lets the
+    /// next key reach it. A report older than ``keySequenceLimit`` no longer counts.
+    var keySequencePending: Bool {
+        guard let started = keySequenceStarted else { return false }
+        return uptime() - started < Self.keySequenceLimit
+    }
+
     private var origin: String { kind.descriptor.origin }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -133,6 +148,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return ["path": .string(chosen.path)]
         case kind.op("openLink"):
             try await openLink(params, host: host, userGesture: context.userGesture)
+            return .object([:])
+        case kind.op("keySequence") where kind == .editor:
+            keySequenceStarted = params["pending"]?.boolValue == true ? uptime() : nil
             return .object([:])
         case kind.op("resolveLinks") where kind == .markdown:
             return try await resolveLinks(params, host: host)
