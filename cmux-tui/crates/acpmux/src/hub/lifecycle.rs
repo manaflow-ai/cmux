@@ -491,6 +491,13 @@ impl Hub {
             } else {
                 mode
             };
+            // Nor does any chat saved in full access while sessions.allowFullAccess is off.
+            let saved_mode = mode.clone();
+            let mode = super::start_mode::resumable_mode(mode, "default");
+            if mode != saved_mode {
+                tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
+                self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
+            }
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
