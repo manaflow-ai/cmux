@@ -1276,7 +1276,9 @@ export type UserTeam = {
   readonly id: TeamId
   readonly display_name: string
   readonly kind: "personal" | "stack"
+  readonly stack_team?: string | null
   readonly role: TeamRole
+  readonly authority_version?: string | null
   readonly sso_required: boolean
 }
 
@@ -2357,6 +2359,17 @@ export interface CloudOps {
       readonly position?: number
     }
     readonly result: HomeInboxEntry
+  }
+  /** Read the authenticated client install's current account, team, grant and opaque cache version. Membership, role grants, policy and install admission changes invalidate the version. Takes no selectors, grants no permission and returns no credential. Server and chief installs cannot call this read. */
+  readonly "install.authority": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly user: UserId
+      readonly team: TeamId
+      readonly install: InstallId
+      readonly grant: GrantId
+      readonly authority_version: string
+    }
   }
   /** List the caller's installs and grants. */
   readonly "install.list": {
@@ -3535,6 +3548,7 @@ export const cloudOpMeta = {
   "inbox.mark_unread": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "inbox.mute": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "inbox.pin": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "install.authority": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "install.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "install.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

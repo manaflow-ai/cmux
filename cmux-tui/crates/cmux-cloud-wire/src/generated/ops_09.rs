@@ -5,6 +5,42 @@
 use super::*;
 
 wire_op! {
+    /// The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
+    TeamVmJournalHighWaterOp {
+        name: "team_vm.journal.high_water",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamVmDO",
+        risk: "read",
+        principals: [Install],
+        params: TeamVmJournalHighWaterParams,
+        result: TeamVmJournalHighWaterResult,
+        error: TeamVmJournalHighWaterError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalHighWaterParams {
+    pub stream: TeamJournalStream,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalHighWaterResult {
+    pub stream: TeamJournalStream,
+    pub high_water: i64,
+    pub epoch: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.journal.high_water declares.
+    TeamVmJournalHighWaterError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        TeamVmNotBound = "team_vm.not_bound",
+    }
+}
+
+wire_op! {
     /// Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
     TeamVmJournalReadOp {
         name: "team_vm.journal.read",
@@ -866,40 +902,5 @@ wire_errors! {
     /// The error codes user.presence_key.list declares.
     UserPresenceKeyListError {
         AuthForbidden = "auth.forbidden",
-    }
-}
-
-wire_op! {
-    /// Make an install's presence key unusable at once (device lost); its nonces are dropped.
-    UserPresenceKeyRevokeOp {
-        name: "user.presence_key.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: UserPresenceKeyRevokeParams,
-        result: Value,
-        error: UserPresenceKeyRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserPresenceKeyRevokeParams {
-    pub install: String,
-}
-
-wire_errors! {
-    /// The error codes user.presence_key.revoke declares.
-    UserPresenceKeyRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        TextConfirmLocked = "text_confirm.locked",
-        TextConfirmProofRequired = "text_confirm.proof_required",
-        ValidationInvalid = "validation.invalid",
     }
 }

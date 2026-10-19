@@ -93,6 +93,7 @@ pub mod op_names {
     pub const INBOX_MARK_UNREAD: &str = "inbox.mark_unread";
     pub const INBOX_MUTE: &str = "inbox.mute";
     pub const INBOX_PIN: &str = "inbox.pin";
+    pub const INSTALL_AUTHORITY: &str = "install.authority";
     pub const INSTALL_LIST: &str = "install.list";
     pub const INSTALL_REGISTER: &str = "install.register";
     pub const INSTALL_RENAME: &str = "install.rename";
@@ -286,6 +287,7 @@ pub mod op_names {
         INBOX_MARK_UNREAD,
         INBOX_MUTE,
         INBOX_PIN,
+        INSTALL_AUTHORITY,
         INSTALL_LIST,
         INSTALL_REGISTER,
         INSTALL_RENAME,
@@ -482,6 +484,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "inbox.mark_unread" => visitor.visit::<InboxMarkUnreadOp>(),
         "inbox.mute" => visitor.visit::<InboxMuteOp>(),
         "inbox.pin" => visitor.visit::<InboxPinOp>(),
+        "install.authority" => visitor.visit::<InstallAuthorityOp>(),
         "install.list" => visitor.visit::<InstallListOp>(),
         "install.register" => visitor.visit::<InstallRegisterOp>(),
         "install.rename" => visitor.visit::<InstallRenameOp>(),

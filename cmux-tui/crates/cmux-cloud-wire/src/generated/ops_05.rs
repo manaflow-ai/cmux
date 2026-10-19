@@ -551,6 +551,43 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Read the authenticated client install's current account, team, grant and opaque cache version. Membership, role grants, policy and install admission changes invalidate the version. Takes no selectors, grants no permission and returns no credential. Server and chief installs cannot call this read.
+    InstallAuthorityOp {
+        name: "install.authority",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Install],
+        params: InstallAuthorityParams,
+        result: InstallAuthorityResult,
+        error: InstallAuthorityError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InstallAuthorityParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InstallAuthorityResult {
+    pub user: UserId,
+    pub team: TeamId,
+    pub install: InstallId,
+    pub grant: GrantId,
+    pub authority_version: String,
+}
+
+wire_errors! {
+    /// The error codes install.authority declares.
+    InstallAuthorityError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// List the caller's installs and grants.
     InstallListOp {
         name: "install.list",
@@ -859,44 +896,5 @@ wire_errors! {
         PolicyDenied = "policy.denied",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the team's connections the caller may use (no secrets) and which providers this deployment can connect.
-    IntegrationListOp {
-        name: "integration.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationListParams,
-        result: IntegrationListResult,
-        error: IntegrationListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListResultProvidersItem {
-    pub provider: IntegrationProvider,
-    pub configured: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListResult {
-    pub connections: Vec<Connection>,
-    pub providers: Vec<IntegrationListResultProvidersItem>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes integration.list declares.
-    IntegrationListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

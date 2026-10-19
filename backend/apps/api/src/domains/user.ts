@@ -8,6 +8,7 @@ import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
+import { withInstallAuthority, type InstallAuthorityState } from "./user-authority.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -19,6 +20,8 @@ const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
 
 export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
+  /** Reducer-owned cache epochs, not credentials or permissions. */
+  readonly install_authority?: InstallAuthorityState
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
   /** Home settings (home-messaging.md section 4.2), absent until the first home.settings.set. */
@@ -219,7 +222,7 @@ export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTA
         : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
-export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
+export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInstallAuthority({
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
@@ -307,6 +310,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         }
         const install = ctx.newId("inst")
         const grant = ctx.newId("grant")
+        // Ledger pruning must not let a repeated key overwrite an old install/grant
+        // and make that revoked identity's still-valid tokens usable again.
+        if (state.installs[install] || state.grants[grant]) return reject("idempotency.conflict", "registration key already names an install; use a new key")
         const left = p.sso_team ? state.sso_left?.[p.sso_team] : undefined
         const stampSso = Boolean(p.sso_team) && (p.kind === "session" || (op === "install.register_server" && p.kind === "system" && (left === undefined || (v.sso_seen_at ?? -1) > left)))
         const device = v.device ?? ctx.newId("dev")

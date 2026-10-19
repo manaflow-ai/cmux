@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { personalTeamIdFor } from "../src/domains/user.ts"
+import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { clearSignInRules } from "../src/policy-gate.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { call, deliver, mirroredTeam, teamIdOf, teamStub } from "./team-stack-support.ts"
 import { inDO, sessionToken, testEnv } from "./team-ssh-support.ts"
+import { rolesTeam, STACK_MEMBER } from "./team-roles-support.ts"
 // Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 const userStub = (user: string) => testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
@@ -16,6 +17,15 @@ const indexEntry = (user: string, team: string, role = "member") =>
   })
 
 const listTeams = (token: string, team?: string) => call(token, "/v1/read", { op: "user.teams.list", params: {} }, team)
+
+const authorityOf = async (token: string, team: string) => {
+  const r = await listTeams(token)
+  expect(r.status, JSON.stringify(r.body)).toBe(200)
+  const row = r.body.value.teams.find((entry: { id: string }) => entry.id === team)
+  expect(row).toBeDefined()
+  expect(row.authority_version).toMatch(/^[0-9a-f]{64}$/)
+  return row.authority_version as string
+}
 
 /**
  * cx-5xew: user.teams.list names every team a session may act in (x-cmux-team): the personal
@@ -32,13 +42,27 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(r.body.op).toBe("user.teams.list")
     const teams = r.body.value.teams as Array<{ id: string; display_name: string; kind: string; role: string }>
     expect(teams[0]).toMatchObject({ id: personalTeamIdFor(t.user), kind: "personal", role: "owner", sso_required: false })
-    expect(teams).toContainEqual({ id: t.team, display_name: "Acme Corp", kind: "stack", role: "member", sso_required: false })
+    expect(teams.find((entry) => entry.id === t.team)).toMatchObject({ id: t.team, display_name: "Acme Corp", kind: "stack", stack_team: t.stackTeam, role: "member", sso_required: false })
+    expect(teams[0]).not.toHaveProperty("stack_team")
     expect(teams).toHaveLength(2)
     expect(r.body.value.incomplete).toBe(false)
     // The list is the user's, whatever team the request acts in.
     const inShared = await listTeams(t.token, t.team)
     expect(inShared.status).toBe(200)
     expect(inShared.body.value.teams).toEqual(teams)
+  })
+
+  it("omits a stored reference that belongs to a different canonical owner", async () => {
+    const t = await mirroredTeam("Mismatched reference")
+    await fireAlarm(teamStub(t.team))
+    await inDO(teamStub(t.team), async (instance) => {
+      instance.submitSystem("team.stack_mirror", { team: t.team, stack_team: crypto.randomUUID(), display_name: "Mismatched reference" }, crypto.randomUUID())
+    })
+    const r = await listTeams(t.token)
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    const shared = r.body.value.teams.find((team: { id: string }) => team.id === t.team)
+    expect(shared).toMatchObject({ id: t.team, kind: "stack", role: "member" })
+    expect(shared).not.toHaveProperty("stack_team")
   })
 
   it("drops an index entry its TeamDO does not confirm: a team that never had the user, and a team the user left", async () => {
@@ -92,7 +116,7 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     const r = await listTeams(t.token)
     expect(r.status, JSON.stringify(r.body)).toBe(200)
     const teams = r.body.value.teams as Array<{ id: string; sso_required: boolean }>
-    expect(teams.find((x) => x.id === t.team)).toMatchObject({ sso_required: true })
+    expect(teams.find((x) => x.id === t.team)).toMatchObject({ stack_team: t.stackTeam, sso_required: true })
     expect(teams[0]).toMatchObject({ kind: "personal", sso_required: false })
     // The server refuses the same team for this session with the SSO code.
     const refused = await call(t.token, "/v1/read", { op: "team_vm.status", params: {} }, t.team)
@@ -118,5 +142,100 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(r.status, JSON.stringify(r.body)).toBe(200)
     expect(r.body.value.teams).toHaveLength(1)
     expect(r.body.value.teams[0]).toMatchObject({ kind: "personal", role: "owner" })
+  })
+
+  it("changes authority after role changes away and back, while another member's authority stays stable", async () => {
+    const t = await rolesTeam(), member = await t.join("Member", STACK_MEMBER)
+    await fireAlarm(teamStub(t.team))
+    const first = await authorityOf(member.token, t.team)
+    const owner = await authorityOf(t.creator.token, t.team)
+    expect(await authorityOf(member.token, t.team)).toBe(first)
+    t.w.perms.set(`${t.stackTeam}:${member.stackUser}`, [...STACK_MEMBER, "cmux:admin"])
+    expect((await deliver("team_permission.created", { id: "cmux:admin", team_id: t.stackTeam, user_id: member.stackUser })).status).toBe(200)
+    const promoted = await authorityOf(member.token, t.team)
+    expect(promoted).not.toBe(first)
+    t.w.perms.set(`${t.stackTeam}:${member.stackUser}`, STACK_MEMBER)
+    expect((await deliver("team_permission.deleted", { id: "cmux:admin", team_id: t.stackTeam, user_id: member.stackUser })).status).toBe(200)
+    const restored = await authorityOf(member.token, t.team)
+    expect(restored).not.toBe(first)
+    expect(restored).not.toBe(promoted)
+    expect(await authorityOf(t.creator.token, t.team)).toBe(owner)
+  })
+
+  it("changes authority on leave and rejoin with the same role", async () => {
+    const t = await mirroredTeam("Rejoin")
+    await fireAlarm(teamStub(t.team))
+    const first = await authorityOf(t.token, t.team)
+    t.w.members.delete(`${t.stackTeam}:${t.stackUser}`)
+    t.w.perms.delete(`${t.stackTeam}:${t.stackUser}`)
+    expect((await deliver("team_membership.deleted", { team_id: t.stackTeam, user_id: t.stackUser })).status).toBe(200)
+    const left = await listTeams(t.token)
+    expect(left.body.value.teams.some((entry: { id: string }) => entry.id === t.team)).toBe(false)
+    t.w.members.set(`${t.stackTeam}:${t.stackUser}`, "Member")
+    t.w.perms.set(`${t.stackTeam}:${t.stackUser}`, STACK_MEMBER)
+    expect((await deliver("team_membership.created", { team_id: t.stackTeam, user_id: t.stackUser })).status).toBe(200)
+    await fireAlarm(teamStub(t.team))
+    expect(await authorityOf(t.token, t.team)).not.toBe(first)
+  })
+
+  it("changes authority when the team's policy version changes", async () => {
+    const t = await rolesTeam()
+    await fireAlarm(teamStub(t.team))
+    const first = await authorityOf(t.creator.token, t.team)
+    const changed = await call(t.creator.token, "/v1/ops", { op: "team.policy.update", params: {
+      changes: [{ key: "updates.minimumVersion", value: { value: "2.4.0", mode: "enforced" } }], expected_version: 0, reason: "test"
+    }, idempotency_key: crypto.randomUUID(), origin: "cli" }, t.team)
+    expect(changed.body.ok, JSON.stringify(changed.body)).toBe(true)
+    clearSignInRules()
+    expect(await authorityOf(t.creator.token, t.team)).not.toBe(first)
+  })
+
+  it("keeps implicit personal authority stable across its first creation", async () => {
+    const stackUser = crypto.randomUUID(), user = userIdFor(testEnv.STACK_PROJECT_ID, stackUser)
+    const token = await sessionToken(stackUser, "New owner"), team = personalTeamIdFor(user)
+    const first = await authorityOf(token, team)
+    const ensured = await inDO(teamStub(team), async (instance) => instance.submit(team,
+      { identity: user, kind: "session", user, team },
+      { t: "op", op: "team.ensure_personal", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" }))
+    expect(ensured.frames.some((frame: { t: string }) => frame.t === "result")).toBe(true)
+    expect(await authorityOf(token, team)).toBe(first)
+  })
+
+  it("keeps membership incarnations out of subscriber event rows", async () => {
+    const t = await rolesTeam(), member = await t.join("Member", STACK_MEMBER)
+    const observed = await inDO(teamStub(t.team), async (instance) => {
+      const engine = instance.bind(t.team), frames: Array<unknown> = []
+      engine.submit({ identity: "system:team", kind: "system" }, { t: "op", op: "team.member.provision",
+        params: { user: member.user, role: "admin", source: "stack", display_name: "Member" }, idempotency_key: crypto.randomUUID(), origin: "script"
+      }, (_target: string, frame: unknown) => frames.push(frame))
+      return { frames, incarnation: engine.rows.get("member_authority", member.user)?.row.incarnation }
+    })
+    expect(typeof observed.incarnation).toBe("string")
+    expect(observed.frames.some((frame: any) => frame.t === "event")).toBe(true)
+    const publicFrames = JSON.stringify(observed.frames)
+    expect(publicFrames).not.toContain('"member_authority"')
+    expect(publicFrames).not.toContain('"incarnation"')
+  })
+
+  it("never reuses authority when a decided key ages out of its ledger", async () => {
+    const t = await rolesTeam(), member = await t.join("Member", STACK_MEMBER)
+    const versions = await inDO(teamStub(t.team), async (instance) => {
+      const engine = instance.bind(t.team)
+      const provision = (role: string, key: string) => {
+        const frames: Array<any> = []
+        engine.submit({ identity: "system:team", kind: "system" }, { t: "op", op: "team.member.provision",
+          params: { user: member.user, role, source: "stack", display_name: "Member" }, idempotency_key: key, origin: "script"
+        }, (_target: string, frame: unknown) => frames.push(frame))
+        expect(frames.some((frame) => frame.t === "event")).toBe(true)
+      }
+      provision("admin", "reusable-key")
+      const first = (await instance.membership(t.team, member.user)).authority_version
+      provision("member", "another-key")
+      engine.pruneLedger(Date.now() + 1)
+      provision("admin", "reusable-key")
+      const later = (await instance.membership(t.team, member.user)).authority_version
+      return { first, later }
+    })
+    expect(versions.later).not.toBe(versions.first)
   })
 })

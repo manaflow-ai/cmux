@@ -7548,11 +7548,34 @@
             ]
           }
         },
+        "stack_team": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
+        },
         "role": {
           "required": true,
           "type": {
             "kind": "ref",
             "name": "TeamRole"
+          }
+        },
+        "authority_version": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
           }
         },
         "sso_required": {
@@ -39242,6 +39265,147 @@
         }
       }
     },
+    "install.authority": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "install",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "user": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "install": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "grant": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GrantId"
+            }
+          },
+          "authority_version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "owner.unreachable",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "install authority",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Read the authenticated client install's current account, team, grant and opaque cache version. Membership, role grants, policy and install admission changes invalidate the version. Takes no selectors, grants no permission and returns no credential. Server and chief installs cannot call this read.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/UserId"
+          },
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          },
+          "grant": {
+            "$ref": "#/$defs/GrantId"
+          },
+          "authority_version": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "user",
+          "team",
+          "install",
+          "grant",
+          "authority_version"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "GrantId": {
+            "type": "string",
+            "pattern": "^grant_[a-z0-9]{20}$",
+            "description": "A server-side grant; tokens carry only its id."
+          }
+        }
+      }
+    },
     "install.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -62071,8 +62235,31 @@
                   "stack"
                 ]
               },
+              "stack_team": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "role": {
                 "$ref": "#/$defs/TeamRole"
+              },
+              "authority_version": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "sso_required": {
                 "type": "boolean"

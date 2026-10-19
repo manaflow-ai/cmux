@@ -4,6 +4,44 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes network.list declares.
+    NetworkListError {
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.
+    ParticipantAvatarGetOp {
+        name: "participant.avatar.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ParticipantAvatarGetParams,
+        result: ParticipantAvatarGetResult,
+        error: ParticipantAvatarGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetParams {
+    pub participant_id: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+}
+
+wire_enum! {
+    ParticipantAvatarGetResultAvatarMediaType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageGif = "image/gif",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ParticipantAvatarGetResultAvatar {
     pub sha256: String,
@@ -862,44 +900,5 @@ wire_op! {
         params: TeamAiLimitMemberSetParams,
         result: TeamAiLimitMemberSetResult,
         error: TeamAiLimitMemberSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitMemberSetParams {
-    pub member: UserId,
-    pub limit_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitMemberSetResult {
-    pub member: UserId,
-    pub limit_usd: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes team.ai_limit.member.set declares.
-    TeamAiLimitMemberSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set the team's default monthly AI spending limit per member (USD per person per UTC month, any amount; 0 = no AI; null = the cmux default of 200). A member's personal limit wins over it. Team admins and billing members, in a person's session. Recorded in the billing audit.
-    TeamAiLimitSetOp {
-        name: "team.ai_limit.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "money",
-        principals: [Session],
-        params: TeamAiLimitSetParams,
-        result: TeamAiLimitSetResult,
-        error: TeamAiLimitSetError,
     }
 }

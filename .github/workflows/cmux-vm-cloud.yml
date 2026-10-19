@@ -61,6 +61,18 @@ jobs:
             clients/ts/cloud/src/generated.ts
             cmux-tui/crates/cmux-cloud-wire/src/generated/*.rs
           retention-days: 7
+      - name: Current account team selection
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/user-teams-list.test.ts
+      - name: Calling install authority
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/install-authority.test.ts
+      - name: Existing user grant migrations and device state
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/install-ios-cloud-link-migrate.test.ts test/install-mac-execute-narrow.test.ts test/mac-install-grant.test.ts test/install-ios.test.ts test/push.test.ts
+      - name: Membership roles, row migration and revocation
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/team-roles.test.ts test/team-roles-review.test.ts test/team-members-rows.test.ts test/team-authority-leftovers.test.ts
       - name: Cloud tenant and adapter behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-vm-api test/cloud-vm-api
