@@ -26,6 +26,9 @@
 //! so the feature check is required to avoid accidentally starting a check.
 //! This view reports only cached versions, install channels and auth enums;
 //! an empty cache is unknown inventory, not evidence that no CLI is installed.
+//! The separately negotiated local-socket inventory refresh asks only the
+//! registries for cached installations. It never enters harness_health's
+//! probe/auto-update path, and preserves failed-source timestamps.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,6 +66,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_HARNESS_DOCTOR,
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
+    method::MUX_HARNESS_INVENTORY_REFRESH,
     method::MUX_HARNESS_UPDATE,
     method::MUX_SESSIONS_RESTART_HARNESS,
 ];
@@ -73,6 +77,19 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if m == method::MUX_HARNESS_INVENTORY_REFRESH {
+        if origin != Origin::Local {
+            return Err(RpcError::invalid_params("harness_inventory.not_trusted"));
+        }
+        if !params.is_object() {
+            return Err(RpcError::invalid_params("harness_inventory.bad_request"));
+        }
+        serde_json::from_value::<crate::protocol::inventory::InventoryRefreshParams>(
+            params.clone(),
+        )
+        .map_err(|_| RpcError::invalid_params("harness_inventory.bad_request"))?;
+        return hub.health.refresh_inventory_latest().await;
+    }
     let spawns = matches!(
         m,
         method::MUX_HARNESS_ADD
