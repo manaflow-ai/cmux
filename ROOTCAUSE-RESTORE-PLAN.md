@@ -221,15 +221,27 @@ after Xcode reported `BUILD SUCCEEDED`.
 ## Exact-head validation update (2026-10-19)
 
 The current repair branch is
-[`4cc404c865d30137f76eba86f2d89c7ec9e5e371`](https://github.com/danielraffel/cmux/commit/4cc404c865d30137f76eba86f2d89c7ec9e5e371).
-It includes the CLI `cmux feed clear` revision-floor fix and its regression
-test. The CMUXAgentLaunch package passes **883 tests in 100 suites**, including
-the focused persistence/startup set (31 tests in 2 suites); Swift parse checks
-for the changed CLI and persistence source pass. Astra and an independent
-Claude Opus review both found no blocking defect in the exact repair slice.
+[`bd24baf383ba3ef3249866d58f93d454182b9a2f`](https://github.com/danielraffel/cmux/commit/bd24baf383ba3ef3249866d58f93d454182b9a2f).
+It contains the restore identity and fallback hardening, the managed-binding
+persistence validation, and the `cmux feed clear` revision-floor fix. The
+portable CMUXAgentLaunch suite passes **883 tests in 100 suites**; the focused
+agent-restore regression passes **8 tests**; and the Dock lifecycle suite passes
+**54 tests**. Swift syntax, test wiring, and `git diff --check` also pass.
+Astra and an independent Claude Opus review both reviewed the exact committed
+repair slice; the final adversarial pass caught and corrected an overly broad
+compatibility bypass before this head was recorded.
 
-Native `cmuxTests/FeedCoordinatorTests` and a fresh full app-target build are
-still outstanding. The app build previously stopped while `/Volumes/Atelier`
-was stalling, so those are validation gaps rather than green claims. The
-protected PID, socket, live JSONL, and backup were not touched during this
-repair or review.
+The host still has eight WindowServer reports, all macOS bug type 409 watchdog
+timeouts. At failure, cmux instances ranged from approximately 805 MB to
+1.45 GB RSS and 207 to 343 threads; the October 18 protected instance was
+approximately 1.06 GB and 279 threads. The October 18 WindowServer snapshot
+contains no QEMU process, while the separate QEMU report is a SIGABRT in
+`NSCGLSurface flushRect`/gfxstream presentation. This supports cmux restore and
+resident-renderer fan-out as the primary pressure vector, with QEMU an optional
+amplifier rather than a required cause.
+
+The protected PID `49398`, socket, live JSONL, and backup were not touched.
+The backup is 878,760,521 bytes with SHA-256
+`808c48a047244efe244a2a0f271793a04bfbef6028f89d4f3bbc5d1163bc09ba`.
+Native full app-target dogfood remains separate from these focused green gates
+and must use a tagged isolated build; no claim is made that it has passed.
