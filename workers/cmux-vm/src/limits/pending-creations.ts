@@ -1,6 +1,6 @@
 /** Pending discovery is bounded by active VM slots, not permanent history size. */
 import { Schema } from "effect";
-import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
+import { PENDING_CREATION_CURSOR, type GeneratedCreation, type GeneratedCreationPage } from "../domain/generated-creation.ts";
 import type { IdempotencyRecord, LedgerStorage } from "./ledger.ts";
 
 const VmReservationLink = Schema.Struct({ key: Schema.String, vmId: Schema.String });
@@ -11,11 +11,11 @@ const Migration = Schema.Struct({ targets: Schema.Array(Schema.String), after: S
   exhausted: Schema.Boolean, token: Schema.String });
 const isReservation = Schema.is(Reservation), isMigration = Schema.is(Migration), isLink = Schema.is(VmReservationLink);
 const MIGRATION_KEY = "maintenance:pending-creations";
-export const PENDING_CURSOR = /^(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$/;
 
 export const pendingCreations = (storage: LedgerStorage, scope: string, cursor: string | undefined, limit: number,
   readRecord: (value: unknown) => IdempotencyRecord | undefined): Promise<GeneratedCreationPage> => storage.transaction(async (tx) => {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (cursor !== undefined && !PENDING_CURSOR.test(cursor))) throw new Error("invalid pending creation page");
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (cursor !== undefined && !PENDING_CREATION_CURSOR.test(cursor))) throw new Error("invalid pending creation page");
+  const anchor = cursor?.startsWith("p1_") ? cursor.slice(3) : cursor?.startsWith("i1_") && cursor.length > 35 ? cursor.slice(36) : undefined;
   const slots = new Map<string, Reservation>();
   let completeness: "ready" | "unavailable" = "ready";
   for (const [key, value] of await tx.list({ prefix: "reserve:" })) {
@@ -46,7 +46,7 @@ export const pendingCreations = (storage: LedgerStorage, scope: string, cursor: 
       const exhausted = rows.size < 64, token = crypto.randomUUID().replaceAll("-", "");
       const last = [...rows.keys()].at(-1) ?? after;
       await tx.put(MIGRATION_KEY, { targets: remaining, ...(last === undefined ? {} : { after: last }), exhausted, token });
-      if (!exhausted) return { items: [], nextCursor: `i1_${token}`, pendingIndex: "building" };
+      if (!exhausted) return { items: [], nextCursor: `i1_${token}${anchor === undefined ? "" : `_${anchor}`}`, pendingIndex: "building" };
       completeness = "unavailable";
     } else await tx.delete(MIGRATION_KEY);
   } else await tx.delete(MIGRATION_KEY);
@@ -65,7 +65,7 @@ export const pendingCreations = (storage: LedgerStorage, scope: string, cursor: 
     const time = Date.parse(generated.createdAt);
     if (!Number.isSafeInteger(time) || time < 0) { completeness = "unavailable"; continue; }
     const position = `${(Number.MAX_SAFE_INTEGER - time).toString(16).padStart(16, "0")}-${generated.cursor}`;
-    if (cursor?.startsWith("p1_") && position <= cursor.slice(3)) continue;
+    if (anchor !== undefined && position <= anchor) continue;
     candidates.push({ generated, position });
   }
   candidates.sort((a, b) => a.position < b.position ? -1 : a.position > b.position ? 1 : 0);

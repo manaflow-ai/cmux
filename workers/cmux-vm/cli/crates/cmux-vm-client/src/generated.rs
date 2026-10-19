@@ -9402,7 +9402,7 @@ pub mod types {
                 })
         }
     }
-    ///a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$
+    ///a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
     pub struct VmCreationsListVmCreationsCursor(::std::string::String);
@@ -9420,16 +9420,17 @@ pub mod types {
     impl ::std::str::FromStr for VmCreationsListVmCreationsCursor {
         type Err = self::error::ConversionError;
         fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-                ::std::sync::LazyLock::new(|| {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(
+                || {
                     ::regress::Regex::new(
-                        "^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$",
+                        "^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$",
                     )
                     .unwrap()
-                });
+                },
+            );
             if PATTERN.find(value).is_none() {
                 return Err(
-                    "doesn't match pattern \"^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$\""
+                    "doesn't match pattern \"^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$\""
                         .into(),
                 );
             }
@@ -13559,7 +13560,7 @@ impl Client {
     Sends a `GET` request to `/v1/vm-creations`
 
     Arguments:
-    - `cursor`: a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$
+    - `cursor`: a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$
     - `limit`: a string to be decoded into a number
     - `state`
     - `x_cmux_team_id`: a string at most 128 character(s) long

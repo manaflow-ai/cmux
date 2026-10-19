@@ -555,7 +555,7 @@ async fn dispatch(
             let body = match command {
                 CreationCommand::List(args) => {
                     let page = creation_history::fetch(
-                        &client,
+                        client,
                         args.cursor,
                         args.limit,
                         args.pending,

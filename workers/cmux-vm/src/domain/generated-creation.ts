@@ -19,3 +19,7 @@ export const GeneratedCreationPage = Schema.Struct({ items: Schema.Array(Generat
   pendingIndex: Schema.optional(Schema.Literal("ready", "building", "unavailable")) });
 export type GeneratedCreationPage = typeof GeneratedCreationPage.Type;
 export const creationDiscoveryScope = (principal: Principal) => principal.actor.kind === "service" ? actorRef(principal.actor) : "tenant";
+
+const pendingCursor = "(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?)";
+export const PENDING_CREATION_CURSOR = new RegExp(`^${pendingCursor}$`);
+export const CREATION_HISTORY_CURSOR = new RegExp(`^(?:[a-f0-9]{64}|${pendingCursor})$`);

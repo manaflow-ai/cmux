@@ -107,3 +107,24 @@ it("backfills older retained slots in bounded steps before claiming complete pen
   expect(await ready.json()).toMatchObject({ items: [{ creationKey: pending.key }], pendingIndex: "ready", nextCursor: null });
   expect(h.upstreamRequests).toHaveLength(0);
 });
+
+it("preserves the page position when a previous writer introduces an unbound slot between pages", async () => {
+  await h.dispose();
+  const storage = memoryLedgerStorage(); h = await makeHarness({ limits: memoryLimitsLayer(() => storage) });
+  const older = await seed(storage, "2026-10-17T00:00:00Z", "3".repeat(64));
+  const newer = await seed(storage, "2026-10-18T00:00:00Z", "4".repeat(64));
+  const headers = bearer(await h.addKey("team_alpha", ["vm:read"]));
+  const first = await h.request("/v1/vm-creations?state=pending&limit=1", headers);
+  const page = await first.json<{ items: Array<{ creationKey: string }>; nextCursor: string }>();
+  expect(page.items[0]?.creationKey).toBe(newer.key);
+  const legacy = await seed(storage, "2026-10-16T00:00:00Z", "5".repeat(64));
+  const held = await storage.get(`reserve:${legacy.reservation}`);
+  if (typeof held !== "object" || held === null) throw Error("missing old slot");
+  await storage.put(`reserve:${legacy.reservation}`, Object.fromEntries(Object.entries(held).filter(([key]) => key !== "vmCreation")));
+  for (let n = 0; n < 70; n++) await storage.put(`idem:000-${n.toString().padStart(3, "0")}`, { unrelated: true });
+  const response = await h.request(`/v1/vm-creations?state=pending&limit=1&cursor=${page.nextCursor}`, headers);
+  const building = await response.json<{ nextCursor: string; pendingIndex: string }>();
+  expect(building.pendingIndex).toBe("building");
+  const resumed = await h.request(`/v1/vm-creations?state=pending&limit=1&cursor=${building.nextCursor}`, headers);
+  expect(await resumed.json()).toMatchObject({ items: [{ creationKey: older.key }], pendingIndex: "ready" });
+});

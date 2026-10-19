@@ -4,7 +4,7 @@ import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
 import { VmCreationStatus, VmCreationCancellation, VmCreationList, VmCreationListItem, type VmCreationState } from "../api/creations.ts";
 import { CmuxVmApi } from "../api.ts";
-import { creationDiscoveryScope } from "../domain/generated-creation.ts";
+import { PENDING_CREATION_CURSOR, creationDiscoveryScope } from "../domain/generated-creation.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { BadRequest, Forbidden, unavailable } from "../errors.ts";
 import { readVmCreation } from "../proofs/vm-creation.ts";
@@ -24,7 +24,7 @@ const cancellationStatus = (status: VmCreationState) => status.id !== null && (s
 
 const list = (cursor: string | undefined, limit: number, pending = false) => withCaller("vm:read", "read", (caller) => Effect.gen(function* () {
   if (caller.value.resourceAllowlist !== null) return yield* Effect.fail(new Forbidden({ message: "A key limited to specific resources cannot list creation history" }));
-  if (cursor !== undefined && (pending ? !/^(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$/.test(cursor) : !/^[a-f0-9]{64}$/.test(cursor)))
+  if (cursor !== undefined && (pending ? !PENDING_CREATION_CURSOR.test(cursor) : !/^[a-f0-9]{64}$/.test(cursor)))
     return yield* Effect.fail(new BadRequest({ message: "The cursor belongs to a different history view" }));
   const page = yield* (yield* TenantLimits).listGenerated(caller.value.tenantId, creationDiscoveryScope(caller.value), cursor, limit, pending).pipe(Effect.mapError(() => unavailable()));
   if (pending && page.pendingIndex === undefined) return yield* Effect.fail(unavailable());

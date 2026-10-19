@@ -3190,7 +3190,7 @@ export interface operations {
         parameters: {
             query?: {
                 state?: "pending";
-                /** @description a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$ */
+                /** @description a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$ */
                 cursor?: string;
                 /** @description a string to be decoded into a number */
                 limit?: string;

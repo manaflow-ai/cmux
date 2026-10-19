@@ -2,6 +2,7 @@
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform";
 import { Schema } from "effect";
 import { BadRequest, Conflict, Forbidden, NotFound, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
+import { CREATION_HISTORY_CURSOR } from "../domain/generated-creation.ts";
 import { VmCreationKey, VmId } from "../lib/ids.ts";
 import { describe, GroupCreationKeyHeaders, GroupTeamHeaders } from "./common.ts";
 import { VmImage } from "./images.ts";
@@ -34,7 +35,7 @@ export class VmCreationList extends Schema.Class<VmCreationList>("VmCreationList
 }) {}
 export const VmCreationListQuery = Schema.Struct({
   state: Schema.optional(Schema.Literal("pending")),
-  cursor: Schema.optional(Schema.String.pipe(Schema.pattern(/^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$/))),
+  cursor: Schema.optional(Schema.String.pipe(Schema.pattern(CREATION_HISTORY_CURSOR))),
   limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
 });
 

@@ -91,6 +91,48 @@ async fn pending_history_respects_the_index_budget_and_rejects_a_stalled_cursor(
 }
 
 #[tokio::test]
+async fn pending_history_preserves_the_page_anchor_when_backfill_interrupts_pagination() {
+    let server = MockServer::start().await;
+    let anchor = format!("001fffffffffffff-{}", "b".repeat(64));
+    let page_cursor = format!("p1_{anchor}");
+    let index_cursor = format!("i1_{}_{anchor}", "a".repeat(32));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(query_param("cursor", page_cursor.as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"items":[], "nextCursor":index_cursor, "pendingIndex":"building"}),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let receipt = json!({"items":[], "nextCursor":null, "pendingIndex":"ready"});
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(query_param("cursor", index_cursor.as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &[
+            "--json",
+            "creation",
+            "list",
+            "--pending",
+            "--cursor",
+            &page_cursor,
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), receipt);
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn pending_history_reports_incomplete_legacy_work_and_preserves_the_view_in_its_cursor_hint()
 {
     let server = MockServer::start().await;
