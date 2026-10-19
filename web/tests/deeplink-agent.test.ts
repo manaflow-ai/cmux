@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  agentLinkModel,
   agentNativeHref,
   invalidAgentParams,
 } from "../app/[locale]/(landing)/deeplink/[kind]/deeplink-agent";
@@ -65,4 +66,35 @@ describe("agent deeplink fallback", () => {
       agentNativeHref({ harness: ["claude", "codex"], session: "s" }),
     ).toBeNull();
   });
+
+  test("model exposes only the URL's fields plus the native href", () => {
+    const model = agentLinkModel({
+      harness: "claude",
+      session: "abc",
+      host: "big-red",
+      name: "Rivetmoss",
+    });
+    expect(model).toEqual({
+      harness: "claude",
+      session: "abc",
+      host: "big-red",
+      name: "Rivetmoss",
+      href: "cmux://agent/claude/abc?host=big-red&name=Rivetmoss",
+    });
+    expect(Object.keys(agentLinkModel({ harness: "claude", session: "abc" }) ?? {}).sort()).toEqual([
+      "harness",
+      "href",
+      "session",
+    ]);
+  });
+
+  test.each(["cwd", "account", "message"])(
+    "model rejects extra param %s and never echoes it",
+    (extra) => {
+      const params = { harness: "claude", session: "abc", [extra]: "LEAK" };
+      expect(agentLinkModel(params)).toBeNull();
+      expect(agentNativeHref(params)).toBeNull();
+      expect(JSON.stringify(agentLinkModel(params))).not.toContain("LEAK");
+    },
+  );
 });

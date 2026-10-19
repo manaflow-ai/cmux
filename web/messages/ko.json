@@ -3464,6 +3464,16 @@
       "title": "cmux에서 규칙 열기",
       "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    },
+    "agent": {
+      "metaTitle": "cmux에서 에이전트 세션 열기",
+      "metaDescription": "cmux를 사용할 수 없을 때 설치 안내와 함께 웹에서 cmux 에이전트 세션 딥링크를 엽니다.",
+      "title": "에이전트 세션 열기",
+      "intro": "이 Mac이 이미 해당 세션에 접근할 수 있으면 이 링크가 cmux에서 에이전트의 세션을 엽니다. 링크 자체는 어떤 접근 권한도 부여하지 않습니다.",
+      "fallback": "cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭하세요. cmux는 이 Mac이 이미 접근할 수 있는 세션만 엽니다.",
+      "nameLabel": "이름: {value}",
+      "hostLabel": "호스트: {value}",
+      "harnessLabel": "하네스: {value}"
     }
   },
   "download": {
