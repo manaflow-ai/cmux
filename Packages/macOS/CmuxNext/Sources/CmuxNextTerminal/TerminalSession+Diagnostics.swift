@@ -83,7 +83,7 @@ extension TerminalSession {
             },
             surfaceInHost: surface.superview === view,
             inWindow: surface.window != nil,
-            hidden: surface.isHiddenOrHasHiddenAncestor,
+            hidden: surface.isOutOfSight,
             viewSize: surface.bounds.size,
             layerSize: surface.layer?.bounds.size ?? .zero,
             restoredSnapshots: restoredSnapshots,

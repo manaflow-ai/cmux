@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import GhosttyNextKit
 
 // Mouse, scroll, pressure, and cursor shape. Ghostty turns these into
@@ -111,6 +112,7 @@ extension TerminalSurfaceView {
     }
 
     public override func resetCursorRects() {
+        guard !isOutOfSight else { return }
         addCursorRect(bounds, cursor: cursor)
     }
 
@@ -157,7 +159,7 @@ extension TerminalSurfaceView {
     }
 
     private func sendPosition(_ event: NSEvent) {
-        guard let surface else { return }
+        guard let surface, !isOutOfSight else { return }
         let point = convert(event.locationInWindow, from: nil)
         // Ghostty expects points with a top-left origin.
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, GhosttyInput.mods(event.modifierFlags))

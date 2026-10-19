@@ -17,7 +17,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's colors: its pane's scope, subtler while another pane
     /// has focus (`setChromeEmphasis`).
     private let stripScope = ThemeScope(level: .terminal)
-    let contentHost = NSView()
+    let contentHost = PaneContentHostView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).

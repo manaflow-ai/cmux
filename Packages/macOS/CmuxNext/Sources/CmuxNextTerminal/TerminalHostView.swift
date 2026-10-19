@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextTerminalFind
 import Observation
 
@@ -10,8 +10,21 @@ import Observation
 /// The surface fills the host, which fills the pane's content border, so
 /// the first cell sits exactly Ghostty's padding inside the border
 /// (`TerminalPadding.cmuxDefault` unless the user set their own).
-public final class TerminalHostView: NSView {
+public final class TerminalHostView: NSView, LayerParkable {
     private weak var current: TerminalSurfaceView?
+    /// Parked in its pane (`LayerParkable`): kept in its window, unhidden for AppKit, its layer
+    /// hidden; the surface stops drawing, observing and taking input as when hidden. Any move to
+    /// another superview unparks it (parking never moves a view), so a view taken elsewhere shows.
+    public var isParked = false {
+        didSet {
+            guard isParked != oldValue else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.isHidden = isParked
+            CATransaction.commit()
+            current?.parkingDidChange()
+        }
+    }
     /// The session's theme; nil paints the config background.
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
@@ -244,6 +257,7 @@ public final class TerminalHostView: NSView {
     /// scope it sits in, whose colors decide whether its own theme shows (`paintBackground`).
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        isParked = false
         aroundListener.host = self
         superview?.themeScope.addResponder(aroundListener)
         paintBackground()

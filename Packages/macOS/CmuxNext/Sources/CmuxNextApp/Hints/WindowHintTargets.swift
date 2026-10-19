@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import WebKit
 import CmuxNextWakeups
 
@@ -54,7 +55,7 @@ enum WindowHintTargets {
         while let next = stack.popLast(), visited < 5000, found.count < limit {
             visited += 1
             if let view = next as? NSView {
-                guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
+                guard !view.isOutOfSight, view.alphaValue > 0.01 else { continue }
                 guard !(view is WKWebView) else { continue }
                 let name = NSStringFromClass(type(of: view))
                 guard !remoteViewNames.contains(where: name.contains) else { continue }

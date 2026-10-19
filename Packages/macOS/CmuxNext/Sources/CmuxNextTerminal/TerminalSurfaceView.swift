@@ -180,10 +180,25 @@ public final class TerminalSurfaceView: NSView {
         syncWindowState()
     }
 
+    /// Its host parked or unparked (`TerminalHostView.isParked`): the same as a hide or an unhide,
+    /// and the window drops or takes back its cursor rect.
+    func parkingDidChange() {
+        if isOutOfSight {
+            observeWindow(false)
+            updateOcclusion()
+        } else {
+            syncWindowState()
+        }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    /// A parked terminal is out of the key-view loop, as a hidden one is.
+    public override var canBecomeKeyView: Bool { super.canBecomeKeyView && !isOutOfSight }
+
     /// Shown in a window: observe it and apply its current scale, screen, size, occlusion and key
     /// state (each a no-op when unchanged).
     private func syncWindowState() {
-        let shown = window != nil && !isHiddenOrHasHiddenAncestor
+        let shown = window != nil && !isOutOfSight
         observeWindow(shown)
         if shown {
             updateContentScale()
@@ -232,7 +247,7 @@ public final class TerminalSurfaceView: NSView {
     /// AppKit walks hidden views too; a hidden terminal applies the scale when shown.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard !isHiddenOrHasHiddenAncestor else { return }
+        guard !isOutOfSight else { return }
         updateContentScale()
         updateSurfaceSize()
     }

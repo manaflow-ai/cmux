@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextTerminal
 import Foundation
 
@@ -22,7 +23,7 @@ extension TabContentCache {
             Self.saveFontScale(scale, tab: key, daemon: daemon)
             // Ghostty handles Cmd+=/-/0 directly, so show the same transient readout
             // as the action/palette path when the changed terminal owns the key window.
-            if let surfaceView = session?.surfaceView, surfaceView.window?.isKeyWindow == true, !surfaceView.isHiddenOrHasHiddenAncestor {
+            if let surfaceView = session?.surfaceView, surfaceView.window?.isKeyWindow == true, !surfaceView.isOutOfSight {
                 SurfaceZoomIndicator.show(percent: Int(((scale ?? 1) * 100).rounded()), in: surfaceView.window)
             }
         }

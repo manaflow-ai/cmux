@@ -32,7 +32,7 @@ final class TerminalClipboardRequests {
     /// when `clipboard-read = ask`: a cmux dialog that blocks only this
     /// terminal. Denial completes with an empty string, as Ghostty expects.
     func confirm(contents: String, kind: TerminalClipboardRequestKind, state: UncheckedPointer) {
-        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else {
+        guard let view, view.window != nil, !view.isOutOfSight else {
             deny(state: state)
             return
         }
@@ -54,7 +54,7 @@ final class TerminalClipboardRequests {
 
     /// OSC 52 write when `clipboard-write = ask`.
     func confirmWrite(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
-        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
+        guard let view, view.window != nil, !view.isOutOfSight else { return }
         let text = items.first(where: { $0.mime.hasPrefix("text/plain") })?.text ?? items.first?.text ?? ""
         let spec = Self.spec(String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module),
                              String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module),

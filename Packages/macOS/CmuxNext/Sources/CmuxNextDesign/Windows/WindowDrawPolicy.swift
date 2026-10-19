@@ -99,7 +99,7 @@ public struct WindowDrawPolicy {
         SurfaceDrawInputs(
             inWindow: view.window != nil,
             windowVisible: view.window.map(isOnScreen) ?? false,
-            hidden: view.isHiddenOrHasHiddenAncestor,
+            hidden: view.isOutOfSight,
             suspended: suspended,
             forced: forced,
             drawWhenOccluded: drawsWhenOccluded

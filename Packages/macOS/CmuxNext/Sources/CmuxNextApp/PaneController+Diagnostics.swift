@@ -148,7 +148,7 @@ extension PaneController {
                 page = reporting.contentVisibility
                 if page?.isVisible == true { ownPages = 1 }
             } else {
-                page = entry.tab.contentView.window == nil || entry.tab.contentView.isHiddenOrHasHiddenAncestor
+                page = entry.tab.contentView.window == nil || entry.tab.contentView.isOutOfSight
                     ? .hidden("not_in_window") : .visible
             }
         case nil:

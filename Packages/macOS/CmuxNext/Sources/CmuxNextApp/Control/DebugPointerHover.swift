@@ -43,7 +43,7 @@ enum DebugPointerHover {
         for (view, area) in areas(in: root) where area.options.contains(.mouseEnteredAndExited) || area.options.contains(.mouseMoved) {
             attached.insert(ObjectIdentifier(area))
             if let point {
-                guard !view.isHiddenOrHasHiddenAncestor else { continue }
+                guard !view.isOutOfSight else { continue }
                 // A tracking area's rect is in the coordinates of the view that holds it;
                 // an .inVisibleRect area (rect often .zero) follows the view's visible rect,
                 // as AppKit does (the sidebar list's hover, cx-qno.17).

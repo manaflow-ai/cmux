@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextDesign
 import GhosttyNextKit
 import UniformTypeIdentifiers
 
@@ -68,14 +69,15 @@ extension TerminalSurfaceView: NSMenuItemValidation {
 
     // MARK: Drag and drop
 
+    /// A parked terminal (out of sight under the shown tab) takes no drop.
     public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        TerminalPasteboard.pasteText(from: sender.draggingPasteboard) == nil ? [] : .copy
+        isOutOfSight || TerminalPasteboard.pasteText(from: sender.draggingPasteboard) == nil ? [] : .copy
     }
 
     /// Dropped files paste as shell-escaped paths, dropped text as text.
     /// Delivered through `ghostty_surface_text` so bracketed paste applies.
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let surface, let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard) else { return false }
+        guard let surface, !isOutOfSight, let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard) else { return false }
         text.withCString { pointer in
             ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
         }
