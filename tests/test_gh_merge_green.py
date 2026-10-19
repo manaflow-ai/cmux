@@ -335,7 +335,7 @@ class InstalledHelperRegression(unittest.TestCase):
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
             {"id": index + 2, "name": check[0], "status": check[1], "conclusion": check[2],
-             **({"completed_at": check[3]} if len(check) > 3 else {})}
+             **({"started_at": check[3], "completed_at": check[4] if len(check) > 4 else check[3]} if len(check) > 3 else {})}
             for index, check in enumerate(extra_checks)
         )
         risk_route = ""
@@ -647,9 +647,31 @@ jobs:
           ENFORCE_FROM: "2026-10-24T00:00:00Z"
 """
 
-    def run_risk_case(self, directory, marker, *, now, completed_at=None):
-        extra = [] if completed_at is None else [("risk evidence", "completed", "success", completed_at)]
-        return self.run_helper(directory, marker, extra_checks=extra, risk_tier_workflow=self.RISK_TIER_WORKFLOW, now=now)
+    def run_risk_case(self, directory, marker, *, now, completed_at=None, started_at=None, workflow=None):
+        extra = [] if completed_at is None else [("risk evidence", "completed", "success", started_at or completed_at, completed_at)]
+        return self.run_helper(directory, marker, extra_checks=extra,
+                               risk_tier_workflow=self.RISK_TIER_WORKFLOW if workflow is None else workflow, now=now)
+
+    def test_risk_evidence_started_while_advisory_refuses_even_if_it_finished_after(self):
+        # The evidence step decides advisory-or-not while the job runs, so a job that started
+        # before the cutover may have graded as advisory and still finished after it.
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_risk_case(directory, marker, now="2026-10-24T01:00:00Z",
+                                        started_at="2026-10-23T23:58:00Z", completed_at="2026-10-24T00:01:00Z")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("advisory", result.stderr)
+
+    def test_a_risk_tier_workflow_without_a_readable_enforce_from_refuses(self):
+        workflow = self.RISK_TIER_WORKFLOW.replace('ENFORCE_FROM: "2026-10-24T00:00:00Z"', 'ENFORCE_FROM: "2026-10-24"')
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_risk_case(directory, marker, now="2026-10-24T01:00:00Z",
+                                        completed_at="2026-10-24T00:30:00Z", workflow=workflow)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("ENFORCE_FROM", result.stderr)
 
     def test_risk_evidence_graded_while_advisory_refuses_after_the_cutover(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -114,6 +114,8 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.big("cmux-tui/crates/acpmux/src/agent_tools_tests.rs"), "low")
         self.assertEqual(self.big("cmux-tui/crates/acpmux/src/hub/tests.rs"), "low")
         self.assertEqual(self.tier("tests_v2/test_sidebar.py"), "low")
+        self.assertEqual(self.tier("cmux-tui/scripts/test_check_release_delivery.py"), "low")
+        self.assertEqual(self.tier("scripts/whats-new/fixtures/good/1.0.0-nightly.42.json"), "low")
 
     def test_audit_merge_gate_helpers_are_high_at_any_size(self):
         for path in (
