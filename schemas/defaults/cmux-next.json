@@ -164,6 +164,7 @@
     "key.paletteKey.pageUp": ["pageup when paletteOpen"],
     "key.paletteKey.submit": ["opt+return when paletteOpen", "return when paletteOpen", "shift+return when paletteOpen", "space when paletteOpen && palette.queryEmpty && palette.togglesInPlace && !palette.actionsMenuOpen"],
     "key.paletteKey.submitAlternate": ["cmd+return when paletteOpen", "shift+cmd+return when paletteOpen"],
+    "key.paletteKey.toggleActions": ["cmd+k when paletteOpen"],
     "key.prevSidebarTab": ["ctrl+cmd+[", "ctrl+pageup", "opt+cmd+left"],
     "key.prevSurface": ["ctrl+shift+tab", "shift+cmd+["],
     "key.prevWorkspaceGroup": ["ctrl+opt+shift+cmd+["],
