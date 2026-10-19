@@ -32,6 +32,7 @@ export const L = {
   noHeading: "link.noHeading",
   checking: "link.checking",
   opensBrowser: "link.opensBrowser",
+  opensInCmux: "link.opensInCmux",
   opensFile: "link.opensFile",
   opensMail: "link.opensMail",
   linkPlaceholder: "link.placeholder",
