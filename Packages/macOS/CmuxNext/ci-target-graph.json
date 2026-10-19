@@ -179,6 +179,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextDiff",
         "CmuxNextFeed",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -251,6 +252,7 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
+        "CmuxNextDiff",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
@@ -554,6 +556,18 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDictation",
       "targets": [
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDiff": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDiff",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextCompat",
+        "CmuxNextDaemonService",
+        "CmuxNextPages",
+        "CmuxNextSettings"
       ],
       "packages": []
     },

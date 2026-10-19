@@ -480,22 +480,26 @@
   background: var(--acpmux-pill-open, var(--acpmux-row-hover));
   box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
 }
-.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
-  color: var(--acpmux-warning);
-}
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
   color: var(--agent-text);
 }
+/* A pill pressed or open stays on that hover step with no edge: a click never flashes a brighter
+   press tone or a ring (Leo 2026-10-18). */
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"]) {
+  background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
+  box-shadow: none;
+}
+/* The model, reasoning and access pills keep their fill, so their hover is the pill's quiet step
+   (--acpmux-pill-hover), as Claude's and ChatGPT's composer chips do (Leo 2026-10-18). */
 @media (hover: hover) and (pointer: fine) {
   .acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
   .acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
   .acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover {
     color: var(--agent-text);
   }
-}
-.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button:hover,
-.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button[aria-expanded="true"] {
-  color: var(--acpmux-warning);
+  .acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:hover:not([aria-expanded="true"]) {
+    background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
+  }
 }
 .acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
