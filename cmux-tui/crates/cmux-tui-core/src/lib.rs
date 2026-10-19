@@ -61,6 +61,7 @@ pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
 use cmux_tui_remote_access::remote_relay_state;
+mod login_shell;
 mod request_origin;
 pub mod resource;
 mod resource_api;
