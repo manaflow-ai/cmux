@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+import CmuxNextAgentPane
 import CmuxNextSettings
 import Testing
 
@@ -9,11 +9,11 @@ struct FileTreeSearchResultsTests {
     private func results(_ paths: [String]) -> [JSONValue] { paths.map { ["path": .string($0)] } }
 
     @Test func pathsRelativeToTheTabsFolderPassAsTheyAre() {
-        #expect(FileTreePageProvider.searchResults(results(["src/App.tsx", "a/b.ts", "README.md"]))
+        #expect(AgentFileTreeReads().searchResults(results(["src/App.tsx", "a/b.ts", "README.md"]))
             == ["src/App.tsx", "a/b.ts", "README.md"])
     }
 
     @Test func aPathThatLeavesTheFolderIsDropped() {
-        #expect(FileTreePageProvider.searchResults(results(["/etc/passwd", "../secret", "a/../b", "./c", "d//e", ""])).isEmpty)
+        #expect(AgentFileTreeReads().searchResults(results(["/etc/passwd", "../secret", "a/../b", "./c", "d//e", ""])).isEmpty)
     }
 }

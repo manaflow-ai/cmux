@@ -24,25 +24,25 @@ struct RenderPreviewControlTests {
         tabs.listTabs = { [("restored", record)] }
         let view = try #require(tabs.view(for: "restored"))
         #expect(tabs.sessions.isEmpty)
-        let control = RenderPreviewControl()
-        #expect(control.pane(for: session, in: tabs) === view)
-        #expect(control.pane(for: "harness-session-id", in: tabs) == nil)
+        let control = AgentRenderPreviewRequests()
+        #expect(control.pane(for: session) { tabs.tab(showing: $0).flatMap { tabs.existingView($0) } } === view)
+        #expect(control.pane(for: "harness-session-id") { tabs.tab(showing: $0).flatMap { tabs.existingView($0) } } == nil)
         tabs.sessions["restored"] = "changed"
-        #expect(control.pane(for: session, in: tabs) == nil)
+        #expect(control.pane(for: session) { tabs.tab(showing: $0).flatMap { tabs.existingView($0) } } == nil)
     }
 
     @Test func realTransportMetadataPassesStrictKeyValidation() async {
-        let control = RenderPreviewControl()
+        let control = AgentRenderPreviewRequests()
         var params: [String: CmuxNextSettings.JSONValue] = [
             "agent_session": .string("own"), "html": .string("<p>Hello</p>"),
             "after": .string("sync"), "origin": .string("script"),
         ]
-        do { _ = try await control.capture(params, services: nil); Issue.record("expected no pane") }
-        catch let error as ControlError { #expect(error.code == "unavailable") }
+        do { _ = try await control.capture(params, pane: { _ in nil }, park: { _ in {} }); Issue.record("expected no pane") }
+        catch let error as AgentRenderPreviewFailure { #expect(error.code == "unavailable") }
         catch { Issue.record("unexpected error: \(error)") }
         params["other"] = .bool(true)
-        do { _ = try await control.capture(params, services: nil); Issue.record("expected invalid keys") }
-        catch let error as ControlError { #expect(error.code == "invalid_params") }
+        do { _ = try await control.capture(params, pane: { _ in nil }, park: { _ in {} }); Issue.record("expected invalid keys") }
+        catch let error as AgentRenderPreviewFailure { #expect(error.code == "invalid_params") }
         catch { Issue.record("unexpected error: \(error)") }
     }
 
@@ -56,7 +56,7 @@ struct RenderPreviewControlTests {
         tabs.lookup = { $0 == "preparation-timeout" ? (record, tree) : nil }
         tabs.listTabs = { [("preparation-timeout", record)] }
         let view = try #require(tabs.view(for: "preparation-timeout"))
-        let control = RenderPreviewControl()
+        let control = AgentRenderPreviewRequests()
         let started = AsyncStream<Void>.makeStream()
         let finished = AsyncStream<Void>.makeStream()
         var reply: (@MainActor (Result<Any, any Error>) -> Void)?
