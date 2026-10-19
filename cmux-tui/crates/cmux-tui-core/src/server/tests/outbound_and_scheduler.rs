@@ -548,7 +548,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
     for (id, cmd) in [
         (
             1,
-            Command::Send(crate::server::cmd_terminal_io::SendParams {
+            Command::Send(cmd_terminal_io::SendParams {
                 surface: Some(1),
                 terminal_id: None,
                 text: Some("input".to_string()),
