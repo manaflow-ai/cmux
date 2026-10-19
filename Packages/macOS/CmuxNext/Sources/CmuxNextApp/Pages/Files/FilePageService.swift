@@ -260,6 +260,10 @@ final class FilePageService: InternalPageProvider {
         }
     }
 
+    fileprivate func openAppLink(_ url: URL) -> Bool {
+        CmuxAppLinks.open(url, services: services)
+    }
+
     fileprivate func openFile(_ url: URL, from key: String) {
         services.viewers.openFile(url, in: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
@@ -375,6 +379,7 @@ final class FilePageTabHost: FilePageHosting {
     func opened(_ url: URL) { service?.opened(url, in: key) }
     func openExternal(_ url: URL) { service?.openExternal(url, from: key) }
     func openFile(_ url: URL) { service?.openFile(url, from: key) }
+    func openAppLink(_ url: URL) -> Bool { service?.openAppLink(url) ?? false }
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance {
         service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
     }
