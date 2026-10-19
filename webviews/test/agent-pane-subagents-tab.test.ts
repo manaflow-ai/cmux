@@ -230,4 +230,52 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await panel(page).getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
     await context.close();
   });
+  test("a running subagent in the tab has the transcript row's stop button", async () => {
+    const context = await browser!.newContext({ viewport: { width: 1600, height: 800 } });
+    const page = await context.newPage();
+    await open(page);
+    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    const active = panel(page).getByRole("region", { name: "Active · 1" });
+    await active.waitFor({ timeout: 5_000 });
+    // Claude's subagents stop on their own (acpmux `_acpmux/subagent_stop`), so its running row can.
+    await active.getByRole("button", { name: "Stop Explore docs" }).waitFor({ timeout: 5_000 });
+    // A subagent that ended has none.
+    const done = panel(page).getByRole("region", { name: "Done · 2" });
+    expect(await done.getByRole("button", { name: /^Stop / }).count()).toBe(0);
+    await context.close();
+  });
+
+  // Narrow: the card is a popover behind the header's summary button.
+  const openPopoverTab = async (page: Page) => {
+    await open(page);
+    await page.click(".acpmux-summary-button");
+    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    await panel(page).locator(".acpmux-summary-tabs").waitFor({ timeout: 5_000 });
+  };
+
+  test("in a popover the tabs sit right after the fold button", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 800 } });
+    const page = await context.newPage();
+    await openPopoverTab(page);
+    // The fold button is its icon only here: the tabs start right after it, not at the far end.
+    const foldBox = (await panel(page).getByRole("button", { name: "Collapse summary" }).boundingBox())!;
+    expect(foldBox.width).toBeLessThanOrEqual(40);
+    const tabsBox = (await panel(page).locator(".acpmux-summary-tabs").boundingBox())!;
+    expect(tabsBox.x - (foldBox.x + foldBox.width)).toBeLessThanOrEqual(8);
+    await context.close();
+  });
+
+  test("closing the Subagents tab of a folded popover focuses its fold button", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 800 } });
+    const page = await context.newPage();
+    await openPopoverTab(page);
+    const fold = panel(page).getByRole("button", { name: "Collapse summary" });
+    // Folded, the Subagents title that opened the tab is gone: closing the tab focuses the fold button.
+    await fold.click();
+    await panel(page).getByRole("button", { name: "Close Subagents" }).click();
+    await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-summary-card__fold"), null, {
+      timeout: 5_000,
+    });
+    await context.close();
+  });
 });
