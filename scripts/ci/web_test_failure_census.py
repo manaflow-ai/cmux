@@ -65,6 +65,15 @@ TIMEOUT_LINE = re.compile(r"^\^ this test timed out after (?P<ms>\d+)ms")
 SUMMARY_LINE = re.compile(r"^\d+ tests? failed:$")
 DEFAULT_BUDGET = 400
 CALL_RESERVE = 25
+# GitHub's rate limits answer 403 or 429. They cover the whole token, so one means every later
+# call fails too: the census stops rather than report the history it happened to read.
+RATE_LIMITED = re.compile(r"HTTP (?:403|429)\b")
+
+
+def stop_if_rate_limited(error: Exception) -> None:
+    if RATE_LIMITED.search(str(error)):
+        raise SystemExit(f"GitHub rate limit hit partway through the census ({error}); no partial "
+                         "history is reported. Retry once the limit resets.") from error
 
 
 # ---------------------------------------------------------------- parsing
@@ -402,6 +411,7 @@ def from_junit(src: Source, since: datetime, test: str | None, file: str | None,
                 try:
                     items = parse_junit(src.junit(artifact))
                 except (ValueError, ET.ParseError, RuntimeError, zipfile.BadZipFile) as error:
+                    stop_if_rate_limited(error)
                     print(f"warning: artifact {artifact['id']}: {error}", file=sys.stderr)
                     continue
                 for item in items:
@@ -447,6 +457,7 @@ def from_logs(src: Source, since: datetime, max_main_runs: int, max_runs: int, t
         try:
             jobs = src.jobs(run)
         except RuntimeError as error:  # one run's 502 should not lose the rest of the census
+            stop_if_rate_limited(error)
             print(f"warning: run {run_id}: {error}", file=sys.stderr)
             unreadable += 1
             continue
@@ -458,6 +469,7 @@ def from_logs(src: Source, since: datetime, max_main_runs: int, max_runs: int, t
             try:
                 text = src.log(int(job["id"]))
             except RuntimeError as error:  # logs expire after 90 days
+                stop_if_rate_limited(error)
                 print(f"warning: job {job['id']}: {error}", file=sys.stderr)
                 continue
             for item in parse_log(text):
@@ -500,6 +512,7 @@ def enrich(src: Source, failures: list[dict], jobs_by_run: Mapping[int, list[dic
         try:
             sha_runs = src.sha_runs(str(item["sha"])) if item.get("sha") else []
         except RuntimeError as error:  # the failure stays listed; only its re-run evidence is lost
+            stop_if_rate_limited(error)
             print(f"warning: runs of {item.get('sha')}: {error}", file=sys.stderr)
             sha_runs = []
         run = next((r for r in sha_runs if r.get("id") == run_id), {"id": run_id, "status": "completed"})
@@ -508,6 +521,7 @@ def enrich(src: Source, failures: list[dict], jobs_by_run: Mapping[int, list[dic
             try:
                 jobs = src.jobs(run)
             except RuntimeError as error:
+                stop_if_rate_limited(error)
                 print(f"warning: run {run_id}: {error}", file=sys.stderr)
         jobs = jobs or []
         if not item.get("job_url"):
@@ -579,6 +593,8 @@ def render(report: Mapping) -> str:
         lines.append(f"(logs: read {report.get('runs_inspected', 0)} failed or re-run ci.yml runs, "
                      f"{report.get('main_runs_inspected', 0)} of them on main; PR runs are a newest-first "
                      "sample, raise --max-runs to read more)")
+        if report.get("runs_unreadable"):
+            lines.append(f"({report['runs_unreadable']} run(s) unreadable, so this history may be incomplete)")
     else:
         lines.append(f"(junit: read {report['junit_reports_read']} failed-shard reports)")
     for item in report["failures"]:

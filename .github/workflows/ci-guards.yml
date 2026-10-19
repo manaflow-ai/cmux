@@ -625,6 +625,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate the pull request status comment
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_status.py
+
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_pr_merge_tree.py

@@ -808,8 +808,20 @@ fi
 # base + head merged locally, with the base branch's copy of the god-file script
 # and baseline, so a pull request cannot loosen its own check.
 # The files a vp check report names, sorted (ANSI colors stripped).
+# Paths are made relative to the checked tree (the merged and base trees sit in
+# different temp folders), so a red the base already has compares equal.
 vp_flagged_files() {
-  sed 's/\x1b\[[0-9;]*m//g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
+  sed -E 's/\x1b\[[0-9;]*m//g; s#[^[:space:]'"'"'"(]*/(merged|base)/(webviews|config)/#\2/#g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
+}
+# Files outside webviews/ that its vp check loads: vite.config.ts imports
+# ../config/vite-plus/check and resolves ../Resources/markdown-viewer through
+# its dev-server plugins. Listed only when the tree has them.
+web_shared_paths() {
+  local path
+  for path in config/vite-plus Resources/markdown-viewer; do
+    git -C "$repo_dir" cat-file -e "$1:$path" 2>/dev/null && printf '%s\n' "$path"
+  done
+  return 0
 }
 merged_head_checks() {
   local repo_dir tmp merged base_sha head_sha merged_tree status=0 output bun changed_path
@@ -862,7 +874,7 @@ merged_head_checks() {
   fi
   if ! git -C "$repo_dir" archive "$merged_tree" -- \
       Packages/macOS/CmuxNext webviews scripts/cmux-next/check-no-godfiles.sh \
-      scripts/cmux-next/godfile-baseline.tsv | tar -x -C "$merged"; then
+      scripts/cmux-next/godfile-baseline.tsv $(web_shared_paths "$merged_tree") | tar -x -C "$merged"; then
     rm -rf "$tmp"
     refuse \
       "not merged: cannot materialize the checked merged tree for $ref" \
@@ -904,7 +916,7 @@ merged_head_checks() {
       # base webviews separately for the red-base comparison instead of trying
       # to checkout the base in the archive (which exits 128 and hides the
       # actual vp diagnostic).
-      if ! git -C "$repo_dir" archive "$base_sha" -- webviews | tar -x -C "$base_tree"; then
+      if ! git -C "$repo_dir" archive "$base_sha" -- webviews $(web_shared_paths "$base_sha") | tar -x -C "$base_tree"; then
         base_output=''
       elif base_output=$(cd "$base_tree/webviews" && "$bun" install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && "$bun" x vp check 2>&1); then
         new_files=$(vp_flagged_files <<<"$output")
