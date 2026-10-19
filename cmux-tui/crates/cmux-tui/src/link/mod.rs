@@ -30,6 +30,8 @@ mod state;
 #[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
+mod revocation_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
