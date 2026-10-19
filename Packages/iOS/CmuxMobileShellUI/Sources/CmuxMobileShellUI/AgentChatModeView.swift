@@ -940,6 +940,7 @@ private struct AgentChatTranscriptView: View {
                     .padding(.vertical, 18)
                 }
                 .defaultScrollAnchor(.bottom)
+                .accessibilityIdentifier("MobileAgentTranscript")
                 .onChange(of: model.selectedMessages.count) { _, _ in
                     guard !suppressNextMessageAutoScroll else {
                         suppressNextMessageAutoScroll = false
@@ -949,6 +950,10 @@ private struct AgentChatTranscriptView: View {
                 }
                 .onChange(of: model.selectedStreamingMessage?.id) { _, _ in
                     proxy.scrollTo("bottom", anchor: .bottom)
+                }
+                .onChange(of: model.selectedPendingPrompts.count) { oldCount, newCount in
+                    guard newCount > oldCount else { return }
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 .refreshable { await model.refresh() }
             }
