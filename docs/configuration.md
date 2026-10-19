@@ -321,6 +321,23 @@ Whether the sidebar groups workspaces by computer.
 
 Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.groupByComputer true`.
 
+## `sidebar.cloudGroup`
+
+Whether a new Cloud workspace goes into the sidebar's Cloud group.
+
+```json
+{
+  "sidebar": { "cloudGroup": true }
+}
+```
+
+- `true` (default): New Cloud Workspace and the first workspace of a new Cloud machine go into one group named Cloud, in its own section above your workspace list. The first one makes the group. Workspaces of different Cloud machines share it, and you can nest groups inside it.
+- `false`: a new Cloud workspace lists like any other.
+
+A workspace you put in a group yourself stays there, and one you move out of Cloud is never moved back. Local and SSH workspaces never join.
+
+Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.cloudGroup false`.
+
 ## `workspaces.autoName`
 
 Whether a workspace you have not named takes its name from its front tab (the selected tab of its most recently focused pane).
