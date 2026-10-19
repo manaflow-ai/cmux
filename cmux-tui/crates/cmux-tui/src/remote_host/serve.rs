@@ -81,6 +81,7 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let config = config::load()?;
     if !config.enabled {
         eprintln!("cmux host: remote hosting is disabled (run `cmux host enable`)");
+        ready("disabled");
         return Ok(());
     }
     let tailnet = Tailnet::locate()?;
@@ -129,7 +130,7 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
             listener.local_addr().map(|a| a.to_string()).unwrap_or_default()
         );
     }
-    ready();
+    ready("ready");
     let mut threads = Vec::new();
     for listener in listeners {
         let host = Arc::clone(&host);

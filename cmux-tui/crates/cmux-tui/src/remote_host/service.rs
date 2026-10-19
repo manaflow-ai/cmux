@@ -169,13 +169,21 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
         use std::os::fd::AsRawFd as _;
         use std::os::unix::process::CommandExt as _;
         let writer_fd = ready_writer.as_raw_fd();
+        // The `host` verbs live on the `cmux` surface, chosen from argv[0].
+        command.arg0("cmux");
         command.env(READY_FD_ENV, READY_FD.to_string());
         // SAFETY: setsid and dup2 only, between fork and exec. dup2 gives
         // the child the pipe's write end as fd 3 without close-on-exec.
         unsafe {
             command.pre_exec(move || {
                 libc::setsid();
-                if libc::dup2(writer_fd, READY_FD) < 0 {
+                // dup2 onto itself would keep close-on-exec; clear it instead.
+                let ok = if writer_fd == READY_FD {
+                    libc::fcntl(READY_FD, libc::F_SETFD, 0) >= 0
+                } else {
+                    libc::dup2(writer_fd, READY_FD) >= 0
+                };
+                if !ok {
                     return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
@@ -212,6 +220,9 @@ fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
     });
     match rx.recv_timeout(READY_BOUND) {
         Ok(line) if line.trim() == "ready" => Ok(()),
+        Ok(line) if line.trim() == "disabled" => {
+            bail!("remote hosting is disabled (run `cmux host enable`)")
+        }
         Ok(_) => bail!("cmux host serve stopped before it listened; see {}", log.display()),
         Err(_) => bail!(
             "cmux host serve did not listen within {}s; see {}",
@@ -223,7 +234,7 @@ fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
 
 /// `serve` side: takes the readiness pipe from the environment (so no
 /// child process inherits it) and returns a function that reports ready.
-pub(crate) fn take_ready_signal() -> impl FnOnce() {
+pub(crate) fn take_ready_signal() -> impl FnOnce(&str) {
     let fd = std::env::var(READY_FD_ENV).ok().and_then(|v| v.parse::<i32>().ok());
     // SAFETY: removing our own variable before any thread reads the
     // environment of this process for a child.
@@ -242,9 +253,9 @@ pub(crate) fn take_ready_signal() -> impl FnOnce() {
         let _ = fd;
         None
     };
-    move || {
+    move |line: &str| {
         if let Some(mut file) = file {
-            let _ = file.write_all(b"ready\n");
+            let _ = writeln!(file, "{line}");
         }
     }
 }
@@ -281,11 +292,16 @@ pub(crate) fn restart(exe: &Path, with_service: bool) -> anyhow::Result<String> 
         imp::stop();
     }
     stop_running();
-    if service && imp::start()? {
-        return Ok("started by the service manager".to_owned());
+    let mut why = String::new();
+    if service {
+        match imp::start() {
+            Ok(true) => return Ok("started by the service manager".to_owned()),
+            Ok(false) => {}
+            Err(e) => why = format!(" (the service manager did not start it: {e:#})"),
+        }
     }
     let pid = spawn_detached(exe)?;
-    Ok(format!("started cmux host serve (pid {pid})"))
+    Ok(format!("started cmux host serve (pid {pid}){why}"))
 }
 
 fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
@@ -416,7 +432,13 @@ mod imp {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&path, unit)?;
-        run_quiet("systemctl", &["--user", "daemon-reload"])?;
+        // No user manager (a headless login without linger, `su`, a
+        // container): leave no unit behind, so `installed()` stays false
+        // and the caller starts `serve` detached instead.
+        if let Err(e) = run_quiet("systemctl", &["--user", "daemon-reload"]) {
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
         Ok(format!("systemd user unit {SYSTEMD_UNIT}"))
     }
 

@@ -264,3 +264,24 @@ only connects, and answers `session_down` when the app is not running.
    never how a client learns that a host exists. The host record (`host_…` in `team:<t>`) is
    the object and its HostDO is its live part, as 5.2 fixes.
 
+
+## 14. Verification record
+
+Phase 1a, 2026-10-19 (Linux x86_64, portable release build of the branch):
+
+- Real tailnet, two disposable VMs with ephemeral single-use keys: a tagged host with
+  `--owner`, an untagged client of the owner login. `cmux host list` showed the host with
+  `access: owner` (real WhoIs); `cmux host dial` returned the ok dial line and the host
+  daemon answered `identify` and `list-workspaces` through the tailnet. The listener bound
+  only the node's tailnet IPv4 and IPv6 addresses.
+- Fake tailnet (a `tailscale` stand-in through `CMUX_TAILSCALE_BIN`, Linux network
+  namespaces for 100.x peers): owner admitted; another login, a tagged node, a node shared
+  in from another tailnet and the host's own address refused with `not_allowed`; `allow`
+  admits as `allowed`, `deny` refuses again; `dial` refuses another user's machine and a
+  non-tailnet address before it connects.
+- Found and fixed by these runs: a detached start returned before the listener was bound
+  (now a readiness pipe); `enable` failed where there is no systemd user manager (now a
+  detached start with a note); a detached start through a `cmux -> cmux-tui` link ran the
+  wrong CLI surface (now argv[0] `cmux`).
+- Not yet verified: macOS launchd and Windows Run-entry services on a fresh machine; the
+  Mac app sidebar (phase 1b).

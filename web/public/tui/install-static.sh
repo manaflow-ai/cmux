@@ -103,9 +103,13 @@ echo "Installed cmux to $bin_dir/cmux"
 # tailnet. A tagged machine names its owner with CMUX_HOST_OWNER=<login>.
 if [ "${CMUX_HOST:-}" = "1" ]; then
   if [ -n "${CMUX_HOST_OWNER:-}" ]; then
-    "$bin_dir/cmux" host enable --owner "$CMUX_HOST_OWNER"
+    set -- --owner "$CMUX_HOST_OWNER"
   else
-    "$bin_dir/cmux" host enable
+    set --
+  fi
+  if ! "$bin_dir/cmux" host enable "$@"; then
+    echo "cmux: installed, but remote hosting is not on; fix the error above, then run: $bin_dir/cmux host enable $*" >&2
+    exit 1
   fi
 fi
 

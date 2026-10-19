@@ -15,7 +15,7 @@ mod serve;
 mod service;
 mod tailnet;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail};
 use serde_json::{Value, json};
@@ -54,7 +54,7 @@ fn status_is_remote(args: &[String]) -> bool {
     if args.iter().any(|a| a == "--root") {
         return false;
     }
-    !(cfg!(target_os = "linux") && std::path::Path::new("/run/cmux-host/status.json").exists())
+    !(cfg!(target_os = "linux") && Path::new("/run/cmux-host/status.json").exists())
 }
 
 /// Runs `cmux host <rest>`; returns the exit code.
@@ -180,15 +180,43 @@ fn serve_dir(args: &[String]) -> anyhow::Result<()> {
 
 /// The program the service runs: an absolute argv[0] named `cmux` (the
 /// `host` verb exists only on the `cmux` surface), else this executable.
+/// The path the services and detached starts run. It must be named `cmux`:
+/// the `host` verbs exist only on the `cmux` surface, which is chosen from
+/// argv[0]. `current_exe()` resolves symlinks, so a `cmux -> cmux-tui`
+/// install would start `cmux-tui host serve` and fail; prefer the `cmux`
+/// name this process was started by (absolute, relative or through PATH),
+/// then a `cmux` next to the binary, when it is the same file.
 fn self_exe() -> anyhow::Result<PathBuf> {
-    let argv0 = std::env::args_os().next().map(PathBuf::from);
-    if let Some(path) = argv0.filter(|p| p.is_absolute()) {
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-        if stem == "cmux" {
-            return Ok(path);
+    let exe = std::env::current_exe()?;
+    if is_cmux_name(&exe) {
+        return Ok(exe);
+    }
+    let real = std::fs::canonicalize(&exe).unwrap_or_else(|_| exe.clone());
+    let same = |candidate: &Path| {
+        std::fs::canonicalize(candidate).is_ok_and(|resolved| resolved == real)
+    };
+    let mut candidates = Vec::new();
+    if let Some(argv0) = std::env::args_os().next().map(PathBuf::from)
+        && is_cmux_name(&argv0)
+    {
+        if argv0.is_absolute() {
+            candidates.push(argv0);
+        } else if argv0.components().count() > 1 {
+            if let Ok(cwd) = std::env::current_dir() {
+                candidates.push(cwd.join(argv0));
+            }
+        } else if let Some(path) = std::env::var_os("PATH") {
+            candidates.extend(std::env::split_paths(&path).map(|dir| dir.join(&argv0)));
         }
     }
-    Ok(std::env::current_exe()?)
+    if let Some(dir) = exe.parent() {
+        candidates.push(dir.join(if cfg!(windows) { "cmux.exe" } else { "cmux" }));
+    }
+    Ok(candidates.into_iter().find(|c| c.is_absolute() && same(c)).unwrap_or(exe))
+}
+
+fn is_cmux_name(path: &Path) -> bool {
+    path.file_stem().and_then(|s| s.to_str()) == Some("cmux")
 }
 
 fn enable(args: &[String]) -> anyhow::Result<()> {
@@ -196,6 +224,14 @@ fn enable(args: &[String]) -> anyhow::Result<()> {
         Flags::parse(args, &["owner", "session", "port"], &["no-service", "no-spawn", "json"])?;
     if !flags.positional.is_empty() {
         return Err(usage("takes no positional arguments"));
+    }
+    // Hosting serves this user's sessions; as root it would hand root's
+    // terminals to the owner (for example after `curl … | sudo sh`).
+    #[cfg(unix)]
+    if cmux_tui_core::platform::effective_uid() == 0 {
+        bail!(
+            "remote hosting runs as a user, not root: run `cmux host enable` as the user whose sessions to serve"
+        );
     }
     let tailnet = tailnet::Tailnet::locate()?;
     let status = tailnet.status()?;
