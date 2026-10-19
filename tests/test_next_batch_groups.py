@@ -49,13 +49,11 @@ class Assembly(unittest.TestCase):
         self.assertEqual([item.number for item in ordered], [12, 11, 10, 13])
         self.assertEqual([item.number for item in groups.order([b, a], {}, lambda x, y: False)], [10, 11])
 
-    def test_a_review_pass_is_for_the_current_head(self):
-        sha = "a" * 40
-        self.assertTrue(groups.reviewed(sha, [{"state": "APPROVED", "commit": {"oid": sha}}], []))
-        self.assertFalse(groups.reviewed(sha, [{"state": "APPROVED", "commit": {"oid": "b" * 40}}], []))
-        self.assertTrue(groups.reviewed(sha, [], ["Looks right.\nreview-pass: aaaaaaaaaaaa\n"]))
-        self.assertFalse(groups.reviewed(sha, [], ["review-pass: bbbbbbbbbbbb"]))
-        self.assertFalse(groups.reviewed(sha, [{"state": "COMMENTED", "commit": {"oid": sha}}], ["no marker"]))
+    def test_a_members_review_is_the_batch_queues_own_gate(self):
+        item = controller()
+        with mock.patch.object(nb, "reviewed", side_effect=lambda target, gh: target.number == 1) as gate:
+            self.assertEqual(item.group_reviews([pr(1), pr(2)]), {1: True, 2: False})
+        self.assertEqual(gate.call_count, 2)
 
     def test_a_members_own_red_check_does_not_keep_it_out(self):
         member = pr(1, labels=["batch:ui"], checks=[("ci-status", "completed", "failure")],
@@ -138,9 +136,10 @@ class GroupLanes(unittest.TestCase):
 
 
 class GroupBisectAndLand(unittest.TestCase):
-    def run_group(self, members, red_member, reviewed=True, base_moved=False, dry_run=False):
+    def run_group(self, members, red_member, reviewed=True, base_moved=False, dry_run=False, frozen=(), refusal=None):
         item = controller()
         item.args.dry_run = dry_run
+        item.frozen = lambda target: "frozen by #1" if target.number in frozen else ""
         comments, merges = [], []
         item.comment_once = lambda target, kind, body: comments.append((target.number, kind))
         item.report_drop = lambda target, blocking: None
@@ -164,7 +163,8 @@ class GroupBisectAndLand(unittest.TestCase):
             merges.append(command)
             return subprocess.CompletedProcess(command, 0, "", "")
 
-        with mock.patch.object(nb.subprocess, "run", fake_run):
+        with mock.patch.object(nb.subprocess, "run", fake_run), \
+                mock.patch.object(nb, "landing_refusal", return_value=refusal):
             outcome = item.run_group("ui", members)
         return outcome, comments, merges
 
@@ -193,6 +193,16 @@ class GroupBisectAndLand(unittest.TestCase):
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, base_moved=True)
         self.assertEqual(merges, [])
         self.assertTrue(all("revalidate" in text for _, text in outcome))
+
+    def test_a_frozen_member_holds_the_whole_group(self):
+        outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, frozen={2})
+        self.assertEqual(merges, [])
+        self.assertTrue(all("frozen" in text for _, text in outcome))
+
+    def test_a_host_that_must_not_land_merges_nothing(self):
+        outcome, comments, merges = self.run_group([pr(1)], red_member=None, refusal="no exclude list")
+        self.assertEqual(merges, [])
+        self.assertIn("no exclude list", outcome[0][1])
 
     def test_a_dry_run_merges_nothing(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, dry_run=True)
