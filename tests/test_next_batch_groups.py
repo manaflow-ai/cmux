@@ -326,8 +326,9 @@ class GroupCycle(unittest.TestCase):
         item.wait_run = wait_run
         with mock.patch.object(nb.time, "sleep"):
             item.start_base_probe()
-            old = item.base_probe
-            old.join(timeout=10)
+            for thread in threading.enumerate():
+                if thread.name == "base-probe":
+                    thread.join(timeout=10)
         self.assertNotIn("failed", item.base_probe_result)
         self.assertFalse(item.base_tree_waited)
 
