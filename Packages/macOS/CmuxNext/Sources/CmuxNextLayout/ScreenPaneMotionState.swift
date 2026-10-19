@@ -15,6 +15,4 @@ struct ScreenPaneMotionState {
             frameSpring = .move
         }
     }
-
-    func revealAlpha(arriving: Bool, animate: Bool) -> CGFloat { arriving && animate ? 0 : 1 }
 }
