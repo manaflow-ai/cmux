@@ -771,7 +771,8 @@ class BaseReds(unittest.TestCase):
         controller.validate = validate
         with mock.patch.object(nb, "open_prs", return_value=[]), \
                 mock.patch.object(nb, "select", return_value=([pr(7)], {})), \
-                mock.patch.object(nb, "admit_reviewed", return_value=([pr(7)], {})):
+                mock.patch.object(nb, "admit_reviewed", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "freeze_check", return_value=(0, "")):
             with self.assertRaises(RuntimeError):
                 controller.run()
         self.assertEqual(deleted, ["next-batch/local-1-1", "next-batch/local-1-base"])
@@ -1367,25 +1368,27 @@ class Landing(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_a_transient_error_is_retried_and_never_marks_the_pr_refused(self):
-        replies = iter([RuntimeError("gh api -X PUT failed: Base branch was modified. Review and try the merge again. (HTTP 409)"),
-                        {"merged": True}])
+        puts = iter([RuntimeError("gh api -X PUT failed: Base branch was modified. Review and try the merge again. (HTTP 405)"),
+                     {"merged": True}])
 
-        def api(path, **kw):
-            reply = next(replies)
-            if isinstance(reply, Exception):
-                raise reply
-            return reply
-        controller = self.controller(api)
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                reply = next(puts)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+            return {"merged": False, "head": {"sha": pr(7).sha}}
         with self.freeze(0), mock.patch.object(nb.time, "sleep"):
-            self.assertEqual(controller.merge_one(pr(7), self.validation()), "landed")
+            self.assertEqual(self.controller(api).merge_one(pr(7), self.validation()), "landed")
 
-        def always_502(path, **kw):
-            raise RuntimeError("gh api -X PUT failed: HTTP 502: Bad Gateway")
+        def always_502(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: gh: HTTP 502")
+            return {"merged": False}
         with self.freeze(0), mock.patch.object(nb.time, "sleep"):
             outcome = self.controller(always_502).merge_one(pr(7), self.validation())
         self.assertTrue(outcome.startswith("not landed"))
         self.assertNotIn("GitHub refused to merge", outcome)
-
     def test_a_5xx_after_github_merged_counts_as_landed(self):
         def api(path, method="GET", **kw):
             if method == "PUT":

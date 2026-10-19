@@ -482,6 +482,25 @@ def freeze_check(repo: str, number: int, env: dict[str, str]) -> tuple[int, str]
     return (done.returncode if done.returncode in (0, 1) else 2), (done.stdout + done.stderr).strip()[-300:]
 
 
+def drop_frozen(prs: list[PullRequest], check: Callable[[int], tuple[int, str]]
+                ) -> tuple[list[PullRequest], dict[int, str]]:
+    """Leave out PRs a merge freeze covers (or whose freeze state can't be read) before stacking, so one
+    frozen PR never stops every batch at its place in the stack until the freeze lapses."""
+    kept, skipped = [], {}
+    for pr in prs:
+        code, detail = check(pr.number)
+        if code == 0:
+            kept.append(pr)
+        else:
+            skipped[pr.number] = (f"frozen: {detail}" if code == 1 else f"freeze state unreadable: {detail}")[:200]
+    return kept, skipped
+
+
+# A transient GitHub or network error, from gh's message (as GitHub.graphql retries).
+TRANSIENT = re.compile(r"HTTP 5\d\d|Base branch was modified|unexpected end of JSON input|TLS handshake timeout|"
+                       r"connection reset|i/o timeout|timed out|EOF", re.I)
+
+
 def red_format_checks(pr: PullRequest) -> list[str]:
     return sorted({name for name, status, conclusion in pr.checks
                    if status == "completed" and conclusion in RED and name in FORMAT_CHECKS})
@@ -1651,13 +1670,21 @@ class Controller:
     def merge_one(self, pr: PullRequest, validation: Validation) -> str:
         """Squash-merge the exact head this batch validated through GitHub's merge API.
 
-        The batch already ran every tier on the stack, so checks aren't re-judged here. Merge freezes are,
-        right before the merge, since one may have opened after the PR's own check ran. GitHub's default
-        squash body is kept, with every commit's Co-authored-by trailer. A transient GitHub error (5xx, or
-        "Base branch was modified" while GitHub recomputes after the previous merge) is retried once and
-        never marks the PR refused; a real refusal (the head moved, a conflict) does, and the PR waits for
-        a push."""
-        code, detail = freeze_check(self.args.repo, pr.number, getattr(self.writer, "env", None) or dict(os.environ))
+        The batch already ran every tier on the stack, so checks aren't re-judged here, except the two the
+        stack can't run: a `risk evidence` check on the head must have finished green (an edited description
+        regrades it), and the merge freezes are read again, since one may have opened after the PR's own
+        check ran. GitHub's default squash body is kept, with every commit's Co-authored-by trailer. A
+        transient error (5xx, network, "Base branch was modified") is retried once, after checking whether
+        GitHub merged anyway; it never marks the PR refused. A real refusal (the head moved, a conflict)
+        does, and the PR waits for a push."""
+        try:
+            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name=risk%20evidence&per_page=100") or {}
+        except RuntimeError as error:
+            return f"not landed: risk evidence unreadable ({str(error)[-120:]}); the next batch tries again"
+        for run in runs.get("check_runs", []):
+            if run.get("status") != "completed" or (run.get("conclusion") or "") not in PASS:
+                return "not landed: risk evidence has not passed on this head; the next batch tries again"
+        code, detail = freeze_check(self.args.repo, pr.number, getattr(self.gh, "env", None) or dict(os.environ))
         if code == 1:
             return f"not landed: frozen ({detail})"
         if code != 0:
@@ -1669,13 +1696,18 @@ class Controller:
                 return "landed"
             except RuntimeError as error:
                 text = str(error)
-                transient = "Base branch was modified" in text or re.search(r"HTTP 5\d\d", text)
-                if transient and attempt == 1:
-                    time.sleep(15)
-                    continue
-                if transient:
-                    return f"not landed: GitHub was busy ({text[-160:]}); the next batch tries again"
-                return f"not landed: GitHub refused to merge {self.args.repo}#{pr.number}: {text[-200:]}"
+                if not TRANSIENT.search(text):
+                    return f"not landed: GitHub refused to merge {self.args.repo}#{pr.number}: {text[-200:]}"
+                # A timeout can come back after GitHub merged: look before trying again.
+                try:
+                    state = self.gh.api(f"repos/{self.args.repo}/pulls/{pr.number}") or {}
+                except RuntimeError:
+                    state = {}
+                if state.get("merged") and (state.get("head") or {}).get("sha") == pr.sha:
+                    return "landed"
+                if attempt == 2:
+                    return f"not landed: GitHub was unreachable or busy ({text[-160:]}); the next batch tries again"
+                time.sleep(15)
         return "not landed"
 
     def after_landing(self) -> None:
@@ -1786,6 +1818,10 @@ class Controller:
         landing = (getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
                    and not landing_refusal())
         eligible, waiting = admit_reviewed(eligible, self.gh, landing)
+        if landing:
+            env = getattr(self.gh, "env", None) or dict(os.environ)
+            eligible, frozen = drop_frozen(eligible, lambda number: freeze_check(self.args.repo, number, env))
+            waiting.update(frozen)
         skipped.update(waiting)
         if not eligible:
             write_summary("Nothing reviewed to land.\n\n" + "\n".join(
