@@ -24,8 +24,9 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
     public let submit: Bool
 
     /// Validating initializer: strips bidi and zero-width controls and
-    /// returns nil when nothing meaningful remains, so a blank or disguised
-    /// payload is unrepresentable anywhere in the module.
+    /// returns nil when nothing meaningful remains or when the text carries
+    /// a terminal control character, so a blank, disguised, or
+    /// escape-injecting payload is unrepresentable anywhere in the module.
     ///
     /// - Parameters:
     ///   - rawText: Text to paste, with newlines and indentation preserved.
@@ -53,7 +54,7 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
             throw DecodingError.dataCorruptedError(
                 forKey: .text,
                 in: container,
-                debugDescription: "text actions require non-blank text"
+                debugDescription: "text actions require non-blank text without control characters other than tab and newline"
             )
         }
         self = payload
@@ -110,10 +111,16 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
 
     /// Strips bidi and zero-width controls that could disguise what a
     /// project-local config inserts, while preserving newlines and
-    /// indentation. Returns nil when nothing meaningful remains.
+    /// indentation. Returns nil when nothing meaningful remains, or when the
+    /// text contains a C0 or C1 control character other than tab and
+    /// newline: ESC (or 8-bit CSI) can end bracketed paste early and turn the
+    /// rest of the snippet into keystrokes, and none of them are visible in
+    /// the trust prompt. They are rejected rather than stripped so the
+    /// config error names the problem instead of pasting altered text.
     ///
     /// - Parameter raw: The unsanitized snippet text.
-    /// - Returns: Sanitized text, or nil for an empty or whitespace-only payload.
+    /// - Returns: Sanitized text, or nil for an empty, whitespace-only, or
+    ///   control-character-bearing payload.
     public static func sanitizedText(_ raw: String) -> String? {
         let dangerous: Set<Unicode.Scalar> = [
             "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
@@ -121,10 +128,81 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
             "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
             "\u{FEFF}"
         ]
+        guard !raw.unicodeScalars.contains(where: isRejectedControl) else { return nil }
         let filtered = String(raw.unicodeScalars.filter { !dangerous.contains($0) })
         guard !filtered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
         return filtered
+    }
+
+    /// C0 controls other than tab and newline, DEL, and the C1 block
+    /// (which includes 8-bit CSI, OSC, and DCS).
+    static func isRejectedControl(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x09, 0x0A:
+            return false
+        case 0x00...0x1F, 0x7F...0x9F:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The text as the trust prompt should show it: printable characters,
+    /// and tab and newline between them, as they are; any invisible or
+    /// lookalike scalar (soft hyphen, word joiner, line separator, non-ASCII
+    /// space, Hangul filler, variation selector outside an emoji, tag,
+    /// private-use or unassigned code point) as
+    /// `<U+XXXX>`. Leading and trailing whitespace is escaped too, because
+    /// the dialog trims it and a trailing newline runs the line wherever
+    /// bracketed paste is off.
+    public var promptDisplayText: String {
+        let scalars = Array(text.unicodeScalars)
+        let isEdgeSpace: (Unicode.Scalar) -> Bool = { $0.properties.isWhitespace }
+        let leading = scalars.prefix(while: isEdgeSpace).count
+        let trailing = scalars.count == leading ? 0 : scalars.reversed().prefix(while: isEdgeSpace).count
+        var display = ""
+        for (index, scalar) in scalars.enumerated() {
+            let atEdge = index < leading || index >= scalars.count - trailing
+            let previous = index > 0 ? scalars[index - 1] : nil
+            if atEdge || Self.isHiddenInPrompt(scalar) || Self.isStrayVariationSelector(scalar, after: previous) {
+                display += "<U+" + String(format: "%04X", scalar.value) + ">"
+            } else {
+                display.unicodeScalars.append(scalar)
+            }
+        }
+        return display
+    }
+
+    /// A variation selector draws nothing of its own. After an emoji it picks
+    /// the emoji's presentation (`❤️`) and stays; after anything else it only
+    /// hides inside a word the shell still sees as different.
+    static func isStrayVariationSelector(_ scalar: Unicode.Scalar, after previous: Unicode.Scalar?) -> Bool {
+        switch scalar.value {
+        case 0x180B...0x180D, 0x180F, 0xFE00...0xFE0F, 0xE0100...0xE01EF:
+            return !(previous?.properties.isEmoji ?? false)
+        default:
+            return false
+        }
+    }
+
+    static func isHiddenInPrompt(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x09, 0x0A, 0x20:
+            return false
+        // Combining grapheme joiner and Hangul fillers render as nothing.
+        case 0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0:
+            return true
+        default:
+            break
+        }
+        switch scalar.properties.generalCategory {
+        case .format, .spaceSeparator, .lineSeparator, .paragraphSeparator,
+             .privateUse, .unassigned, .surrogate, .control:
+            return true
+        default:
+            return false
+        }
     }
 }
