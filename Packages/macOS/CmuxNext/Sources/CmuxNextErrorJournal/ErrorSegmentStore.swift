@@ -31,16 +31,19 @@ struct ErrorSegmentStore {
         }.sorted { $0.0 < $1.0 }
     }
 
-    /// Reads every segment, oldest first; a line that does not decode (a torn last write) is skipped.
-    mutating func load() -> [String: ErrorEntry] {
-        var table: [String: ErrorEntry] = [:]
+    /// Reads every snapshot, oldest first; a line that does not decode (a torn last write) is skipped.
+    ///
+    /// The journal canonicalizes every snapshot before choosing the newest one
+    /// per fingerprint, so a secret in shadowed history still triggers compaction.
+    mutating func load() -> [ErrorEntry] {
+        var entries: [ErrorEntry] = []
         let decoder = JSONDecoder()
         let all = segments()
         for (_, url) in all {
             try? Self.protectFile(url)
             guard let data = try? Data(contentsOf: url) else { continue }
             for line in data.split(separator: UInt8(ascii: "\n")) where !line.isEmpty {
-                if let entry = try? decoder.decode(ErrorEntry.self, from: Data(line)) { table[entry.fingerprint] = entry }
+                if let entry = try? decoder.decode(ErrorEntry.self, from: Data(line)) { entries.append(entry) }
             }
         }
         if let last = all.last {
@@ -48,7 +51,7 @@ struct ErrorSegmentStore {
             sequence = last.sequence
             currentBytes = ((try? files.attributesOfItem(atPath: last.url.path)[.size]) as? Int) ?? 0
         }
-        return table
+        return entries
     }
 
     /// Appends `changed`; compacts `all()` into a new segment first when the newest one is full.
@@ -80,9 +83,14 @@ struct ErrorSegmentStore {
         let data = try Self.lines(entries)
         try data.write(to: url, options: .atomic)
         try Self.protectFile(url)
-        for (_, oldURL) in old where oldURL != url { try? files.removeItem(at: oldURL) }
         current = url
         currentBytes = data.count
+        var firstRemovalError: (any Error)?
+        for (_, oldURL) in old where oldURL != url {
+            do { try files.removeItem(at: oldURL) }
+            catch { if firstRemovalError == nil { firstRemovalError = error } }
+        }
+        if let firstRemovalError { throw firstRemovalError }
     }
 
     /// Bytes of every segment on disk.
