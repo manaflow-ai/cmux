@@ -730,6 +730,22 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/update/plan",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update/prepare",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/update",
       "params": true,
       "result": true
@@ -1073,6 +1089,18 @@
         "isolation",
         "label",
         "policy"
+      ],
+      "type": "object"
+    },
+    "HarnessUpdatePlanParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cli": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cli"
       ],
       "type": "object"
     },
