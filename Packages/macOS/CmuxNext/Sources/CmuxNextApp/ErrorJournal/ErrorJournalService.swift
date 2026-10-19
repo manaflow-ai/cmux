@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextHomeEngine
 import Foundation
@@ -32,7 +33,6 @@ final class ErrorJournalService {
     /// The service for this launch: its own journal folder and every log it can see.
     static func make(environment: AppEnvironment) -> ErrorJournalService {
         let chief = ChiefHome.resolve(tag: environment.tag)
-        let home = FileManager().homeDirectoryForCurrentUser
         var sources: [any ErrorHarvestSource] = [
             OSLogErrorSource(),
             LogFileErrorSource(url: chief.acpmuxHome.appendingPathComponent("daemon.log"), source: "acpmux"),
@@ -40,8 +40,9 @@ final class ErrorJournalService {
             LogFileErrorSource(url: chief.root.appendingPathComponent("client.log"), source: "chief"),
             CrashReportErrorSource(),
         ]
-        // The app's own acpmux (Release and NIGHTLY share ~/.acpmux) when it is not the Chief's.
-        let appAcpmux = home.appendingPathComponent(".acpmux/daemon.log")
+        // The app's own acpmux, in this build's home (BuildIdentity: NIGHTLY's ~/.acpmux, any other build's
+        // ~/.acpmux/builds/<key>, as AcpmuxEnvironment starts it), when it is not the Chief's.
+        let appAcpmux = environment.build.acpmuxHome(userHome: FileManager().homeDirectoryForCurrentUser).appendingPathComponent("daemon.log")
         if appAcpmux.standardizedFileURL != chief.acpmuxHome.appendingPathComponent("daemon.log").standardizedFileURL {
             sources.append(LogFileErrorSource(url: appAcpmux, source: "acpmux-app"))
         }
