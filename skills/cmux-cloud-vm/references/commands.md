@@ -58,6 +58,7 @@ cmux vm tree --json                    # {machines: [{id, local, name, status, l
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
+cmux vm clean <id>                     # dry-run: what disk cleanup would free (removes nothing); --apply removes it
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm network <id>                   # outbound policy: mode, presets, domains, ranges, applied state
 cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
@@ -151,6 +152,15 @@ cmux vm stats <id> [--json]            # alias: cmux vm top
 ```
 
 Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `asleep` and is not woken. `--json`: `{id, state: awake|asleep, cpu_percent, cpus, memory_used_mb, memory_total_mb, disk_used_mb, disk_total_mb}`. The router uses this to pick the least-loaded pool machine.
+
+### `cmux vm clean`
+
+```bash
+cmux vm clean <id> [--json]            # dry-run: list what would be removed and how much space that frees
+cmux vm clean <id> --apply [--json]    # remove it
+```
+
+Socket `vm.hygiene {id, apply?}` calls `POST /api/vm/<id>/hygiene`, which runs the machine-hygiene script on the machine. Without `--apply` it is a dry-run that deletes nothing. It reclaims only what a rebuild or re-download brings back: build output of projects idle for 7 days (`node_modules`, `target`, `.next`, …), package caches when the disk is at least 85% full, agent logs older than 14 days, idle temp files, and records of deleted git worktrees. It never touches source, git data, `~/.ssh`, credentials or agent sessions, and skips anything in use. Only the machine's owner can run it. A paused machine answers `vm_not_running` and is not woken, and a second `--apply` while one runs answers `vm_hygiene_busy`. `--json`: `{id, version, mode: dry-run|apply, home, diskUsedPctBefore, diskUsedPctAfter, reclaimableKb, items: [{category, path, kb, action: would-delete|deleted|skipped, reason?}]}`.
 
 ### `cmux vm restart`
 
@@ -813,6 +823,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
+| `vm.hygiene` | `vm clean`, `vm clean --apply` |
 | `vm.env_set` | `vm env set` |
 | `vm.file_put` | `vm push` |
 | `vm.pause`, `vm.resume`, `vm.restart` | `vm pause`, `vm resume`, `vm restart` |
