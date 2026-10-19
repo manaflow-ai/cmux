@@ -450,8 +450,8 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     createVm: (caller, spec, { source }) =>
       Effect.gen(function* () {
         if (!sizeIsValid(spec.size)) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
-        if (spec.maxRunSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.maxRunSeconds", status: 409, unsupported: "Daytona cannot enforce maxRunSeconds without destroying the sandbox" }));
-        if (spec.autoDeleteSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.autoDeleteSeconds", status: 409, unsupported: "Daytona auto-delete semantics are not compatible with this API" }));
+        if (spec.maxRunSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.maxRunSeconds", status: 400, unsupported: "Daytona cannot enforce maxRunSeconds without destroying the sandbox" }));
+        if (spec.autoDeleteSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.autoDeleteSeconds", status: 400, unsupported: "Daytona auto-delete semantics are not compatible with this API" }));
         const sourceId = source === undefined ? null : yield* idOf(source.owns);
         const requested = sizeBody(spec.size);
         if (sourceId !== null && Object.keys(requested).length > 0) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400, unsupported: "Daytona cannot resize a sandbox while creating it from a snapshot" }));
@@ -477,7 +477,7 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     pauseVm: (_vm, { owns }) => idOf(owns).pipe(
       Effect.flatMap((id) => pauseAction("pauseVm", id).pipe(Effect.catchIf(
         (error) => error.status === 404 || error.status === 405,
-        () => Effect.fail(new UpstreamError({ operation: "pauseVm", status: 405, unsupported: "Daytona does not expose a native pause operation for this sandbox" })),
+        () => Effect.fail(new UpstreamError({ operation: "pauseVm", status: 400, unsupported: "Daytona does not expose a native pause operation for this sandbox" })),
       ))),
     ),
 
