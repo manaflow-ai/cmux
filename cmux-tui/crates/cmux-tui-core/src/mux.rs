@@ -522,12 +522,9 @@ pub struct Mux {
     conversations: crate::conversation_store::ConversationHost,
     /// The Chief registry (chief_registry.rs), opened on first use.
     chiefs: crate::chief_registry::ChiefHost,
-    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
-    /// a binary that has a cloud transport; absent otherwise.
-    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
-    /// The host's read replica publisher (`cloud-host-replica-v1`),
-    /// installed by a binary that has a cloud transport; absent otherwise.
-    host_replica: OnceLock<crate::cloud_conversations::HostReplica>,
+    /// The cloud conversations proxy and the host replica publisher, installed
+    /// by a binary that has a cloud transport (mux/cloud_conversations.rs).
+    cloud: cloud_conversations::CloudServices,
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,

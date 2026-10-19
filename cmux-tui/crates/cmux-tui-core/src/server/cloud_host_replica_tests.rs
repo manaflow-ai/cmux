@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::*;
+use super::install_host_replica;
 use crate::cloud_conversations::testing::{FakeBackend, ScriptedWire, wait_until};
 use crate::cloud_conversations::{HostReplica, HostReplicaOptions};
 

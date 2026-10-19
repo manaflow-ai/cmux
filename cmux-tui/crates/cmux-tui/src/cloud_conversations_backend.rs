@@ -319,7 +319,7 @@ pub(crate) fn install(mux: &Arc<Mux>) {
             // The host's read replica publisher (object-sync phase 3) shares the
             // transport; it stays off until the app leases an install token.
             let replica = cmux_tui_core::cloud_conversations::HostReplica::new(backend);
-            cmux_tui_core::server::install_host_replica(mux, replica);
+            cmux_tui_core::server::cloud_host_replica::install_host_replica(mux, replica);
         }
         Err(error) => crate::client_log::stderr_log!(
             "startup",
