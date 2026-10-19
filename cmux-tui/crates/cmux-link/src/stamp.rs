@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn a_checked_stamp_round_trips_and_an_unknown_check_is_refused() {
+    fn token_issue_time_checked_stamp_round_trips_and_unknown_checks_are_refused() {
         assert_eq!(encode(&peer(), Some(StampCheck::LinkToken)).unwrap(), GOLDEN_CHECKED);
         assert_eq!(
             parse(GOLDEN_CHECKED).unwrap(),

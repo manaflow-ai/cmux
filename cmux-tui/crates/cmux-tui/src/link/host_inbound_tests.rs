@@ -138,7 +138,7 @@ async fn a_valid_ssh_hello_reaches_the_loopback_sshd() {
 }
 
 #[tokio::test]
-async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_install() {
+async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_install() {
     let host = host().await;
     let entry_path = cmux_link::entry_path::remote_entry_socket_path(&host.session);
     std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
