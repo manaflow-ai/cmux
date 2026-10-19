@@ -101,10 +101,14 @@
 .acpmux-session-status[data-status="closed"] {
   color: var(--agent-danger);
 }
-/* New activity: the unread dot and its word in the unread blue (Messages' blue, theme-fixed),
-   the dot in the same 11px box as every other status glyph. */
+/* New activity: the unread dot and its word in the unread blue (Messages' blue, a third toward the
+   text colour so it is no louder than the red or the magenta). The dot is drawn a 6px disc, centred
+   in the same 11px box as every other status glyph. */
 .acpmux-session-status[data-status="unread"] {
-  color: var(--cmux-messages-blue, var(--agent-accent));
+  color: color-mix(in srgb, var(--cmux-messages-blue, var(--agent-accent)) 65%, var(--agent-text));
+}
+.acpmux-session-status[data-status="unread"] > svg {
+  scale: 1.5;
 }
 .acpmux-session-status[data-status="done"],
 .acpmux-session-status[data-status="ready"],
