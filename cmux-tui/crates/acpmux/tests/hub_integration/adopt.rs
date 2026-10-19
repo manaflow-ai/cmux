@@ -355,9 +355,8 @@ async fn adopt_opens_a_finished_claude_chat_directly() {
                            "kind": "interactive", "entrypoint": "cli"});
         std::fs::write(sessions.join(format!("{pid}.json")), entry.to_string()).unwrap();
     };
-    let now_ms = || {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
-    };
+    let now_ms =
+        || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
 
     // Another `claude` in the chat's folder, holding some other chat.
     let mut other = harness_stand_in(&root.join("bin"), "claude", &project);
