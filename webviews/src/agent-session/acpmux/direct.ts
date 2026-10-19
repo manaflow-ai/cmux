@@ -1832,6 +1832,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
@@ -1846,6 +1847,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.settleCompactions(event.seq);
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
         this.stopAnswered(event);
@@ -1993,8 +1995,9 @@ export class AcpmuxDirectClient {
       this.endAssistantSegment();
       this.streamingActivity = undefined;
       // One row per compaction: its end replaces the latest running note before it. A running
-      // note always starts its own row, so one that never ended (a stop mid-compaction) is not
-      // taken over, and an older history page binds to its own rows, never to a live one.
+      // note always starts its own row, so one that never ended (a stop mid-compaction, settled
+      // at its turn's end) is not taken over, and an older history page binds to its own rows,
+      // never to a live one.
       let running: AcpmuxRow | undefined;
       if (compaction.state !== "running")
         for (const row of this.rows.values())
@@ -2098,6 +2101,15 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(waiting.rowId);
       if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
     }
+  }
+
+  /// A compaction still running when its turn ends (a Stop, the agent process exiting, a
+  /// relaunch) or the next turn starts never sends how it ended: it is noted as failed, so the
+  /// row stops spinning, live and when the history is read again.
+  private settleCompactions(seq: number) {
+    for (const row of this.rows.values())
+      if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq)
+        this.rows.set(row.id, { ...row, version: row.version + 1, compaction: { ...row.compaction, state: "failed" } });
   }
 
   private endAssistantSegment(): void {
