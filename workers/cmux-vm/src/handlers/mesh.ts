@@ -18,7 +18,7 @@ import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
 import { AuditStore, OwnershipStore } from "../db/stores.ts";
-import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
+import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import {
   BadRequest,
@@ -811,6 +811,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const principal = caller.value;
             yield* requireAdmin(principal, "mesh:write");
             if (headers["idempotency-key"] !== undefined) return yield* createMeshWithKey(caller, scope, headers["idempotency-key"], payload);
+            if (principal.resourceAllowlist !== null || !carriesRequiredLabels(principal, {})) return yield* Effect.fail(new Forbidden({ message: "This credential cannot create this mesh" }));
             const store = yield* MeshStore;
             const ownership = yield* OwnershipStore;
             const upstream = yield* UpstreamMesh;
