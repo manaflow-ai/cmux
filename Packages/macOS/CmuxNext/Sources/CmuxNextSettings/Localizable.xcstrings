@@ -103486,6 +103486,1316 @@
           }
         }
       }
+    },
+    "settings.group.phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone Access"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوصول من الهاتف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup s telefona"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang fra telefon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff per Telefon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso desde el teléfono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès depuis le téléphone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso dal telefono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートフォンからのアクセス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលប្រើពីទូរសព្ទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰 접근"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgang fra telefon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostęp z telefonu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acesso pelo celular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ с телефона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึงจากโทรศัพท์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefondan erişim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ із телефона"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truy cập từ điện thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手機存取"
+          }
+        }
+      }
+    },
+    "settings.phone.allowConnections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Your Phone Use This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لهاتفك باستخدام هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli telefonu da koristi ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad din telefon bruge denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefon darf diesen Mac verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que tu teléfono use este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser votre téléphone à utiliser ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti al telefono di usare questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートフォンからこの Mac を使えるようにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យទូរសព្ទរបស់អ្នកប្រើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰에서 이 Mac 사용 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La telefonen bruke denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwól telefonowi korzystać z tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que o celular use este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить телефону использовать этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้โทรศัพท์ของคุณใช้ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefonunuzun bu Mac'i kullanmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити телефону використовувати цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép điện thoại dùng máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许手机使用这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許手機使用這台 Mac"
+          }
+        }
+      }
+    },
+    "settings.phone.allowConnections.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حتى يتمكن هاتفك من العثور على هذا الـ Mac، يسجّل cmux لدى خوادمه اسم هذا الـ Mac ومعرّف الجهاز والنظام، ومعرّف حزمة التطبيق وإصداره وقناة البناء، وعنوان الترحيل ومفتاح الاتصال الخاصين بالـ Mac، ومعرّفي حسابك وفريقك. تنتقل أسماء مساحات العمل والمجلدات والمسارات الكاملة ومخرجات الطرفية عبر الاتصال المشفّر إلى هاتفك فقط. لا يُرسل أي من ذلك، ولا أي اسم فرع أو عنوان URL لمستودع، إلى خوادم cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako bi vaš telefon mogao pronaći ovaj Mac, cmux na svojim serverima registruje ime, ID uređaja i platformu ovog Maca, ID paketa, verziju i kanal izdanja aplikacije, relej adresu i ključ veze Maca te ID-ove vašeg računa i tima. Nazivi radnih prostora, mape, pune putanje i izlaz terminala idu samo preko šifrirane veze do vašeg telefona. Ništa od toga, kao ni nazivi grana i URL-ovi repozitorija, ne šalje se na cmux servere."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For at din telefon kan finde denne Mac, registrerer cmux på sine servere denne Macs navn, enheds-id og platform, appens bundle-id, version og byggekanal, Mac'ens relæadresse og forbindelsesnøgle samt dine konto- og team-id'er. Navne på arbejdsområder, mapper, fulde stier og terminaloutput sendes kun via den krypterede forbindelse til din telefon. Intet af det, og hverken grennavne eller repo-URL'er, sendes til cmux' servere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damit dein Telefon diesen Mac findet, registriert cmux auf seinen Servern Namen, Geräte-ID und Plattform dieses Macs, Bundle-ID, Version und Build-Kanal der App, Relay-Adresse und Verbindungsschlüssel des Macs sowie deine Account- und Team-IDs. Workspace-Namen, Ordner, vollständige Pfade und Terminalausgaben gehen nur über die verschlüsselte Verbindung an dein Telefon. Nichts davon, auch kein Branch-Name und keine Repo-URL, wird an cmux-Server gesendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para que tu teléfono encuentre este Mac, cmux registra en sus servidores el nombre, el ID de dispositivo y la plataforma de este Mac, el ID de paquete, la versión y el canal de compilación de la app, la dirección de relé y la clave de conexión del Mac, y los ID de tu cuenta y tu equipo. Los nombres de los espacios de trabajo, las carpetas, las rutas completas y la salida del terminal solo viajan por el enlace cifrado hasta tu teléfono. Nada de eso, ni ningún nombre de rama o URL de repositorio, se envía a los servidores de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour que votre téléphone trouve ce Mac, cmux enregistre sur ses serveurs le nom, l’identifiant d’appareil et la plateforme de ce Mac, l’identifiant de bundle, la version et le canal de build de l’app, l’adresse de relais et la clé de connexion du Mac, ainsi que les identifiants de votre compte et de votre équipe. Les noms des espaces de travail, les dossiers, les chemins complets et la sortie du terminal passent uniquement par la liaison chiffrée vers votre téléphone. Rien de tout cela, ni aucun nom de branche ou URL de dépôt, n’est envoyé aux serveurs de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perché il telefono trovi questo Mac, cmux registra sui propri server nome, ID dispositivo e piattaforma di questo Mac, bundle ID, versione e canale di build dell’app, indirizzo di relay e chiave di connessione del Mac e gli ID del tuo account e del tuo team. I nomi degli spazi di lavoro, le cartelle, i percorsi completi e l’output del terminale passano solo tramite il collegamento cifrato verso il telefono. Niente di tutto ciò, né nomi di branch o URL di repository, viene inviato ai server di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートフォンがこの Mac を見つけられるよう、cmux はこの Mac の名前、デバイス ID、プラットフォーム、アプリのバンドル ID、バージョン、ビルドチャンネル、Mac のリレーアドレスと接続キー、アカウント ID とチーム ID を cmux のサーバーに登録します。ワークスペース名、フォルダ、フルパス、ターミナルの出力は、暗号化された接続でスマートフォンにのみ送られます。これらも、ブランチ名やリポジトリの URL も、cmux のサーバーには送られません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដើម្បីឱ្យទូរសព្ទរបស់អ្នករកឃើញ Mac នេះ cmux ចុះឈ្មោះនៅលើម៉ាស៊ីនមេរបស់ខ្លួននូវឈ្មោះ លេខសម្គាល់ឧបករណ៍ និងវេទិការបស់ Mac នេះ លេខសម្គាល់កញ្ចប់ កំណែ និងឆានែលស្ថាបនារបស់កម្មវិធី អាសយដ្ឋានបញ្ជូនបន្ត និងសោតភ្ជាប់របស់ Mac និងលេខសម្គាល់គណនី និងក្រុមរបស់អ្នក។ ឈ្មោះកន្លែងធ្វើការ ថត ផ្លូវពេញ និងលទ្ធផលស្ថានីយ ផ្ញើតែតាមតំណដែលបានអ៊ិនគ្រីបទៅទូរសព្ទរបស់អ្នកប៉ុណ្ណោះ។ គ្មានអ្វីមួយក្នុងនោះ ហើយក៏គ្មានឈ្មោះមែក ឬ URL ឃ្លាំង ត្រូវបានផ្ញើទៅម៉ាស៊ីនមេ cmux ឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰이 이 Mac을 찾을 수 있도록 cmux는 이 Mac의 이름, 기기 ID, 플랫폼, 앱의 번들 ID, 버전, 빌드 채널, Mac의 릴레이 주소와 연결 키, 계정 ID와 팀 ID를 cmux 서버에 등록합니다. 작업 공간 이름, 폴더, 전체 경로, 터미널 출력은 암호화된 연결을 통해 휴대폰으로만 전송됩니다. 이 중 어떤 것도, 브랜치 이름이나 저장소 URL도 cmux 서버로 전송되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For at telefonen skal finne denne Macen, registrerer cmux på serverne sine navnet, enhets-ID-en og plattformen til denne Macen, appens pakke-ID, versjon og byggekanal, Macens reléadresse og tilkoblingsnøkkel samt konto- og team-ID-ene dine. Navn på arbeidsområder, mapper, fullstendige stier og terminalutdata går bare over den krypterte forbindelsen til telefonen. Ingenting av dette, og verken grennavn eller repo-URL-er, sendes til cmux-servere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aby telefon mógł znaleźć tego Maca, cmux rejestruje na swoich serwerach nazwę, identyfikator urządzenia i platformę tego Maca, identyfikator pakietu, wersję i kanał kompilacji aplikacji, adres przekaźnika i klucz połączenia Maca oraz identyfikatory Twojego konta i zespołu. Nazwy obszarów roboczych, foldery, pełne ścieżki i wyjście terminala trafiają tylko szyfrowanym połączeniem do Twojego telefonu. Nic z tego, ani żadne nazwy gałęzi czy adresy URL repozytoriów, nie jest wysyłane na serwery cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para que o celular encontre este Mac, o cmux registra nos servidores dele o nome, o ID do dispositivo e a plataforma deste Mac, o ID de pacote, a versão e o canal de build do app, o endereço de relay e a chave de conexão do Mac e os IDs da sua conta e equipe. Nomes de espaços de trabalho, pastas, caminhos completos e a saída do terminal vão apenas pela conexão criptografada até o seu celular. Nada disso, nem nomes de branches ou URLs de repositórios, é enviado aos servidores do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы телефон мог найти этот Mac, cmux регистрирует на своих серверах имя, идентификатор устройства и платформу этого Mac, идентификатор пакета, версию и канал сборки приложения, адрес ретранслятора и ключ подключения Mac, а также идентификаторы вашей учётной записи и команды. Названия рабочих пространств, папки, полные пути и вывод терминала передаются только по зашифрованному каналу на ваш телефон. Ничего из этого, как и названия веток и URL репозиториев, не отправляется на серверы cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพื่อให้โทรศัพท์ค้นหา Mac เครื่องนี้เจอ cmux จะลงทะเบียนชื่อ ID อุปกรณ์ และแพลตฟอร์มของ Mac เครื่องนี้ Bundle ID เวอร์ชัน และช่องทางบิลด์ของแอป ที่อยู่รีเลย์และคีย์การเชื่อมต่อของ Mac รวมถึง ID บัญชีและทีมของคุณไว้กับเซิร์ฟเวอร์ของ cmux ชื่อพื้นที่ทำงาน โฟลเดอร์ พาธเต็ม และเอาต์พุตของเทอร์มินัลจะส่งผ่านการเชื่อมต่อที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น ไม่มีข้อมูลเหล่านี้ รวมถึงชื่อสาขาหรือ URL ของรีโพ ถูกส่งไปยังเซิร์ฟเวอร์ของ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefonunuzun bu Mac'i bulabilmesi için cmux, bu Mac'in adını, cihaz kimliğini ve platformunu, uygulamanın paket kimliğini, sürümünü ve derleme kanalını, Mac'in aktarma adresini ve bağlantı anahtarını, hesap ve ekip kimliklerinizi sunucularına kaydeder. Çalışma alanı adları, klasörler, tam yollar ve terminal çıktısı yalnızca şifreli bağlantı üzerinden telefonunuza gider. Bunların hiçbiri, dal adları ve depo URL'leri de dahil, cmux sunucularına gönderilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щоб телефон міг знайти цей Mac, cmux реєструє на своїх серверах назву, ідентифікатор пристрою й платформу цього Mac, ідентифікатор пакета, версію й канал збірки застосунку, адресу ретранслятора й ключ підключення Mac, а також ідентифікатори вашого облікового запису й команди. Назви робочих просторів, папки, повні шляхи й вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон. Нічого з цього, як і назви гілок чи URL репозиторіїв, не надсилається на сервери cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để điện thoại tìm thấy máy Mac này, cmux đăng ký với máy chủ của mình tên, ID thiết bị và nền tảng của máy Mac này, bundle ID, phiên bản và kênh bản dựng của ứng dụng, địa chỉ chuyển tiếp và khóa kết nối của máy Mac, cùng ID tài khoản và nhóm của bạn. Tên không gian làm việc, thư mục, đường dẫn đầy đủ và đầu ra terminal chỉ đi qua kết nối được mã hóa tới điện thoại của bạn. Không thông tin nào trong số đó, kể cả tên nhánh hay URL kho mã, được gửi đến máy chủ cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为了让手机找到这台 Mac，cmux 会在其服务器上登记这台 Mac 的名称、设备 ID 和平台，应用的 Bundle ID、版本和构建渠道，这台 Mac 的中继地址和连接密钥，以及你的账户 ID 和团队 ID。工作区名称、文件夹、完整路径和终端输出只通过加密连接发送到你的手机。这些内容以及分支名称、仓库 URL 都不会发送到 cmux 服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為了讓手機找到這台 Mac，cmux 會在其伺服器上登記這台 Mac 的名稱、裝置 ID 和平台，App 的 Bundle ID、版本和建置管道，這台 Mac 的中繼位址和連線金鑰，以及你的帳號 ID 和團隊 ID。工作區名稱、檔案夾、完整路徑和終端機輸出只會透過加密連線傳到你的手機。這些內容以及分支名稱、儲存庫 URL 都不會傳送到 cmux 伺服器。"
+          }
+        }
+      }
+    },
+    "settings.phone.startSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Your Phone Start New Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لهاتفك ببدء مساحات عمل جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli telefonu da pokreće nove radne prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad din telefon starte nye arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefon darf neue Workspaces starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que tu teléfono inicie espacios de trabajo nuevos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser votre téléphone à créer des espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti al telefono di avviare nuovi spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートフォンから新しいワークスペースを開始できるようにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យទូរសព្ទរបស់អ្នកចាប់ផ្ដើមកន្លែងធ្វើការថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰에서 새 작업 공간 시작 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La telefonen starte nye arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwól telefonowi tworzyć nowe obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que o celular inicie novos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить телефону создавать рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้โทรศัพท์ของคุณเริ่มพื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefonunuzun yeni çalışma alanları başlatmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити телефону створювати робочі простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép điện thoại mở không gian làm việc mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许手机新建工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許手機建立新工作區"
+          }
+        }
+      }
+    },
+    "settings.phone.startSessions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off, your phone can still follow, type into and answer what's already running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، يظل بإمكان هاتفك متابعة ما يعمل بالفعل والكتابة فيه والرد عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, telefon i dalje može pratiti, kucati u ono što već radi i odgovarati na to."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når det er slået fra, kan din telefon stadig følge med i, skrive i og svare på det, der allerede kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeschaltet kann dein Telefon weiterhin verfolgen, was schon läuft, darin tippen und darauf antworten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, tu teléfono aún puede seguir, escribir en lo que ya está en marcha y responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, votre téléphone peut toujours suivre ce qui tourne déjà, y saisir du texte et y répondre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, il telefono può comunque seguire ciò che è già in esecuzione, scriverci e rispondere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにしても、実行中のものを見たり、入力したり、応答したりはできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ ទូរសព្ទរបស់អ្នកនៅតែអាចតាមដាន វាយបញ្ចូល និងឆ្លើយតបអ្វីដែលកំពុងដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄더라도 휴대폰에서 이미 실행 중인 항목을 보고, 입력하고, 응답할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når det er av, kan telefonen fortsatt følge med på, skrive i og svare på det som allerede kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po wyłączeniu telefon nadal może śledzić to, co już działa, pisać i odpowiadać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado, o celular ainda pode acompanhar, digitar e responder ao que já está em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, телефон по-прежнему может следить за тем, что уже запущено, вводить текст и отвечать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด โทรศัพท์ของคุณยังติดตาม พิมพ์ และตอบสิ่งที่กำลังทำงานอยู่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken telefonunuz zaten çalışan şeyleri izleyebilir, onlara yazabilir ve yanıt verebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, телефон і далі може стежити за тим, що вже працює, вводити текст і відповідати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, điện thoại vẫn có thể theo dõi, gõ vào và trả lời những gì đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，手机仍可查看、输入和回应已在运行的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後，手機仍可查看、輸入和回應已在執行的內容。"
+          }
+        }
+      }
+    },
+    "settings.phone.keepAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Mac Awake for Your Phone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء Mac مستيقظًا لهاتفك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drži Mac budnim za telefon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Mac vågen til din telefon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac für dein Telefon wach halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener el Mac activo para tu teléfono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder le Mac éveillé pour votre téléphone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni il Mac attivo per il telefono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートフォンのために Mac をスリープさせない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សា Mac ឱ្យភ្ញាក់សម្រាប់ទូរសព្ទរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴대폰을 위해 Mac 깨어 있게 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Mac våken for telefonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie usypiaj Maca dla telefonu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter o Mac ativo para o celular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не давать Mac засыпать ради телефона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ให้ Mac พักเครื่องเพื่อโทรศัพท์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telefonunuz için Mac'i uyanık tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не давати Mac засинати для телефона"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ Mac thức cho điện thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为手机让 Mac 保持唤醒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為手機讓 Mac 保持喚醒"
+          }
+        }
+      }
+    },
+    "settings.phone.keepAwake.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن الوصول إلى Mac في وضع السكون من هاتفك حتى يستيقظ. إغلاق الغطاء لا يزال يُدخل الـ Mac في وضع السكون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac u stanju mirovanja nije dostupan s telefona dok se ne probudi. Zatvaranje poklopca i dalje uspavljuje Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Mac i dvale kan ikke nås fra din telefon, før den vågner. Når du lukker låget, går Mac'en stadig i dvale."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein schlafender Mac ist vom Telefon aus erst wieder erreichbar, wenn er aufwacht. Beim Zuklappen geht der Mac weiterhin in den Ruhezustand."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No puedes acceder a un Mac en reposo desde el teléfono hasta que se active. Al cerrar la tapa, el Mac sigue entrando en reposo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac en veille est injoignable depuis votre téléphone jusqu’à son réveil. Fermer le couvercle met toujours le Mac en veille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac in stop non è raggiungibile dal telefono finché non si riattiva. Chiudendo il coperchio il Mac va comunque in stop."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ中の Mac には、スリープが解除されるまでスマートフォンから接続できません。蓋を閉じると Mac はスリープします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ដែលកំពុងដេក មិនអាចចូលប្រើពីទូរសព្ទបានទេ រហូតដល់វាភ្ញាក់។ ការបិទគម្របនៅតែធ្វើឱ្យ Mac ដេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠자기 상태인 Mac은 깨어날 때까지 휴대폰에서 연결할 수 없습니다. 덮개를 닫으면 Mac은 여전히 잠자기 상태가 됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Mac i dvale kan ikke nås fra telefonen før den våkner. Når du lukker lokket, går Macen fortsatt i dvale."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uśpiony Mac jest niedostępny z telefonu, dopóki się nie obudzi. Zamknięcie pokrywy nadal usypia Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um Mac em repouso não pode ser acessado pelo celular até ser despertado. Fechar a tampa ainda coloca o Mac em repouso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спящий Mac недоступен с телефона, пока не проснётся. Закрытие крышки по-прежнему переводит Mac в сон."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ที่พักเครื่องอยู่จะเข้าถึงจากโทรศัพท์ไม่ได้จนกว่าจะตื่น การปิดฝายังทำให้ Mac พักเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uyuyan bir Mac'e uyanana kadar telefonunuzdan ulaşılamaz. Kapağı kapatmak Mac'i yine uyutur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До Mac у режимі сну не можна підключитися з телефона, доки він не прокинеться. Закриття кришки так само переводить Mac у режим сну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể truy cập máy Mac đang ngủ từ điện thoại cho đến khi máy thức dậy. Gập nắp vẫn đưa máy Mac vào chế độ ngủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠中的 Mac 在唤醒前无法从手机访问。合上盖子仍会让 Mac 进入睡眠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠中的 Mac 在喚醒前無法從手機存取。闔上螢幕仍會讓 Mac 進入睡眠。"
+          }
+        }
+      }
+    },
+    "settings.choice.phoneKeepAwakeOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.choice.phoneKeepAwakePluggedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While Plugged In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أثناء التوصيل بالكهرباء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dok je priključen na struju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er tilsluttet strøm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei Netzbetrieb"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mientras esté enchufado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur secteur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando è collegato all’alimentazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電源接続時"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលភ្ជាប់ថាមពល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전원 연결 시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er koblet til strøm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przy zasilaniu sieciowym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando conectado à energia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При питании от сети"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะเสียบปลั๊ก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prize takılıyken"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Від мережі живлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi đang cắm sạc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接通电源时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接上電源時"
+          }
+        }
+      }
+    },
+    "settings.choice.phoneKeepAwakeAlways": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دائمًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvijek"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siempre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sempre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជានិច្ច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alltid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawsze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sempre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всегда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her zaman"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завжди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luôn luôn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "始终"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一律"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
