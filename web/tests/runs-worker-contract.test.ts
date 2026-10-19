@@ -4,7 +4,12 @@ import {
   isRunAttemptLeaseActive,
   runAttemptTransitionDecision,
 } from "../services/runs/worker-contract";
-import { isRunCloudOperationPending, RunCloudOperationPending } from "../services/runs/cloudClientContract";
+import {
+  isRunCloudOperationPending,
+  RUN_CLOUD_CREATE_PENDING_LIMIT_MS,
+  RunCloudOperationPending,
+  runCloudCreatePendingExpired,
+} from "../services/runs/cloudClientContract";
 
 const NOW = new Date("2026-10-18T06:00:00.000Z");
 
@@ -24,6 +29,17 @@ describe("Run attempt worker fencing", () => {
     expect(isRunCloudOperationPending({ error: "vm_create_failed" })).toBe(false);
     expect(isRunCloudOperationPending(null)).toBe(false);
     expect(new RunCloudOperationPending().code).toBe("vm_create_in_progress");
+  });
+
+  test("stops retrying an in-progress Cloud VM create after the ceiling", () => {
+    const startedAt = new Date(NOW.getTime() - RUN_CLOUD_CREATE_PENDING_LIMIT_MS);
+    expect(runCloudCreatePendingExpired({ startedAt: new Date(NOW.getTime() - 60_000), now: NOW })).toBe(false);
+    expect(runCloudCreatePendingExpired({ startedAt: new Date(startedAt.getTime() + 1), now: NOW })).toBe(false);
+    expect(runCloudCreatePendingExpired({ startedAt, now: NOW })).toBe(true);
+    // No recorded start means no evidence the create is alive.
+    expect(runCloudCreatePendingExpired({ startedAt: null, now: NOW })).toBe(true);
+    // The ceiling outlasts /api/vm's 960s maxDuration, so a live create is never cut off.
+    expect(RUN_CLOUD_CREATE_PENDING_LIMIT_MS).toBeGreaterThan(960_000);
   });
 
   test("accepts the current unexpired lease and rejects the exact expiry boundary", () => {
