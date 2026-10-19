@@ -139,6 +139,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-phone-lane-fields.py
+      - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -323,6 +325,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-phone-lane-fields.py
+      - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -1093,6 +1097,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
 
+      # The phone daemon lane's per-command field allowlist, generated from the daemon's request
+      # schema and the lane's command allowlist (DaemonLanePolicy+Fields.generated.swift).
+      - name: Phone lane fields
+        id: phone-lane-fields
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+
       # The backdrop art list (ids, titles, image and thumbnail URLs, Shuffle Daily) exported
       # from the CmuxNextDesign Swift to plans/cmux-next/backdrop-art.json for the GPUI app.
       - name: Backdrop art export
@@ -1344,6 +1355,7 @@ jobs:
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
+            ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist
             ${{ steps.backdrop-art.outcome }}|Backdrop art export
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)

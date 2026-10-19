@@ -18,6 +18,43 @@ POLICY = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePo
 OUT = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"
 # Never from a phone, whatever the command: they choose what runs, where, and with which environment.
 PROGRAM_FIELDS = {"respawn", "env", "shell_args", "argv", "command", "cwd"}
+# Field types that are not plain values (opaque JSON, maps, objects) pass through to the daemon whole,
+# so each one is allowed only after a review, by type or by command field. A new one stops the script.
+REVIEWED_TYPES = {
+    "PaneRef": "a pane named by its numeric id or public pane_ id; the daemon resolves it in its own tree",
+    "TabRef": "a tab named by its numeric surface id or public tab_ id; the daemon resolves it in its own tree",
+}
+REVIEWED_FIELDS = {
+    ("put-frontend-projection", "projection"): "the phone's own personal projection; the lane checks scope and subject",
+    ("move-tab-to-column", "dock"): "ColumnPin: an edge and a width for docking a column",
+    ("resize-attached-view", "identity"): "SizingIdentity: whose size lease this is",
+    ("clear-history", "fallback_key"): "TerminalKeyInput: a key to send when the surface cannot clear",
+}
+
+
+def plain(types, t):
+    """True for a value the lane can pass on without review: scalars, enums, aliases of scalars,
+    and arrays of those."""
+    kind = t.get("kind")
+    if kind in ("scalar", "enum"):
+        return True
+    if kind == "array":
+        return plain(types, t.get("items") or {})
+    if kind == "ref":
+        target = types.get(t.get("name"), {})
+        if target.get("kind") == "enum":
+            return True
+        if target.get("kind") == "alias":
+            return plain(types, target.get("target") or {})
+    return False
+
+
+def type_name(t):
+    if t.get("kind") == "ref":
+        return t.get("name")
+    if t.get("kind") == "array":
+        return type_name(t.get("items") or {})
+    return None
 
 
 def allowed_commands():
@@ -28,7 +65,8 @@ def allowed_commands():
 
 
 def table():
-    commands = json.load(open(os.path.join(ROOT, SCHEMA), encoding="utf-8"))["commands"]
+    schema = json.load(open(os.path.join(ROOT, SCHEMA), encoding="utf-8"))
+    commands, types = schema["commands"], schema.get("types", {})
     rows = []
     for name in allowed_commands():
         if name not in commands:
@@ -36,7 +74,15 @@ def table():
         request = commands[name].get("request") or {}
         if request.get("kind") not in (None, "object") or request.get("additional_properties"):
             raise SystemExit("%s: %s takes open-ended params; review it by hand" % (SCHEMA, name))
-        fields = sorted(set((request.get("fields") or {}).keys()) - PROGRAM_FIELDS)
+        fields = []
+        for field, spec in sorted((request.get("fields") or {}).items()):
+            if field in PROGRAM_FIELDS:
+                continue
+            t = spec.get("type") or {}
+            if not plain(types, t) and type_name(t) not in REVIEWED_TYPES and (name, field) not in REVIEWED_FIELDS:
+                raise SystemExit("%s: %s.%s has free-form type %s; review it and add it to REVIEWED_TYPES or "
+                                 "REVIEWED_FIELDS in %s" % (SCHEMA, name, field, json.dumps(t), os.path.basename(__file__)))
+            fields.append(field)
         rows.append('        "%s": [%s],' % (name, ", ".join('"%s"' % f for f in fields)))
     return rows
 
