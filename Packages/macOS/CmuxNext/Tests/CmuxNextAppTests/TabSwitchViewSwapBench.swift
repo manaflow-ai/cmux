@@ -12,17 +12,23 @@ import WebKit
 /// window: an internal page (Markdown, a file viewer) parked in the pane, the same page in a
 /// wrapper that is not parkable (what every internal page did before: out of the window and back),
 /// and a WebKit browser tab. Prints `TAB-SWITCH-SWAP <case> p50 <ms> p90 <ms> max <ms>`; the checks
-/// are behavioral (each switch shows the tab), not timing budgets.
-@MainActor @Suite(.serialized) struct TabSwitchViewSwapBench {
+/// are behavioral (each switch shows the tab), not timing budgets. Opt-in: `CMUX_TAB_SWITCH_BENCH=1`.
+@MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_TAB_SWITCH_BENCH"] == "1"),
+                  .timeLimit(.minutes(2)))
+struct TabSwitchViewSwapBench {
     /// Not ``PaneParkableContent``: the pane takes it out of the window on a switch away.
     final class Unparked: NSView {}
 
     final class Loaded: NSObject, WKNavigationDelegate {
         var continuation: CheckedContinuation<Void, Never>?
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        private func done() {
             continuation?.resume()
             continuation = nil
         }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { done() }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { done() }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) { done() }
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { done() }
     }
 
     private static let rounds = 24
