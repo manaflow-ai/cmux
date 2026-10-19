@@ -183,7 +183,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
-    //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
+    //      reviewBy: 2026-12-01, defaultWhenUnavailable: false)
     // Controls availability of the opt-in multi-provider conversation sidebar.
     // The user-facing beta setting is evaluated separately by the sidebar
     // integration; this flag is the remote rollout gate and emergency kill
