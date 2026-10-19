@@ -1374,35 +1374,13 @@ private struct AgentProseBubble: View {
     var body: some View {
         HStack {
             if role == .user { Spacer(minLength: 36) }
-            AgentChatMarkdownText(markdown: text, color: .primary)
+            AgentMarkdownView(markdown: text, color: .primary)
                 .padding(.horizontal, role == .user ? 14 : 0)
                 .padding(.vertical, 11)
                 .background(role == .user ? Color(.secondarySystemBackground) : Color.clear, in: RoundedRectangle(cornerRadius: 22))
                 .foregroundStyle(.primary)
                 .opacity(isStreaming ? 0.9 : 1)
         }
-    }
-}
-
-/// Lightweight Markdown rendering owned by Agent mode. Keeping this local
-/// keeps transcript presentation decisions self-contained.
-private struct AgentChatMarkdownText: View {
-    let markdown: String
-    let color: Color
-
-    var body: some View {
-        Text(renderedMarkdown)
-        .font(.body)
-        .foregroundStyle(color)
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var renderedMarkdown: AttributedString {
-        var options = AttributedString.MarkdownParsingOptions()
-        options.interpretedSyntax = .full
-        options.failurePolicy = .returnPartiallyParsedIfPossible
-        return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
     }
 }
 
