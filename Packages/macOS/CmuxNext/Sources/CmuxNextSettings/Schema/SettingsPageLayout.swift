@@ -122,6 +122,15 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
             ],
             lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]),
+        // The Monaco code editor (and the markdown viewer's text size): VS Code's settings by name.
+        CategorySpec(
+            id: "editor", title: section(.editor), symbol: "chevron.left.forwardslash.chevron.right",
+            groups: [
+                group("settings.group.editorDefaults"), group("settings.group.editorFont"), group("settings.group.editorText"),
+                group("settings.group.editorDisplay"), group("settings.group.editorCursor"), group("settings.group.editorEditing"),
+                group("settings.group.editorSaving"), group("settings.group.markdownViewer"),
+            ],
+            actions: [.editor], aliases: [.editor]),
         CategorySpec(
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [

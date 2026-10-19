@@ -15660,6 +15660,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "undeclared",
+      "cli_name" : "settings import-editor-settings",
+      "context_menu" : "undeclared",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileEditor.importEditorSettings",
+      "main_menu" : null,
+      "mcp" : "undeclared",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Settings from VS Code or Zed",
+      "title_key" : "action.fileEditor.importEditorSettings",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "browser page-info",
       "context_menu" : "offered",
