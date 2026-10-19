@@ -246,9 +246,12 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process;
-    # two deterministic file shards keep per-file isolation while shortening the
-    # critical path. Keep the existing cap until hosted timing proves a tighter
-    # bound for the shard with the longer browser files.
+    # deterministic file shards keep per-file isolation while shortening the
+    # critical path. A shard's time is almost all its Vite dev server files, which
+    # run CMUX_WEB_TEST_DEV_JOBS (2 on this runner) at once: with two shards,
+    # shard 2 spent 1,037 of its 1,058 s test step there (job 117948581151), and
+    # its other 136 files took 20 s. Four shards halve each shard's dev server files.
+    # Keep the existing cap until hosted timing proves a tighter bound.
     timeout-minutes: 40
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -256,9 +259,13 @@ jobs:
       matrix:
         include:
           - shard: 1
-            shard_count: 2
+            shard_count: 4
           - shard: 2
-            shard_count: 2
+            shard_count: 4
+          - shard: 3
+            shard_count: 4
+          - shard: 4
+            shard_count: 4
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
