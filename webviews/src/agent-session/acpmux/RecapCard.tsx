@@ -37,6 +37,8 @@ function writeDismissed(sessionId: string | undefined, keys: readonly string[]):
 export type RecapCardState = {
   /** The card to show now, if any. */
   recap: Recap | undefined;
+  /** The card's yes was not sent: the card is back with a note saying so. */
+  failed: boolean;
   /** Sends the card's yes and hides it. */
   reply(): void;
   /** Hides the card for its turn. */
@@ -71,20 +73,26 @@ export function useRecapCard({
     setDismissed(current);
   }
   const recap = found && !current.keys.includes(found.key) ? found : undefined;
+  // The card whose yes did not go, by its turn's key.
+  const [failedKey, setFailedKey] = useState<string | undefined>();
   const hide = (key: string) => setDismissed({ sessionId, keys: withKey(current.keys, key) });
   return {
     recap,
+    failed: recap !== undefined && recap.key === failedKey,
     reply() {
       if (!recap) return;
       const { key } = recap;
-      // Hidden while its yes is on the way; kept hidden once sent, and back if the send failed.
+      // Hidden while its yes is on the way; kept hidden once sent, and back with a note if the send failed.
       hide(key);
+      setFailedKey(undefined);
       send(recap.reply).then(
         () => writeDismissed(sessionId, withKey(readDismissed(sessionId), key)),
-        () =>
+        () => {
+          setFailedKey(key);
           setDismissed((now) =>
             now.sessionId === sessionId ? { sessionId, keys: now.keys.filter((kept) => kept !== key) } : now,
-          ),
+          );
+        },
       );
       focusComposer();
     },
@@ -100,7 +108,8 @@ export function useRecapCard({
 /// `keys` with `key` last, the newest KEPT of them.
 const withKey = (keys: readonly string[], key: string) => [...keys.filter((kept) => kept !== key), key].slice(-KEPT);
 
-/// The card: summary (muted, at most three lines), the question, then Yes and Not now.
+/// The card: summary (muted, at most three lines), the question, a note when its yes was not sent,
+/// then Yes and Not now.
 /// `keyHint`: ⌘Return on the composer answers yes (not in the Quick Composer, whose ⌘Return opens a window,
 /// nor in shell mode).
 export function RecapCard({
@@ -108,11 +117,14 @@ export function RecapCard({
   onReply,
   onDismiss,
   keyHint,
+  failed = false,
 }: {
   recap: Recap;
   onReply(): void;
   onDismiss(): void;
   keyHint: boolean;
+  /** The last yes was not sent. */
+  failed?: boolean;
 }) {
   const t = useT();
   const yes = recap.action ? t("recap.yesAction", { action: recap.action }) : t("recap.yes");
@@ -121,6 +133,11 @@ export function RecapCard({
       <div className="acpmux-recap__card">
         {recap.summary && <p className="acpmux-recap__summary">{recap.summary}</p>}
         <p className="acpmux-recap__question">{recap.question}</p>
+        {failed && (
+          <p className="acpmux-recap__error" role="alert">
+            {t("recap.sendFailed")}
+          </p>
+        )}
         <div className="acpmux-recap__actions">
           <button
             type="button"

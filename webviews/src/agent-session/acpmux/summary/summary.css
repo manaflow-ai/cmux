@@ -132,6 +132,7 @@
 .acpmux-recap__later:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-recap__dismiss{position:absolute;top:6px;right:6px}
+.acpmux-recap__error{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* The session side rail (SessionRail.tsx, Debug Settings agent.sessionRail): a column beside the chat, as the side preview is (.acpmux-artifact), narrower; under 720px it lies over the chat. Cards are hairline-bordered and a step lighter than the page, rows 28px; it fades in, the width never animates. */
 .acpmux-rail{flex:0 0 clamp(240px,26%,340px);min-width:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;box-sizing:border-box;padding:8px 10px 10px 2px;overflow-x:hidden;overflow-y:auto;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
 @media (max-width:560px){.acpmux-rail{position:absolute;z-index:var(--layer-overlay);top:0;right:0;bottom:0;width:min(300px,calc(100% - 32px));padding-left:10px;box-shadow:var(--elevation-2)}}

@@ -183,6 +183,21 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await page.close();
   });
 
+  test("a yes that cannot be sent brings the card back with a note", async () => {
+    const page = await openChat();
+    await card(page).waitFor();
+    // The host loses its send action: the yes has nowhere to go.
+    await page.evaluate(() => {
+      delete (window.cmuxAcpmuxActions as Record<string, unknown> | undefined)?.["chat.send"];
+    });
+    await card(page).getByRole("button", { name: "Yes, open PR" }).click();
+    const note = card(page).getByRole("alert");
+    await note.waitFor();
+    expect(await note.innerText()).toBe("Your reply wasn’t sent. Try again.");
+    expect(prompts).toEqual([]);
+    await page.close();
+  });
+
   test("Not now hides the card for the turn, across a reload, and sends nothing", async () => {
     const page = await openChat();
     await card(page).waitFor();

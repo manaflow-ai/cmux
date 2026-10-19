@@ -5287,6 +5287,7 @@ function AcpmuxPane() {
           onReply={recapCard.reply}
           onDismiss={recapCard.dismiss}
           keyHint={!quick && !composerShell}
+          failed={recapCard.failed}
         />
       )}
       <DictationNotice dictation={dictation} />
