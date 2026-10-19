@@ -991,7 +991,6 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=False)
         controller.run_url = "u"
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comment_once = lambda *args: None
         formatted = []
         controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
@@ -1010,7 +1009,6 @@ class FormatBeforeLanding(unittest.TestCase):
         red = pr(1, files=["webviews/a.ts"], checks=[("web / react-apps-check", "completed", "failure")])
         clean = pr(2, files=["webviews/b.ts"])
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comment_once = lambda *args: None
         formatted, merged = [], []
         controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
@@ -1045,7 +1043,6 @@ class NotifyOwners(unittest.TestCase):
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=not notify)
         controller.run_url = "u"
         controller.gh = mock.Mock()
-        controller.merge_green = lambda: Path("/bin/true")
         controller.comments = []
         controller.comment_once = lambda item, kind, body: controller.comments.append((item.number, kind, body))
         controller.merged = []
@@ -1220,6 +1217,14 @@ class CoordinatorAndOverrides(unittest.TestCase):
         self.assertIsNone(nb.ineligible_reason(trusted, NOW))
         self.assertEqual(nb.ineligible_reason(by_lane, NOW), "red check lint")
 
+    def test_known_base_red_never_waives_risk_evidence_or_a_freeze(self):
+        label = nb.OVERRIDE_BASE_RED
+        for check in ("risk evidence", "merge freeze"):
+            with self.subTest(check=check):
+                item = pr(1, checks=[(check, "completed", "failure")], labels=[label],
+                          label_actors={label: "lawrencecchen"})
+                self.assertIn(check, nb.ineligible_reason(item, NOW) or "")
+
     def test_land_alone_takes_a_batch_of_its_own(self):
         label = nb.OVERRIDE_ALONE
         prs = [pr(1), pr(2, labels=[label], label_actors={label: "lawrencecchen"}), pr(3)]
@@ -1314,23 +1319,65 @@ class Landing(unittest.TestCase):
     def test_merges_the_validated_head_with_a_squash(self):
         calls = []
         controller = self.controller(lambda path, **kw: calls.append((path, kw)) or {"sha": "m" * 40, "merged": True})
-        self.assertEqual(controller.merge_one(pr(7), self.validation()), "landed")
+        with self.freeze(0):
+            self.assertEqual(controller.merge_one(pr(7), self.validation()), "landed")
         path, kw = calls[0]
         self.assertEqual(path, "repos/o/r/pulls/7/merge")
         self.assertEqual(kw["method"], "PUT")
         self.assertEqual(kw["body"]["sha"], pr(7).sha)
         self.assertEqual(kw["body"]["merge_method"], "squash")
-        self.assertIn("u", kw["body"]["commit_message"])
 
     def test_a_refusal_is_reported_not_retried(self):
         calls = []
 
         def refuse(path, **kw):
             calls.append(path)
-            raise RuntimeError("HTTP 409: Head branch was modified. Review and try the merge again.")
-        outcome = self.controller(refuse).merge_one(pr(7), self.validation())
+            raise RuntimeError("gh api -X PUT failed: Head branch was modified. Review and try the merge again. (HTTP 409)")
+        with self.freeze(0):
+            outcome = self.controller(refuse).merge_one(pr(7), self.validation())
         self.assertTrue(outcome.startswith("not landed: GitHub refused to merge"), outcome)
         self.assertEqual(len(calls), 1)
+
+    def freeze(self, code):
+        return mock.patch.object(nb, "freeze_check", lambda repo, number, env: (code, "frozen: CmuxNext/Foo/ (#9)"))
+
+    def test_keeps_githubs_default_squash_body_with_its_trailers(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append(kw) or {"merged": True})
+        with self.freeze(0):
+            controller.merge_one(pr(7), self.validation())
+        self.assertNotIn("commit_message", calls[0]["body"])
+
+    def test_a_freeze_opened_since_the_last_push_stops_the_merge(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append(path) or {})
+        with self.freeze(1):
+            outcome = controller.merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed: frozen"), outcome)
+        self.assertEqual(calls, [])
+        with self.freeze(2):
+            self.assertIn("unreadable", controller.merge_one(pr(7), self.validation()))
+        self.assertEqual(calls, [])
+
+    def test_a_transient_error_is_retried_and_never_marks_the_pr_refused(self):
+        replies = iter([RuntimeError("gh api -X PUT failed: Base branch was modified. Review and try the merge again. (HTTP 409)"),
+                        {"merged": True}])
+
+        def api(path, **kw):
+            reply = next(replies)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        controller = self.controller(api)
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(controller.merge_one(pr(7), self.validation()), "landed")
+
+        def always_502(path, **kw):
+            raise RuntimeError("gh api -X PUT failed: HTTP 502: Bad Gateway")
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            outcome = self.controller(always_502).merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertNotIn("GitHub refused to merge", outcome)
 
     def test_gh_merge_green_is_gone_from_the_queue(self):
         source = (ROOT / "scripts/ci/next_batch.py").read_text()
