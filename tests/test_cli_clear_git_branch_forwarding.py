@@ -101,6 +101,8 @@ def main() -> int:
     failures: list[str] = []
     # The Pi extension's sidebar target: `--surface` becomes `--panel`.
     target = ["--workspace", WORKSPACE_ID, "--panel", SURFACE_ID]
+    # A Unix socket path is limited to 104 bytes on macOS, and the default
+    # temporary directory there is long enough to overrun it, so use /tmp.
     socket_dir = Path(tempfile.mkdtemp(prefix="cmux-cgb-", dir="/tmp"))
     try:
         with tempfile.TemporaryDirectory(prefix="cmux-clear-git-branch-") as td:
