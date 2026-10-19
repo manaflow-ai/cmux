@@ -285,6 +285,7 @@
         "CmuxMessagesLab"
       ],
       "reads": [
+        "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "plans/cmux-next/",
         "schemas/keybindings/keybinding-vectors.json",
@@ -360,6 +361,15 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextBrowserAutomationTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserAutomationTests",
+      "targets": [
+        "CmuxNextBrowserAutomation"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextBrowserHistory": {
       "kind": "regular",
@@ -777,6 +787,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
       "targets": [
+        "CmuxNextAgentPane",
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextSidebar",

@@ -38,7 +38,7 @@ class SidebarItemRowView: NSView {
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
     /// True: the item acts on mouse-down, as workspace rows do (Home, the App
-    /// Store: `LayoutItemRef.activatesOnPress`); false: on release.
+    /// Store, pinned workspace, tab and space tiles: `LayoutItemRef.activatesOnPress`); false: on release.
     var activatesOnPress = false
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false

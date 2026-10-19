@@ -1081,6 +1081,10 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_session_label_routing.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_checks_workflow.py"
 lane = "linux-guard"
 
@@ -1341,6 +1345,10 @@ path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_media_path_map.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_prune_media_derived_data.py"
 lane = "linux-guard"
 
@@ -1394,6 +1402,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_shadow_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_status.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1454,4 +1466,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_stale_agent_prs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_risk_tier.py"
 lane = "linux-guard"
