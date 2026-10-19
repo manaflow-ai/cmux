@@ -48,7 +48,8 @@ export type Services =
   | TenantPolicy
   | Entitlements
   | S3aServices
-  | MeshServices;
+  | MeshServices
+  | WebhookDeliveryStore;
 
 /** Mesh experiment (cx-0op); the membership cache and webhook deliveries are M4 (cx-0op.6, cx-0op.7). */
 type MeshServices = MeshStore | UpstreamMesh | MeshConfig | MembershipCache | WebhookDeliveryStore | DaytonaWebhookDeliveryStore;

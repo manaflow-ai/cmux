@@ -237,7 +237,8 @@ describe("Daytona lifecycle webhooks", () => {
         release: (id) => Effect.sync(() => void deliveries.delete(id)),
       },
     });
-    const responses = await Promise.all([signedRequest("daytona-concurrent"), signedRequest("daytona-concurrent")].map((request) => run(handler(request))));
+    const requests = await Promise.all([signedRequest("daytona-concurrent"), signedRequest("daytona-concurrent")]);
+    const responses = await Promise.all(requests.map((request) => run(handler(request))));
     expect(responses.filter((response) => response.status === 200)).toHaveLength(2);
     expect(attempts).toBe(1);
     const wrongOrg = await run(handler(await signedRequest("daytona-org-mismatch", payload.replace("org-test", "other-org"))));
