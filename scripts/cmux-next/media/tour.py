@@ -32,10 +32,11 @@ settings. A step has a `title` and optionally:
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
 included, so nothing covering the window (permission prompts, other jobs'
-windows) is in them. A build that cannot snapshot falls back to the window's
-rectangle on screen, captured in the console user's session as the E2E
-recorder on main does (scripts/ci/preflight-e2e-screen-capture.py), so it
-works when the runner user is not the console user.
+windows) is in them. A build that cannot snapshot falls back to that window
+alone by its window server id (`screencapture -l`, run in the console user's
+session as the E2E recorder on main does), never the display, so tours on one
+Mac never capture each other. The app is never activated: the tour drives it
+through its socket, so concurrent tours do not trade focus or the key window.
 
 The manifest records `result` as `pass`, `degraded`, or `failed`. Optional
 failures keep the process exit status green for compatibility, but result in a
@@ -252,6 +253,23 @@ class Session:
             return None
         return (done.stderr or done.stdout).strip() or "the helper wrote no image"
 
+    def window_id(self, pid: int) -> int | None:
+        """The window server id of the largest normal window `pid` shows, from the window list
+        (ids and bounds need no Screen Recording grant); None when it shows none."""
+        script = ('ObjC.import("CoreGraphics");'
+                  'var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo('
+                  '$.kCGWindowListOptionAll | $.kCGWindowListExcludeDesktopElements, 0))) || [];'
+                  f'var mine = list.filter(function (w) {{ return w.kCGWindowOwnerPID === {int(pid)} && w.kCGWindowLayer === 0; }});'
+                  'mine.sort(function (a, b) { return b.kCGWindowBounds.Width * b.kCGWindowBounds.Height'
+                  ' - a.kCGWindowBounds.Width * a.kCGWindowBounds.Height; });'
+                  'mine.length ? String(mine[0].kCGWindowNumber) : ""')
+        try:
+            done = self.capture(["osascript", "-l", "JavaScript", "-e", script])
+        except (OSError, subprocess.SubprocessError):
+            return None
+        text = done.stdout.strip()
+        return int(text) if text.isdigit() else None
+
     def shareable(self, path: Path) -> Path:
         """A directory the session's user can write when that user is someone else."""
         path.mkdir(parents=True, exist_ok=True)
@@ -262,71 +280,53 @@ class Session:
 
 class Screen:
     """Screenshots of the app's main window through `app` (debug.window_snapshot),
-    or, after use_display(), of a rectangle in global top-left coordinates."""
+    or, after use_display(), of that window alone by its window server id
+    (`screencapture -l`), which shows the window even when another covers it."""
 
     def __init__(self, session: Session, scratch: Path | None = None, app: App | None = None) -> None:
         self.session = session
         self.scratch = scratch or Path(tempfile.gettempdir())
         self.app = app
         self.rect: tuple[int, int, int, int] | None = None
-        self.primary_height: float | None = None
-        self.primary_width: float | None = None
+        self.pid: int | None = None
+        self.window_id: int | None = None
 
     @property
     def mode(self) -> str:
         return APP_WINDOW_MODE if self.app else self.session.capture_mode
 
-    def use_display(self) -> None:
-        """Capture the window's rect on the display from now on; follow() again after."""
+    def use_display(self, pid: Any) -> None:
+        """Capture the app's window through the window server from now on; follow() again after."""
         self.app = None
         self.rect = None
-        script = ('ObjC.import("AppKit");'
-                  'var f = $.NSScreen.screens.objectAtIndex(0).frame;'
-                  'JSON.stringify([f.size.width, f.size.height])')
-        try:
-            done = self.session.capture(["osascript", "-l", "JavaScript", "-e", script])
-            self.primary_width, self.primary_height = (float(value) for value in json.loads(done.stdout)[:2])
-        except (subprocess.SubprocessError, ValueError, IndexError, TypeError):
-            self.primary_width = self.primary_height = None
+        self.pid = pid if isinstance(pid, int) else None
 
     def follow(self, frame: list[float] | None) -> None:
         """Aim at a window frame (NSWindow coordinates: bottom-left origin on the primary screen)."""
-        # Without a usable window frame (none, gone, too small, off the
-        # display) nothing is captured: the old rect would show what is behind.
+        # Without a usable window frame (none, gone, too small) nothing is captured.
         self.rect = None
-        if self.app:
-            # The app draws the window itself, so the frame only says one is shown.
-            if frame and len(frame) == 4 and frame[2] >= 50 and frame[3] >= 50:
-                self.rect = tuple(int(value) for value in frame)
+        if not frame or len(frame) != 4 or frame[2] < 50 or frame[3] < 50:
             return
-        if not frame or self.primary_height is None or len(frame) != 4:
-            return
-        x, y, width, height = frame
-        if width < 50 or height < 50:
-            return
-        top = self.primary_height - (y + height)
-        left, right = max(0.0, x), x + width
-        bottom = min(self.primary_height, top + height)
-        if self.primary_width:
-            right = min(self.primary_width, right)
-        top = max(0.0, top)
-        if right - left < 50 or bottom - top < 50:
-            return
-        self.rect = (int(left), int(top), int(right - left), int(bottom - top))
+        self.rect = tuple(int(value) for value in frame)
+        if not self.app:
+            # The app's largest window is its main window, as main_window_frame picks it.
+            self.window_id = self.session.window_id(self.pid) if self.pid else None
 
     def capture(self, path: Path, kind: str = "png") -> str | None:
-        """Write a screenshot of the app window's rect; None on success, else what went wrong.
+        """Write a screenshot of the app's window; None on success, else what went wrong.
 
-        Never the whole display: the runner's console is shared, and these
-        images are published, so with no window rect there is no shot.
+        Never the display: the runner's console is shared with other jobs'
+        windows, and these images are published.
         """
         if not self.rect:
             return "no app window on screen to capture"
         if self.app:
             return self.app_window_capture(path, kind)
+        if self.window_id is None:
+            return "no window server id for the app's window"
         if self.session.helper:
             return self.helper_capture(path, kind)
-        argv = ["/usr/sbin/screencapture", "-x", "-t", kind, f"-R{','.join(map(str, self.rect))}", str(path)]
+        argv = ["/usr/sbin/screencapture", "-x", "-o", "-t", kind, f"-l{self.window_id}", str(path)]
         try:
             done = self.session.capture(argv)
         except subprocess.TimeoutExpired:
@@ -335,32 +335,18 @@ class Screen:
             return None
         return (done.stderr or done.stdout or f"screencapture exited {done.returncode}").strip()
 
-
     def helper_capture(self, path: Path, kind: str) -> str | None:
-        """The whole display through the helper, cropped to the rect with sips."""
-        # The whole desktop lands outside shots/ and frames/, so a kill
-        # mid-capture cannot publish it, in a directory the helper's user can write.
-        raw = self.scratch / f"raw-{threading.get_ident()}.png"
-        problem = self.session.helper_capture(self.session.helper, ["desktop"], raw)
-        if problem:
+        """The app's window through the helper (`window <id>`), as PNG or JPEG."""
+        raw = path if kind == "png" else self.scratch / f"helper-{threading.get_ident()}.png"
+        problem = self.session.helper_capture(self.session.helper, ["window", str(self.window_id)], raw)
+        if problem or raw == path:
             return problem
-        if not self.primary_width:
-            raw.unlink(missing_ok=True)
-            return "unknown display size; cannot crop the helper's desktop image"
-        # The rect is clamped to the primary display (follow()), which the
-        # helper's desktop image starts with.
-        pixels = subprocess.run(["sips", "-g", "pixelWidth", str(raw)], capture_output=True, text=True).stdout
-        match = re.search(r"pixelWidth:\s*(\d+)", pixels)
-        scale = int(match.group(1)) / self.primary_width if match else 1.0
-        x, y, width, height = (round(value * scale) for value in self.rect)
-        argv = ["sips", "-s", "format", "jpeg" if kind == "jpg" else "png",
-                "--cropOffset", str(y), str(x), "-c", str(height), str(width)]
-        done = subprocess.run(argv + [str(raw), "--out", str(path)], capture_output=True, text=True)
+        done = subprocess.run(["sips", "-s", "format", "jpeg", str(raw), "--out", str(path)],
+                              capture_output=True, text=True)
         raw.unlink(missing_ok=True)
         if path.is_file() and path.stat().st_size > 0:
             return None
         return (done.stderr or done.stdout).strip() or "sips wrote no image"
-
 
     def app_window_capture(self, path: Path, kind: str) -> str | None:
         """The app's main window as it draws it (debug.window_snapshot), as PNG or JPEG."""
@@ -394,7 +380,7 @@ def frame_interval(mode: str) -> float:
 
 
 class Recorder(threading.Thread):
-    """Frames of the screen rectangle about every `interval` seconds, tagged with the step."""
+    """Frames of the app's window about every `interval` seconds, tagged with the step."""
 
     def __init__(self, screen: Screen, directory: Path) -> None:
         super().__init__(daemon=True)
@@ -528,10 +514,16 @@ class App:
             self.identity = json.loads(done.stdout)
         except ValueError:
             self.identity = {}
-        bundle = self.identity.get("bundle_id")
-        if bundle:
-            # Best effort: the tour reads better with the app in front.
-            self.session.run(["osascript", "-e", f'tell application id "{bundle}" to activate'])
+
+    def pid(self) -> int | None:
+        """The app's process id: from identify, else the newest process running this build's executable."""
+        pid = self.identity.get("pid")
+        if isinstance(pid, int):
+            return pid
+        if not self.session.prefix and self.process is not None:
+            return self.process.pid  # `env` execs the app in place
+        found = self.session.run(["pgrep", "-n", "-f", re.escape(str(self.executable))]).stdout.strip()
+        return int(found) if found.isdigit() else None
 
     def daemon_session(self) -> str:
         """DaemonLauncher.sessionName: cmux-app, or cmux-app-<cleaned tag>."""
@@ -749,15 +741,14 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
             # No window snapshot from this build: the display, if a route works.
             session.probe_once()
             if not session.app_window:
-                screen.use_display()
+                screen.use_display(app.pid())
                 screen.follow(app.main_window_frame())
         probe.unlink(missing_ok=True)
         recorder.interval = frame_interval(screen.mode)
         manifest["capture_mode"], manifest["frame_interval"] = screen.mode, recorder.interval
         print(f"[{tour['name']}] screen capture: {screen.mode}", flush=True)
         if screen.rect is None:
-            manifest["frames_error"] = (f"no app window on screen within {WINDOW_TIMEOUT:.0f}s" if screen.app
-                                        else "the app window is not on the primary display, or its size is unknown")
+            manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
         else:
             recorder.start()
         for index, step in enumerate(tour["steps"], 1):
@@ -783,6 +774,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
         manifest["capture_rect"] = screen.rect
+        if not screen.app:
+            manifest["capture_window"] = screen.window_id
         if app.log_path.exists():
             shutil.copy(app.log_path, directory / "app.log")
         shutil.rmtree(workdir, ignore_errors=True)
