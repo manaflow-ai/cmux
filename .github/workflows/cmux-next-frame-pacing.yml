@@ -276,7 +276,9 @@ jobs:
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/golden.sh "$RUNNER_TEMP/frame-pacing"
 
       # Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D through the real key path: key to visible frame and to
-      # the daemon's confirm, idle and with every core busy (instant-new-surfaces). Warning only.
+      # the daemon's confirm, idle and with every core busy (instant-new-surfaces). The guard: each
+      # command shows in the first display frame after its key (p95) and its key handler stays
+      # under 20 ms of main thread. Warning only, like the rest of this lane.
       - name: Instant create bench
         if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'instant')
         continue-on-error: true
@@ -284,7 +286,7 @@ jobs:
         run: |
           app="$(ls -d "$RUNNER_TEMP"/frame-pacing/app/*.app | head -1)"
           scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/instant-new-surfaces-bench.py \
-            --tag "$CMUX_TAG" --app "$app" --runs 10 --out "$RUNNER_TEMP/frame-pacing/out" \
+            --tag "$CMUX_TAG" --app "$app" --runs 10 --budget-frames 1 --budget-key-ms 20 --out "$RUNNER_TEMP/frame-pacing/out" \
             --json "$RUNNER_TEMP/frame-pacing/out/instant-new-surfaces.json"
 
       # Warning only: exits 1 (an annotation and a red step) when an animation did not run.

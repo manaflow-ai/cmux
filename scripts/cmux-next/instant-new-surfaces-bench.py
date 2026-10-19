@@ -9,7 +9,7 @@ daemon's object replaced the provisional one (`confirmed_ms`) and its BenchSpans
 
 Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` workers looping the
 tag's CLI against its daemon). With `--budget-frames N` the run fails when any command's p95
-`frames_to_visible` is above N or a key's main-thread time is above `--budget-key-ms`.
+display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--out DIR] [--json FILE]
 """
@@ -21,7 +21,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--runs", type=int, default=12)
 parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
-parser.add_argument("--budget-frames", type=float, default=0, help="fail when a p95 frames_to_visible is above this (0: report only)")
+parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
@@ -149,12 +149,27 @@ def bench(phase, window):
             rows.append(result)
             marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
             print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-                  f"frames={result.get('frames_to_visible')} confirmed={result.get('confirmed_ms')} marks={marks} "
+                  f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
                   f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
             undo(command, window, before)
             time.sleep(0.3)
     return rows
+
+
+def frame_of(row, key="visible_ms"):
+    """Which display frame after the key showed it (1 = the first frame the display link drew).
+    The app's `frames_to_visible` divides by the refresh period, which counts a late first frame
+    (main thread busy, display link start) as several; this walks the frames actually drawn."""
+    frames = row.get("frames") or {}
+    at, seen = frames.get("first_tick_ms"), row.get(key)
+    if at is None or seen is None:
+        return None
+    index, intervals = 1, frames.get("intervals_ms") or []
+    while seen > at + 0.5 and index - 1 < len(intervals):
+        at += intervals[index - 1]
+        index += 1
+    return index
 
 
 def summary(rows):
@@ -167,8 +182,10 @@ def summary(rows):
                 "n": len(sel), "missed": sum(v is None for v in vis),
                 "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
                 "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_max": pct(vis, 1),
-                "frames_p50": pct([r.get("frames_to_visible") for r in sel], .5),
-                "frames_p95": pct([r.get("frames_to_visible") for r in sel], .95),
+                "frames_p50": pct([frame_of(r) for r in sel], .5),
+                "frames_p95": pct([frame_of(r) for r in sel], .95),
+                "frames_max": pct([frame_of(r) for r in sel], 1),
+                "first_frame_ms_p50": pct([(r.get("frames") or {}).get("first_tick_ms") for r in sel], .5),
                 "confirmed_p50": pct([r.get("confirmed_ms") for r in sel], .5),
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
             }
