@@ -1,5 +1,5 @@
 @testable import CmuxNextApp
-import CmuxNextAgentLanes
+import CmuxNextAgentActivity
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Foundation
