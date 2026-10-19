@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextHomeEngine
 import Foundation
@@ -40,8 +41,8 @@ final class ErrorJournalService {
             LogFileErrorSource(url: chief.root.appendingPathComponent("client.log"), source: "chief"),
             CrashReportErrorSource(),
         ]
-        // The app's own acpmux (Release and NIGHTLY share ~/.acpmux) when it is not the Chief's.
-        let appAcpmux = home.appendingPathComponent(".acpmux/daemon.log")
+        // The app's own acpmux (this build's home from BuildIdentity) when it is not the Chief's.
+        let appAcpmux = environment.build.acpmuxHome(userHome: home).appendingPathComponent("daemon.log")
         if appAcpmux.standardizedFileURL != chief.acpmuxHome.appendingPathComponent("daemon.log").standardizedFileURL {
             sources.append(LogFileErrorSource(url: appAcpmux, source: "acpmux-app"))
         }
@@ -58,8 +59,10 @@ final class ErrorJournalService {
         // A fixed-interval background harvest, cancelled by stop() (CLAUDE.md Clock.sleep carve-out:
         // the delay is the intended cadence; nothing waits on it).
         harvesting = Task.detached(priority: .utility) {
+            // wakeup-allow: one harvest every 300 s off the main actor, cancelled by stop(); not a busy wait.
             while !Task.isCancelled {
                 await journal.harvest(sources)
+                // wakeup-allow: the 300 s harvest cadence, a cancellable sleep on a detached utility task.
                 guard (try? await ContinuousClock().sleep(for: interval)) != nil else { return }
             }
         }
