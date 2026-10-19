@@ -138,9 +138,7 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<number | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
-  const [seeded, setProject] = useState(
-    props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined,
-  );
+  const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
@@ -192,9 +190,7 @@ export function NewTabScreen(props: Props) {
   const askFolder = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
-  const envFolder = none
-    ? undefined
-    : (askFolder ?? (props.cwd && !folderless ? props.cwd : undefined));
+  const envFolder = none ? undefined : (askFolder ?? (props.cwd && !folderless ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) =>
     none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
@@ -231,8 +227,7 @@ export function NewTabScreen(props: Props) {
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
-  const current =
-    selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
+  const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
   const chrome = useComposerChrome();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -243,8 +238,7 @@ export function NewTabScreen(props: Props) {
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () =>
-      recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
+    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
     [snapshot.sessions, at, t, device, sections.recent, sections.chats],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
@@ -255,11 +249,7 @@ export function NewTabScreen(props: Props) {
   // input, or one that hit an error or lost its agent.
   const needsYou = useMemo(
     () =>
-      stage
-        ? cards.filter(
-            (card) => card.state === "input" || card.state === "error" || card.state === "failed",
-          )
-        : [],
+      stage ? cards.filter((card) => card.state === "input" || card.state === "error" || card.state === "failed") : [],
     [stage, cards],
   );
   const openCard = (id: string) => {
@@ -334,8 +324,7 @@ export function NewTabScreen(props: Props) {
     const top = node.scrollTop;
     node.style.height = "0px";
     node.style.height = `${node.scrollHeight}px`;
-    const typingAtEnd =
-      node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
+    const typingAtEnd = node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
     node.scrollTop = typingAtEnd ? node.scrollHeight : top;
   }, []);
   useLayoutEffect(fitField, [fitField, text, shell, template]);
@@ -394,8 +383,7 @@ export function NewTabScreen(props: Props) {
   const edit = (next: string) => {
     touch();
     setTouched(true);
-    const entry =
-      composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
+    const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
     if (entry) {
       setShell(true);
@@ -487,8 +475,7 @@ export function NewTabScreen(props: Props) {
     event.preventDefault();
     input.focus();
     // A location the page put in the field, still selected, is replaced as a typed key would.
-    const whole =
-      input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    const whole = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     wholeSelection.current = whole;
     edit(whole ? event.key : input.value + event.key);
   };
@@ -519,10 +506,7 @@ export function NewTabScreen(props: Props) {
         event.preventDefault();
         const command = text.trim();
         if (command) props.onShell(command);
-      } else if (
-        event.key === "Escape" ||
-        (event.key === "Backspace" && input.selectionEnd === 0)
-      ) {
+      } else if (event.key === "Escape" || (event.key === "Backspace" && input.selectionEnd === 0)) {
         // Leaves shell mode; what was typed stays in the field.
         event.preventDefault();
         setShell(false);
@@ -539,13 +523,7 @@ export function NewTabScreen(props: Props) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
       setDismissed(undefined);
-    } else if (
-      event.key === "Enter" &&
-      event.shiftKey &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey
-    ) {
+    } else if (event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -618,12 +596,8 @@ export function NewTabScreen(props: Props) {
           onOpen={openCard}
         />
       )}
-      {props.openTabs && (
-        <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />
-      )}
-      {sections.closed && (
-        <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />
-      )}
+      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
+      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
         <ChatCards
           cards={cards}
@@ -717,17 +691,13 @@ export function NewTabScreen(props: Props) {
               {stage && locationStrip}
               {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
-              {Chips && (
-                <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
-              )}
+              {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
               <span className="acpmux-composer-actions">
                 {props.accessory}
                 {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
                 <button
                   type="button"
-                  className={
-                    text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"
-                  }
+                  className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
                   aria-label={t("composer.send")}
                   title={t("composer.sendTooltip")}
                   disabled={!text.trim()}
@@ -815,12 +785,7 @@ export function NewTabScreen(props: Props) {
                   </button>
                 </>
               )}
-              <button
-                type="button"
-                className="nt-tool ui-ghost"
-                data-create="chat"
-                onClick={startChat}
-              >
+              <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
                 <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
                   <Icon name="agent.chat" size={14} />
                 </span>
@@ -845,13 +810,7 @@ export function NewTabScreen(props: Props) {
           finalFocus={false}
         >
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div
-            ref={attachList}
-            className="nt-rows"
-            id="nt-rows"
-            role="listbox"
-            aria-label={nt("suggestions")}
-          >
+          <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
             {rows.map((row, index) => (
               <div
                 key={rowKey(row)}
@@ -870,12 +829,7 @@ export function NewTabScreen(props: Props) {
                 }}
               >
                 {rowFavicon(row) ? (
-                  <img
-                    className="nt-row-glyph nt-row-favicon"
-                    src={rowFavicon(row)}
-                    alt=""
-                    draggable={false}
-                  />
+                  <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
                 ) : (
                   <RowGlyph kind={rowGlyph(row)} />
                 )}
@@ -909,11 +863,8 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
 
 /// A control that takes typed keys itself: a text field, or a menu or list with type-ahead.
 function ownsKeys(element: Element): boolean {
-  if ((element as HTMLElement).isContentEditable || element.closest("input, textarea, select"))
-    return true;
-  return (
-    element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null
-  );
+  if ((element as HTMLElement).isContentEditable || element.closest("input, textarea, select")) return true;
+  return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
 function rowKey(row: ScreenRow): string {
