@@ -120,6 +120,9 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,760"}
+for probe in ("CMUX_NEXT_PROBE_DRAGMARGINS", "CMUX_NEXT_PROBE_NODRAGMARGINS"):  # PROBE ONLY
+    if os.environ.get(probe):
+        env[probe] = os.environ[probe]
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
@@ -226,7 +229,8 @@ print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses
                                               "owner_lagged", "unsettled_after",
                                               "distinct_grids", "worst_frame_ms", "record", "notes")})[:3000])
 print("frames idle:", json.dumps(report.get("frames_idle"))[:600])
-print("frames drag:", json.dumps(report.get("frames"))[:600])
+print("frames drag:", json.dumps({k: v for k, v in (report.get("frames") or {}).items() if k != "dragmargins"})[:600])
+print("dragmargins:", json.dumps(((report.get("frames") or {}).get("dragmargins") or {}))[:12000])
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
