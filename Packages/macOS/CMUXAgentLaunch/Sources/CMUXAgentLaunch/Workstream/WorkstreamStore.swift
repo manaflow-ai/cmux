@@ -77,6 +77,8 @@ public final class WorkstreamStore {
     ///   - initialLoadLimit: Maximum persisted item count loaded at startup.
     ///   - historyPageSize: Page size for older persisted history.
     ///   - clock: Clock used for timestamps and expiry checks.
+    ///   - startupBudgetNanoseconds: Optional wall-clock diagnostic threshold
+    ///     for the bounded startup persistence pass.
     ///   - workstreamIDNormalizer: Optional migration for legacy ids loaded
     ///     from persistence or received from a producer. The second argument
     ///     is the raw producer identity, including registered agents not yet
@@ -88,12 +90,12 @@ public final class WorkstreamStore {
         ringCapacity: Int = WorkstreamDefaultRingCapacity,
         initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
         historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
-        startupBudgetNanoseconds: UInt64? = WorkstreamDefaultStartupBudgetNanoseconds,
         clock: @escaping @Sendable () -> Date = { Date() },
         workstreamIDNormalizer: @escaping @Sendable (String, String) -> String = { rawValue, _ in
             rawValue
         },
-        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil }
+        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil },
+        startupBudgetNanoseconds: UInt64? = WorkstreamDefaultStartupBudgetNanoseconds
     ) {
         self.transport = transport
         self.persistence = persistence
