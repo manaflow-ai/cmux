@@ -84,7 +84,7 @@ BUDGET = {
 # is removed, so the fixing lane tightens the gate in its own landing.
 KNOWN = {
     # Per restored pane (the relaunch budget scales with the grid's panes).
-    ("relaunch", "pane_snapshots"): (12, "cx-8w027.23: the restore maps each pane several more times as the live tree replaces the launch snapshot"),
+    ("relaunch", "pane_snapshots"): (3, "cx-8w027.23: a kept tab's restart changes tab fields its strip item does not draw (dead, terminal state, cwd), and each change re-runs the pane snapshot (2.1-3.1 per pane, was 8.2-9.3)"),
 }
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.

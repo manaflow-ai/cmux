@@ -10,7 +10,9 @@ import Observation
 struct TabDrawnValue: Equatable, Sendable {
     var newTabPage = false
     var themeBadge: TabThemeBadge?
-    var restarting = false
+    /// A kept tab this launch restarts: the address line its new shell will show (its kept
+    /// directory, `~`-abbreviated; empty when the record has none). Nil for every other tab.
+    var restarting: String?
 }
 
 /// One tab's ``TabDrawnValue``, kept by its own observation (I1, I2, cx-8w027.23). Its inputs are
@@ -86,16 +88,18 @@ extension PaneController {
         let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
         let terminal = tab.kind != .browser && tab.kind != .remoteTerminal
         let badge = terminal ? services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab)) : nil
-        return TabDrawnValue(newTabPage: titles.isNewTabPage(tab), themeBadge: badge,
-                             restarting: terminal && daemon.restartsKeptTab(tab))
+        let restarting = terminal && daemon.restartsKeptTab(tab)
+            ? tab.relaunch?.cwd.map(SidebarMapping.shared.abbreviate) ?? "" : nil
+        return TabDrawnValue(newTabPage: titles.isNewTabPage(tab), themeBadge: badge, restarting: restarting)
     }
 
     /// A kept tab this launch restarts draws as the running terminal it becomes: the terminal
-    /// icon, no failure mark, and the directory its new shell starts in (`relaunch.cwd`), so the
-    /// strip item stays the same when the new shell runs.
-    func drawRestarting(_ tab: TabModel, _ item: inout StripTabItem) {
+    /// icon, no failure mark, and the directory its new shell starts in (`subtitle`, from the
+    /// cell: the snapshot never reads the record), so the strip item stays the same when the new
+    /// shell runs.
+    func drawRestarting(subtitle: String, _ item: inout StripTabItem) {
         if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
         if item.status == .failure { item.status = .none }
-        if item.subtitle == nil, let cwd = tab.relaunch?.cwd { item.subtitle = SidebarMapping.shared.abbreviate(cwd) }
+        if item.subtitle == nil, !subtitle.isEmpty { item.subtitle = subtitle }
     }
 }
