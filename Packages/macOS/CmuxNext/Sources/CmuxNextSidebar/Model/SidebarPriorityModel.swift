@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Priority projection accessors live beside the model to keep the main model file at its size cap.
 extension SidebarModel {

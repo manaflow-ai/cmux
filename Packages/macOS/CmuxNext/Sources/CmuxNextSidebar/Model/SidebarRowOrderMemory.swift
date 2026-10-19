@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import Foundation
 
 /// Each window's own `sidebar.rowOrder` choice (the sidebar menu's Keep Rows in Place / Move
@@ -25,6 +26,7 @@ public nonisolated struct SidebarRowOrderMemory {
 
     /// `model` with `window`'s saved order, saving every later choice under that window.
     @MainActor public func restoring(_ model: SidebarModel, window: String) -> SidebarModel {
+        model.onRowOrderChange = nil // a window restored again (the launch window adopting a saved id) saves under its new id only
         model.rowOrder = order(for: window)
         model.onRowOrderChange = { save($0, for: window) }
         return model

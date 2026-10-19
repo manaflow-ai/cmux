@@ -389,6 +389,6 @@ final class SidebarBridge {
 
     /// Applies saved state without animating.
     func restore(width: Double?, hidden: Bool) {
-        container.restore(width: width.map { CGFloat($0) }, presentation: hidden ? .hidden : .shown)
+        container.restore(width: width.map { CGFloat($0) }, presentation: hidden ? .hidden : .shown); if let state { _ = SidebarRowOrderMemory().restoring(model, window: state.id) } // + the row order under the adopted id
     }
 }
