@@ -3,7 +3,7 @@ import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
 let h: Awaited<ReturnType<typeof makeHarness>>;
-beforeEach(async () => { h = await makeHarness(); });
+beforeEach(async () => { h = await makeHarness({ mesh: { budgets: { meshesPerTenant: 4 } } }); });
 afterEach(async () => { await h.dispose(); });
 
 const create = (key: string, name = "Team network", idempotency = "team-mesh-one") =>
@@ -24,4 +24,13 @@ it("rejects changed business intent under the same mesh creation key before prov
   const before = h.upstreamRequests.length;
   expect((await create(key, "Different network")).status).toBe(409);
   expect(h.upstreamRequests).toHaveLength(before);
+});
+
+it("replays a committed creation even when its network filled the mesh budget", async () => {
+  await h.dispose();
+  h = await makeHarness({ mesh: { budgets: { meshesPerTenant: 1 } } });
+  const key = await h.addKey("team_alpha", ALL_SCOPES);
+  expect((await create(key)).status).toBe(201);
+  expect((await create(key)).status).toBe(201);
+  expect(h.upstreamRequests.filter((r) => r.method === "POST" && r.path === "/v5/vpcs")).toHaveLength(1);
 });
