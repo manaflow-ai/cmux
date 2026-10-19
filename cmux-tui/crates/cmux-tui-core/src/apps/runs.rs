@@ -70,15 +70,13 @@ impl Supervisor {
                 None => op,
             };
             let (app, op) = (app.as_str(), op.as_str());
-            // Credential-backed servers must recheck the parent session before any replay.
-            // Their own ledger runs after that gate. Other apps partition replay by explicit context.
-            let session_bound = Self::host_op_allowed(&inner, app, super::relay::RELAY_SCOPE_OP);
+            // Scoped and credential-backed servers check current authority before their own replay.
+            let session_bound = expected_scope.is_some()
+                || Self::host_op_allowed(&inner, app, super::relay::RELAY_SCOPE_OP);
             let run_key = if session_bound {
                 None
             } else {
-                idempotency_key.as_ref().map(|key| {
-                    format!("{app}\n{op}\n{}\n{key}", expected_scope.as_deref().unwrap_or(""))
-                })
+                idempotency_key.as_ref().map(|key| format!("{app}\n{op}\n{key}"))
             };
             let (op_call, respond) =
                 self.track_run_locked(&mut inner, run_key.as_deref(), caller, respond);
