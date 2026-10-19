@@ -43,7 +43,8 @@ extension AgentCLIUpdateActions {
                     intent.following?.cancel()
                 }
             } catch where Self.terminalGone(error) {
-                // The person closed the kept tab: the process ended, so the job settles.
+                // The person closed the kept tab, so the job settles. Rust answers terminal.closed before
+                // it queues the runtime signal, so the updater may still be dying in its close grace.
                 guard route.isCurrent(), let key, !settled.contains(key),
                       let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == receipt.path.terminalID.rawValue }),
                       var job = intent.jobs[index].objectValue else { continue }
