@@ -27,6 +27,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
 
+# The suite also runs on Actions. Start every test from a host environment, so the
+# "never land from Actions" refusal (landing_refusal) applies only where a test sets
+# GITHUB_ACTIONS itself, and a runner's own batch settings never leak into a case.
+for _name in [n for n in os.environ if n == "GITHUB_ACTIONS" or n.startswith("CMUX_NEXT_BATCH_")]:
+    del os.environ[_name]
+
 WORKFLOW = ROOT / ".github/workflows/cmux-next-batch.yml"
 NOW = dt.datetime(2026, 10, 6, 5, 0, tzinfo=dt.timezone.utc)
 PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js"
@@ -180,6 +186,27 @@ class OpenPrsQuery(unittest.TestCase):
         self.assertEqual(sorted(seen[2:]), [("detail", "PR_1", True, None), ("detail", "PR_3", True, None)])
         self.assertEqual(prs[2].files, [".github/workflows/x.yml"])
         self.assertEqual(prs[1].files, [])
+
+    def test_override_label_actors_come_from_the_list_query_after_the_head_commit(self):
+        """#21925 on top of #21891's two-query list: who applied a label still arrives
+        with the light list, and only an application after the head's commit counts."""
+        node = self.node(1)
+        committed = node["commits"]["nodes"][0]["commit"]["committedDate"]
+        before = (dt.datetime.fromisoformat(committed) - dt.timedelta(hours=1)).isoformat()
+        after = (dt.datetime.fromisoformat(committed) + dt.timedelta(minutes=5)).isoformat()
+        node["labels"] = {"nodes": [{"name": nb.OVERRIDE_ALONE}, {"name": "stale"}]}
+        node["timelineItems"] = {"nodes": [
+            {"createdAt": after, "label": {"name": nb.OVERRIDE_ALONE}, "actor": {"login": "lawrencecchen"}},
+            {"createdAt": before, "label": {"name": "stale"}, "actor": {"login": "lawrencecchen"}},
+            {},
+        ]}
+        pages = [{"repository": {"pullRequests": {"nodes": [node],
+                                                  "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, _ = self.fake(pages, {("PR_1", ""): (["a.swift"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            [item] = nb.open_prs(gh)
+        self.assertEqual(item.label_actors, {nb.OVERRIDE_ALONE: "lawrencecchen"})
+        self.assertIn("LABELED_EVENT", nb.LIST_QUERY)
 
     def test_pages_contexts_past_the_first_hundred_and_caches_by_head_and_counts(self):
         pages = [{"repository": {"pullRequests": {"nodes": [self.node(1, state="FAILURE")],
@@ -728,7 +755,7 @@ class BaseReds(unittest.TestCase):
 
     def test_a_batch_that_raises_still_cleans_up(self):
         controller = self.controller()
-        controller.args = Namespace(repo="o/r", dry_run=False, keep_branches=False, prs="7")
+        controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, keep_branches=False, prs="7")
         controller.reported = lambda pr, kinds: ""
         controller.validations = []
         controller.base_probe_result = {"branch": "next-batch/local-1-base", "run": 9}
@@ -743,7 +770,8 @@ class BaseReds(unittest.TestCase):
 
         controller.validate = validate
         with mock.patch.object(nb, "open_prs", return_value=[]), \
-                mock.patch.object(nb, "select", return_value=([pr(7)], {})):
+                mock.patch.object(nb, "select", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "admit_reviewed", return_value=([pr(7)], {})):
             with self.assertRaises(RuntimeError):
                 controller.run()
         self.assertEqual(deleted, ["next-batch/local-1-1", "next-batch/local-1-base"])
@@ -989,11 +1017,17 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.merge_one = lambda helper, item, validation: merged.append(item.number) or "landed"
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
                                    branch="next-batch/x-1")
-        with mock.patch.object(nb, "open_prs", return_value=[red, clean]):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {red.sha}\n2 {clean.sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=[red, clean]), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = controller.land(validation)
         self.assertEqual(formatted, [1])
-        self.assertEqual(merged, [1, 2])
-        self.assertEqual([text for _, text in landed], ["landed", "landed"])
+        # The pushed formatting is a new head nobody validated or reviewed, and the
+        # PR stacked on top of it was validated with it, so neither lands now.
+        self.assertEqual(merged, [])
+        self.assertIn("formatted", landed[0][1])
+        self.assertIn("earlier PR in this stack", landed[1][1])
 
 
 class NotifyOwners(unittest.TestCase):
@@ -1052,12 +1086,159 @@ class NotifyOwners(unittest.TestCase):
             controller.land(self.validation(prs, passed=()))
         self.assertIn("heavy tier did not run", controller.comments[0][2])
 
-    def test_land_flag_merges(self):
+    def test_land_flag_merges_a_head_reviewed_at_its_exact_sha(self):
         controller = self.controller(notify=False)
         prs = [pr(1)]
-        with mock.patch.object(nb, "open_prs", return_value=prs):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"# coord-2's reviewed heads\n1 {pr(1).sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=prs), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             controller.land(self.validation(prs))
         self.assertEqual(controller.merged, [1])
+
+
+class ReviewGate(NotifyOwners):
+    """The queue lands only heads an independent review approved at that exact SHA."""
+
+    def land(self, prs, env=None, statuses=None):
+        controller = self.controller(notify=False)
+        controller.gh.api = mock.Mock(return_value=statuses or [])
+        with mock.patch.object(nb, "open_prs", return_value=prs), mock.patch.dict(os.environ, env or {}, clear=False):
+            for key in ("CMUX_NEXT_BATCH_REVIEWED", "CMUX_NEXT_BATCH_REVIEWERS"):
+                if key not in (env or {}):
+                    os.environ.pop(key, None)
+            landed = controller.land(self.validation(prs))
+        return controller, dict((item.number, text) for item, text in landed)
+
+    def test_an_unreviewed_head_gets_a_receipt_and_is_not_merged(self):
+        controller, landed = self.land([pr(1)])
+        self.assertEqual(controller.merged, [])
+        self.assertIn("not reviewed at this head", landed[1])
+        # A note, not a receipt: a receipt would keep it out of the batch after its review.
+        self.assertEqual([kind for _, kind, _ in controller.comments], ["validated"])
+
+    def test_a_review_of_an_older_head_does_not_count(self):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {'f' * 40}\n")
+        controller, landed = self.land([pr(1)], {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)})
+        self.assertEqual(controller.merged, [])
+
+    def test_a_status_counts_only_from_a_named_reviewer(self):
+        status = lambda login: [{"context": "review/independent", "state": "success", "creator": {"login": login}}]
+        env = {"CMUX_NEXT_BATCH_REVIEWERS": "cmux-review-bot"}
+        controller, _ = self.land([pr(1)], env, status("teamleaderleo"))
+        self.assertEqual(controller.merged, [])  # every lane runs gh as teamleaderleo
+        controller, _ = self.land([pr(1)], env, status("cmux-review-bot"))
+        self.assertEqual(controller.merged, [1])
+
+
+class ReviewGateHoles(NotifyOwners):
+    """Review findings on #21925: every way an unreviewed head could still land."""
+
+    def reviewed_file(self, *items):
+        path = Path(tempfile.mkdtemp()) / "reviewed"
+        path.write_text("".join(f"{item.number} {item.sha}\n" for item in items))
+        path.chmod(0o600)
+        return str(path)
+
+    def test_the_merge_is_pinned_to_the_validated_head(self):
+        controller = self.controller(notify=False)
+        calls = []
+        controller.writer = mock.Mock(env={})
+        def run(command, **kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+        with mock.patch.object(nb.subprocess, "run", run):
+            nb.Controller.merge_one(controller, Path("/bin/true"), pr(1), self.validation([pr(1)]))
+        self.assertIn(["--match-head-commit", pr(1).sha], [calls[0][i:i + 2] for i in range(len(calls[0]))])
+
+    def test_only_reviewed_prs_are_stacked_when_landing(self):
+        gh = mock.Mock()
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": self.reviewed_file(pr(2))}):
+            admitted, waiting = nb.admit_reviewed([pr(1), pr(2)], gh, landing=True)
+            self.assertEqual([item.number for item in admitted], [2])
+            self.assertIn("review", waiting[1])
+            # Receipt mode lands nothing, so everything is validated.
+            admitted, waiting = nb.admit_reviewed([pr(1), pr(2)], gh, landing=False)
+            self.assertEqual([item.number for item in admitted], [1, 2])
+
+    def test_a_statuses_error_counts_as_not_reviewed(self):
+        gh = mock.Mock(repo="o/r")
+        gh.api.side_effect = RuntimeError("HTTP 502")
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWERS": "cmux-review-bot"}):
+            os.environ.pop("CMUX_NEXT_BATCH_REVIEWED", None)
+            self.assertFalse(nb.reviewed(pr(1), gh))
+
+    def test_a_reviewed_file_others_can_write_is_ignored(self):
+        path = self.reviewed_file(pr(1))
+        Path(path).chmod(0o666)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": path}):
+            self.assertFalse(nb.reviewed(pr(1)))
+
+    def test_actions_never_lands_without_coord2_s_list(self):
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)
+            self.assertIn("CMUX_NEXT_BATCH_EXCLUDE", nb.landing_refusal())
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CMUX_NEXT_BATCH_EXCLUDE": ""}):
+            self.assertIsNone(nb.landing_refusal())
+
+
+class LandOnlyTheValidatedTree(NotifyOwners):
+    """Second review of #21925: what lands must be a prefix of the validated stack."""
+
+    def test_nothing_after_a_pr_that_did_not_land(self):
+        controller = self.controller(notify=False)
+        a, b, c = pr(1), pr(2), pr(3)
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {a.sha}\n3 {c.sha}\n")  # b is not reviewed
+        with mock.patch.object(nb, "open_prs", return_value=[a, b, c]), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
+            landed = dict((item.number, text) for item, text in controller.land(self.validation([a, b, c])))
+        self.assertEqual(controller.merged, [1])
+        self.assertIn("earlier PR in this stack", landed[3])
+
+    def test_a_run_that_may_not_land_leaves_no_marker_that_holds_a_pr_out(self):
+        controller = self.controller(notify=False)
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {pr(1).sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=[pr(1)]), \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
+            os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)
+            controller.land(self.validation([pr(1)]))
+        self.assertEqual(controller.merged, [])
+        self.assertNotIn("receipt", [kind for _, kind, _ in controller.comments])
+
+    def test_the_lanes_configured_login_never_counts(self):
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": "leo-bot", "CMUX_NEXT_BATCH_OVERRIDERS": "leo-bot lawrencecchen"}):
+            self.assertEqual(nb.overriders(), frozenset({"lawrencecchen"}))
+
+
+class CoordinatorAndOverrides(unittest.TestCase):
+    def test_prs_coord2_lands_itself_stay_out(self):
+        listed = Path(tempfile.mkdtemp()) / "merge-ready.sh"
+        listed.write_text('READY=(\n  "manaflow-ai/cmux|21686|98f2d9818d5|build"\n  "manaflow-ai/cmux|21697|3b544e65d8d|"\n)\n'
+                          "sleep 1800  # 21700 is not listed\n")
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_EXCLUDE": str(listed)}):
+            self.assertIn("coord-2 lands it", nb.ineligible_reason(pr(21686), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(21700), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(1800), NOW))
+
+    def test_known_base_red_counts_only_when_an_allowed_login_applied_it(self):
+        red = [("lint", "completed", "failure")]
+        label = nb.OVERRIDE_BASE_RED
+        trusted = pr(1, checks=red, labels=[label], label_actors={label: "lawrencecchen"})
+        by_lane = pr(1, checks=red, labels=[label], label_actors={label: "teamleaderleo"})
+        self.assertIsNone(nb.ineligible_reason(trusted, NOW))
+        self.assertEqual(nb.ineligible_reason(by_lane, NOW), "red check lint")
+
+    def test_land_alone_takes_a_batch_of_its_own(self):
+        label = nb.OVERRIDE_ALONE
+        prs = [pr(1), pr(2, labels=[label], label_actors={label: "lawrencecchen"}), pr(3)]
+        self.assertEqual([item.number for item in nb.land_alone_first(prs)], [2])
+        # One try per head: a land-alone that didn't land doesn't hold the queue every batch.
+        self.assertEqual([item.number for item in nb.land_alone_first(prs, tried={2})], [1, 2, 3])
+        untrusted = [pr(1), pr(2, labels=[label], label_actors={label: "teamleaderleo"})]
+        self.assertEqual([item.number for item in nb.land_alone_first(untrusted)], [1, 2])
 
 
 class LocalController(unittest.TestCase):

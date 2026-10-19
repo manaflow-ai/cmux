@@ -1481,6 +1481,17 @@ class Nightly(unittest.TestCase):
         self.assertNotIn("newer:main", api.calls)
         self.assertIn("a newer nightly run on nightly-next", summary)
 
+    def test_a_next_run_whose_head_is_no_longer_the_tip_is_never_rerun(self):
+        # nightly-next pushes share one job-level build slot, which the workflow-level
+        # pending check cannot see: a rerun of an older run would rejoin the slot and
+        # replace the newest push's waiting build. The branch head decides instead.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200, head="b" * 40)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("branch:nightly-next", api.calls)
+        self.assertIn("nightly-next has moved on", summary)
+
     def test_next_refusal_moves_failed_jobs_to_blacksmith(self):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200)
