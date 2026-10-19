@@ -3,6 +3,7 @@ import { b64u, beginPairing, call, inDO, testEnv } from "./pairing-harness.ts"
 import { rolesTeam } from "./team-roles-support.ts"
 import { deliver } from "./team-stack-support.ts"
 import { hostNetworkExternal } from "../src/host-network-bind.ts"
+import { sha256Hex } from "../src/domains/pairing.ts"
 
 const MESH = "mesh_00000000000000000000000000"
 const DEVICE = "dev_00000000000000000000000000"
@@ -91,6 +92,34 @@ const fixture = async (kind: "mac" | "cli" = "mac") => {
 }
 
 describe("app host network identity binding", () => {
+  it.each(["mac", "cli"] as const)("retains the exact %s install grant rather than a caller-supplied grant", async (kind) => {
+    const f = await fixture(kind)
+    const result = await f.bind(undefined, { install_grant: "grant_00000000000000000000" })
+    expect(result.json.ok).toBe(true)
+    expect(result.json.value.network).toMatchObject({ install_grant: f.grant })
+    const host = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.host)
+    expect(host.network).toMatchObject({ install_grant: f.grant })
+  })
+
+  it.each(["mac", "cli"] as const)("refreshes a legacy %s receipt only after a new verified read, then replays the grant-bound receipt", async (kind) => {
+    const f = await fixture(kind), key = crypto.randomUUID()
+    const legacyKey = `host-network:${await sha256Hex(`${f.team.creator.user}:${f.install}:${key}`)}`
+    const owner = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(f.team.team))
+    await inDO(owner, async (instance) => {
+      instance.submitSystem("host.network.bound", {
+        host: f.host, install: f.install, owner_user: f.team.creator.user, wg_public_key: f.wg,
+        network: { tenant: f.team.stackTeam, mesh: MESH, device: DEVICE }
+      }, legacyKey)
+    })
+    expect((await f.directory()).hosts.find((h: { id: string }) => h.id === f.host).network).not.toHaveProperty("install_grant")
+    const refreshed = await f.bind(key), retry = await f.bind(key)
+    expect(refreshed.json.ok).toBe(true)
+    expect(refreshed.json.value.network).toMatchObject({ install_grant: f.grant })
+    expect(refreshed.json.replayed).toBe(false)
+    expect(retry.json).toMatchObject({ ok: true, replayed: true, value: refreshed.json.value })
+    expect(f.requests).toHaveLength(2)
+  })
+
   it.each(["mac", "cli"] as const)("binds the Native identity to the actual %s host without persisting proof or policy material", async (kind) => {
     const f = await fixture(kind)
     const reply = await f.bind()
