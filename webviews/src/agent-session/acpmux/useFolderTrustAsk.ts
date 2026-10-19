@@ -212,6 +212,10 @@ export function useFolderTrustAsk(
 
   return {
     ask,
+    /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
+    /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
+    /// keep their place while it reads (a chat switch), and only Send waits.
+    holdsAsks: Boolean(blocked?.reason),
     trusted,
     justTrusted,
     blocked,

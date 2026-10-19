@@ -2815,7 +2815,7 @@ function AcpmuxPane() {
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
-  const trustBlocked = Boolean(trustAsk.blocked);
+  const trustBlocked = trustAsk.holdsAsks;
   const panelAsks = useMemo(
     () => (trustBlocked ? new Set<string>() : groupAskedCalls(snapshot.permissionGroups)),
     [trustBlocked, snapshot.permissionGroups],
@@ -5033,10 +5033,11 @@ function AcpmuxPane() {
     </ArtifactContext.Provider>
   );
   const toolCards = useToolCards();
-  // Folder trust is the first gate in the bottom stack. While it is being read or answered,
-  // permission and secret cards stay out of the tree so the user never has two different asks
-  // competing for the same answer. A trusted receipt is not blocked and can sit above the next ask.
-  const trustPending = Boolean(trustAsk.blocked);
+  // Folder trust is the first gate in the bottom stack. While its question is open (or after Don't
+  // trust), permission and secret cards stay out of the tree so the user never has two different
+  // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
+  // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
+  const trustPending = trustAsk.holdsAsks;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
