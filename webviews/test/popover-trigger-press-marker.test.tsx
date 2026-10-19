@@ -78,3 +78,42 @@ test("a cancelled press clears the marker", async () => {
     await act(async () => root.unmount());
   }
 });
+
+test("the window losing focus mid-press clears the marker", async () => {
+  const { root, button } = await mount();
+  try {
+    await act(async () => void button.dispatchEvent(pointer("pointerdown")));
+    expect(button.hasAttribute("data-press-active")).toBe(true);
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("blur")));
+    expect(button.hasAttribute("data-press-active")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Escape mid-press clears the marker", async () => {
+  const { root, button } = await mount();
+  try {
+    await act(async () => void button.dispatchEvent(pointer("pointerdown")));
+    await act(
+      async () =>
+        void dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+    expect(button.hasAttribute("data-press-active")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a release dragged off the trigger clears the marker", async () => {
+  const { root, button } = await mount();
+  try {
+    await act(async () => void button.dispatchEvent(pointer("pointerdown")));
+    const away = new dom.window.MouseEvent("pointerup", { bubbles: true, button: 0, clientX: 300, clientY: 300 });
+    Object.defineProperties(away, { pointerType: { value: "mouse" }, pointerId: { value: 1 } });
+    await act(async () => void dom.window.document.dispatchEvent(away));
+    expect(button.hasAttribute("data-press-active")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
