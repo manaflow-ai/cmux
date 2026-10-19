@@ -379,7 +379,10 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 /// Tool descriptions of section 9's `spawn` and `tell`.
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
-pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; its report answers it.";
+pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
+
+/// The `control` tool's description.
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark

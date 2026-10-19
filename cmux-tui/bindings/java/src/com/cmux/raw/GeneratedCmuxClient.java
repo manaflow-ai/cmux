@@ -233,6 +233,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationTyping(CloudConversationTypingRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_TYPING, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationUnsubscribe(CloudConversationUnsubscribeRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_UNSUBSCRIBE, request.toWire());
         return Wire.immutableJson(result);

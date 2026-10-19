@@ -4,7 +4,7 @@ import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domai
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
-import { can, firstOwner, homeCoMembersOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { can, firstOwner, homeCoMembersOf, hostOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -355,6 +355,17 @@ export class TeamDO extends OwnerDO<TeamState> {
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }
 
+  /**
+   * RPC from the Worker before a host replica socket (host-replica/wire.ts): the install that
+   * enrolled the host publishes; its owner's other sessions and installs read; anyone else nothing.
+   * A chief token (principal.agent) gets nothing in this slice: no chief needs the replica yet.
+   */
+  async hostReplicaRole(entity: string, host: string, principal: Principal): Promise<"publisher" | "reader" | null> {
+    if (!this.isBound(entity) || !principal.user || principal.agent) return null
+    const record = hostOf(this.bind(entity).currentState, this.rows, host)
+    if (!record || record.owner_user !== principal.user) return null
+    return principal.kind === "install" && principal.install === record.enrolled_by ? "publisher" : "reader"
+  }
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   /** RPC from TeamVmDO's bind (vm-image.md 6b): the owner whose UserDO holds the team VM's install. */
