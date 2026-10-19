@@ -342,6 +342,8 @@ impl Mux {
             resource_creation_handoff: Mutex::new(()),
             initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
+            #[cfg(unix)]
+            agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             pending_terminals: Mutex::new(HashMap::new()),
