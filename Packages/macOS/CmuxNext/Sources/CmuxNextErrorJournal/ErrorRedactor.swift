@@ -16,6 +16,12 @@ public struct ErrorRedactor {
             (#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"#, "$1<redacted>@"),
             // Secret query values.
             (#"(?i)([?#&](?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|password|secret)=)[^&\s"']+"#, "$1<redacted>"),
+            // Cookie and authorization headers contain structured lists whose
+            // later fields are just as sensitive as the first one.
+            (#"(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+"#, "$1$2<redacted>"),
+            // camelCase assignments such as `clientSecret` and
+            // `secretAccessKey`; the capitalized component is the boundary.
+            (#"\b([a-z][A-Za-z0-9]*(?:Secret|Password|Passwd|Token|Credential|APIKey|ApiKey|AccessKey|PrivateKey)[A-Za-z0-9]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}]+(?:\s+[^\s,;}]+)?)"#, "$1$2<redacted>"),
             // Header or assignment forms. The full identifier is retained so an
             // environment-style prefix (`AWS_SECRET_ACCESS_KEY`) cannot put the
             // credential marker behind an underscore word-boundary bypass.
