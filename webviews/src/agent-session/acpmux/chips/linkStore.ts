@@ -212,18 +212,27 @@ function releaseIcon(origin: string, pending: { url: string; readers: number }) 
 
 /// A held icon wins before the site's own icon is fetched, with labs `sourceIcons` on.
 export function useSourceIcon(url: string | undefined, fetch: boolean): string | undefined {
-  useSyncExternalStore(subscribe, snapshot, snapshot);
   const parsed = sourceURL(url);
   const valid = parsed ? url : undefined;
   if (valid) ask(undefined, valid);
-  const held = valid ? sites.get(valid)?.icon : undefined;
-  const answered = !!valid && !askingUrls.has(valid);
+  // Subscribe to the values themselves so the React Compiler sees inspection and icon changes.
+  const held = useSyncExternalStore(
+    subscribe,
+    () => (valid ? sites.get(valid)?.icon : undefined),
+    () => undefined,
+  );
+  const answered = useSyncExternalStore(subscribe, () => !!valid && !askingUrls.has(valid), () => false);
   // Passive fetches use TLS only. An HTTP source can still use an icon held by an open tab.
   const origin = parsed?.protocol === "https:" ? parsed.origin : undefined;
+  const icon = useSyncExternalStore(
+    subscribe,
+    () => (fetch && origin ? cachedIcon(origin)?.icon : undefined),
+    () => undefined,
+  );
   useEffect(() => {
     if (valid && origin && fetch && answered && !held) return fetchIcon(valid, origin);
   }, [valid, origin, fetch, answered, held]);
-  return held ?? (fetch && origin ? cachedIcon(origin)?.icon : undefined);
+  return held ?? icon;
 }
 
 /// `agentPane.images.remote` and `agentPane.links.outsideRoots` as the host last said.
