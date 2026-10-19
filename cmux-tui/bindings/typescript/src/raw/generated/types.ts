@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691. */
+/* cmux-tui mux protocol 12, IR b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -169,6 +169,44 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ClientAttentionInput = {
+  /** Milliseconds since the last keystroke in that tab; capped at one day. */
+  "ms_ago": bigint;
+  /** A tab the user typed in. */
+  "surface": Id;
+};
+
+export type ClientAttentionRecord = {
+  "app_active": boolean;
+  "client_id": string;
+  /** The daemon's id of the reporting connection. */
+  "connection": bigint;
+  "key_window": boolean;
+  /** Null when the client reported none or the pane closed since. */
+  "pane": (Id) | null;
+  /** Counted at read time from the report. */
+  "recent_input": Array<ClientAttentionInput>;
+  "reported_ms_ago": bigint;
+  /** Null when the client reported none or the pane closed since. */
+  "tab": (bigint) | null;
+  /** The client's clock zone; null when it reported none. */
+  "utc_offset_minutes": (number) | null;
+};
+
+export type ClientAttentionTab = {
+  /** Some connected client has its app active (cmux-next appActive). */
+  "app_active": boolean;
+  /** The pane that holds the tab now; null when the tab is not in the tree. */
+  "pane": (Id) | null;
+  "surface": Id;
+  /** The newest keystroke in the tab over all clients (cmux-next typedAgo); null when unknown. */
+  "typed_ms_ago": (bigint) | null;
+  /** The clock zone for quiet hours: the newest report that has one, a client whose app is active first. */
+  "utc_offset_minutes": (number) | null;
+  /** Some client shows the tab as the focused content of its key window while its app is active (cmux-next paneIsViewed). */
+  "viewed": boolean;
 };
 
 export type ClientInfo = {

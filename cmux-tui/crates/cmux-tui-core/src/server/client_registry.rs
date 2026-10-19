@@ -315,6 +315,10 @@ pub(crate) struct ClientRegistry {
     pub(super) client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
+    /// Per-connection attention reports (`client-attention-v1`).
+    pub(super) client_attention: super::client_attention::ClientAttention,
+    /// Close requests for frontend browser tabs (`frontend-tab-close-request-v1`).
+    pub(super) frontend_tab_closes: super::frontend_browser_close::FrontendTabCloses,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     pub(super) loopback: loopback_forward::LoopbackForwarder,
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
@@ -381,6 +385,8 @@ impl ClientRegistry {
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
+            client_attention: Default::default(),
+            frontend_tab_closes: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),

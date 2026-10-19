@@ -1357,6 +1357,52 @@ Example:
 {"event":"terminal-clipboard-read-cancelled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b"}
 ```
 
+### frontend-browser-tab-close-requested
+
+| Field | Value |
+| --- | --- |
+| event | `frontend-browser-tab-close-requested` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `frontend-tab-close-request-v1` |
+
+Payload:
+
+```text
+object{event:"frontend-browser-tab-close-requested", request_id:string, surface:Id,
+       owner:string, tab_resource_id:string|null, reason:CloseReason|null}
+```
+
+Meaning: A client asked to close this frontend browser tab (`request-frontend-browser-tab-close`). It goes only to the connection subscribed for the tab's owner (`frontend-browser-tab-close-subscribe`). The owner runs the page's close (beforeunload may veto), answers `answer-frontend-browser-tab-close`, and reports `report-frontend-browser-tab-removed` when the tab is gone.
+
+Example:
+
+```json
+{"event":"frontend-browser-tab-close-requested","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b","surface":12,"owner":"cmux-browser-install-1","tab_resource_id":"tab_0123456789abcdef0123456789abcdef","reason":null}
+```
+
+### frontend-browser-tab-close-settled
+
+| Field | Value |
+| --- | --- |
+| event | `frontend-browser-tab-close-settled` |
+| status | implemented targeted control event |
+| since | protocol 12, capability `frontend-tab-close-request-v1` |
+
+Payload:
+
+```text
+object{event:"frontend-browser-tab-close-settled", request_id:string, surface:Id,
+       outcome:"removed"|"cancelled"|"owner_gone"}
+```
+
+Meaning: The close request is over. It goes once to each connection that requested it. `removed`: the owner reported the tab removed and the daemon deleted it, or the tab left the store by another path (`close-surface`, `close-tabs`, `close-pane`, a workspace close). `cancelled`: the page vetoed the close. `owner_gone`: the owner's connection ended first; the tab stays.
+
+Example:
+
+```json
+{"event":"frontend-browser-tab-close-settled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b","surface":12,"outcome":"removed"}
+```
+
 ## Attach Events
 
 ### render-state

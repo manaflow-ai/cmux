@@ -306,6 +306,8 @@ pub(super) fn advertised_capabilities(
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
+        client_attention::CAPABILITY,
+        frontend_browser_close::CAPABILITY,
         chief_inspect::CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {

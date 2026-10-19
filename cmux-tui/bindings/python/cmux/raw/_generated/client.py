@@ -21,6 +21,9 @@ class GeneratedClientMixin:
     def add_tabs_to_tab_group(self, group: str, surfaces: List[TabRef], *, transaction: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
         return self._invoke_command('add-tabs-to-tab-group', AddTabsToTabGroupRequest(group=group, surfaces=surfaces, transaction=transaction))
 
+    def answer_frontend_browser_tab_close(self, outcome: Literal['closing', 'cancelled'], request_id: str) -> AnswerFrontendBrowserTabCloseResult:
+        return self._invoke_command('answer-frontend-browser-tab-close', AnswerFrontendBrowserTabCloseRequest(outcome=outcome, request_id=request_id))
+
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
@@ -80,6 +83,9 @@ class GeneratedClientMixin:
 
     def clear_window_title(self) -> EmptyResult:
         return self._invoke_command('clear-window-title', ClearWindowTitleRequest())
+
+    def client_attention(self, surface: Union[Id, None, MissingType] = MISSING, *, client_id: Union[str, None, MissingType] = MISSING) -> ClientAttentionResult:
+        return self._invoke_command('client-attention', ClientAttentionRequest(surface=surface, client_id=client_id))
 
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
@@ -335,6 +341,9 @@ class GeneratedClientMixin:
 
     def forget_session(self, session_id: str, *, force: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('forget-session', ForgetSessionRequest(session_id=session_id, force=force))
+
+    def frontend_browser_tab_close_subscribe(self, owner: str) -> FrontendBrowserTabCloseSubscribeResult:
+        return self._invoke_command('frontend-browser-tab-close-subscribe', FrontendBrowserTabCloseSubscribeRequest(owner=owner))
 
     def get_blob(self, blob: str) -> JsonValue:
         return self._invoke_command('get-blob', GetBlobRequest(blob=blob))
@@ -603,8 +612,17 @@ class GeneratedClientMixin:
     def report_agent(self, surface: Id, state: AgentState, source: AgentReportSource, *, session: Union[str, None, MissingType] = MISSING) -> ReportAgentResult:
         return self._invoke_command('report-agent', ReportAgentRequest(surface=surface, state=state, source=source, session=session))
 
+    def report_client_attention(self, app_active: bool, client_id: str, key_window: bool, *, pane: Union[Id, None, MissingType] = MISSING, recent_input: Union[List[ClientAttentionInput], MissingType] = MISSING, tab: Union[int, None, MissingType] = MISSING, utc_offset_minutes: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('report-client-attention', ReportClientAttentionRequest(app_active=app_active, client_id=client_id, key_window=key_window, pane=pane, recent_input=recent_input, tab=tab, utc_offset_minutes=utc_offset_minutes))
+
     def report_focus(self, pane: Id, client_id: str, *, tab: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('report-focus', ReportFocusRequest(pane=pane, client_id=client_id, tab=tab))
+
+    def report_frontend_browser_tab_removed(self, surface: Id, reason: Literal['answered', 'user_closed', 'page_closed', 'extension'], *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, request_id: Union[str, None, MissingType] = MISSING) -> ReportFrontendBrowserTabRemovedResult:
+        return self._invoke_command('report-frontend-browser-tab-removed', ReportFrontendBrowserTabRemovedRequest(surface=surface, reason=reason, mutation_id=mutation_id, origin=origin, request_id=request_id))
+
+    def request_frontend_browser_tab_close(self, surface: Id, *, reason: Union[CloseReason, None, MissingType] = MISSING) -> RequestFrontendBrowserTabCloseResult:
+        return self._invoke_command('request-frontend-browser-tab-close', RequestFrontendBrowserTabCloseRequest(surface=surface, reason=reason))
 
     def resize_attached_view(self, surface: Id, cols: int, rows: int, *, identity: Union[SizingIdentity, None, MissingType] = MISSING, lease: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> AttachedViewResizeResult:
         return self._invoke_command('resize-attached-view', ResizeAttachedViewRequest(surface=surface, cols=cols, rows=rows, identity=identity, lease=lease, view=view))
@@ -835,6 +853,7 @@ class GeneratedClientMixin:
 GeneratedClientMixin.ack_tab_notifications.__cmux_command__ = COMMANDS['ack-tab-notifications']
 GeneratedClientMixin.add_screens_to_screen_group.__cmux_command__ = COMMANDS['add-screens-to-screen-group']
 GeneratedClientMixin.add_tabs_to_tab_group.__cmux_command__ = COMMANDS['add-tabs-to-tab-group']
+GeneratedClientMixin.answer_frontend_browser_tab_close.__cmux_command__ = COMMANDS['answer-frontend-browser-tab-close']
 GeneratedClientMixin.apply_layout.__cmux_command__ = COMMANDS['apply-layout']
 GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface']
 GeneratedClientMixin.bind_conversation_tab_session.__cmux_command__ = COMMANDS['bind-conversation-tab-session']
@@ -855,6 +874,7 @@ GeneratedClientMixin.browser_wheel_guarded.__cmux_command__ = COMMANDS['browser-
 GeneratedClientMixin.chief_inspect.__cmux_command__ = COMMANDS['chief-inspect']
 GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
+GeneratedClientMixin.client_attention.__cmux_command__ = COMMANDS['client-attention']
 GeneratedClientMixin.client_focus.__cmux_command__ = COMMANDS['client-focus']
 GeneratedClientMixin.close_pane.__cmux_command__ = COMMANDS['close-pane']
 GeneratedClientMixin.close_provider_managed_workspace.__cmux_command__ = COMMANDS['close-provider-managed-workspace']
@@ -940,6 +960,7 @@ GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-rea
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
+GeneratedClientMixin.frontend_browser_tab_close_subscribe.__cmux_command__ = COMMANDS['frontend-browser-tab-close-subscribe']
 GeneratedClientMixin.get_blob.__cmux_command__ = COMMANDS['get-blob']
 GeneratedClientMixin.get_browser_provider.__cmux_command__ = COMMANDS['get-browser-provider']
 GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
@@ -1029,7 +1050,10 @@ GeneratedClientMixin.rename_workspace.__cmux_command__ = COMMANDS['rename-worksp
 GeneratedClientMixin.reopen_saved_screen_group.__cmux_command__ = COMMANDS['reopen-saved-screen-group']
 GeneratedClientMixin.reopen_saved_tab_group.__cmux_command__ = COMMANDS['reopen-saved-tab-group']
 GeneratedClientMixin.report_agent.__cmux_command__ = COMMANDS['report-agent']
+GeneratedClientMixin.report_client_attention.__cmux_command__ = COMMANDS['report-client-attention']
 GeneratedClientMixin.report_focus.__cmux_command__ = COMMANDS['report-focus']
+GeneratedClientMixin.report_frontend_browser_tab_removed.__cmux_command__ = COMMANDS['report-frontend-browser-tab-removed']
+GeneratedClientMixin.request_frontend_browser_tab_close.__cmux_command__ = COMMANDS['request-frontend-browser-tab-close']
 GeneratedClientMixin.resize_attached_view.__cmux_command__ = COMMANDS['resize-attached-view']
 GeneratedClientMixin.resize_surface.__cmux_command__ = COMMANDS['resize-surface']
 GeneratedClientMixin.resolve_terminal.__cmux_command__ = COMMANDS['resolve-terminal']

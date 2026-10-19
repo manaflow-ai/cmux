@@ -504,6 +504,38 @@ class CellPixelSurface:
 
 
 @dataclass(frozen=True)
+class ClientAttentionInput:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientAttentionInput'
+    surface: Id
+    ms_ago: int
+
+
+@dataclass(frozen=True)
+class ClientAttentionRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientAttentionRecord'
+    pane: Union[Id, None]
+    app_active: bool
+    client_id: str
+    connection: int
+    key_window: bool
+    recent_input: List[ClientAttentionInput]
+    reported_ms_ago: int
+    tab: Union[int, None]
+    utc_offset_minutes: Union[int, None]
+
+
+@dataclass(frozen=True)
+class ClientAttentionTab:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientAttentionTab'
+    surface: Id
+    pane: Union[Id, None]
+    app_active: bool
+    typed_ms_ago: Union[int, None]
+    utc_offset_minutes: Union[int, None]
+    viewed: bool
+
+
+@dataclass(frozen=True)
 class ClientInfo:
     __cmux_schema_path__: ClassVar[str] = 'types/ClientInfo'
     client: int
@@ -2102,6 +2134,19 @@ class AddTabsToTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class AnswerFrontendBrowserTabCloseRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/answer-frontend-browser-tab-close/request'
+    outcome: Literal['closing', 'cancelled']
+    request_id: str
+
+
+@dataclass(frozen=True)
+class AnswerFrontendBrowserTabCloseResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/answer-frontend-browser-tab-close/result'
+    accepted: bool
+
+
+@dataclass(frozen=True)
 class ApplyLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/apply-layout/request'
     layout: DeclarativeLayout
@@ -2288,6 +2333,21 @@ class ClearHistoryRequest:
 class ClearWindowTitleRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/clear-window-title/request'
     pass
+
+
+@dataclass(frozen=True)
+class ClientAttentionRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/client-attention/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    client_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ClientAttentionResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/client-attention/result'
+    app_active: bool
+    clients: List[ClientAttentionRecord]
+    tab_attention: Union[ClientAttentionTab, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3288,6 +3348,18 @@ class ForgetSessionRequest:
 
 
 @dataclass(frozen=True)
+class FrontendBrowserTabCloseSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/frontend-browser-tab-close-subscribe/request'
+    owner: str
+
+
+@dataclass(frozen=True)
+class FrontendBrowserTabCloseSubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/frontend-browser-tab-close-subscribe/result'
+    close_requests_ready: bool
+
+
+@dataclass(frozen=True)
 class GetBlobRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-blob/request'
     blob: str
@@ -4141,11 +4213,54 @@ class ReportAgentRequest:
 
 
 @dataclass(frozen=True)
+class ReportClientAttentionRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/report-client-attention/request'
+    app_active: bool
+    client_id: str
+    key_window: bool
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    recent_input: Union[List[ClientAttentionInput], MissingType] = field(default=MISSING)
+    tab: Union[int, None, MissingType] = field(default=MISSING)
+    utc_offset_minutes: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ReportFocusRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/report-focus/request'
     pane: Id
     client_id: str
     tab: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ReportFrontendBrowserTabRemovedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/report-frontend-browser-tab-removed/request'
+    surface: Id
+    reason: Literal['answered', 'user_closed', 'page_closed', 'extension']
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    request_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ReportFrontendBrowserTabRemovedResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/report-frontend-browser-tab-removed/result'
+    removed: bool
+    replayed: bool
+
+
+@dataclass(frozen=True)
+class RequestFrontendBrowserTabCloseRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/request-frontend-browser-tab-close/request'
+    surface: Id
+    reason: Union[CloseReason, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RequestFrontendBrowserTabCloseResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/request-frontend-browser-tab-close/result'
+    delegated: bool
+    request_id: Union[str, None]
 
 
 @dataclass(frozen=True)
@@ -5176,6 +5291,28 @@ class FrameEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class FrontendBrowserTabCloseRequestedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/frontend-browser-tab-close-requested/payload'
+    surface: Id
+    event: Literal['frontend-browser-tab-close-requested']
+    owner: str
+    reason: Union[CloseReason, None]
+    request_id: str
+    tab_resource_id: Union[str, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class FrontendBrowserTabCloseSettledEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/frontend-browser-tab-close-settled/payload'
+    surface: Id
+    event: Literal['frontend-browser-tab-close-settled']
+    outcome: Literal['removed', 'cancelled', 'owner_gone']
+    request_id: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class FrontendProjectionChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/frontend-projection-changed/payload'
     event: Literal['frontend-projection-changed']
@@ -5754,7 +5891,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendBrowserTabCloseRequestedEvent, FrontendBrowserTabCloseSettledEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5816,6 +5953,9 @@ __all__ = [
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
+    'ClientAttentionInput',
+    'ClientAttentionRecord',
+    'ClientAttentionTab',
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
@@ -5975,6 +6115,8 @@ __all__ = [
     'AckTabNotificationsRequest',
     'AddScreensToScreenGroupRequest',
     'AddTabsToTabGroupRequest',
+    'AnswerFrontendBrowserTabCloseRequest',
+    'AnswerFrontendBrowserTabCloseResult',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
@@ -5997,6 +6139,8 @@ __all__ = [
     'ChiefInspectResult',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
+    'ClientAttentionRequest',
+    'ClientAttentionResult',
     'ClientFocusRequest',
     'ClientFocusResult',
     'ClosePaneRequest',
@@ -6115,6 +6259,8 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
+    'FrontendBrowserTabCloseSubscribeRequest',
+    'FrontendBrowserTabCloseSubscribeResult',
     'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
@@ -6215,7 +6361,12 @@ __all__ = [
     'ReopenSavedScreenGroupRequest',
     'ReopenSavedTabGroupRequest',
     'ReportAgentRequest',
+    'ReportClientAttentionRequest',
     'ReportFocusRequest',
+    'ReportFrontendBrowserTabRemovedRequest',
+    'ReportFrontendBrowserTabRemovedResult',
+    'RequestFrontendBrowserTabCloseRequest',
+    'RequestFrontendBrowserTabCloseResult',
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
@@ -6330,6 +6481,8 @@ __all__ = [
     'DetachedEvent',
     'EmptyEvent',
     'FrameEvent',
+    'FrontendBrowserTabCloseRequestedEvent',
+    'FrontendBrowserTabCloseSettledEvent',
     'FrontendProjectionChangedEvent',
     'GraphicsStatusEvent',
     'HistoryChangedEvent',

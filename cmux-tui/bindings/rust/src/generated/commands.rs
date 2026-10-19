@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691.
+// cmux-tui mux protocol 12, IR b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -41,6 +41,29 @@ pub struct AddTabsToTabGroupRequest {
 
 #[rustfmt::skip]
 pub type AddTabsToTabGroupResult = T::TabGroupOutcome;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnswerFrontendBrowserTabCloseRequestOutcome {
+    #[serde(rename = "closing")]
+    Closing,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AnswerFrontendBrowserTabCloseRequest {
+    /// closing: the close started; the tab stays until report-frontend-browser-tab-removed. cancelled: the page vetoed the close (beforeunload).
+    pub outcome: AnswerFrontendBrowserTabCloseRequestOutcome,
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AnswerFrontendBrowserTabCloseResult {
+    pub accepted: bool,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -346,6 +369,28 @@ pub struct ClearWindowTitleRequest {
 
 #[rustfmt::skip]
 pub type ClearWindowTitleResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ClientAttentionRequest {
+    /// Only the records of this client id.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client_id: Optional<String>,
+    /// Also answer tab_attention for this tab.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientAttentionResult {
+    /// Some connected client has its app active.
+    pub app_active: bool,
+    pub clients: Vec<T::ClientAttentionRecord>,
+    /// Present when surface was given.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub tab_attention: Option<T::ClientAttentionTab>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1720,6 +1765,19 @@ pub type ForgetSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrontendBrowserTabCloseSubscribeRequest {
+    /// The install id the app puts on new-frontend-browser-tab {owner}; 1-128 characters of A-Z a-z 0-9 _ -.
+    pub owner: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrontendBrowserTabCloseSubscribeResult {
+    pub close_requests_ready: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetBlobRequest {
     pub blob: String,
 }
@@ -2962,6 +3020,31 @@ pub struct ReportAgentRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReportClientAttentionRequest {
+    /// The client app is the active app.
+    pub app_active: bool,
+    pub client_id: String,
+    /// A window of this client is the key window of the OS.
+    pub key_window: bool,
+    /// The focused pane of the client's key window, if any.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    /// The tabs the user typed in recently and how long ago, newest per tab (cmux-next tracks typing per tab). Replaces the whole list of the previous report.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub recent_input: Option<Vec<T::ClientAttentionInput>>,
+    /// The focused tab index within pane; needs pane.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<u64>,
+    /// Minutes east of UTC of the client's clock zone, for quiet hours.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub utc_offset_minutes: Optional<i32>,
+}
+
+#[rustfmt::skip]
+pub type ReportClientAttentionResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportFocusRequest {
     pub client_id: String,
     pub pane: T::Id,
@@ -2971,6 +3054,58 @@ pub struct ReportFocusRequest {
 
 #[rustfmt::skip]
 pub type ReportFocusResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReportFrontendBrowserTabRemovedRequestReason {
+    #[serde(rename = "answered")]
+    Answered,
+    #[serde(rename = "user_closed")]
+    UserClosed,
+    #[serde(rename = "page_closed")]
+    PageClosed,
+    #[serde(rename = "extension")]
+    Extension,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReportFrontendBrowserTabRemovedRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    /// answered: the owner closed it for a close request; user_closed: the user closed it in the app; page_closed: the page closed itself; extension: an extension removed it.
+    pub reason: ReportFrontendBrowserTabRemovedRequestReason,
+    /// The close request this removal answers, if any.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub request_id: Optional<String>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReportFrontendBrowserTabRemovedResult {
+    pub removed: bool,
+    pub replayed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RequestFrontendBrowserTabCloseRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<T::CloseReason>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RequestFrontendBrowserTabCloseResult {
+    /// True when the owner app was asked; false when the tab has no owner or the owner has no live subscribed connection, and nothing changed.
+    pub delegated: bool,
+    /// Null when not delegated. A second request for the same tab joins the open one.
+    pub request_id: Nullable<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3987,6 +4122,10 @@ impl CmuxClient {
         self.execute(&ADD_TABS_TO_TAB_GROUP_METADATA, &request)
     }
 
+    pub fn answer_frontend_browser_tab_close(&mut self, request: AnswerFrontendBrowserTabCloseRequest) -> Result<AnswerFrontendBrowserTabCloseResult> {
+        self.execute(&ANSWER_FRONTEND_BROWSER_TAB_CLOSE_METADATA, &request)
+    }
+
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
         self.execute(&APPLY_LAYOUT_METADATA, &request)
     }
@@ -4099,6 +4238,10 @@ impl CmuxClient {
 
     pub fn clear_window_title(&mut self, request: ClearWindowTitleRequest) -> Result<ClearWindowTitleResult> {
         self.execute(&CLEAR_WINDOW_TITLE_METADATA, &request)
+    }
+
+    pub fn client_attention(&mut self, request: ClientAttentionRequest) -> Result<ClientAttentionResult> {
+        self.execute(&CLIENT_ATTENTION_METADATA, &request)
     }
 
     pub fn client_focus(&mut self, request: ClientFocusRequest) -> Result<ClientFocusResult> {
@@ -4514,6 +4657,10 @@ impl CmuxClient {
 
     pub fn forget_session(&mut self, request: ForgetSessionRequest) -> Result<ForgetSessionResult> {
         self.execute(&FORGET_SESSION_METADATA, &request)
+    }
+
+    pub fn frontend_browser_tab_close_subscribe(&mut self, request: FrontendBrowserTabCloseSubscribeRequest) -> Result<FrontendBrowserTabCloseSubscribeResult> {
+        self.execute(&FRONTEND_BROWSER_TAB_CLOSE_SUBSCRIBE_METADATA, &request)
     }
 
     pub fn get_blob(&mut self, request: GetBlobRequest) -> Result<GetBlobResult> {
@@ -5069,8 +5216,20 @@ impl CmuxClient {
         self.execute(&REPORT_AGENT_METADATA, &request)
     }
 
+    pub fn report_client_attention(&mut self, request: ReportClientAttentionRequest) -> Result<ReportClientAttentionResult> {
+        self.execute(&REPORT_CLIENT_ATTENTION_METADATA, &request)
+    }
+
     pub fn report_focus(&mut self, request: ReportFocusRequest) -> Result<ReportFocusResult> {
         self.execute(&REPORT_FOCUS_METADATA, &request)
+    }
+
+    pub fn report_frontend_browser_tab_removed(&mut self, request: ReportFrontendBrowserTabRemovedRequest) -> Result<ReportFrontendBrowserTabRemovedResult> {
+        self.execute(&REPORT_FRONTEND_BROWSER_TAB_REMOVED_METADATA, &request)
+    }
+
+    pub fn request_frontend_browser_tab_close(&mut self, request: RequestFrontendBrowserTabCloseRequest) -> Result<RequestFrontendBrowserTabCloseResult> {
+        self.execute(&REQUEST_FRONTEND_BROWSER_TAB_CLOSE_METADATA, &request)
     }
 
     pub fn resize_attached_view(&mut self, request: ResizeAttachedViewRequest) -> Result<ResizeAttachedViewResult> {

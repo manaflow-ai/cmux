@@ -324,6 +324,12 @@
       "clear-history",
       "clear-window-title",
       "client-focus",
+      "report-client-attention",
+      "client-attention",
+      "frontend-browser-tab-close-subscribe",
+      "request-frontend-browser-tab-close",
+      "answer-frontend-browser-tab-close",
+      "report-frontend-browser-tab-removed",
       "close-pane",
       "close-screen",
       "close-screen-group",
@@ -1015,6 +1021,18 @@
     },
     {
       "name": "terminal-clipboard-read-cancelled",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "frontend-browser-tab-close-requested",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "frontend-browser-tab-close-settled",
       "streams": [
         "control"
       ]

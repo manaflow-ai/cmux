@@ -13,6 +13,7 @@ public final class Commands {
     public static final CommandMetadata ACK_TAB_NOTIFICATIONS = new CommandMetadata("ack-tab-notifications", Authority.CONTROL, 12, "notification-ack-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata ANSWER_FRONTEND_BROWSER_TAB_CLOSE = new CommandMetadata("answer-frontend-browser-tab-close", Authority.CONTROL, 12, "frontend-tab-close-request-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -33,6 +34,7 @@ public final class Commands {
     public static final CommandMetadata CHIEF_INSPECT = new CommandMetadata("chief-inspect", Authority.LOCAL_ADMIN, 12, "chief-inspect-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLEAR_HISTORY = new CommandMetadata("clear-history", Authority.CONTROL, 9, "clear-history-v1", StreamKind.NONE, Map.ofEntries(Map.entry("fallback_key", 9L)), Map.ofEntries(Map.entry("fallback_key", "clear-history-key-v1")));
     public static final CommandMetadata CLEAR_WINDOW_TITLE = new CommandMetadata("clear-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLIENT_ATTENTION = new CommandMetadata("client-attention", Authority.CONTROL, 12, "client-attention-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLIENT_FOCUS = new CommandMetadata("client-focus", Authority.CONTROL, 12, "client-focus-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_PANE = new CommandMetadata("close-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
     public static final CommandMetadata CLOSE_PROVIDER_MANAGED_WORKSPACE = new CommandMetadata("close-provider-managed-workspace", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
@@ -118,6 +120,7 @@ public final class Commands {
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FRONTEND_BROWSER_TAB_CLOSE_SUBSCRIBE = new CommandMetadata("frontend-browser-tab-close-subscribe", Authority.CONTROL, 12, "frontend-tab-close-request-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_BLOB = new CommandMetadata("get-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_BROWSER_PROVIDER = new CommandMetadata("get-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_CELL_PIXELS = new CommandMetadata("get-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -207,7 +210,10 @@ public final class Commands {
     public static final CommandMetadata REOPEN_SAVED_SCREEN_GROUP = new CommandMetadata("reopen-saved-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REOPEN_SAVED_TAB_GROUP = new CommandMetadata("reopen-saved-tab-group", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REPORT_AGENT = new CommandMetadata("report-agent", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REPORT_CLIENT_ATTENTION = new CommandMetadata("report-client-attention", Authority.CONTROL, 12, "client-attention-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REPORT_FOCUS = new CommandMetadata("report-focus", Authority.CONTROL, 12, "client-focus-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REPORT_FRONTEND_BROWSER_TAB_REMOVED = new CommandMetadata("report-frontend-browser-tab-removed", Authority.CONTROL, 12, "frontend-tab-close-request-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata REQUEST_FRONTEND_BROWSER_TAB_CLOSE = new CommandMetadata("request-frontend-browser-tab-close", Authority.CONTROL, 12, "frontend-tab-close-request-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RESIZE_ATTACHED_VIEW = new CommandMetadata("resize-attached-view", Authority.FRONTEND, 10, "view-attachment-lease-v1", StreamKind.NONE, Map.ofEntries(Map.entry("identity", 12L), Map.entry("view", 12L)), Map.ofEntries(Map.entry("identity", "shared-sizing-v1"), Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata RESIZE_SURFACE = new CommandMetadata("resize-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata RESOLVE_TERMINAL = new CommandMetadata("resolve-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
@@ -290,6 +296,7 @@ public final class Commands {
         values.put("ack-tab-notifications", ACK_TAB_NOTIFICATIONS);
         values.put("add-screens-to-screen-group", ADD_SCREENS_TO_SCREEN_GROUP);
         values.put("add-tabs-to-tab-group", ADD_TABS_TO_TAB_GROUP);
+        values.put("answer-frontend-browser-tab-close", ANSWER_FRONTEND_BROWSER_TAB_CLOSE);
         values.put("apply-layout", APPLY_LAYOUT);
         values.put("attach-surface", ATTACH_SURFACE);
         values.put("bind-conversation-tab-session", BIND_CONVERSATION_TAB_SESSION);
@@ -310,6 +317,7 @@ public final class Commands {
         values.put("chief-inspect", CHIEF_INSPECT);
         values.put("clear-history", CLEAR_HISTORY);
         values.put("clear-window-title", CLEAR_WINDOW_TITLE);
+        values.put("client-attention", CLIENT_ATTENTION);
         values.put("client-focus", CLIENT_FOCUS);
         values.put("close-pane", CLOSE_PANE);
         values.put("close-provider-managed-workspace", CLOSE_PROVIDER_MANAGED_WORKSPACE);
@@ -395,6 +403,7 @@ public final class Commands {
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
+        values.put("frontend-browser-tab-close-subscribe", FRONTEND_BROWSER_TAB_CLOSE_SUBSCRIBE);
         values.put("get-blob", GET_BLOB);
         values.put("get-browser-provider", GET_BROWSER_PROVIDER);
         values.put("get-cell-pixels", GET_CELL_PIXELS);
@@ -484,7 +493,10 @@ public final class Commands {
         values.put("reopen-saved-screen-group", REOPEN_SAVED_SCREEN_GROUP);
         values.put("reopen-saved-tab-group", REOPEN_SAVED_TAB_GROUP);
         values.put("report-agent", REPORT_AGENT);
+        values.put("report-client-attention", REPORT_CLIENT_ATTENTION);
         values.put("report-focus", REPORT_FOCUS);
+        values.put("report-frontend-browser-tab-removed", REPORT_FRONTEND_BROWSER_TAB_REMOVED);
+        values.put("request-frontend-browser-tab-close", REQUEST_FRONTEND_BROWSER_TAB_CLOSE);
         values.put("resize-attached-view", RESIZE_ATTACHED_VIEW);
         values.put("resize-surface", RESIZE_SURFACE);
         values.put("resolve-terminal", RESOLVE_TERMINAL);

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691";
+inline constexpr std::string_view kProtocolIrSha256 = "b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -42,6 +42,9 @@ struct BrowserProviderUnregisterResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
+struct ClientAttentionInput;
+struct ClientAttentionRecord;
+struct ClientAttentionTab;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
@@ -228,6 +231,8 @@ struct ZoomPaneResult;
 struct AckTabNotificationsRequest;
 struct AddScreensToScreenGroupRequest;
 struct AddTabsToTabGroupRequest;
+struct AnswerFrontendBrowserTabCloseRequest;
+struct AnswerFrontendBrowserTabCloseResult;
 struct ApplyLayoutRequest;
 struct AttachSurfaceRequest;
 struct BindConversationTabSessionRequest;
@@ -250,6 +255,8 @@ struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
+struct ClientAttentionRequest;
+struct ClientAttentionResult;
 struct ClientFocusRequest;
 struct ClientFocusResult;
 struct ClosePaneRequest;
@@ -362,6 +369,8 @@ struct FeedLocalReadRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
+struct FrontendBrowserTabCloseSubscribeRequest;
+struct FrontendBrowserTabCloseSubscribeResult;
 struct GetBlobRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
@@ -463,7 +472,12 @@ struct RenameWorkspaceRequest;
 struct ReopenSavedScreenGroupRequest;
 struct ReopenSavedTabGroupRequest;
 struct ReportAgentRequest;
+struct ReportClientAttentionRequest;
 struct ReportFocusRequest;
+struct ReportFrontendBrowserTabRemovedRequest;
+struct ReportFrontendBrowserTabRemovedResult;
+struct RequestFrontendBrowserTabCloseRequest;
+struct RequestFrontendBrowserTabCloseResult;
 struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
@@ -578,6 +592,8 @@ struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
 struct FrameEvent;
+struct FrontendBrowserTabCloseRequestedEvent;
+struct FrontendBrowserTabCloseSettledEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
@@ -646,6 +662,7 @@ enum class TabKind;
 struct TerminalExitOutcomeExit;
 struct TerminalExitOutcomeSignal;
 struct TerminalExitOutcomeUnknown;
+enum class AnswerFrontendBrowserTabCloseRequestOutcome;
 enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
@@ -654,11 +671,13 @@ struct CloudAttachmentUploadResultStored;
 struct ConversationAttachmentUploadResultStored;
 enum class CopyRequestMode;
 enum class IdsRequestKind;
+enum class ReportFrontendBrowserTabRemovedRequestReason;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
+enum class FrontendBrowserTabCloseSettledEventOutcome;
 enum class GraphicsStatusEventKind;
 enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
@@ -800,6 +819,22 @@ struct AgentSessionSource {
     Field<std::string> host_name{};
     Field<std::string> session{};
     friend bool operator==(const AgentSessionSource&, const AgentSessionSource&) = default;
+};
+
+enum class AnswerFrontendBrowserTabCloseRequestOutcome {
+    closing,
+    cancelled,
+};
+
+struct AnswerFrontendBrowserTabCloseRequest {
+    AnswerFrontendBrowserTabCloseRequestOutcome outcome{};
+    std::string request_id{};
+    friend bool operator==(const AnswerFrontendBrowserTabCloseRequest&, const AnswerFrontendBrowserTabCloseRequest&) = default;
+};
+
+struct AnswerFrontendBrowserTabCloseResult {
+    bool accepted{};
+    friend bool operator==(const AnswerFrontendBrowserTabCloseResult&, const AnswerFrontendBrowserTabCloseResult&) = default;
 };
 
 struct AppliedPane {
@@ -1373,6 +1408,48 @@ struct ClientAttachedEvent {
     std::optional<std::string> name{};
     ClientAttachedEventTransport transport{};
     friend bool operator==(const ClientAttachedEvent&, const ClientAttachedEvent&) = default;
+};
+
+struct ClientAttentionInput {
+    std::uint64_t ms_ago{};
+    Id surface{};
+    friend bool operator==(const ClientAttentionInput&, const ClientAttentionInput&) = default;
+};
+
+struct ClientAttentionRecord {
+    bool app_active{};
+    std::string client_id{};
+    std::uint64_t connection{};
+    bool key_window{};
+    std::optional<Id> pane{};
+    std::vector<ClientAttentionInput> recent_input{};
+    std::uint64_t reported_ms_ago{};
+    std::optional<std::uint64_t> tab{};
+    std::optional<std::int32_t> utc_offset_minutes{};
+    friend bool operator==(const ClientAttentionRecord&, const ClientAttentionRecord&) = default;
+};
+
+struct ClientAttentionRequest {
+    Field<std::string> client_id{};
+    Field<Id> surface{};
+    friend bool operator==(const ClientAttentionRequest&, const ClientAttentionRequest&) = default;
+};
+
+struct ClientAttentionTab {
+    bool app_active{};
+    std::optional<Id> pane{};
+    Id surface{};
+    std::optional<std::uint64_t> typed_ms_ago{};
+    std::optional<std::int32_t> utc_offset_minutes{};
+    bool viewed{};
+    friend bool operator==(const ClientAttentionTab&, const ClientAttentionTab&) = default;
+};
+
+struct ClientAttentionResult {
+    bool app_active{};
+    std::vector<ClientAttentionRecord> clients{};
+    std::optional<ClientAttentionTab> tab_attention{};
+    friend bool operator==(const ClientAttentionResult&, const ClientAttentionResult&) = default;
 };
 
 struct ClientChangedEvent {
@@ -2772,6 +2849,38 @@ struct FrameEvent {
     Id surface{};
     std::uint32_t width{};
     friend bool operator==(const FrameEvent&, const FrameEvent&) = default;
+};
+
+struct FrontendBrowserTabCloseRequestedEvent {
+    std::string owner{};
+    std::optional<CloseReason> reason{};
+    std::string request_id{};
+    Id surface{};
+    std::optional<std::string> tab_resource_id{};
+    friend bool operator==(const FrontendBrowserTabCloseRequestedEvent&, const FrontendBrowserTabCloseRequestedEvent&) = default;
+};
+
+enum class FrontendBrowserTabCloseSettledEventOutcome {
+    removed,
+    cancelled,
+    owner_gone,
+};
+
+struct FrontendBrowserTabCloseSettledEvent {
+    FrontendBrowserTabCloseSettledEventOutcome outcome{};
+    std::string request_id{};
+    Id surface{};
+    friend bool operator==(const FrontendBrowserTabCloseSettledEvent&, const FrontendBrowserTabCloseSettledEvent&) = default;
+};
+
+struct FrontendBrowserTabCloseSubscribeRequest {
+    std::string owner{};
+    friend bool operator==(const FrontendBrowserTabCloseSubscribeRequest&, const FrontendBrowserTabCloseSubscribeRequest&) = default;
+};
+
+struct FrontendBrowserTabCloseSubscribeResult {
+    bool close_requests_ready{};
+    friend bool operator==(const FrontendBrowserTabCloseSubscribeResult&, const FrontendBrowserTabCloseSubscribeResult&) = default;
 };
 
 enum class FrontendFocusTarget {
@@ -4436,11 +4545,56 @@ struct ReportAgentResult {
     friend bool operator==(const ReportAgentResult&, const ReportAgentResult&) = default;
 };
 
+struct ReportClientAttentionRequest {
+    bool app_active{};
+    std::string client_id{};
+    bool key_window{};
+    Field<Id> pane{};
+    std::optional<std::vector<ClientAttentionInput>> recent_input{};
+    Field<std::uint64_t> tab{};
+    Field<std::int32_t> utc_offset_minutes{};
+    friend bool operator==(const ReportClientAttentionRequest&, const ReportClientAttentionRequest&) = default;
+};
+
 struct ReportFocusRequest {
     std::string client_id{};
     Id pane{};
     Field<std::uint64_t> tab{};
     friend bool operator==(const ReportFocusRequest&, const ReportFocusRequest&) = default;
+};
+
+enum class ReportFrontendBrowserTabRemovedRequestReason {
+    answered,
+    user_closed,
+    page_closed,
+    extension,
+};
+
+struct ReportFrontendBrowserTabRemovedRequest {
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    ReportFrontendBrowserTabRemovedRequestReason reason{};
+    Field<std::string> request_id{};
+    Id surface{};
+    friend bool operator==(const ReportFrontendBrowserTabRemovedRequest&, const ReportFrontendBrowserTabRemovedRequest&) = default;
+};
+
+struct ReportFrontendBrowserTabRemovedResult {
+    bool removed{};
+    bool replayed{};
+    friend bool operator==(const ReportFrontendBrowserTabRemovedResult&, const ReportFrontendBrowserTabRemovedResult&) = default;
+};
+
+struct RequestFrontendBrowserTabCloseRequest {
+    Field<CloseReason> reason{};
+    Id surface{};
+    friend bool operator==(const RequestFrontendBrowserTabCloseRequest&, const RequestFrontendBrowserTabCloseRequest&) = default;
+};
+
+struct RequestFrontendBrowserTabCloseResult {
+    bool delegated{};
+    std::optional<std::string> request_id{};
+    friend bool operator==(const RequestFrontendBrowserTabCloseResult&, const RequestFrontendBrowserTabCloseResult&) = default;
 };
 
 struct SizingIdentity {
@@ -5954,6 +6108,24 @@ struct Codec<CellPixelSurface> {
 };
 
 template <>
+struct Codec<ClientAttentionInput> {
+    static Result<Json> encode(const ClientAttentionInput& value);
+    static Result<ClientAttentionInput> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientAttentionRecord> {
+    static Result<Json> encode(const ClientAttentionRecord& value);
+    static Result<ClientAttentionRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientAttentionTab> {
+    static Result<Json> encode(const ClientAttentionTab& value);
+    static Result<ClientAttentionTab> decode(const Json& value);
+};
+
+template <>
 struct Codec<ClientInfo> {
     static Result<Json> encode(const ClientInfo& value);
     static Result<ClientInfo> decode(const Json& value);
@@ -7070,6 +7242,18 @@ struct Codec<AddTabsToTabGroupRequest> {
 };
 
 template <>
+struct Codec<AnswerFrontendBrowserTabCloseRequest> {
+    static Result<Json> encode(const AnswerFrontendBrowserTabCloseRequest& value);
+    static Result<AnswerFrontendBrowserTabCloseRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AnswerFrontendBrowserTabCloseResult> {
+    static Result<Json> encode(const AnswerFrontendBrowserTabCloseResult& value);
+    static Result<AnswerFrontendBrowserTabCloseResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ApplyLayoutRequest> {
     static Result<Json> encode(const ApplyLayoutRequest& value);
     static Result<ApplyLayoutRequest> decode(const Json& value);
@@ -7199,6 +7383,18 @@ template <>
 struct Codec<ClearWindowTitleRequest> {
     static Result<Json> encode(const ClearWindowTitleRequest& value);
     static Result<ClearWindowTitleRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientAttentionRequest> {
+    static Result<Json> encode(const ClientAttentionRequest& value);
+    static Result<ClientAttentionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientAttentionResult> {
+    static Result<Json> encode(const ClientAttentionResult& value);
+    static Result<ClientAttentionResult> decode(const Json& value);
 };
 
 template <>
@@ -7874,6 +8070,18 @@ struct Codec<ForgetSessionRequest> {
 };
 
 template <>
+struct Codec<FrontendBrowserTabCloseSubscribeRequest> {
+    static Result<Json> encode(const FrontendBrowserTabCloseSubscribeRequest& value);
+    static Result<FrontendBrowserTabCloseSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendBrowserTabCloseSubscribeResult> {
+    static Result<Json> encode(const FrontendBrowserTabCloseSubscribeResult& value);
+    static Result<FrontendBrowserTabCloseSubscribeResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetBlobRequest> {
     static Result<Json> encode(const GetBlobRequest& value);
     static Result<GetBlobRequest> decode(const Json& value);
@@ -8480,9 +8688,39 @@ struct Codec<ReportAgentRequest> {
 };
 
 template <>
+struct Codec<ReportClientAttentionRequest> {
+    static Result<Json> encode(const ReportClientAttentionRequest& value);
+    static Result<ReportClientAttentionRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ReportFocusRequest> {
     static Result<Json> encode(const ReportFocusRequest& value);
     static Result<ReportFocusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReportFrontendBrowserTabRemovedRequest> {
+    static Result<Json> encode(const ReportFrontendBrowserTabRemovedRequest& value);
+    static Result<ReportFrontendBrowserTabRemovedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReportFrontendBrowserTabRemovedResult> {
+    static Result<Json> encode(const ReportFrontendBrowserTabRemovedResult& value);
+    static Result<ReportFrontendBrowserTabRemovedResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RequestFrontendBrowserTabCloseRequest> {
+    static Result<Json> encode(const RequestFrontendBrowserTabCloseRequest& value);
+    static Result<RequestFrontendBrowserTabCloseRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RequestFrontendBrowserTabCloseResult> {
+    static Result<Json> encode(const RequestFrontendBrowserTabCloseResult& value);
+    static Result<RequestFrontendBrowserTabCloseResult> decode(const Json& value);
 };
 
 template <>
@@ -9170,6 +9408,18 @@ struct Codec<FrameEvent> {
 };
 
 template <>
+struct Codec<FrontendBrowserTabCloseRequestedEvent> {
+    static Result<Json> encode(const FrontendBrowserTabCloseRequestedEvent& value);
+    static Result<FrontendBrowserTabCloseRequestedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendBrowserTabCloseSettledEvent> {
+    static Result<Json> encode(const FrontendBrowserTabCloseSettledEvent& value);
+    static Result<FrontendBrowserTabCloseSettledEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<FrontendProjectionChangedEvent> {
     static Result<Json> encode(const FrontendProjectionChangedEvent& value);
     static Result<FrontendProjectionChangedEvent> decode(const Json& value);
@@ -9578,6 +9828,12 @@ struct Codec<TerminalExitOutcomeUnknown> {
 };
 
 template <>
+struct Codec<AnswerFrontendBrowserTabCloseRequestOutcome> {
+    static Result<Json> encode(const AnswerFrontendBrowserTabCloseRequestOutcome& value);
+    static Result<AnswerFrontendBrowserTabCloseRequestOutcome> decode(const Json& value);
+};
+
+template <>
 struct Codec<AttachSurfaceRequestMode> {
     static Result<Json> encode(const AttachSurfaceRequestMode& value);
     static Result<AttachSurfaceRequestMode> decode(const Json& value);
@@ -9626,6 +9882,12 @@ struct Codec<IdsRequestKind> {
 };
 
 template <>
+struct Codec<ReportFrontendBrowserTabRemovedRequestReason> {
+    static Result<Json> encode(const ReportFrontendBrowserTabRemovedRequestReason& value);
+    static Result<ReportFrontendBrowserTabRemovedRequestReason> decode(const Json& value);
+};
+
+template <>
 struct Codec<SubscribeRequestTreeEvents> {
     static Result<Json> encode(const SubscribeRequestTreeEvents& value);
     static Result<SubscribeRequestTreeEvents> decode(const Json& value);
@@ -9653,6 +9915,12 @@ template <>
 struct Codec<ClientAttachedEventTransport> {
     static Result<Json> encode(const ClientAttachedEventTransport& value);
     static Result<ClientAttachedEventTransport> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendBrowserTabCloseSettledEventOutcome> {
+    static Result<Json> encode(const FrontendBrowserTabCloseSettledEventOutcome& value);
+    static Result<FrontendBrowserTabCloseSettledEventOutcome> decode(const Json& value);
 };
 
 template <>

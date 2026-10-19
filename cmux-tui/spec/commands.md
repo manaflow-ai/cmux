@@ -4881,6 +4881,73 @@ Errors:
 | --- | --- |
 | `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
 
+### report-client-attention
+
+| Field | Value |
+| --- | --- |
+| name | `report-client-attention` |
+| status | implemented |
+| since | protocol 12, capability `client-attention-v1` |
+
+Reports what this client shows and where its user typed: whether one of its windows is the OS key window, whether its app is active, the focused pane and tab of that window, the tabs the user typed in recently with the milliseconds since the last keystroke in each, and the client's clock zone. The daemon keeps the latest report per connection, in memory only: it is never journaled or broadcast, and it goes when the connection ends. It is the input of the daemon's notification policy (cmux-next `NotificationPolicy.Arrival`: tab viewed, app active, typed ago per tab, local minute of day). A client sends at most about 4 reports per second and coalesces on its side; latest wins, and the daemon stores every report without the session lock.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+| `key_window` | `boolean` | required | A window of this client is the key window |
+| `app_active` | `boolean` | required | The client app is the active app |
+| `pane` | `Id` | default null | Must be a live pane |
+| `tab` | `usize` | default null | Tab index within `pane`; needs `pane`; null means the pane's active tab |
+| `recent_input` | `array<{surface: Id, ms_ago: u64}>` | default `[]` | At most 16; ages capped at one day; a repeated surface keeps its newest input; surfaces are not checked against the tree |
+| `utc_offset_minutes` | `i32` | default null | Minutes east of UTC, -1440..1440 |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `origin.forbidden` | A page relay connection |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+| `bad request: tab needs pane` | `tab` without `pane` |
+| `bad request: recent_input has more than 16 entries` | Too many entries |
+| `bad request: utc_offset_minutes out of range` | Outside -1440..1440 |
+| `unknown pane ...` | Pane is not alive |
+
+### client-attention
+
+| Field | Value |
+| --- | --- |
+| name | `client-attention` |
+| status | implemented |
+| since | protocol 12, capability `client-attention-v1` |
+
+The latest `report-client-attention` of every connected client (or of one `client_id`). Ages are counted at read time. A pane that closed after the report reads `null`, its tab too. With `surface`, also the merged attention of that tab over all clients: `viewed` when some client shows it as the focused content of its key window (its reported `pane` and `tab`, or the pane's active tab when `tab` is null) while its app is active, `app_active` when some client has its app active, `typed_ms_ago` from the newest keystroke in that tab, and the clock zone of the newest report that has one (a client whose app is active first). A page relay connection gets `origin.forbidden`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | default null | 1-128 bytes, ASCII graphic |
+| `surface` | `Id` | default null | Any surface id |
+
+Result:
+
+```text
+object{clients: [object{client_id, connection: u64, key_window, app_active, pane: Id | null,
+                        tab: usize | null, recent_input: [object{surface: Id, ms_ago: u64}],
+                        utc_offset_minutes: i32 | null, reported_ms_ago: u64}],
+       app_active: boolean,
+       tab_attention?: object{surface: Id, pane: Id | null, viewed, app_active,
+                              typed_ms_ago: u64 | null, utc_offset_minutes: i32 | null}}
+```
+
 ### move-tab
 
 | Field | Value |
@@ -9510,4 +9577,26 @@ when text was granted and reached the terminal host. When the host refuses a
 read itself (its 60-second timeout or the terminal's end), or a newer read
 from the same terminal replaces it, the frontend receives
 `terminal-clipboard-read-cancelled` and the request id stops being accepted.
+These operations are exposed only in the SDKs' private `raw` namespace.
+
+## Frontend browser tab close requests
+
+Capability `frontend-tab-close-request-v1`. The app that renders a frontend browser tab (the record's `owner`, cmux-browser's Chromium) owns the tab's existence: a page can veto a close (beforeunload), and a page or an extension can remove a tab without the daemon. So a close goes through the owner, and the daemon deletes the tab only when the owner reports it removed. Requests are connection-scoped and transient; they are never journaled or replayed across a daemon restart. A page relay connection gets `error_code:"origin.forbidden"` on the owner commands. Crash and discard are not removals.
+
+### frontend-browser-tab-close-subscribe
+
+`{owner}` makes this connection the one that answers close requests for the frontend browser tabs whose record `owner` is this install id (1-128 characters of A-Z a-z 0-9 _ -), and answers `{close_requests_ready:true}`. The newest live connection for an owner answers; requests already sent to an older one stay with it. At most 16 connections subscribe. The connection then receives targeted `frontend-browser-tab-close-requested` events (events.md) and must stay open.
+
+### request-frontend-browser-tab-close
+
+`{surface, reason?: CloseReason|null}` asks the owner to close a frontend browser tab. A page relay connection gets `origin.forbidden`. With a live subscriber for the tab's owner, the daemon sends it `frontend-browser-tab-close-requested` (with the tab's `owner`) and an unguessable `request_id` and answers `{delegated:true, request_id}`; the tab stays. A second request for the same tab joins the open one (same `request_id`). With no owner, or no live subscriber, it answers `{delegated:false, request_id:null}` and nothing changes; the caller may still `close-surface`. Every requesting connection receives `frontend-browser-tab-close-settled` once; a request whose tab left the store by another path (`close-surface`, `close-tabs`, `close-pane`, a workspace close) settles `removed` at the next request or removal report. At most 64 open requests per owner connection and 16 requesters per request. Errors: `unknown surface ...`, `surface ... is not a frontend browser tab`.
+
+### answer-frontend-browser-tab-close
+
+`{request_id, outcome: "closing"|"cancelled"}` answers one request: `closing` (the close started; the tab stays until the removal report) or `cancelled` (the page vetoed; requesters get `outcome:"cancelled"`). Only the connection that received the event may answer. Asked to closing, asked to cancelled, and closing to cancelled are `{accepted:true}`; an unknown, settled, other connection's or repeated answer is `{accepted:false}`.
+
+### report-frontend-browser-tab-removed
+
+`{surface, reason: "answered"|"user_closed"|"page_closed"|"extension", request_id?, origin?, mutation_id?}`: the owner removed the tab, for a request (`answered`) or on its own (`user_closed`: the user closed it in the app; `page_closed`: the page closed itself; `extension`: an extension removed it). Only the subscribed connection of the tab's owner may report (else `origin.forbidden`). The daemon closes the tab in one durable commit, as `close-tabs` does (the tab goes to closed history), keyed by `origin` + `mutation_id` (a retry replays with `replayed:true`), and settles every open request for that tab with `outcome:"removed"`. A `request_id` that names another tab's request is a bad request. A tab that is already gone answers `{removed:false, replayed:false}` unless a keyed retry replays. Result `{removed, replayed}`.
+
 These operations are exposed only in the SDKs' private `raw` namespace.

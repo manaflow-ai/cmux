@@ -44,6 +44,7 @@ public:
     [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> add_screens_to_screen_group(const AddScreensToScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AnswerFrontendBrowserTabCloseResult> answer_frontend_browser_tab_close(const AnswerFrontendBrowserTabCloseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});
@@ -64,6 +65,7 @@ public:
     [[nodiscard]] Result<ChiefInspectResult> chief_inspect(const ChiefInspectRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ClientAttentionResult> client_attention(const ClientAttentionRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ClientFocusResult> client_focus(const ClientFocusRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
@@ -149,6 +151,7 @@ public:
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FrontendBrowserTabCloseSubscribeResult> frontend_browser_tab_close_subscribe(const FrontendBrowserTabCloseSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> get_blob(const GetBlobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderSnapshot> get_browser_provider(const GetBrowserProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<GetCellPixelsResult> get_cell_pixels(const GetCellPixelsRequest& request = {}, RequestOptions options = {});
@@ -238,7 +241,10 @@ public:
     [[nodiscard]] Result<JsonValue> reopen_saved_screen_group(const ReopenSavedScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> reopen_saved_tab_group(const ReopenSavedTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReportAgentResult> report_agent(const ReportAgentRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> report_client_attention(const ReportClientAttentionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> report_focus(const ReportFocusRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ReportFrontendBrowserTabRemovedResult> report_frontend_browser_tab_removed(const ReportFrontendBrowserTabRemovedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<RequestFrontendBrowserTabCloseResult> request_frontend_browser_tab_close(const RequestFrontendBrowserTabCloseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewResizeResult> resize_attached_view(const ResizeAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResizeSurfaceResult> resize_surface(const ResizeSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResolveTerminalResult> resolve_terminal(const ResolveTerminalRequest& request, RequestOptions options = {});

@@ -857,6 +857,20 @@ pub(super) fn handle_command_with_cancellation(
             cmd_server::report_focus(mux, client_id, pane, tab)
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
+        Command::ReportClientAttention(params) => client_attention::report(mux, client, params),
+        Command::ClientAttention(params) => client_attention::read(mux, client, params),
+        Command::FrontendBrowserTabCloseSubscribe(params) => {
+            frontend_browser_close::subscribe(mux, client, params, writer)
+        }
+        Command::RequestFrontendBrowserTabClose(params) => {
+            frontend_browser_close::request(mux, client, params, writer)
+        }
+        Command::AnswerFrontendBrowserTabClose(params) => {
+            frontend_browser_close::answer(mux, client, params)
+        }
+        Command::ReportFrontendBrowserTabRemoved(params) => {
+            frontend_browser_close::report_removed(mux, client, params)
+        }
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),

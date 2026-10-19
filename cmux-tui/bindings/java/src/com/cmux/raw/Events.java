@@ -46,6 +46,8 @@ public final class Events {
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
+    public static final EventMetadata FRONTEND_BROWSER_TAB_CLOSE_REQUESTED = new EventMetadata("frontend-browser-tab-close-requested", 12, "frontend-tab-close-request-v1", List.of("control"), true);
+    public static final EventMetadata FRONTEND_BROWSER_TAB_CLOSE_SETTLED = new EventMetadata("frontend-browser-tab-close-settled", 12, "frontend-tab-close-request-v1", List.of("control"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
     public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
@@ -135,6 +137,8 @@ public final class Events {
         values.put("detached", DETACHED);
         values.put("empty", EMPTY);
         values.put("frame", FRAME);
+        values.put("frontend-browser-tab-close-requested", FRONTEND_BROWSER_TAB_CLOSE_REQUESTED);
+        values.put("frontend-browser-tab-close-settled", FRONTEND_BROWSER_TAB_CLOSE_SETTLED);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
         values.put("history-changed", HISTORY_CHANGED);

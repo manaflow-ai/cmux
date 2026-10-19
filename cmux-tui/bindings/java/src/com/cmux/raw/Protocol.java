@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691";
+    public static final String IR_SHA256 = "b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -51,6 +51,8 @@ public final class Protocol {
             case "detached" -> DetachedEvent.fromWire(value);
             case "empty" -> EmptyEvent.fromWire(value);
             case "frame" -> FrameEvent.fromWire(value);
+            case "frontend-browser-tab-close-requested" -> FrontendBrowserTabCloseRequestedEvent.fromWire(value);
+            case "frontend-browser-tab-close-settled" -> FrontendBrowserTabCloseSettledEvent.fromWire(value);
             case "frontend-projection-changed" -> FrontendProjectionChangedEvent.fromWire(value);
             case "graphics-status" -> GraphicsStatusEvent.fromWire(value);
             case "history-changed" -> HistoryChangedEvent.fromWire(value);

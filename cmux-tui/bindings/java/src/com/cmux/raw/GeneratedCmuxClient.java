@@ -29,6 +29,11 @@ public abstract class GeneratedCmuxClient {
         return TabGroupOutcome.fromWire(result);
     }
 
+    public final AnswerFrontendBrowserTabCloseResult answerFrontendBrowserTabClose(AnswerFrontendBrowserTabCloseRequest request) throws CmuxException {
+        Object result = execute(Commands.ANSWER_FRONTEND_BROWSER_TAB_CLOSE, request.toWire());
+        return AnswerFrontendBrowserTabCloseResult.fromWire(result);
+    }
+
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.APPLY_LAYOUT, request.toWire());
         return ApplyLayoutResult.fromWire(result);
@@ -126,6 +131,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult clearWindowTitle() throws CmuxException {
         Object result = execute(Commands.CLEAR_WINDOW_TITLE, Map.of());
         return EmptyResult.fromWire(result);
+    }
+
+    public final ClientAttentionResult clientAttention(ClientAttentionRequest request) throws CmuxException {
+        Object result = execute(Commands.CLIENT_ATTENTION, request.toWire());
+        return ClientAttentionResult.fromWire(result);
     }
 
     public final ClientFocusResult clientFocus(ClientFocusRequest request) throws CmuxException {
@@ -551,6 +561,11 @@ public abstract class GeneratedCmuxClient {
     public final Object forgetSession(ForgetSessionRequest request) throws CmuxException {
         Object result = execute(Commands.FORGET_SESSION, request.toWire());
         return Wire.immutableJson(result);
+    }
+
+    public final FrontendBrowserTabCloseSubscribeResult frontendBrowserTabCloseSubscribe(FrontendBrowserTabCloseSubscribeRequest request) throws CmuxException {
+        Object result = execute(Commands.FRONTEND_BROWSER_TAB_CLOSE_SUBSCRIBE, request.toWire());
+        return FrontendBrowserTabCloseSubscribeResult.fromWire(result);
     }
 
     public final Object getBlob(GetBlobRequest request) throws CmuxException {
@@ -1002,9 +1017,24 @@ public abstract class GeneratedCmuxClient {
         return ReportAgentResult.fromWire(result);
     }
 
+    public final EmptyResult reportClientAttention(ReportClientAttentionRequest request) throws CmuxException {
+        Object result = execute(Commands.REPORT_CLIENT_ATTENTION, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final EmptyResult reportFocus(ReportFocusRequest request) throws CmuxException {
         Object result = execute(Commands.REPORT_FOCUS, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final ReportFrontendBrowserTabRemovedResult reportFrontendBrowserTabRemoved(ReportFrontendBrowserTabRemovedRequest request) throws CmuxException {
+        Object result = execute(Commands.REPORT_FRONTEND_BROWSER_TAB_REMOVED, request.toWire());
+        return ReportFrontendBrowserTabRemovedResult.fromWire(result);
+    }
+
+    public final RequestFrontendBrowserTabCloseResult requestFrontendBrowserTabClose(RequestFrontendBrowserTabCloseRequest request) throws CmuxException {
+        Object result = execute(Commands.REQUEST_FRONTEND_BROWSER_TAB_CLOSE, request.toWire());
+        return RequestFrontendBrowserTabCloseResult.fromWire(result);
     }
 
     public final AttachedViewResizeResult resizeAttachedView(ResizeAttachedViewRequest request) throws CmuxException {

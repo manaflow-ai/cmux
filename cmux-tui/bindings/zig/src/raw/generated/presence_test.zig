@@ -22,6 +22,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ChiefInspectRequest, "query");
+    try expectExplicitNullRejected(protocol.ClientAttentionResult, "tab_attention");
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
@@ -69,6 +70,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.NewRowRequest, "keep");
     try expectExplicitNullRejected(protocol.NewTabRequest, "keep");
     try expectExplicitNullRejected(protocol.RenameWorkspaceRequest, "release");
+    try expectExplicitNullRejected(protocol.ReportClientAttentionRequest, "recent_input");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SendResult, "queued");

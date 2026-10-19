@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691. */
+/* cmux-tui mux protocol 12, IR b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691" as const;
+export const SDK_IR_SHA256 = "b93e4ca08f8aabb66530b9ad1b597a8207279bb84e2518af557bdeda5153aa34" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -66,6 +66,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "answer-frontend-browser-tab-close": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-tab-close-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only the connection that received the request event may answer. Asked -> closing, asked -> cancelled and closing -> cancelled are accepted; an unknown, settled or repeated answer is accepted:false."
     ]
   },
   "apply-layout": {
@@ -366,6 +376,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "client-attention": {
+    "authority": "control",
+    "since": 12,
+    "capability": "client-attention-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Read-only; ages are counted from the daemon's monotonic clock at read time. A page relay connection gets origin.forbidden."
+    ]
   },
   "client-focus": {
     "authority": "control",
@@ -1301,6 +1321,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "frontend-browser-tab-close-subscribe": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-tab-close-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Connection-scoped: the connection then receives targeted frontend-browser-tab-close-requested events and must stay open.",
+      "The newest live connection for an owner answers; at most 16 connections subscribe. A page relay gets origin.forbidden."
     ]
   },
   "get-blob": {
@@ -2406,6 +2437,18 @@ export const COMMAND_METADATA = {
       "A stored hook report outranks later socket reports until another hook report or surface close."
     ]
   },
+  "report-client-attention": {
+    "authority": "control",
+    "since": 12,
+    "capability": "client-attention-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Latest wins per connection; memory only, never journaled or broadcast; the record ends with the connection.",
+      "A client sends at most about 4 reports per second and coalesces on its side; the daemon stores every report without the session lock.",
+      "A page relay connection gets origin.forbidden. client_id is 1-128 ASCII graphic bytes. pane must be a live pane; tab needs pane. Surfaces in recent_input are not checked against the tree."
+    ]
+  },
   "report-focus": {
     "authority": "control",
     "since": 12,
@@ -2413,6 +2456,29 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "report-frontend-browser-tab-removed": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-tab-close-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Chromium owns web-tab existence: only the subscribed connection of the tab's owner may report; any other gets origin.forbidden.",
+      "The daemon closes the tab in one durable commit and keeps it in closed history; origin and mutation_id key the commit and a retry replays it.",
+      "Crash and discard are not removals."
+    ]
+  },
+  "request-frontend-browser-tab-close": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-tab-close-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The tab stays until the owner reports it removed. The requesting connection receives frontend-browser-tab-close-settled once.",
+      "At most 64 open requests per owner connection and 16 requesters per request."
+    ]
   },
   "resize-attached-view": {
     "authority": "frontend",
@@ -3718,6 +3784,22 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "frontend-browser-tab-close-requested": {
+    "since": 12,
+    "capability": "frontend-tab-close-request-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "frontend-browser-tab-close-settled": {
+    "since": 12,
+    "capability": "frontend-tab-close-request-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "frontend-projection-changed": {
     "since": 7,
     "capability": null,
@@ -4944,6 +5026,175 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientAttentionInput": {
+    "additional_properties": false,
+    "fields": {
+      "ms_ago": {
+        "description": "Milliseconds since the last keystroke in that tab; capped at one day.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "surface": {
+        "description": "A tab the user typed in.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientAttentionRecord": {
+    "additional_properties": false,
+    "fields": {
+      "app_active": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "client_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "connection": {
+        "description": "The daemon's id of the reporting connection.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "key_window": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pane": {
+        "description": "Null when the client reported none or the pane closed since.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "recent_input": {
+        "description": "Counted at read time from the report.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ClientAttentionInput"
+          },
+          "kind": "array"
+        }
+      },
+      "reported_ms_ago": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "tab": {
+        "description": "Null when the client reported none or the pane closed since.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "utc_offset_minutes": {
+        "description": "The client's clock zone; null when it reported none.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientAttentionTab": {
+    "additional_properties": false,
+    "fields": {
+      "app_active": {
+        "description": "Some connected client has its app active (cmux-next appActive).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pane": {
+        "description": "The pane that holds the tab now; null when the tab is not in the tree.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "typed_ms_ago": {
+        "description": "The newest keystroke in the tab over all clients (cmux-next typedAgo); null when unknown.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "utc_offset_minutes": {
+        "description": "The clock zone for quiet hours: the newest report that has one, a client whose app is active first.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "viewed": {
+        "description": "Some client shows the tab as the focused content of its key window while its app is active (cmux-next paneIsViewed).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -13308,6 +13559,48 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TabGroupOutcome"
     }
   },
+  "answer-frontend-browser-tab-close": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "outcome": {
+          "description": "closing: the close started; the tab stays until report-frontend-browser-tab-removed. cancelled: the page vetoed the close (beforeunload).",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "closing",
+              "cancelled"
+            ]
+          }
+        },
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "accepted": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "apply-layout": {
     "request": {
       "additional_properties": false,
@@ -14232,6 +14525,69 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "client-attention": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "client_id": {
+          "default": null,
+          "description": "Only the records of this client id.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "default": null,
+          "description": "Also answer tab_attention for this tab.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "app_active": {
+          "description": "Some connected client has its app active.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "clients": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ClientAttentionRecord"
+            },
+            "kind": "array"
+          }
+        },
+        "tab_attention": {
+          "description": "Present when surface was given.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ClientAttentionTab"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "client-focus": {
@@ -18879,6 +19235,37 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "frontend-browser-tab-close-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "owner": {
+          "description": "The install id the app puts on new-frontend-browser-tab {owner}; 1-128 characters of A-Z a-z 0-9 _ -.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "close_requests_ready": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "get-blob": {
     "request": {
       "additional_properties": false,
@@ -23199,6 +23586,94 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ReportAgentResult"
     }
   },
+  "report-client-attention": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "app_active": {
+          "description": "The client app is the active app.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "client_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "key_window": {
+          "description": "A window of this client is the key window of the OS.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "pane": {
+          "default": null,
+          "description": "The focused pane of the client's key window, if any.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "recent_input": {
+          "default": [],
+          "description": "The tabs the user typed in recently and how long ago, newest per tab (cmux-next tracks typing per tab). Replaces the whole list of the previous report.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ClientAttentionInput"
+            },
+            "kind": "array",
+            "max_items": 16
+          }
+        },
+        "tab": {
+          "default": null,
+          "description": "The focused tab index within pane; needs pane.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "utc_offset_minutes": {
+          "constraints": [
+            {
+              "maximum": 1440,
+              "minimum": -1440
+            }
+          ],
+          "default": null,
+          "description": "Minutes east of UTC of the client's clock zone, for quiet hours.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "int32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "report-focus": {
     "request": {
       "additional_properties": false,
@@ -23234,6 +23709,135 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "report-frontend-browser-tab-removed": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "reason": {
+          "description": "answered: the owner closed it for a close request; user_closed: the user closed it in the app; page_closed: the page closed itself; extension: an extension removed it.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "answered",
+              "user_closed",
+              "page_closed",
+              "extension"
+            ]
+          }
+        },
+        "request_id": {
+          "default": null,
+          "description": "The close request this removal answers, if any.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "removed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "request-frontend-browser-tab-close": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "reason": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "CloseReason"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "delegated": {
+          "description": "True when the owner app was asked; false when the tab has no owner or the owner has no live subscribed connection, and nothing changed.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "request_id": {
+          "description": "Null when not delegated. A second request for the same tab joins the open one.",
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "resize-attached-view": {
@@ -28247,6 +28851,103 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "frontend-browser-tab-close-requested": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "frontend-browser-tab-close-requested"
+        }
+      },
+      "owner": {
+        "description": "The tab record's owner install id that this connection subscribed for.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "reason": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "CloseReason"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "tab_resource_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "frontend-browser-tab-close-settled": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "frontend-browser-tab-close-settled"
+        }
+      },
+      "outcome": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "removed",
+            "cancelled",
+            "owner_gone"
+          ]
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },

@@ -154,6 +154,7 @@ mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
 mod browser_profiles;
+mod client_attention;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_attachments;
@@ -171,6 +172,7 @@ mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
 mod feed_local;
+mod frontend_browser_close;
 mod frontend_browser_history;
 mod history_search;
 mod home;
@@ -2101,6 +2103,20 @@ enum Command {
     ClientFocus {
         client_id: String,
     },
+    /// Report this client's attention: key window, active app, focused pane
+    /// and tab, recent typing per tab, clock zone (`client-attention-v1`).
+    ReportClientAttention(client_attention::ReportParams),
+    /// The latest attention report of every client (`client-attention-v1`).
+    ClientAttention(client_attention::ReadParams),
+    /// Answer close requests for the frontend browser tabs of one owner
+    /// (`frontend-tab-close-request-v1`).
+    FrontendBrowserTabCloseSubscribe(frontend_browser_close::SubscribeParams),
+    /// Ask the owner app to close a frontend browser tab; it may veto.
+    RequestFrontendBrowserTabClose(frontend_browser_close::RequestParams),
+    /// The owner's answer to one close request: closing or cancelled.
+    AnswerFrontendBrowserTabClose(frontend_browser_close::AnswerParams),
+    /// The owner removed a frontend browser tab; the daemon deletes it.
+    ReportFrontendBrowserTabRemoved(frontend_browser_close::RemovedParams),
     /// Stream mux events on this connection.
     Subscribe {
         #[serde(default)]

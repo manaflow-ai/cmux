@@ -3670,6 +3670,9 @@ mod all_sessions_scope;
 #[path = "cli/app_workspaces.rs"]
 mod app_workspaces;
 #[cfg(unix)]
+#[path = "cli/browser_client_verbs.rs"]
+mod browser_client_verbs;
+#[cfg(unix)]
 #[path = "cli/browser_devices.rs"]
 mod browser_devices;
 #[cfg(unix)]

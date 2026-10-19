@@ -510,6 +510,8 @@ impl ClientRegistry {
     pub(super) fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
         self.clipboard_reads.disconnect(client);
+        self.client_attention.disconnect(client);
+        self.frontend_tab_closes.disconnect(client);
         self.loopback.disconnect(client);
         #[cfg(unix)]
         self.agent_sessions.disconnect(client);

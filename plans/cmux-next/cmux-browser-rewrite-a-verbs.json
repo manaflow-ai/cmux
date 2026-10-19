@@ -1,0 +1,288 @@
+{
+  "schema": "cmux-browser-rewrite-verbs-proposed-v1",
+  "status": "proposed",
+  "note": "Proposals for rewrite unit 0i, in the spec/sdk-schema.json command format. Not part of the spec until 0g confirms the gap and hq-6d answers. 0i copies confirmed entries into cmux-tui/spec and regenerates the bindings and count pins.",
+  "commands": {
+    "report-client-attention": {
+      "authority": "control",
+      "since": 12,
+      "capability": "client-attention-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "client_id": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "key_window": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "required",
+            "nullable": false,
+            "description": "A window of this client is the key window of the OS."
+          },
+          "pane": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "tab": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "last_input_ms_ago": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "description": "Milliseconds since the last key or pointer input in this client; null when unknown."
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Latest wins per client; the daemon keeps at most about 4 reports per second per client and coalesces the rest.",
+        "Stored per client for the notification policy; a disconnect clears it."
+      ]
+    },
+    "answer-frontend-browser-tab-close": {
+      "authority": "control",
+      "since": 12,
+      "capability": "frontend-tab-close-request-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "request_id": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "outcome": {
+            "type": {
+              "kind": "enum",
+              "values": [
+                "closing",
+                "cancelled"
+              ]
+            },
+            "presence": "required",
+            "nullable": false,
+            "description": "cancelled: the page vetoed the close (beforeunload). closing: the client started the close; the tab stays until report-frontend-browser-tab-removed."
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "accepted": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "stream": null,
+      "constraints": [
+        "Only the owner client of the tab may answer; an unknown or answered request is accepted:false."
+      ]
+    },
+    "report-frontend-browser-tab-removed": {
+      "authority": "control",
+      "since": 12,
+      "capability": "frontend-tab-close-request-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "reason": {
+            "type": {
+              "kind": "enum",
+              "values": [
+                "closed",
+                "page_closed",
+                "extension",
+                "crashed_discarded"
+              ]
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "request_id": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "description": "The close request that this removal answers, if any."
+          },
+          "origin": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "mutation_id": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "removed": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "replayed": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": false
+          }
+        },
+        "additional_properties": false
+      },
+      "stream": null,
+      "constraints": [
+        "Chromium owns web-tab existence: the daemon deletes the frontend browser tab only on this report.",
+        "Keyed by origin + mutation_id."
+      ]
+    }
+  },
+  "events": {
+    "frontend-browser-tab-close-requested": {
+      "since": 12,
+      "capability": "frontend-tab-close-request-v1",
+      "streams": [
+        "control"
+      ],
+      "emission": "emitted",
+      "payload": {
+        "kind": "object",
+        "fields": {
+          "event": {
+            "type": {
+              "kind": "literal",
+              "value": "frontend-browser-tab-close-requested"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "request_id": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "reason": {
+            "type": {
+              "kind": "ref",
+              "name": "CloseReason"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          }
+        },
+        "additional_properties": false
+      },
+      "note": "Targeted control event to the owner client only, like terminal-clipboard-read."
+    }
+  },
+  "v2_operations": {
+    "keybindings.resolved": {
+      "only_if": "0g names a Rust source for the default keybinding table",
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "capability": "keybindings-resolved-v1",
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "platform": "optional enum macos|linux|windows (default: the daemon host)"
+        }
+      },
+      "result": "{revision, entries: [{action, chords: [string], when: string|null, source: default|file}], diagnostics}",
+      "test": "schemas/keybindings/keybinding-vectors.json"
+    }
+  },
+  "not_needed": {
+    "screen move to another workspace": "raw move-screen already takes workspace and new_workspace (0g confirms)",
+    "settings.set": "exists as a v2 op",
+    "closed.list / closed.reopen": "exist"
+  }
+}

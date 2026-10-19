@@ -1,0 +1,563 @@
+{
+  "$schema": "./sdk-schema.schema.json",
+  "commands": {
+    "list-workspaces": {
+      "authority": "control",
+      "capability": null,
+      "constraints": [],
+      "request": {
+        "additional_properties": false,
+        "fields": {
+          "include_dead": {
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "result": {
+        "items": {
+          "kind": "ref",
+          "name": "Workspace"
+        },
+        "kind": "array"
+      },
+      "since": 1,
+      "stream": null
+    },
+    "report-focus": {
+      "authority": "control",
+      "capability": "client-focus-v1",
+      "constraints": [],
+      "request": {
+        "additional_properties": false,
+        "fields": {
+          "client_id": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "pane": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            }
+          },
+          "tab": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "since": 12,
+      "stream": null
+    },
+    "unused-command": {
+      "authority": "control",
+      "capability": null,
+      "constraints": [],
+      "request": {
+        "additional_properties": false,
+        "fields": {
+          "x": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "result": {
+        "kind": "ref",
+        "name": "Unused"
+      },
+      "since": 1,
+      "stream": null
+    },
+    "workspace-info": {
+      "authority": "control",
+      "capability": null,
+      "constraints": [],
+      "request": {
+        "additional_properties": false,
+        "fields": {
+          "device": {
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "ref",
+              "name": "DeviceKind"
+            }
+          },
+          "workspace": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "result": {
+        "additional_properties": false,
+        "fields": {
+          "device": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "DeviceKind"
+            }
+          },
+          "settings": {
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "ref",
+              "name": "Settings"
+            }
+          },
+          "workspace": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "Workspace"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "since": 3,
+      "stream": null
+    }
+  },
+  "events": {
+    "not-listed": {
+      "capability": null,
+      "emission": "emitted",
+      "payload": {
+        "additional_properties": false,
+        "fields": {
+          "x": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "Unused"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "since": 1,
+      "streams": [
+        "subscribe"
+      ]
+    },
+    "tab-closed": {
+      "capability": "tab-events-v1",
+      "emission": "emitted",
+      "payload": {
+        "additional_properties": false,
+        "fields": {
+          "reason": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "enum",
+              "values": [
+                "closed",
+                "crashed"
+              ]
+            }
+          },
+          "tab": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "since": 5,
+      "streams": [
+        "subscribe"
+      ]
+    },
+    "workspace-added": {
+      "capability": null,
+      "emission": "emitted",
+      "payload": {
+        "additional_properties": false,
+        "fields": {
+          "workspace": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "Workspace"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "since": 1,
+      "streams": [
+        "subscribe"
+      ]
+    }
+  },
+  "profiles": {
+    "control": {
+      "description": "Ordinary control clients.",
+      "inherits": []
+    }
+  },
+  "protocol": {
+    "id_type": "uint64",
+    "javascript_id_policy": "Decode identifiers losslessly.",
+    "name": "cmux-tui-mux",
+    "version": 12
+  },
+  "schema_version": 2,
+  "types": {
+    "DeadPane": {
+      "additional_properties": false,
+      "fields": {
+        "exit_code": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "int32"
+          }
+        },
+        "id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "DeviceKind": {
+      "fallback": "unknown",
+      "kind": "enum",
+      "values": [
+        "mac",
+        "linux",
+        "unknown"
+      ]
+    },
+    "EmptyResult": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "Id": {
+      "kind": "alias",
+      "target": {
+        "kind": "scalar",
+        "name": "uint64"
+      }
+    },
+    "JsonValue": {
+      "kind": "opaque_json",
+      "reason": "Arbitrary JSON chosen by the client."
+    },
+    "Layout": {
+      "kind": "tagged_union",
+      "tag": "type",
+      "variants": {
+        "leaf": {
+          "additional_properties": false,
+          "fields": {
+            "pane": {
+              "nullable": false,
+              "presence": "required",
+              "type": {
+                "kind": "ref",
+                "name": "Id"
+              }
+            },
+            "type": {
+              "nullable": false,
+              "presence": "required",
+              "type": {
+                "kind": "literal",
+                "value": "leaf"
+              }
+            }
+          },
+          "kind": "object"
+        },
+        "split": {
+          "additional_properties": false,
+          "fields": {
+            "a": {
+              "nullable": false,
+              "presence": "required",
+              "type": {
+                "kind": "ref",
+                "name": "Layout"
+              }
+            },
+            "b": {
+              "nullable": false,
+              "presence": "required",
+              "type": {
+                "kind": "ref",
+                "name": "Layout"
+              }
+            },
+            "dir": {
+              "nullable": false,
+              "presence": "required",
+              "type": {
+                "kind": "ref",
+                "name": "SplitDirection"
+              }
+            },
+            "ratio": {
+              "nullable": false,
+              "presence": "required",
+              "type": {
+                "kind": "scalar",
+                "name": "float32"
+              }
+            },
+            "split": {
+              "nullable": false,
+              "presence": "optional",
+              "since": 8,
+              "type": {
+                "kind": "ref",
+                "name": "Id"
+              }
+            },
+            "type": {
+              "nullable": false,
+              "presence": "required",
+              "type": {
+                "kind": "literal",
+                "value": "split"
+              }
+            }
+          },
+          "kind": "object"
+        }
+      }
+    },
+    "LivePane": {
+      "additional_properties": false,
+      "fields": {
+        "id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "pid": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "Pane": {
+      "kind": "untagged_union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "LivePane"
+        },
+        {
+          "kind": "ref",
+          "name": "DeadPane"
+        }
+      ]
+    },
+    "Settings": {
+      "additional_properties": true,
+      "fields": {
+        "theme": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "SplitDirection": {
+      "kind": "enum",
+      "values": [
+        "horizontal",
+        "vertical"
+      ]
+    },
+    "Unused": {
+      "additional_properties": false,
+      "fields": {
+        "x": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "Workspace": {
+      "additional_properties": false,
+      "fields": {
+        "client-id": {
+          "aliases": [
+            "clientId"
+          ],
+          "capability": "client-id-v1",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "focus": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "additional_properties": false,
+            "fields": {
+              "pane": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "ref",
+                  "name": "Id"
+                }
+              },
+              "since_ms": {
+                "nullable": false,
+                "presence": "optional",
+                "type": {
+                  "kind": "scalar",
+                  "name": "int64"
+                }
+              }
+            },
+            "kind": "object"
+          }
+        },
+        "id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "kind": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "local",
+              "remote"
+            ]
+          }
+        },
+        "layout": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Layout"
+          }
+        },
+        "meta": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "panes": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Pane"
+            },
+            "kind": "array"
+          }
+        },
+        "tags": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "kind": "object"
+    }
+  }
+}
