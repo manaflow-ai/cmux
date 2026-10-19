@@ -57,6 +57,8 @@ pub enum WireReply {
 pub struct SessionStatus {
     pub signed_in: bool,
     pub team: Option<String>,
+    #[serde(skip)]
+    pub scope: Option<String>,
 }
 
 /// Why the relay could not make the call at all, or lost its answer.
@@ -75,4 +77,19 @@ pub trait ControlPlane {
     fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError>;
 
     fn session(&mut self) -> Result<SessionStatus, RelayError>;
+
+    /// Real host transports refresh this before every operation and replay. Standalone fakes
+    /// without account state need a session only when their caller supplies a scope.
+    fn request_scope(&mut self, scoped: bool) -> Result<Option<String>, RelayError> {
+        if !scoped {
+            return Ok(None);
+        }
+        let session = self.session()?;
+        if !session.signed_in {
+            return Err(RelayError::NotSignedIn);
+        }
+        session.scope.map(Some).ok_or_else(|| {
+            RelayError::Unavailable("the parent did not report a Cloud scope".into())
+        })
+    }
 }

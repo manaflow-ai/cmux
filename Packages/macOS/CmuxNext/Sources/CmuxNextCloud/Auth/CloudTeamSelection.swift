@@ -17,6 +17,10 @@ package final class CloudTeamSelection {
         if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return false }
         return true
     }
+    package func check(_ snapshot: CloudTeamScope.Snapshot) throws {
+        guard try current() == snapshot.selection else { throw CloudTeamScope.Failure.changed }
+    }
+
     package func current() throws -> CloudTeamScope.Selection {
         guard canCall, auth.isSignedIn, !auth.activeTeam.isSwitching, let account = auth.user?.id else {
             throw CloudTeamScope.Failure.unavailable

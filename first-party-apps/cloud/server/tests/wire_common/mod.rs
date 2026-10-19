@@ -202,6 +202,7 @@ impl WireFake {
         Ok(SessionStatus {
             signed_in: self.signed_in,
             team: Some("team_t0000000000000000001".into()),
+            scope: None,
         })
     }
 }

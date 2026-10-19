@@ -128,6 +128,11 @@ impl Host {
                 Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return None,
             };
             let line: Value = serde_json::from_str(&line).expect("JSON line");
+            if line["type"] == "relay.session" {
+                self.send(&json!({"type": "relay.session", "id": line["id"], "signed_in": self.cloud.wire.signed_in,
+                    "team": "team_t0000000000000000001", "scope": "a".repeat(64)}));
+                continue;
+            }
             if line["type"] == "relay.op" {
                 let call = WireCall {
                     op: line["op"].as_str().expect("op").to_owned(),

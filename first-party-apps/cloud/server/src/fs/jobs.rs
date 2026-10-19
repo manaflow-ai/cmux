@@ -117,6 +117,19 @@ impl FileJobs {
         true
     }
 
+    /// Cancels and forgets old-scope work; late worker results cannot settle a new scope's ledger.
+    pub(crate) fn forget_scope(&mut self) -> Vec<Value> {
+        self.pending = None;
+        let running = std::mem::take(&mut self.running);
+        running
+            .into_values()
+            .map(|job| {
+                job.cancel.cancel();
+                job.op_id
+            })
+            .collect()
+    }
+
     /// Cancels every running job (the client went away).
     pub(crate) fn cancel_all(&mut self) {
         for running in self.running.values() {

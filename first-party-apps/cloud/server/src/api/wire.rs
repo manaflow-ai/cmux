@@ -43,6 +43,9 @@ pub struct Request {
     pub origin: Origin,
     #[serde(default)]
     pub idempotency_key: Option<String>,
+    /// Restrictive account/team context from the parent; never an authorization credential.
+    #[serde(default)]
+    pub expected_scope: Option<String>,
     /// Issued by the host after the user's gesture for one terminal open
     /// (`cloud.rescue.open`); stamped on the op line like `origin`. The
     /// server checks that it is there and passes it on; it never mints one.
@@ -57,6 +60,7 @@ impl Request {
             args,
             origin: Origin::Cli,
             idempotency_key: None,
+            expected_scope: None,
             open_token: None,
         }
     }

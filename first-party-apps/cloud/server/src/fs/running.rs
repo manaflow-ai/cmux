@@ -126,6 +126,19 @@ pub(crate) struct Transfers {
 }
 
 impl Transfers {
+    /// A scope change cancels old work and removes its history without publishing a late pull.
+    pub(crate) fn forget_scope(&mut self) {
+        for running in self.running.values_mut() {
+            running.cancel.cancel();
+            if running.direction == Direction::Pull {
+                let _ = std::fs::remove_file(&running.landing);
+            }
+        }
+        self.running.clear();
+        self.events.clear();
+        self.history.clear();
+    }
+
     pub(crate) fn new() -> Self {
         let (sender, receiver) = channel();
         Self {

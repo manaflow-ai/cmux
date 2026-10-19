@@ -42,4 +42,28 @@ import Testing
         #expect(result.ok)
         #expect(await world.posts == 1)
     }
+    @Test(arguments: [nil, "b" + String(repeating: "a", count: 63), String(repeating: "a", count: 64)])
+    func aParentRequiresTheOriginalRequestContextBeforeMinting(expected: String?) async {
+        let world = World("none"), scope = String(repeating: "a", count: 64)
+        let relay = CloudCredentialRelay(post: { _, _, token in await world.post(token) }, token: { await world.token() },
+            invalidate: {}, session: { .init(signedIn: true, team: "team_a", scope: scope, requiresScope: true) }, allowedOps: { ["cloud.machine.create"] })
+        var params: [String: JSONValue] = ["op": .string("cloud.machine.create"), "params": .object([:]), "idempotency_key": .string("scoped")]
+        if let expected { params["expected_scope"] = .string(expected) }
+        let result = await relay.answer(AppsProviderCall(requestID: 1, app: CloudCredentialRelay.app, origin: "script",
+            op: CloudCredentialRelay.relayOp, params: .object(params)))
+        #expect(result.ok == (expected == scope))
+        #expect(await world.posts == (expected == scope ? 1 : 0))
+    }
+
+    @Test func aScopedRunPreservesVerbatimArgsOnTheActualDaemonWire() throws {
+        let scope = String(repeating: "a", count: 64), args: JSONValue = .object(["machineID": .string("vm_test")])
+        let request = AppsScopedRunRequest(.init(app: "cmux/cloud", op: "cloud.machine.create", args: args,
+            idempotencyKey: "create", origin: .user), expectedScope: scope)
+        let line = try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 4))
+        #expect(line["cmd"]?.stringValue == "apps-run-scoped")
+        #expect(line["expected_scope"]?.stringValue == scope)
+        #expect(line["idempotency_key"]?.stringValue == "create")
+        #expect(line["args"] == args)
+    }
+
 }

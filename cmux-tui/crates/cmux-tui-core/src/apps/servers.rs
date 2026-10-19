@@ -389,6 +389,7 @@ impl Supervisor {
         mut args: Value,
         origin: Origin,
         idempotency_key: Option<String>,
+        expected_scope: Option<String>,
         op_call: Option<u64>,
         respond: Responder,
     ) -> Vec<Out> {
@@ -422,6 +423,9 @@ impl Supervisor {
             "type": "op", "id": id, "op": op, "args": args, "origin": origin,
             "idempotency_key": idempotency_key,
         });
+        if let Some(scope) = expected_scope {
+            message["expected_scope"] = json!(scope);
+        }
         if let Some(token) = open_token {
             message["open_token"] = json!(token);
         }

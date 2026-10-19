@@ -1,5 +1,6 @@
 package import CmuxInstallAuthCore
 package import Foundation
+import CryptoKit
 
 /// Resolves the picker’s opaque Stack reference through the original owner before minting in that team.
 package actor CloudTeamScope {
@@ -12,6 +13,8 @@ package actor CloudTeamScope {
         }
     }
     package struct Snapshot: Sendable {
+        package let id: String
+        package let selection: Selection
         package let team: String
         package let account: String
         package let generation: UInt64
@@ -21,6 +24,7 @@ package actor CloudTeamScope {
     }
     package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity, invalidRequest }
 
+    private let instance = UUID().uuidString
     private let identity: MacInstallIdentity
     private let transport: any InstallAuthTransport
     private let selection: @Sendable () async throws -> Selection
@@ -60,7 +64,10 @@ package actor CloudTeamScope {
         guard found.id.hasPrefix("team_"), found.id.utf8.count == 25,
               found.id.dropFirst(5).allSatisfy({ "0123456789abcdef".contains($0) }) else { throw Failure.invalidIdentity }
         guard !found.sso_required else { throw Failure.ssoRequired }
-        return Snapshot(team: found.id, account: selected.account, generation: selected.generation, recheck: { [weak self] in
+        let binding = try JSONEncoder().encode(["cmux-cloud-scope-v1", instance, context.account, context.install,
+            context.environment, context.point, String(context.generation), selected.stackTeam ?? "", String(selected.generation), found.id])
+        let id = SHA256.hash(data: binding).map { String(format: "%02x", $0) }.joined()
+        return Snapshot(id: id, selection: selected, team: found.id, account: selected.account, generation: selected.generation, recheck: { [weak self] in
             guard let self else { throw Failure.changed }
             try await self.check(selected, context)
         }, sessionToken: { [weak self] in

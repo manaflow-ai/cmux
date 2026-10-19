@@ -79,7 +79,7 @@ enum Command {
         #[serde(default)]
         payload: Value,
     },
-    #[serde(rename = "apps-run")]
+    #[serde(rename = "apps-run", alias = "apps-run-scoped")]
     Run {
         app: String,
         op: String,
@@ -87,6 +87,9 @@ enum Command {
         args: Value,
         #[serde(default)]
         idempotency_key: Option<String>,
+        /// Restrictive request context, never authority. The scoped command requires it.
+        #[serde(default)]
+        expected_scope: Option<String>,
         /// A palette/keybinding invocation's own token (origin user only).
         #[serde(default)]
         gesture: Option<String>,
@@ -204,7 +207,18 @@ struct CancelRequest {
 /// `cmux.op.cancelled` (apps/cancel.rs). A request that is unknown, already
 /// answered or another connection's changes nothing; the reply is `{}`.
 fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWriter) -> bool {
+    let scoped = cmd == "apps-run-scoped";
     let id = value.get("id").cloned();
+    if scoped && value.get("expected_scope").and_then(Value::as_str).is_none() {
+        return Some(reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new(
+                "apps.invalid_scope",
+                "a scoped run requires expected_scope",
+            )),
+        ));
+    }
     let request = match serde_json::from_value::<CancelRequest>(value) {
         Ok(request) => request,
         Err(e) => {
@@ -351,7 +365,7 @@ pub(super) fn try_handle(
         Command::Dispatch { mount_id, node, event, payload } => {
             supervisor.dispatch(client, &mount_id, &node, &event, payload, user)
         }
-        Command::Run { app, op, args, idempotency_key, gesture } => {
+        Command::Run { app, op, args, idempotency_key, gesture, expected_scope } => {
             let writer = writer.clone();
             supervisor.run(
                 crate::apps::RunRequest {
@@ -359,6 +373,7 @@ pub(super) fn try_handle(
                     op,
                     args,
                     idempotency_key,
+                    expected_scope,
                     origin,
                     gesture,
                     caller: Some(crate::apps::Caller {

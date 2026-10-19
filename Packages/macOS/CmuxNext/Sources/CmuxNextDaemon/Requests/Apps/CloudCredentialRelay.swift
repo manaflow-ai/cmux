@@ -49,12 +49,16 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         public var team: String?
         public var account: String?
         public var generation: UInt64
+        public var scope: String?
+        public var requiresScope: Bool
 
-        public init(signedIn: Bool, team: String?, account: String? = nil, generation: UInt64 = 0) {
+        public init(signedIn: Bool, team: String?, account: String? = nil, generation: UInt64 = 0, scope: String? = nil, requiresScope: Bool = false) {
             self.signedIn = signedIn
             self.team = team
             self.account = account
             self.generation = generation
+            self.scope = scope
+            self.requiresScope = requiresScope
         }
     }
 
@@ -91,7 +95,9 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         switch call.op {
         case Self.sessionOp:
             let state = await session()
-            return Answer(ok: true, body: .object(["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]))
+            var body: [String: JSONValue] = ["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]
+            if let scope = state.scope { body["scope"] = .string(scope) }
+            return Answer(ok: true, body: .object(body))
         case Self.relayOp:
             return await relay(call.params)
         default:
@@ -111,6 +117,8 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         }
         let original = await session()
         guard original.signedIn else { return Self.notSignedIn }
+        if original.requiresScope && original.scope == nil { return Self.failure("owner.unreachable", "the Cloud scope is unavailable", retryable: true) }
+        if let scope = original.scope, params["expected_scope"]?.stringValue != scope { return Self.sessionChanged }
         let key = params["idempotency_key"]?.stringValue
         var envelope: [String: JSONValue] = ["op": .string(op), "params": params["params"] ?? .object([:])]
         let path: String

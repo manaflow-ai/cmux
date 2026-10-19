@@ -75,6 +75,11 @@ impl<C: ControlPlane> Server<C> {
         }
     }
 
+    pub(crate) fn take_scope_waiters(&mut self) -> Vec<Value> {
+        self.attach_mut().parked = None;
+        std::mem::take(&mut self.attach_mut().parked_ops).into_iter().map(|op| op.id).collect()
+    }
+
     /// Drops the parked op of op line `id`; `false` when none waits.
     pub(crate) fn cancel_parked(&mut self, id: &Value) -> bool {
         let parked = &mut self.attach_mut().parked_ops;
@@ -91,7 +96,7 @@ impl<C: ControlPlane> Server<C> {
         let attach = self.attach_mut();
         attach.drain_link_events();
         let parked = std::mem::take(&mut attach.parked_ops);
-        let mut settled = Vec::new();
+        let mut settled = self.take_scope_answers();
         // File ops whose worker ended: their result, and the key's ledger row.
         for (id, key, outcome) in self.edge_parts().0.file_jobs.take_done() {
             self.settle_key(key.as_deref(), &outcome);
