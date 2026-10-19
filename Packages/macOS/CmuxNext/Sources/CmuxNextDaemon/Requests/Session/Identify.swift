@@ -17,6 +17,8 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     /// The opaque owner ID returned by `machine.list`; nil on older daemons.
     /// UI routes, host names and session registry IDs cannot substitute for it.
     public var machineResourceID: ResourceID?
+    /// Canonical session ID returned by enriched owner metadata, distinct from registryID.
+    public var sessionResourceID: ResourceID?
     /// Platform observed from this owner, distinct from the client's platform.
     public var machinePlatform: MachineCatalogPlatform?
     /// Machine-level capabilities, distinct from the protocol feature names above.
@@ -54,6 +56,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         pid: Int32 = 0,
         registryID: String? = nil,
         machineResourceID: ResourceID? = nil,
+        sessionResourceID: ResourceID? = nil,
         machinePlatform: MachineCatalogPlatform? = nil,
         machineCapabilities: [String] = [],
         machineName: String? = nil,
@@ -72,6 +75,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         self.pid = pid
         self.registryID = registryID
         self.machineResourceID = machineResourceID
+        self.sessionResourceID = sessionResourceID
         self.machinePlatform = machinePlatform
         self.machineCapabilities = machineCapabilities
         self.machineName = machineName
@@ -87,6 +91,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case protocolVersion = "protocol"
         case registryID = "registry_id"
         case machineResourceID = "machine_id"
+        case sessionResourceID = "session_resource_id"
         case machinePlatform = "machine_platform"
         case machineCapabilities = "machine_capabilities"
         case machineName = "machine_name"
@@ -108,6 +113,8 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         pid = try c.decodeIfPresent(Int32.self, forKey: .pid) ?? 0
         registryID = try c.decodeIfPresent(String.self, forKey: .registryID)
         machineResourceID = try c.decodeIfPresent(String.self, forKey: .machineResourceID)
+            .flatMap { $0.isEmpty ? nil : ResourceID(rawValue: $0) }
+        sessionResourceID = try c.decodeIfPresent(String.self, forKey: .sessionResourceID)
             .flatMap { $0.isEmpty ? nil : ResourceID(rawValue: $0) }
         machinePlatform = try c.decodeIfPresent(MachineCatalogPlatform.self, forKey: .machinePlatform)
         machineCapabilities = try c.decodeIfPresent([String].self, forKey: .machineCapabilities) ?? []
