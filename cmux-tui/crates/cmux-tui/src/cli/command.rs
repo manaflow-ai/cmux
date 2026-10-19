@@ -12,6 +12,7 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_focus;
 mod agent_message_cmd;
 mod browser;
 mod bulk_close;
@@ -30,7 +31,6 @@ mod server_ensure;
 mod sidebar_doc;
 mod state;
 mod workspace;
-
 pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
 use screen::{parse_screen, parse_screen_strings};
 
@@ -1348,21 +1348,6 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
-        [selector, "focus"] if selector.starts_with("agent_") || selector.starts_with("term_") => {
-            let (scope, prefix) = if selector.starts_with("agent_") {
-                ("agent", "agent")
-            } else {
-                ("terminal", "term")
-            };
-            validate_prefixed_id(scope, prefix, selector)?;
-            // A tab focus whose tab the CLI looks up just before it sends it
-            // (cli/resolve.rs), so the app follows as for `tab <tab> focus`.
-            let mut plan = request(ResourceOperation::TabFocus, &selectors, flags, Map::new())?;
-            if let CommandPlan::Protocol(plan) = &mut plan {
-                plan.resolve.push(Resolve::AgentTab { agent: (*selector).to_owned() });
-            }
-            Ok(plan)
-        }
         ["list"] => {
             let mut params = Map::new();
             if let Some(terminal) = flags.take("terminal") {
@@ -1460,7 +1445,7 @@ fn parse_agent(
             insert_optional_string(&mut params, flags, "source-session", "source_session");
             request(ResourceOperation::AgentReport, &selectors, flags, params)
         }
-        _ => usage("agent action"),
+        other => agent_focus::parse(other, flags),
     }
 }
 
