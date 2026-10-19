@@ -479,7 +479,9 @@ export function Composer({
     // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
     // when the local remount cache is empty; otherwise this effect can clear the host-provided
     // draft before the editor has initialized.
-    const initial = carried || restored || draft || "";
+    // A chat's own saved draft wins: carried text only fills a session that has none, which a
+    // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
+    const initial = restored || carried || draft || "";
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;
