@@ -26,6 +26,7 @@ export interface CompatUpstreamService {
   readonly forwardGrant: <C, I extends IdentityId, V extends VmId>(identityProof: TenantOwnsResource<C, I>, vmProof: TenantOwnsResource<C, V>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
   readonly forwardCreatedVm: <C>(caller: Named<C, Principal>, proof: TenantMayCreate<C, "vm">, upstreamId: string, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
   readonly discardCreatedVm: <C>(caller: Named<C, Principal>, proof: TenantMayCreate<C, "vm">, upstreamId: string) => Effect.Effect<void, CompatUpstreamError>;
+  readonly discardCreatedIdentity: (upstreamId: string) => Effect.Effect<void, CompatUpstreamError>;
   readonly forwardCreate: <C, K extends "vm" | "snapshot">(
     caller: Named<C, Principal>,
     proof: TenantMayCreate<C, K>,
@@ -80,6 +81,7 @@ export const makeCompatUpstream = (config: UpstreamConfig): CompatUpstreamServic
     forwardGrant: (identityProof, vmProof, input) => forward({ ...input, template: pathForGrant(input.template, upstreamIdOf(identityProof), upstreamIdOf(vmProof)) }, providerAuth),
     forwardCreatedVm: (_caller, _proof, upstreamId, input) => forward({ ...input, template: pathFor(input.template, upstreamId) }, providerAuth),
     discardCreatedVm: (_caller, _proof, upstreamId) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/vms/${encodeURIComponent(upstreamId)}`, operation: "discardCreatedVm" }, providerAuth).pipe(Effect.asVoid),
+    discardCreatedIdentity: (upstreamId) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/identities/${encodeURIComponent(upstreamId)}`, operation: "discardCreatedIdentity" }, providerAuth).pipe(Effect.asVoid),
     forwardCreate: (_caller, _proof, input) => forward(input, providerAuth),
     forwardAuthorized: (_caller, _proof, input) => forward(input, providerAuth),
   };
