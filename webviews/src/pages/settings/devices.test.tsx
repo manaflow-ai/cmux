@@ -118,7 +118,7 @@ test("Add Relay… switches its secret fields by mode, sends saveRelay once and 
   const group = () => card(page.container).querySelector<HTMLElement>('[data-devices-group="relays"]')!;
   const form = () => group().querySelector<HTMLElement>('[data-relay-editor="new"]');
   const field = (name: string) => form()!.querySelector<HTMLInputElement>(`[data-relay-field="${name}"]`);
-  expect(group().textContent).toContain("TURN relays carry Mac Screen");
+  expect(group().textContent).toContain("Used when your devices cannot connect directly.");
   await click(group().querySelector('[data-devices-action="addRelay"]')!);
   // Shared secret first: one password field, no username or password.
   expect(field("secret")!.type).toBe("password");

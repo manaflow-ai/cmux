@@ -568,7 +568,11 @@ function RelayEditor({
   };
   const check = async () => {
     setChecked(null);
-    const result = await run({ action: "checkRelay", ...(relay ? { id: relay.id } : {}), relay: draft() });
+    // On edit the id lets the host use the saved secret when none is typed.
+    const relayDraft = draft();
+    const result = await run(
+      relay ? { action: "checkRelay", id: relay.id, relay: relayDraft } : { action: "checkRelay", relay: relayDraft },
+    );
     setChecked(result.text ?? null);
   };
   const keep = editing ? labels.relaySecretKeep : undefined;
