@@ -27,6 +27,7 @@ use tokio::sync::mpsc;
 const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
 
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 const FAKE_APP_SERVER: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
@@ -51,6 +52,8 @@ fn home(name: &str, extra: Value) -> PathBuf {
         "harnesses": {
             "codex": {"argv": [codex, "app-server"]},
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            // An ACP adapter whose session/load restores the chat's full-access mode itself.
+            "restores": {"argv": ["env", "FAKE_FULL_ACCESS=1", "FAKE_LOAD_MODE=full-access", "python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -153,15 +156,19 @@ async fn a_restarted_chat_saved_in_full_access_comes_back_without_it_when_off() 
     assert_eq!(mode, "bypassPermissions");
     let (codex, mode) = app.chat(&dir, "codex").await;
     assert_eq!(mode, "agent-full-access");
+    let (restores, mode) = app.chat(&dir, "restores").await;
+    assert_eq!(mode, "full-access");
 
     // Turned off, then both harnesses restart: neither gets full access back.
     std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": false}}"#).unwrap();
     // The unix socket (the CLI's `cmux harness restart`): only it may restart a harness.
     let mut cli = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let r =
-        cli.call("_acpmux/sessions/restart_harness", json!({"sessions": [&claude, &codex]})).await;
-    assert_eq!(r["result"]["restarted"], json!(2), "{r}");
+        cli.call("_acpmux/sessions/restart_harness", json!({"sessions": [&claude, &codex, &restores]})).await;
+    assert_eq!(r["result"]["restarted"], json!(3), "{r}");
     assert_eq!(app.mode(&claude).await, "default");
     assert_ne!(app.mode(&codex).await, "agent-full-access");
+    // Its harness restored full access on load: acpmux moves it out again.
+    assert_ne!(app.mode(&restores).await, "full-access");
     let _ = std::fs::remove_dir_all(&dir);
 }
