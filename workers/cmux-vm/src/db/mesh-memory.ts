@@ -33,6 +33,12 @@ export function makeMemoryMeshStore() {
     findOverlayServerForSignature: (id) => Effect.sync(() => Option.map(Option.fromNullable(servers.find((row) => row.deviceId === id && row.revokedAt === null)), (row) => ({ ...row, tenantId: TenantId.make(row.tenantId) }))),
     listOverlayServers: (tenant, mesh) => Effect.sync(() => servers.filter((row) => row.tenantId === tenant && row.meshId === mesh && row.revokedAt === null).sort((a, b) => a.deviceId.localeCompare(b.deviceId))),
     revokeOverlayServer: (tenant, id, at) => Effect.sync(() => { for (const row of servers) if (row.tenantId === tenant && row.deviceId === id && row.revokedAt === null) row.revokedAt = at; }),
+    revokeOverlayServersCreatedBy: (tenant, createdBy, cutoff, at) => Effect.sync(() => {
+      const revoked = servers.filter((row) => row.tenantId === tenant && row.createdBy === createdBy && row.revokedAt === null && (cutoff === null || row.createdAt.getTime() <= cutoff.getTime()));
+      for (const row of revoked) row.revokedAt = at;
+      return revoked.map(({ tenantId: _tenant, revokedAt: _revoked, ...row }) => row);
+    }),
+    listTenantsWithOverlayServersCreatedBy: (createdBy) => Effect.sync(() => [...new Set(servers.filter((row) => row.createdBy === createdBy && row.revokedAt === null).map((row) => row.tenantId))].sort().map((id) => TenantId.make(id))),
     claimSlot: (tenantId, meshId, slot, cidr) =>
       Effect.sync(() => {
         if (slots.has(slot) || [...slots.values()].some((entry) => entry.meshId === meshId)) return false;

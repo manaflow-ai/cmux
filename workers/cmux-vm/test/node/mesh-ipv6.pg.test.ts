@@ -116,6 +116,22 @@ describe("provider-free server storage", () => {
     expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, server.meshId)))).toEqual([replacement]);
   });
 
+  it("revokes a user's servers by tenant and cutoff, and lists the tenants still holding them", async () => {
+    const other = TenantId.make("team_other");
+    const old = row();
+    const late = { ...row(), createdAt: at(5) };
+    const foreign = row();
+    const bob = { ...row(), createdBy: "user:user_bob" };
+    for (const [tenant, server] of [[T, old], [T, late], [other, foreign], [T, bob]] as const) await run(Effect.flatMap(MeshStore, (store) => store.recordOverlayServer(tenant, server)));
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listTenantsWithOverlayServersCreatedBy("user:user_ada")))).toEqual([T, other]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.revokeOverlayServersCreatedBy(T, "user:user_ada", at(3), at(6))))).toEqual([old]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.getOverlayServer(T, late.deviceId)))).toEqual(Option.some(late));
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.revokeOverlayServersCreatedBy(other, "user:user_ada", null, at(6))))).toEqual([foreign]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.revokeOverlayServersCreatedBy(T, "user:user_ada", null, at(7))))).toEqual([late]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listTenantsWithOverlayServersCreatedBy("user:user_ada")))).toEqual([]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.getOverlayServer(T, bob.deviceId)))).toEqual(Option.some(bob));
+  });
+
   it("claims each new signature domain once with old purposes intact", async () => {
     for (const [index, purpose] of ["enroll-overlay-server", "overlay-server-policy", "revoke-overlay-server", "enroll", "overlay-policy"].entries()) {
       const claim = () => run(Effect.flatMap(MeshStore, (store) => store.claimSignedRequest(T, (index + 1).toString(16).repeat(64), purpose, at(120_000), at(0))));

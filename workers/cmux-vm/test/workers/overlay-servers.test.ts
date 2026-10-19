@@ -25,6 +25,7 @@ const signed = async (purpose: string, target: string, wgPublicKey = "", name = 
 const enroll = async (wgPublicKey = WG1, name = "server") => call(`/v1/meshes/${mesh}/overlay-servers`, "POST", {
   name, wgPublicKey, installPublicKey: install.publicKey, ...await signed("enroll-overlay-server", mesh, wgPublicKey, name),
 });
+const SECRET = `whsec_${btoa("overlay-server-webhook-secret-32!")}`;
 const policy = async (id: string) => h.request(`/v1/overlay-servers/${id}/signed/policy`, {}, { method: "POST", body: await signed("overlay-server-policy", id) });
 
 beforeEach(async () => {
@@ -177,5 +178,41 @@ describe("provider-free overlay servers", () => {
     expect((await policy(server)).status).toBe(404);
     expect((await h.request(`/v1/overlay-servers/${server}/signed/revoke`, {}, { method: "POST", body: await signed("revoke-overlay-server", server) })).status).toBe(404);
     expect((await call(`/v1/overlay-servers/${server}`, "DELETE")).status).toBe(204);
+  });
+
+  it("a removed or deleted user's servers stay revoked after a re-add (G1 webhook)", async () => {
+    await h.dispose(); h = await makeHarness({ stackWebhookSecret: SECRET }); key = await h.addKey(TEAM, ALL_SCOPES);
+    mesh = idOf(await json(await call("/v1/meshes", "POST", {})));
+    const session = async (user: string) => ({ ...bearer(await h.sessionToken(user)), "x-cmux-team-id": TEAM });
+    const enrollAs = async (user: string, server: InstallKey, wgPublicKey: string) => {
+      install = server;
+      const response = await h.request(`/v1/meshes/${mesh}/overlay-servers`, await session(user), { method: "POST", body: { name: user, wgPublicKey, installPublicKey: server.publicKey, ...await signed("enroll-overlay-server", mesh, wgPublicKey, user) } });
+      expect(response.status).toBe(201);
+      return { id: idOf(await json(response)), install: server };
+    };
+    const signedPolicy = async (server: { id: string; install: InstallKey }) => { install = server.install; return policy(server.id); };
+    h.addMember(TEAM, "user_ada"); h.addMember(TEAM, "user_bob");
+    const ada = await enrollAs("user_ada", await makeInstallKey(), WG1);
+    const bob = await enrollAs("user_bob", await makeInstallKey(), WG2);
+    install = await makeInstallKey();
+    const laptop = idOf(record((await json(await call(`/v1/meshes/${mesh}/devices`, "POST", await enrollBody(install, mesh, { name: "laptop", wgPublicKey: "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDM=" }))))["device"]));
+    expect((await call(`/v1/meshes/${mesh}/acl`, "PUT", { expectedVersion: 0, rules: [{ src: ["device:*"], dst: ["device:*"], allow: ["tcp:4100"] }] })).status).toBe(200);
+    const peers = async () => (await json(await call(`/v1/devices/${laptop}/overlay-policy`)))["peers"];
+    expect(await peers()).toEqual(expect.arrayContaining([expect.objectContaining({ deviceId: ada.id }), expect.objectContaining({ deviceId: bob.id })]));
+
+    h.removeMember(TEAM, "user_ada");
+    expect((await h.stackWebhook({ type: "team_membership.deleted", data: { team_id: TEAM, user_id: "user_ada" } }, { id: "msg_ada" })).status).toBe(200);
+    h.addMember(TEAM, "user_ada");
+    // A removal cuts the servers that existed then; the re-add does not bring them back.
+    expect(await peers()).toEqual([expect.objectContaining({ deviceId: bob.id })]);
+    expect((await signedPolicy(ada)).status).toBe(404);
+    expect((await call(`/v1/overlay-servers/${ada.id}`)).status).toBe(404);
+    expect((await signedPolicy(bob)).status).toBe(200);
+
+    // user.deleted with a stale (empty) team list still finds the tenant holding the user's server.
+    expect((await h.stackWebhook({ type: "user.deleted", data: { id: "user_bob", teams: [] } }, { id: "msg_bob" })).status).toBe(200);
+    expect(await peers()).toEqual([]);
+    expect((await signedPolicy(bob)).status).toBe(404);
+    expect((await call(`/v1/overlay-servers/${bob.id}`)).status).toBe(404);
   });
 });
