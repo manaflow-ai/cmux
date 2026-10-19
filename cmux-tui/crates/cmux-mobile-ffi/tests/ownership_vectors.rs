@@ -2,11 +2,37 @@
 //! `schemas/ownership-mirror/vectors.json` (the real TypeScript
 //! `ProjectionClient`'s): through the exported JSON-text surface, for each
 //! input the frames to send and the view after it equal the TypeScript
-//! client's. Swift and Kotlin call exactly these methods.
+//! client's. Swift and Kotlin call exactly these methods. The app observes
+//! the view through the listener: after every input that changed the view
+//! it is told once, with the view `view()` returns; otherwise not at all.
 
-use cmux_mobile_ffi::ownership::{OwnershipMirror, OwnershipMirrorError, OwnershipMirrorView};
+use cmux_mobile_ffi::ownership::{
+    OwnershipMirror, OwnershipMirrorError, OwnershipMirrorListener, OwnershipMirrorView,
+};
 use serde_json::{Value, json};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+/// What the app's listener saw.
+#[derive(Default)]
+struct Seen(Mutex<Vec<OwnershipMirrorView>>);
+
+impl OwnershipMirrorListener for Seen {
+    fn on_change(&self, view: OwnershipMirrorView) {
+        self.0.lock().unwrap().push(view);
+    }
+}
+
+impl Seen {
+    fn take(&self) -> Vec<OwnershipMirrorView> {
+        std::mem::take(&mut *self.0.lock().unwrap())
+    }
+}
+
+/// The view without its generation: what a screen renders.
+fn shown(view: &OwnershipMirrorView) -> OwnershipMirrorView {
+    OwnershipMirrorView { generation: 0, ..view.clone() }
+}
 
 fn vectors() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -65,7 +91,10 @@ fn step(m: &OwnershipMirror, input: &Value) -> Vec<Value> {
                 Err(e) => panic!("issue: {e}"),
             }
         }
-        "receive" => m.receive(input["frame"].to_string()).expect("owner frame decodes").send,
+        "receive" => {
+            let at = input["now"].as_i64().unwrap_or(0);
+            m.receive(input["frame"].to_string(), at).expect("owner frame decodes").send
+        }
         "disconnect" => {
             m.disconnect();
             Vec::new()
@@ -94,8 +123,21 @@ fn the_binding_replays_every_trace_of_the_typescript_client() {
             case["initial"].to_string(),
         )
         .expect("initial JSON");
+        let seen = Arc::new(Seen::default());
+        let mut before = m.set_listener(Some(seen.clone()));
+        assert_eq!(before, m.view(), "{name}: set_listener returns the view now");
         for (i, s) in case["steps"].as_array().expect("steps").iter().enumerate() {
             let got = Value::Array(step(&m, &s["in"]));
+            let now = m.view();
+            let told = seen.take();
+            if shown(&now) == shown(&before) {
+                assert!(told.is_empty(), "{name} step {i}: told without a change: {told:?}");
+                assert_eq!(now.generation, before.generation, "{name} step {i}");
+            } else {
+                assert_eq!(told, vec![now.clone()], "{name} step {i}: the change, told once");
+                assert_eq!(now.generation, before.generation + 1, "{name} step {i}");
+            }
+            before = now;
             let want: Vec<Value> = s["out"]
                 .as_array()
                 .expect("out")
@@ -128,7 +170,7 @@ fn the_binding_replays_every_trace_of_the_typescript_client() {
 #[test]
 fn bad_json_and_bad_origins_are_refused_not_panics() {
     let m = OwnershipMirror::new("c".into(), "{}".into()).expect("mirror");
-    assert!(matches!(m.receive("{".into()), Err(OwnershipMirrorError::Invalid { .. })));
+    assert!(matches!(m.receive("{".into(), 1), Err(OwnershipMirrorError::Invalid { .. })));
     assert!(matches!(
         m.issue("message.send".into(), "{}".into(), "robot".into(), 1),
         Err(OwnershipMirrorError::Invalid { .. })
