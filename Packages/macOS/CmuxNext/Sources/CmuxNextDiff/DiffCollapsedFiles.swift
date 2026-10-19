@@ -6,7 +6,7 @@ import os
 /// kept by the host next to the viewed marks (`diff-collapsed.json`), never in cmux.json. The page
 /// still reads and writes them as the `collapsedFiles` pref (`cmux.diff.prefs.*`). Reads and writes
 /// run off the main actor, writes in order.
-final class DiffCollapsedFiles {
+public final class DiffCollapsedFiles {
     static let fileName = "diff-collapsed.json"
 
     let url: URL
