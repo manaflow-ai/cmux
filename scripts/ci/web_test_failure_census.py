@@ -31,6 +31,7 @@ succeeded.
 from __future__ import annotations
 
 import argparse
+import http.client
 import io
 import json
 import os
@@ -194,6 +195,23 @@ class Source:
     def __init__(self, gh: GitHub, cache: Path | None):
         self.gh, self.cache = gh, cache
 
+    def _call(self, fetch, path: str):
+        """One GET, retried once when GitHub cuts the body short (http.client.IncompleteRead is
+        neither an HTTPError nor an OSError, so the client's own retry misses it)."""
+        for attempt in range(2):
+            try:
+                return fetch(path)
+            except http.client.HTTPException as error:
+                if attempt:
+                    raise RuntimeError(f"GET {path}: {error!r}") from error
+        return None
+
+    def _get(self, path: str):
+        return self._call(self.gh.get, path)
+
+    def _text(self, path: str, text: bool = True) -> str:
+        return str(self._call(lambda p: self.gh.request("GET", p, text=True), path))
+
     def _cached(self, name: str) -> str | None:
         if self.cache is None:
             return None
@@ -210,14 +228,14 @@ class Source:
         tmp.replace(path)
 
     def core_remaining(self) -> tuple[int, int]:
-        body = self.gh.get("rate_limit") or {}
+        body = self._get("rate_limit") or {}
         core = body.get("resources", {}).get("core", {})  # type: ignore[union-attr]
         return int(core.get("remaining", 0)), int(core.get("reset", 0))
 
     def artifacts(self, name: str, since: datetime) -> list[dict]:
         found: list[dict] = []
         for page in range(1, 20):
-            body = self.gh.get(f"repos/{self.gh.repo}/actions/artifacts?name={name}&per_page=100&page={page}") or {}
+            body = self._get(f"repos/{self.gh.repo}/actions/artifacts?name={name}&per_page=100&page={page}") or {}
             batch = list(body.get("artifacts", []))  # type: ignore[union-attr]
             fresh = [a for a in batch if parse_time(a.get("created_at")) >= since]
             found += fresh
@@ -229,7 +247,7 @@ class Source:
         name = f"junit/{artifact['id']}.xml"
         if (text := self._cached(name)) is not None:
             return text
-        raw = fetch_bytes(self.gh, f"repos/{self.gh.repo}/actions/artifacts/{artifact['id']}/zip")
+        raw = self._call(lambda p: fetch_bytes(self.gh, p), f"repos/{self.gh.repo}/actions/artifacts/{artifact['id']}/zip")
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             xml = next((n for n in archive.namelist() if n.endswith(".xml")), None)
             text = archive.read(xml).decode("utf-8", "replace") if xml else "<testsuites/>"
@@ -240,7 +258,7 @@ class Source:
         name = f"logs/{job_id}.log"
         if (text := self._cached(name)) is not None:
             return text
-        text = str(self.gh.request("GET", f"repos/{self.gh.repo}/actions/jobs/{job_id}/logs", text=True))
+        text = str(self._text(f"repos/{self.gh.repo}/actions/jobs/{job_id}/logs", text=True))
         self._store(name, text)
         return text
 
@@ -253,7 +271,7 @@ class Source:
         for page in range(1, 50):
             if len(found) >= max_runs:
                 break
-            body = self.gh.get(f"repos/{self.gh.repo}/actions/workflows/{WORKFLOW}/runs"
+            body = self._get(f"repos/{self.gh.repo}/actions/workflows/{WORKFLOW}/runs"
                                f"?created=%3E%3D{day}{scope}&per_page=100&page={page}") or {}
             batch = list(body.get("workflow_runs", []))  # type: ignore[union-attr]
             found += [slim_run(r) for r in batch if worth_inspecting(r) and parse_time(r.get("created_at")) >= since]
@@ -272,7 +290,7 @@ class Source:
                   if attempt else f"repos/{self.gh.repo}/actions/runs/{run_id}/jobs?filter=all&")
         jobs: list[dict] = []
         for page in range(1, 10):
-            body = self.gh.get(f"{prefix}per_page=100&page={page}") or {}
+            body = self._get(f"{prefix}per_page=100&page={page}") or {}
             batch = list(body.get("jobs", []))  # type: ignore[union-attr]
             jobs += [slim_job(j) for j in batch]
             if len(batch) < 100:
@@ -286,7 +304,7 @@ class Source:
         name = f"sha/{sha}.json"
         if (text := self._cached(name)) is not None:
             return json.loads(text)
-        body = self.gh.get(f"repos/{self.gh.repo}/actions/runs?head_sha={sha}&per_page=100") or {}
+        body = self._get(f"repos/{self.gh.repo}/actions/runs?head_sha={sha}&per_page=100") or {}
         runs = [slim_run(r) for r in body.get("workflow_runs", [])  # type: ignore[union-attr]
                 if str(r.get("path", "")).endswith(f"/{WORKFLOW}")]
         if runs and all(r.get("status") == "completed" for r in runs):
@@ -300,7 +318,7 @@ class Source:
         if (text := self._cached(name)) is not None:
             return json.loads(text)
         owner = self.gh.repo.split("/")[0]
-        body = self.gh.get(f"repos/{self.gh.repo}/pulls?head={owner}:{urllib_quote(branch)}&state=all&per_page=1") or []
+        body = self._get(f"repos/{self.gh.repo}/pulls?head={owner}:{urllib_quote(branch)}&state=all&per_page=1") or []
         number = int(body[0]["number"]) if body else None  # type: ignore[index]
         if number is not None:
             self._store(name, json.dumps(number))
@@ -383,7 +401,7 @@ def from_junit(src: Source, since: datetime, test: str | None, file: str | None,
                 run = artifact.get("workflow_run") or {}
                 try:
                     items = parse_junit(src.junit(artifact))
-                except (ValueError, ET.ParseError) as error:
+                except (ValueError, ET.ParseError, RuntimeError, zipfile.BadZipFile) as error:
                     print(f"warning: artifact {artifact['id']}: {error}", file=sys.stderr)
                     continue
                 for item in items:
@@ -479,11 +497,18 @@ def enrich(src: Source, failures: list[dict], jobs_by_run: Mapping[int, list[dic
     """Add job links, re-run outcomes, main/PR labels and PR numbers."""
     for item in failures:
         run_id = int(item["run_id"])
-        sha_runs = src.sha_runs(str(item["sha"])) if item.get("sha") else []
+        try:
+            sha_runs = src.sha_runs(str(item["sha"])) if item.get("sha") else []
+        except RuntimeError as error:  # the failure stays listed; only its re-run evidence is lost
+            print(f"warning: runs of {item.get('sha')}: {error}", file=sys.stderr)
+            sha_runs = []
         run = next((r for r in sha_runs if r.get("id") == run_id), {"id": run_id, "status": "completed"})
         jobs = jobs_by_run.get(run_id)
         if jobs is None and (not item.get("job_url") or int(run.get("run_attempt") or 1) > int(item["attempt"])):
-            jobs = src.jobs(run)
+            try:
+                jobs = src.jobs(run)
+            except RuntimeError as error:
+                print(f"warning: run {run_id}: {error}", file=sys.stderr)
         jobs = jobs or []
         if not item.get("job_url"):
             job = next((j for j in jobs if shard_of(str(j.get("name"))) == item["shard"]
