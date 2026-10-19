@@ -27,6 +27,7 @@ TOUR_FILES = {
     "agent-pane": TOURS / "agent-pane.json",
     "now-playing": TOURS / "now-playing.json",
     "glass": TOURS / "glass.json",
+    "fonts": TOURS / "fonts.json",
     "core": TOURS / "core.json",
 }
 

@@ -1,0 +1,15 @@
+{
+  "title": "Fonts",
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Settings on Fonts: System (default)",
+     "cmux": ["action", "run", "openSettings", "--arg", "section=appearance", "--arg", "setting=appearance.fonts.ui"], "wait": 3},
+    {"title": "Code Font: Menlo", "cmux": ["settings", "set", "appearance.fonts.code", "Menlo"], "wait": 2},
+    {"title": "Text Font: Serif", "cmux": ["settings", "set", "appearance.fonts.ui", "serif"], "wait": 2},
+    {"title": "Text Font: Rounded", "cmux": ["settings", "set", "appearance.fonts.ui", "rounded"], "wait": 2},
+    {"title": "Chat Text Size: 17 pt", "cmux": ["settings", "set", "appearance.fonts.chatSize", "17"], "wait": 2},
+    {"title": "Back to System", "cmux": ["settings", "unset", "appearance.fonts.ui"], "wait": 1, "shot": false},
+    {"title": "Default code font", "cmux": ["settings", "unset", "appearance.fonts.code"], "wait": 1, "shot": false},
+    {"title": "Default chat size", "cmux": ["settings", "unset", "appearance.fonts.chatSize"], "wait": 2}
+  ]
+}

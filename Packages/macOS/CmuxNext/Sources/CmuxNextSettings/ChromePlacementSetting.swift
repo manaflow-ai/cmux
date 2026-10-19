@@ -27,6 +27,7 @@ public nonisolated struct ChromePlacementSetting {
         snapshot.tabBarOrder = choice(root, tabBarOrderPath, fallback: .aboveToolbar, &snapshot.diagnostics)
         _ = PaneToolbarButtonsSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the root (`current`)
         _ = SidebarSurfaceSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applySidebarSurface`)
+        _ = AppFontsSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyFonts`)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -120,5 +121,6 @@ extension SettingsApplier {
         if design.tabBarOrder != snapshot.tabBarOrder { design.tabBarOrder = snapshot.tabBarOrder }
         applyChromeStyle(snapshot, to: design)
         applySidebarSurface(snapshot, to: design)
+        applyFonts(snapshot, to: design)
     }
 }
