@@ -2,6 +2,7 @@
 """Hold a cmux-next media tour's tag for the rest of its job.
 
     media_tag_lock.py hold --tag ci-media-pr-123 [--wait SECONDS]
+    media_tag_lock.py claim --slots K [--github-env FILE]
 
 A tour builds into per-tag DerivedData (cmux-<tag>-base, cmux-<tag>-head)
 kept warm across runs of one pull request, and launches apps whose sockets
@@ -16,6 +17,16 @@ Two tours building into one DerivedData at once break its module cache
 leaves a background process holding it and returns. The holder lets go when
 the job's Runner.Worker exits (the runner also ends a job's leftover
 processes) or after --max-hold seconds, so a lost job never keeps a tag.
+
+`claim` is how a tour picks its tag. It takes the first free tag of
+ci-media-slot0, ci-media-slot1, ... without waiting, holds it like `hold`, and
+writes TOUR_SLOT and TOUR_TAG to --github-env. A tag per pull request left a
+~9.5 GiB pair per pull request toured on a Mac, and each pull request's first
+tour built cold (the base alone took 35 min, job 115856352658). A slot's
+DerivedData has the same path whichever pull request tours in it, so the
+first K slots are K warm pairs the next tours reuse and the prune keeps. When
+all K are held the tour takes the next slot up rather than wait while it holds
+a runner; prune_media_derived_data.py --slots K removes those once idle.
 """
 
 from __future__ import annotations
@@ -31,6 +42,8 @@ import time
 
 DEFAULT_LOCK_DIR = Path.home() / "Library/Caches/cmux-ci-media/locks"
 WORKER = "Runner.Worker"
+# Overflow slots past K are tried in order; a Mac never runs this many tours.
+MAX_SLOTS = 64
 
 
 def worker_pid(start: int) -> int | None:
@@ -81,6 +94,22 @@ def acquire(path: Path, wait: float) -> int | None:
         time.sleep(2)
 
 
+def try_lock(path: Path) -> int | None:
+    """An fd holding path's exclusive lock, or None while another process holds it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def slot_tag(slot: int) -> str:
+    return f"ci-media-slot{slot}"
+
+
 def hold(fd: int, path: Path, worker: int | None, max_hold: float) -> None:
     """Fork a holder that keeps fd until the worker exits or max_hold passes; the caller returns."""
     os.ftruncate(fd, 0)
@@ -106,7 +135,16 @@ def main(argv: list[str] | None = None) -> int:
     held.add_argument("--lock-dir", type=Path, default=DEFAULT_LOCK_DIR)
     held.add_argument("--wait", type=float, default=7200)
     held.add_argument("--max-hold", type=float, default=3 * 3600)
+    claimed = sub.add_parser("claim")
+    claimed.add_argument("--slots", type=int, default=2, help="warm slots per Mac (default 2)")
+    claimed.add_argument("--lock-dir", type=Path, default=DEFAULT_LOCK_DIR)
+    claimed.add_argument("--github-env", type=Path, help="append TOUR_SLOT and TOUR_TAG here")
+    claimed.add_argument("--max-hold", type=float, default=3 * 3600)
     args = parser.parse_args(argv)
+    if args.command == "claim":
+        if not 1 <= args.slots <= MAX_SLOTS:
+            parser.error(f"--slots must be 1..{MAX_SLOTS}")
+        return claim(args)
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", args.tag):
         parser.error("--tag must be a simple tag name")
     path = args.lock_dir / f"{args.tag}.lock"
@@ -119,6 +157,31 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no {WORKER} above this step; the tag is held for at most {args.max_hold:.0f}s", flush=True)
     hold(fd, path, worker, args.max_hold)
     print(f"holding {path.name}", flush=True)
+    return 0
+
+
+def claim(args: argparse.Namespace) -> int:
+    for slot in range(MAX_SLOTS):
+        path = args.lock_dir / f"{slot_tag(slot)}.lock"
+        try:
+            fd = try_lock(path)
+        except OSError as error:
+            print(f"::warning::cannot lock {path}: {error}", flush=True)
+            continue
+        if fd is not None:
+            break
+    else:
+        print(f"::error::all {MAX_SLOTS} tour slots in {args.lock_dir} are held", flush=True)
+        return 1
+    worker = worker_pid(os.getppid())
+    if worker is None:
+        print(f"no {WORKER} above this step; the slot is held for at most {args.max_hold:.0f}s", flush=True)
+    hold(fd, path, worker, args.max_hold)
+    kind = "warm" if slot < args.slots else f"overflow, all {args.slots} warm slots are held"
+    print(f"holding {path.name}: tour slot {slot} ({kind})", flush=True)
+    if args.github_env:
+        with open(args.github_env, "a") as handle:
+            handle.write(f"TOUR_SLOT={slot}\nTOUR_TAG={slot_tag(slot)}\n")
     return 0
 
 
