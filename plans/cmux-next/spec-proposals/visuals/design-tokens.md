@@ -29,7 +29,7 @@ Every source line below is in `ThemeTokens.derive` (`ThemeTokens.swift`) unless 
 | textTertiary | textPrimary mixed toward bg, up to 0.55, keeping 3:1 | :157 |
 | hoverFill | fg @ 0.06 / 0.05 | :148 |
 | selectionFill | fg @ 0.10 / 0.08; with appearance.accent: accent @ 0.26 / 0.16 | :150 |
-| secondarySelectionFill | fg @ 0.07 / 0.055 | :196 |
+| secondarySelectionFill | fg @ 0.07 / 0.055; with appearance.accent: accent @ 0.18 / 0.11 | :196 |
 | pressedFill | fg @ 0.14 / 0.11 | :151 |
 | badgeFill | fg @ 0.14 / 0.10 | :198 |
 | separator | fg @ 0.08 / 0.07; clear under borders none | :199; Palette.swift:66 (`Palette.separator`) |
