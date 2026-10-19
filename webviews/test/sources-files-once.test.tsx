@@ -1,6 +1,7 @@
 // The chat's Sources popover listed a file the last turn edited twice (cx-0h4xq, dogfood run 6):
-// under Outputs, the chat's files, and again under Changes, the last turn's. Codex lists it once:
-// a file the last turn changed shows under Changes, and Outputs keeps the chat's other files.
+// under Outputs, the chat's files, and again under Changes, the last turn's. It lists it once, under
+// Outputs with every file the chat changed (hq#2569 item 4: a chat that edited files said "Outputs:
+// None"); Changes is the one row that opens the last turn's diff with its totals.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -53,27 +54,28 @@ async function sourcesRows(outputs: never[], changed: never[]) {
   return sections;
 }
 
-function expectOnceUnderChanges(sections: Record<string, string[]>) {
+function expectOnceUnderOutputs(sections: Record<string, string[]>) {
   const rows = Object.values(sections).flat();
   expect(rows.filter((row) => row.includes("upload.sh")).length).toBe(1);
-  expect((sections["Changes"] ?? []).some((row) => row.includes("upload.sh"))).toBe(true);
+  expect((sections["Outputs"] ?? []).some((row) => row.includes("upload.sh"))).toBe(true);
   expect((sections["Outputs"] ?? []).some((row) => row.includes("README.md"))).toBe(true);
+  expect(sections["Changes"]).toEqual(["Changes+1-0"]);
 }
 
-test("a file the last turn changed shows once, under Changes", async () => {
-  expectOnceUnderChanges(
+test("a file the last turn changed shows once, under Outputs", async () => {
+  expectOnceUnderOutputs(
     await sourcesRows([file("/repo/src/upload.sh", 1), file("/repo/README.md", 4)], [file("/repo/src/upload.sh", 1)]),
   );
 });
 
-// Once the turn's checkpoint loads, Changes lists its files under the repository root, while the
-// chat's outputs keep the paths the agent wrote (`~/code/x/src/upload.sh`).
-test("a file the turn's checkpoint lists shows once, under Changes", async () => {
+// Once the turn's checkpoint loads, its files are under the repository root, while the chat's
+// outputs keep the paths the agent wrote (`~/code/x/src/upload.sh`): still listed once.
+test("a file the turn's checkpoint lists shows once, under Outputs", async () => {
   const checkpoint = {
     ...(file("/Users/me/code/x/src/upload.sh", 1) as object),
     displayPath: "src/upload.sh",
   } as never;
-  expectOnceUnderChanges(
+  expectOnceUnderOutputs(
     await sourcesRows([file("~/code/x/src/upload.sh", 1), file("~/code/x/README.md", 4)], [checkpoint]),
   );
 });
