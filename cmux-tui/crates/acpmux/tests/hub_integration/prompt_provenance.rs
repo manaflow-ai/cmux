@@ -234,12 +234,15 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
     // The message the reply answers: `sender`'s agent message `msg-0` to `replier`.
     let message = json!({"kind": "agent_message", "from": sender, "fromName": "builder", "to": replier,
                          "msgId": "msg-0", "threadId": "thread-1"});
-    local.call("session/prompt", prompt(&replier, "msg-0", "Rebase on main.", Some(&message))).await;
+    local
+        .call("session/prompt", prompt(&replier, "msg-0", "Rebase on main.", Some(&message)))
+        .await;
     let mut app = Client::open_as(&hub, Origin::LocalApp);
 
     // A reply from the chat the message came to, to the chat that sent it: recorded as is.
     let reply = app_reply(&replier, &sender);
-    app.call("session/prompt", prompt(&sender, "p-reply", "Rebased; tests pass.", Some(&reply))).await;
+    app.call("session/prompt", prompt(&sender, "p-reply", "Rebased; tests pass.", Some(&reply)))
+        .await;
     let ran = local.user_message(&sender, "p-reply").await;
     assert_eq!(ran["text"], "Rebased; tests pass.", "{ran}");
     assert_eq!(ran.pointer("/_meta/provenance"), Some(&reply), "{ran}");
@@ -271,7 +274,11 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
     // A remote browser may not send even a reply.
     let mut web = Client::open_as(&hub, Origin::Web);
     let value = web.reply("session/prompt", prompt(&sender, "p-web", "hi", Some(&reply))).await;
-    assert_eq!(value.pointer("/error/data/reason"), Some(&json!("provenance.origin_refused")), "{value}");
+    assert_eq!(
+        value.pointer("/error/data/reason"),
+        Some(&json!("provenance.origin_refused")),
+        "{value}"
+    );
 }
 
 #[tokio::test]

@@ -398,19 +398,7 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let sender = match conn.origin {
-                Origin::Local => crate::prompt_provenance::Sender::Local,
-                Origin::LocalApp => crate::prompt_provenance::Sender::App,
-                _ => crate::prompt_provenance::Sender::Other,
-            };
-            let provenance = crate::prompt_provenance::of(&params, sender)?;
-            // The app's reply in place answers a message a chat here got from this one.
-            if sender == crate::prompt_provenance::Sender::App
-                && let Some(p) = &provenance
-                && !hub.app_reply_fits(p, &s.id)
-            {
-                return Err(crate::prompt_provenance::origin_refused());
-            }
+            let provenance = hub.prompt_provenance(&params, conn.origin, &s.id)?;
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);

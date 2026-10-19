@@ -100,6 +100,29 @@ enum Decision {
 }
 
 impl Hub {
+    /// The provenance of a `session/prompt` to chat `to` from a connection of `origin`
+    /// (`prompt_provenance::of`); the app pane's reply in place must answer a message a chat
+    /// here got from `to` (`app_reply_fits`).
+    pub(crate) fn prompt_provenance(
+        &self,
+        params: &Value,
+        origin: crate::server::Origin,
+        to: &str,
+    ) -> Result<Option<Value>, RpcError> {
+        use crate::prompt_provenance::Sender;
+        let sender = match origin {
+            crate::server::Origin::Local => Sender::Local,
+            crate::server::Origin::LocalApp => Sender::App,
+            _ => Sender::Other,
+        };
+        let provenance = crate::prompt_provenance::of(params, sender)?;
+        if sender == Sender::App && provenance.as_ref().is_some_and(|p| !self.app_reply_fits(p, to))
+        {
+            return Err(crate::prompt_provenance::origin_refused());
+        }
+        Ok(provenance)
+    }
+
     /// Whether the app pane's reply in place (`prompt_provenance.rs`, `Sender::App`) answers a
     /// real message: `from` is a chat here other than `to`, and its log holds a `user_message`
     /// that `to` sent it as an agent message under the id the reply names (`replyTo`). The
@@ -116,7 +139,8 @@ impl Hub {
         }
         let mut answered = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let p = |k: &str| e.msg.pointer(&format!("/_meta/provenance/{k}")).and_then(Value::as_str);
+            let p =
+                |k: &str| e.msg.pointer(&format!("/_meta/provenance/{k}")).and_then(Value::as_str);
             answered = e.kind == "user_message"
                 && p("kind") == Some("agent_message")
                 && p("msgId") == Some(reply_to)
