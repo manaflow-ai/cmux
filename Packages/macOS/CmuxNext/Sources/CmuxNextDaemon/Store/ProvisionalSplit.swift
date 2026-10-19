@@ -21,6 +21,16 @@ import Foundation
         return store.screen(containing: pane.handle)?.layout.paneIDs.contains(pane.handle) == true
     }
 
+    /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the
+    /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
+    /// the split before them showed the pane unsplit for one turn. A cancelled creation stays
+    /// while the records hold what it made (``CancelledCreation``).
+    static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
+        if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
+        guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
+        return !daemonPlaces(provisional, in: store)
+    }
+
     private static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
         store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
     }
