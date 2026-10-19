@@ -33,6 +33,7 @@ pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
 mod compact;
+pub(crate) mod deferred_sync;
 mod detached_terminals;
 pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
 use detached_terminals::require_live_workspace;
@@ -2860,8 +2861,26 @@ impl WorkspaceRegistry {
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        // Group commit for creations (`deferred_sync`): only an on-disk WAL
+        // registry has a WAL file to sync.
+        let wal = match database_path.as_ref() {
+            Some(path) => connection
+                .query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
+                .ok()
+                .filter(|mode| mode.eq_ignore_ascii_case("wal"))
+                .map(|_| {
+                    let mut wal = path.clone().into_os_string();
+                    wal.push("-wal");
+                    PathBuf::from(wal)
+                }),
+            None => None,
+        };
+        let connection = RegistryConnection::new(connection);
+        if let Some(wal) = wal {
+            connection.deferred_sync().enable(wal);
+        }
         Ok(Self {
-            connection: RegistryConnection::new(connection),
+            connection,
             database_path,
             registry_id,
             generation: try_new_uuid_v4()?,

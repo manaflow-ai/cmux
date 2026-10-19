@@ -1,10 +1,11 @@
-//! Registry commits ride the journal writer's batch on a real headless
-//! daemon: under terminal output, a terminal create commits its terminal
-//! records (reserved, ready) and its effect receipt as writer intents, and a
-//! topology write (`rename-workspace`) commits its resource patch as one (one
-//! shared fsync per batch). None of them runs its own transaction on the
-//! request thread, and the journal writer never takes the workspace registry
-//! lock while requests wait for its receipts.
+//! Registry commits on a real headless daemon under terminal output: a
+//! topology write (`rename-workspace`) commits its resource patch as a
+//! journal writer intent (one shared fsync per batch). A terminal create
+//! commits its rows (receipt, terminal reserved, ready, projection) on its
+//! own request thread instead, and they share one WAL sync at the end of the
+//! creation (create-txn, `workspace_registry::deferred_sync`); the
+//! `create_txn_sync` test checks that sync. The journal writer never takes
+//! the workspace registry lock while requests wait for its receipts.
 #![cfg(unix)]
 
 use std::fs;
@@ -15,11 +16,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-/// Creates measured under output load. Each create commits two terminal
-/// records (reserved, ready) and one effect receipt with its topology patch.
+/// Creates measured under output load. Each create commits its terminal
+/// records (reserved, ready) and its effect receipt on its request thread.
 const CREATES: usize = 8;
-/// Writer intents per create: terminal reserved, terminal ready, effect.
-const INTENTS_PER_CREATE: usize = 3;
+/// Request-thread commits per create, at least: terminal reserved, terminal
+/// ready, effect.
+const COMMITS_PER_CREATE: usize = 3;
 /// Topology writes measured under output load, one resource patch each.
 const RENAMES: usize = 6;
 const BUSY_TERMINALS: usize = 3;
@@ -115,7 +117,7 @@ fn counter(section: &serde_json::Value, name: &str) -> u64 {
 }
 
 #[test]
-fn terminal_creates_under_output_commit_effect_receipts_in_writer_batches() {
+fn under_output_renames_ride_writer_batches_and_creates_commit_on_their_thread() {
     let daemon = Daemon::start("creates");
     request(
         &daemon.socket,
@@ -176,19 +178,19 @@ fn terminal_creates_under_output_commit_effect_receipts_in_writer_batches() {
     );
     let after = write_path(&daemon.socket);
     let delta = |name: &str| counter(&after, name) - counter(&before, name);
-    let expected = (CREATES * INTENTS_PER_CREATE + RENAMES) as u64;
     assert!(
-        delta("effect_intents") >= expected,
-        "{CREATES} creates and {RENAMES} renames committed only {} of {expected} registry \
-         commits as writer intents: {after}",
+        delta("effect_intents") >= RENAMES as u64,
+        "{RENAMES} renames committed only {} registry commits as writer intents: {after}",
         delta("effect_intents")
     );
     assert!(delta("effect_intent_batches") > 0, "no writer batch carried an intent: {after}");
     assert_eq!(delta("effect_intent_failures"), 0, "writer intents failed: {after}");
-    assert_eq!(
-        delta("request_effect_commits"),
-        0,
-        "creates or renames committed on the request thread: {after}"
+    let expected = (CREATES * COMMITS_PER_CREATE) as u64;
+    assert!(
+        delta("request_effect_commits") >= expected,
+        "{CREATES} creates committed only {} of {expected} registry commits on their own \
+         thread: {after}",
+        delta("request_effect_commits")
     );
     assert_eq!(
         counter(&after, "writer_registry_locks"),

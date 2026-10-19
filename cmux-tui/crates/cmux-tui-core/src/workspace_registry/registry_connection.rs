@@ -23,6 +23,7 @@ use parking_lot::{
 };
 use rusqlite::Connection;
 
+use super::deferred_sync::DeferredSync;
 use crate::lock_rank::{HeldRank, LockRank};
 
 const CONNECTION_LOCK_NAME: &str = "registry.connection";
@@ -33,7 +34,16 @@ const CONNECTION_LOCK_NAME: &str = "registry.connection";
 /// thread is checked (a re-entry cannot deadlock).
 pub(crate) struct RegistryConnectionGuard<'a> {
     guard: ReentrantMutexGuard<'a, Connection>,
+    /// Group commit bookkeeping of this hold (`deferred_sync`).
+    deferred: &'a DeferredSync,
     _rank: HeldRank,
+}
+
+impl Drop for RegistryConnectionGuard<'_> {
+    fn drop(&mut self) {
+        // Runs before the lock is released (fields drop after this).
+        self.deferred.releasing(&self.guard);
+    }
 }
 
 impl std::ops::Deref for RegistryConnectionGuard<'_> {
@@ -49,7 +59,15 @@ impl std::ops::Deref for RegistryConnectionGuard<'_> {
 /// (they re-enter the lock on the same thread).
 pub(crate) struct RegistryConnectionPin {
     _guard: ArcReentrantMutexGuard<RawMutex, RawThreadId, Connection>,
+    deferred: Arc<DeferredSync>,
     _rank: HeldRank,
+}
+
+impl Drop for RegistryConnectionPin {
+    fn drop(&mut self) {
+        // Runs before the lock is released (fields drop after this).
+        self.deferred.releasing(&self._guard);
+    }
 }
 
 /// Test hooks inside a journal writer commit (they pause the writer at a
@@ -68,6 +86,8 @@ pub(crate) struct JournalCommitHooks {
 // path. Reentrancy can hide lock-order bugs; debug_assert_lock_order guards it.
 pub(crate) struct RegistryConnection {
     connection: Arc<ReentrantMutex<Connection>>,
+    /// One WAL sync per creation (`deferred_sync`).
+    deferred: Arc<DeferredSync>,
     /// Which thread commits durable writes (`server-stats` `write_path`).
     write_path_stats: crate::diagnostics::WritePathStats,
     /// The journal writer, once it runs (see `registry_intent`).
@@ -131,8 +151,12 @@ pub(crate) fn in_journal_writer_commit() -> bool {
 
 impl RegistryConnection {
     pub(super) fn new(connection: Connection) -> Arc<Self> {
+        let deferred = Arc::<DeferredSync>::default();
+        let probe = deferred.clone();
+        crate::debug_spans::trace_commits(&connection, move || probe.commits_deferred());
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
+            deferred,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
@@ -148,7 +172,20 @@ impl RegistryConnection {
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() }
+        self.hold(self.connection.lock())
+    }
+
+    fn hold<'a>(
+        &'a self,
+        guard: ReentrantMutexGuard<'a, Connection>,
+    ) -> RegistryConnectionGuard<'a> {
+        self.deferred.acquired(&guard);
+        RegistryConnectionGuard { guard, deferred: &self.deferred, _rank: record_rank() }
+    }
+
+    /// The connection's group commit state (`deferred_sync`).
+    pub(crate) fn deferred_sync(&self) -> &Arc<DeferredSync> {
+        &self.deferred
     }
 
     /// Hold the connection lock for a request flow before it takes the
@@ -158,7 +195,13 @@ impl RegistryConnection {
     pub(crate) fn pin(&self) -> RegistryConnectionPin {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionPin { _guard: self.connection.lock_arc(), _rank: record_rank() }
+        let guard = self.connection.lock_arc();
+        self.deferred.acquired(&guard);
+        RegistryConnectionPin {
+            _guard: guard,
+            deferred: self.deferred.clone(),
+            _rank: record_rank(),
+        }
     }
 
     /// Check the lock rank before a blocking acquisition that is not a
@@ -206,13 +249,13 @@ impl RegistryConnection {
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
         self.check_rank();
         let guard = self.connection.try_lock_until(deadline)?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+        Some(self.hold(guard))
     }
 
     #[cfg(test)]
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
         let guard = self.connection.try_lock()?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+        Some(self.hold(guard))
     }
 }
 

@@ -231,7 +231,10 @@ pub struct WorkspaceGroupChange {
 
 impl Mux {
     pub fn presentation_snapshot(&self) -> Arc<PresentationSnapshot> {
-        self.presentation.lock().unwrap().clone()
+        let presentation = self.presentation.lock().unwrap();
+        // A creation may have reloaded it from unsynced commits (create_txn).
+        self.registry_connection.deferred_sync().sync_for_reader();
+        presentation.clone()
     }
 
     /// Reload the presentation snapshot from the registry. The caller holds
