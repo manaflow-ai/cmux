@@ -50,11 +50,12 @@ REPO = "manaflow-ai/cmux"
 BASE = "feat-cmux-next"
 ASKERS = ("teamleaderleo", "lawrencecchen")
 STALL = timedelta(hours=48)
+MAX_FANOUT = 3  # open PRs that may share one bead or issue before it counts as an umbrella
 BEAD_ID = re.compile(r"\bcx-[a-z0-9]{2,8}(?:\.[0-9]+)*\b")
 CLOSES_BEAD = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+(" + BEAD_ID.pattern[2:] + r")", re.I)
 CLOSES_ISSUE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b", re.I)
 VERIFIED = re.compile(r"<!--\s*cmux-gallery-link\b[^>]*\bverified\b|\bgallery:\s*verified\b|✅\s*verified", re.I)
-GALLERY_URL = re.compile(r"https://[^\s)>\"]*gallery[^\s)>\"]*", re.I)
+GALLERY_URL = re.compile(r"https://[^\s)>\"]{0,200}gallery[^\s)>\"]{0,200}", re.I)
 STATES = ("idea", "building", "pr-open", "merged", "shipped", "verified")
 # Files nearly every change touches say nothing about which idea a change is.
 GENERATED = re.compile(r"(Localizable\.xcstrings|/generated/|\.sha256$|Package\.(swift|resolved)$|"
@@ -123,6 +124,8 @@ def published_nightly(tag: str = "nightly-next") -> dict | None:
                             capture_output=True, text=True)
     sha = re.search(r"cmux-published-sha:\s*([0-9a-f]{40})", result.stdout or "")
     if result.returncode or not sha:
+        print(f"idea-ledger: no published {tag} commit ({(result.stderr or 'no marker').strip()[:160]}); "
+              "landed work shows as merged, not shipped", file=sys.stderr)
         return None
     build = re.search(r"cmux-published-build:\s*(\d+)", result.stdout)
     label = f"{tag} {build.group(1)}" if build else f"{tag} @ {sha.group(1)[:7]}"
@@ -141,7 +144,7 @@ def nightly_commits(published: str, since: datetime) -> set[str] | None:
         result = subprocess.run(["gh", "api", f"repos/{REPO}/commits?sha={published}&since={stamp}&per_page=100"
                                  f"&page={page}", "--jq", ".[].sha"], capture_output=True, text=True)
         if result.returncode:
-            return found or None
+            return None  # a partial listing would mark shipped work as merged
         shas = result.stdout.split()
         found.update(shas)
         if len(shas) < 100:
@@ -162,15 +165,18 @@ def read_board(path: str | None) -> tuple[list[dict], str]:
     since = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%d")
     for extra in ([], ["--all", "--closed-after", since]):
         args = ["list", "--json", "--readonly", "-n", "5000", *extra]
+        # No stdin: the nightly runs from a pipe, and ssh would swallow the rest of the script.
         if command:
-            result = subprocess.run([command, *args], capture_output=True, text=True)
+            result = subprocess.run([command, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
         else:
             remote = "cd ~/agent-tasks && bd " + " ".join(shlex.quote(arg) for arg in args)
-            result = subprocess.run(["ssh", "-o", "BatchMode=yes", host, remote], capture_output=True, text=True)
+            result = subprocess.run(["ssh", "-n", "-o", "BatchMode=yes", host, remote],
+                                    capture_output=True, text=True, stdin=subprocess.DEVNULL)
         if result.returncode:
             print(f"idea-ledger: the board did not answer ({(result.stderr or result.stdout).strip()[:200]})",
                   file=sys.stderr)
-            return [], ""
+            # The open beads still stand without the recently closed ones.
+            return (list(beads.values()), "board") if beads else ([], "")
         for bead in json.loads(result.stdout or "[]"):
             beads[bead["id"]] = bead
     return list(beads.values()), "board"
@@ -348,9 +354,10 @@ def model_clusters(pulls: list[dict], hints: list[list[int]]) -> list[dict] | No
         return None
     clusters = answer.get("clusters") or []
     known = {p["number"] for p in pulls}
-    out = []
+    out, taken = [], set()
     for cluster in clusters:
-        prs = sorted({int(n) for n in cluster.get("prs", []) if str(n).isdigit() and int(n) in known})
+        prs = sorted({int(n) for n in cluster.get("prs", []) if str(n).isdigit() and int(n) in known} - taken)
+        taken.update(prs)
         if len(prs) > 1:
             out.append({"name": str(cluster.get("name") or ""), "prs": prs, "why": str(cluster.get("why") or "")})
     return out
@@ -373,15 +380,22 @@ def reconcile(open_pulls: list[dict], merged: list[dict], issues: list[dict], be
         by_key[f"issue:{issue['number']}"] = {**issue, "kind": "issue"}
     for bead in beads:
         by_key[f"bead:{bead['id']}"] = {**bead, "kind": "bead"}
+    # What each PR links to, and how many open PRs name each bead or issue: one that more than
+    # MAX_FANOUT open PRs name is an umbrella, not one idea, so it joins none of them.
+    targets = {key: [f"bead:{b}" for b in linked_beads(node, board)]
+               + [f"issue:{n}" for n in CLOSES_ISSUE.findall(node.get("body") or "") if f"issue:{n}" in by_key]
+               for key, node in by_key.items() if node["kind"] == "pr"}
+    fanout = collections.Counter(t for key, ts in targets.items() if by_key[key]["state"] == "pr-open"
+                                 for t in set(ts))
     for key, node in list(by_key.items()):
         links.find(key)
         if node["kind"] == "pr":
-            for bead_id in linked_beads(node, board):
-                by_key.setdefault(f"bead:{bead_id}", {"id": bead_id, "kind": "bead", "unseen": True})
-                links.join(key, f"bead:{bead_id}")
-            for number in CLOSES_ISSUE.findall(node.get("body") or ""):
-                if f"issue:{number}" in by_key:
-                    links.join(key, f"issue:{number}")
+            for target in targets[key]:
+                if fanout[target] > MAX_FANOUT:
+                    continue
+                if target.startswith("bead:"):
+                    by_key.setdefault(target, {"id": target[5:], "kind": "bead", "unseen": True})
+                links.join(key, target)
         elif node["kind"] == "bead":
             ref = str(node.get("external_ref") or "")
             pr = re.search(r"/pull/(\d+)", ref)
@@ -389,10 +403,11 @@ def reconcile(open_pulls: list[dict], merged: list[dict], issues: list[dict], be
                 links.join(key, f"pr:{pr.group(1)}")
     cluster_of: dict[int, dict] = {}
     for cluster in clusters:
-        keys = [f"pr:{n}" for n in cluster["prs"] if f"pr:{n}" in by_key]
-        for a, b in zip(keys, keys[1:]):
-            links.join(a, b)
-        for n in cluster["prs"]:
+        # A PR stays in the first cluster that names it (curated clusters come first).
+        members = [n for n in cluster["prs"] if f"pr:{n}" in by_key and n not in cluster_of]
+        for a, b in zip(members, members[1:]):
+            links.join(f"pr:{a}", f"pr:{b}")
+        for n in members:
             cluster_of[n] = cluster
 
     items = []
@@ -609,7 +624,8 @@ def render_markdown(items: list[dict], meta: dict, now: datetime, limit: int = S
     """The same page as Markdown for a GitHub issue body: each section's top rows as a table, the
     rest as one-line links in a collapsed list, dropped section by section if the body runs long."""
     def cell(text: str) -> str:
-        return text.replace("|", "\\|").replace("\n", " ")
+        # Escaped so a title can't open an HTML comment or tag that hides the rest of the body.
+        return html.escape(text, quote=False).replace("|", "\\|").replace("\n", " ")
 
     counts = collections.Counter(i["state"] for i in items)
     out = [f"**{len(items)} items**: " + " · ".join(f"{counts.get(s, 0)} {s}" for s in STATES),
@@ -618,6 +634,7 @@ def render_markdown(items: list[dict], meta: dict, now: datetime, limit: int = S
            f"({meta['beads_source'] or 'beads not read on this run'}). Clusters by {meta['clustered_by']}. "
            f"Built {now.strftime('%Y-%m-%d %H:%M UTC')}.", ""]
     folded: list[tuple[int, str, str]] = []
+    nonce = os.urandom(6).hex()  # escaped titles can't contain a marker, but don't rely on it
     for name, hint, rows in sections(items, now):
         out += [f"### {name} ({len(rows)})", hint, ""]
         if not rows:
@@ -645,7 +662,7 @@ def render_markdown(items: list[dict], meta: dict, now: datetime, limit: int = S
                                                       if item.get("url") else cell(item["title"][:80]))
                              + f" · {cell(item['owner'] or 'nobody')} · {age(item.get('moved'), now)}"
                              for item in rows[limit:])
-            marker = f"<!-- folded {len(folded)} -->"
+            marker = f"<!-- folded {nonce} {len(folded)} -->"
             folded.append((len(rows) - limit, marker,
                            f"\n<details><summary>{len(rows) - limit} more</summary>\n\n{rest}\n\n</details>"))
             out.append(marker)
@@ -655,6 +672,8 @@ def render_markdown(items: list[dict], meta: dict, now: datetime, limit: int = S
     for count, marker, full in folded:
         room = ISSUE_BODY_LIMIT - len(body) + len(marker)
         body = body.replace(marker, full if len(full) <= room else f"\n{count} more not shown (the body is full).")
+    if len(body) > ISSUE_BODY_LIMIT:  # the tables alone can't push the issue past GitHub's limit
+        body = body[:ISSUE_BODY_LIMIT].rsplit("\n", 1)[0] + "\n\n(cut at the issue size limit)"
     return body
 
 
