@@ -1013,8 +1013,8 @@ the expected text without connecting to a cmux socket.
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux glaeda --help` -> `Usage: cmux glaeda <request|observe> [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|clean|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|clean|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm new --help` -> `Create a Cloud VM.`
 - `cmux vm ls --help` -> `List your Cloud VMs`
 - `cmux vm ports --help` -> `Show listening TCP ports inside a Cloud VM.`

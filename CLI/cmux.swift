@@ -7419,6 +7419,9 @@ struct CMUXCLI {
             case "agent-updates":
                 try runVMAgentUpdatesCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "clean":
+                try runVMCleanCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "pause", "resume", "restart":
                 // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
                 // stays); resuming brings the daemon and its terminals back.
@@ -21066,7 +21069,7 @@ struct CMUXCLI {
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|clean|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -21214,6 +21217,8 @@ struct CMUXCLI {
               pause <id>                Park the machine: compute stops (and stops billing);
                                         the volume, workspaces and history stay.
               resume <id>               Wake a paused machine; the daemon and terminals return.
+              clean <id> [--apply]      Show what disk cleanup would free; --apply removes it.
+                                        Never touches source; see `cmux vm clean --help`.
               rm <id>                   Destroy a VM.
               exec [--timeout <s>] <id> -- <command...>
                                         Run a shell command inside the VM and print stdout;
