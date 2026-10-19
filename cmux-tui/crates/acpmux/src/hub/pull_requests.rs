@@ -3,9 +3,9 @@
 //! so the sidebar's session tree counts every pull request a session opened, not only the one
 //! of the branch its folder has checked out now.
 //!
-//! Only a shell call (`kind` `execute`) whose whole command is `gh pr create ...` counts, after
-//! `cd DIR &&` steps and `VAR=value` / `env` prefixes: a grep or an echo that mentions it, or a
-//! `gh pr create && gh pr view 9`, does not. Of its output only the last line that is nothing but
+//! Only a shell call (`kind` `execute`) whose last command is `gh pr create ...` counts, after
+//! `cd DIR` steps, steps joined to it by `&&` (`git push && gh pr create`) and `VAR=value` / `env`
+//! prefixes: a grep or an echo that mentions it, or a `gh pr create && gh pr view 9`, does not. Of its output only the last line that is nothing but
 //! a pull request URL is kept, which is what gh prints on success; a failed call (gh exits 1 when
 //! the branch already has one, printing its URL) records nothing. Harnesses report the command on the tool call and its output on later updates
 //! (Claude Code, codex-acp), so such a call and the URL it printed are remembered until it ends
@@ -44,11 +44,13 @@ fn script(update: &Value) -> Option<String> {
     }
 }
 
-/// `script`'s top-level commands, split at `&&`, `||`, `;`, `|`, `&` and newlines outside quotes,
-/// `$( )`, backticks and heredoc bodies.
-fn commands(script: &str) -> Vec<String> {
+/// `script`'s top-level commands, each with the separator after it (`&&`, `||`, `;`, `|`, `&` or
+/// a newline; empty for the last), split outside quotes, `$( )`, backticks and heredoc bodies. An
+/// `&` in a redirect (`2>&1`, `>&2`, `&>file`) separates nothing.
+fn commands(script: &str) -> Vec<(String, String)> {
     let chars: Vec<char> = script.chars().collect();
     let mut out = vec![String::new()];
+    let mut seps: Vec<String> = vec![];
     // Open quotes (`'`, `"`, `` ` ``) and parentheses (`(`, also `$(`), innermost last.
     let mut open: Vec<char> = vec![];
     // Heredoc words whose bodies start at the next newline.
@@ -136,9 +138,12 @@ fn commands(script: &str) -> Vec<String> {
                 i = j;
                 continue;
             }
+            '&' if i > 0 && matches!(chars[i - 1], '>' | '<') || next == Some('>') => {}
             '&' | '|' | ';' | '\n' if open.is_empty() => {
                 // `&&` or `||` is one separator.
-                if next == Some(c) {
+                let doubled = next == Some(c) && c != ';' && c != '\n';
+                seps.push(if doubled { format!("{c}{c}") } else { c.to_string() });
+                if doubled {
                     i += 1;
                 }
                 out.push(String::new());
@@ -150,17 +155,24 @@ fn commands(script: &str) -> Vec<String> {
         cur.push(c);
         i += 1;
     }
-    out.into_iter().map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()).collect()
+    seps.push(String::new());
+    out.into_iter()
+        .zip(seps)
+        .map(|(c, sep)| (c.trim().to_owned(), sep))
+        .filter(|(c, _)| !c.is_empty())
+        .collect()
 }
 
-/// The script's whole job is `gh pr create`: any commands before it are `cd`, none come after,
-/// and only `VAR=value` words or `env` precede `gh`.
+/// The script ends in `gh pr create`: each command before it is a `cd` or must succeed for gh to
+/// run (`git push && gh pr create`), none come after, and only `VAR=value` words or `env` precede
+/// `gh`. gh's URL is the last bare pull request URL printed, so earlier steps' output can't stand
+/// in for it (`git push` prints `/pull/new/BRANCH`, which is not one).
 fn is_gh_pr_create(script: &str) -> bool {
     let commands = commands(script);
-    let Some((last, before)) = commands.split_last() else {
+    let Some(((last, _), before)) = commands.split_last() else {
         return false;
     };
-    if !before.iter().all(|c| c == "cd" || c.starts_with("cd ")) {
+    if !before.iter().all(|(c, sep)| c == "cd" || c.starts_with("cd ") || sep == "&&") {
         return false;
     }
     let mut words = last.split_whitespace().skip_while(|w| {
