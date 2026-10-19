@@ -511,8 +511,9 @@ impl Gate {
         let measured = if fill { self.measure_fill(params) } else { self.measure_focus(target) };
         let masked_text =
             text.is_some_and(|text| self.mask_text_for_target(Some(target), text) != text);
-        let masked =
-            secret || measured.secret || masked_text || (measured.unknown && text.is_some());
+        // Only text is hidden: a key such as Enter in a password field is shown.
+        let hides = measured.secret || measured.unknown || masked_text;
+        let masked = secret || (text.is_some() && hides);
         let shown = if secret {
             Some("•".repeat(8))
         } else {

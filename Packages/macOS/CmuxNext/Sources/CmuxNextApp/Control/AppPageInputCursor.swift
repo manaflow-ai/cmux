@@ -25,11 +25,11 @@ final class AppPageInputCursor {
     /// Draws `input` in tab `tabID` in every window that shows the tab.
     func publish(_ input: BrowserPageAgentInput, tabID: String) {
         guard services.settings?.snapshot.browserShowAgentCursor ?? true,
-              let (event, typing) = event(for: input, tabID: tabID) else { return }
-        if let typing {
-            for slot in AgentCursorWiring.slots(in: services) { slot.noteTyping(typing, for: event) }
+              let made = event(for: input, tabID: tabID) else { return }
+        if let typing = made.1 {
+            for slot in AgentCursorWiring.slots(in: services) { slot.noteTyping(typing, for: made.0) }
         }
-        AgentCursorWiring.publish(event, in: services)
+        AgentCursorWiring.publish(made.0, in: services)
     }
 
     /// The event and typing `input` draws as; nil for a pointer input with no measured element.

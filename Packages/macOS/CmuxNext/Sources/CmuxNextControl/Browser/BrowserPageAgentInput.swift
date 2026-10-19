@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 /// One `browser.page.*` input an agent sent through the `cmux browser` CLI
 /// (click, fill, type, press, hover, scroll, select, check), for the agent
 /// cursor: where it landed and what it typed. The service hands it to the

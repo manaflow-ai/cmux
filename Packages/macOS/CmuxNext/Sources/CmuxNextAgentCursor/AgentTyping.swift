@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// What an agent's type or key input types: the `typing` object of an
 /// `automation.input` event (schemas/automation-input/event.schema.json),
@@ -62,7 +62,8 @@ public struct AgentTyping: Sendable, Equatable {
             guard let list = modifiers as? [String], list.allSatisfy(names.contains) else { return nil }
             typing.modifiers = list
         }
-        for (field, path) in [("masked", \AgentTyping.masked), ("replace", \AgentTyping.replace)] {
+        let flags: [(String, WritableKeyPath<AgentTyping, Bool>)] = [("masked", \.masked), ("replace", \.replace)]
+        for (field, path) in flags {
             guard let value = object[field] else { continue }
             guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
             typing[keyPath: path] = number.boolValue

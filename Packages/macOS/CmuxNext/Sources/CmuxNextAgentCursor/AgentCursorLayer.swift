@@ -68,8 +68,11 @@ public final class AgentCursorLayer {
 
     static let captionFontSize: CGFloat = 12
     static let captionHeight: CGFloat = 22
-    static let captionFont = CTFontCreateUIFontForLanguage(.emphasizedSystem, captionFontSize, nil)
-        ?? CTFontCreateWithName("Helvetica-Bold" as CFString, captionFontSize, nil)
+    /// The caption's font, the bold system font (made per use: a CTFont is not Sendable).
+    static var captionFont: CTFont {
+        CTFontCreateUIFontForLanguage(.emphasizedSystem, captionFontSize, nil)
+            ?? CTFontCreateWithName("Helvetica-Bold" as CFString, captionFontSize, nil)
+    }
     /// Where the caption's top-left corner sits from the arrow tip: right of
     /// the arrow's tail, so it never covers the point the agent acts on.
     static let captionOffset = CGPoint(x: 16, y: 20)
@@ -79,8 +82,8 @@ public final class AgentCursorLayer {
 
     /// The width `text` needs in the caption font.
     static func captionWidth(_ text: String) -> CGFloat {
-        let attributed = CFAttributedStringCreate(nil, text as CFString, [kCTFontAttributeName: captionFont] as CFDictionary)
-        guard let attributed else { return 0 }
+        let attributes = [kCTFontAttributeName as String: captionFont] as CFDictionary
+        guard let attributed = CFAttributedStringCreate(nil, text as CFString, attributes) else { return 0 }
         let line = CTLineCreateWithAttributedString(attributed)
         return ceil(CTLineGetTypographicBounds(line, nil, nil, nil))
     }

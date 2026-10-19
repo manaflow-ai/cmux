@@ -1,5 +1,5 @@
 import CmuxAgentCursor
-import CmuxNextAgentCursor
+@testable import CmuxNextAgentCursor
 import Foundation
 import QuartzCore
 import Testing
