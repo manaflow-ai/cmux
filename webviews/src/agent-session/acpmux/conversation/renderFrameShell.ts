@@ -1,3 +1,4 @@
+import { renderHeartbeatSource } from "./renderWatchdog";
 import { RENDER_KIT_CSS } from "./renderKit";
 import { renderChartSource } from "./renderChart";
 import { renderStreamScript } from "./renderStreamRuntime";
@@ -70,6 +71,7 @@ export const RENDER_FRAME_DOC = `<!doctype html><html><head>${POLICY_META}<meta 
 export function renderBridgeScript(theme: string, css: string): string {
   // l10n-allow: executable frame bridge, with no user-facing copy
   return `<script>(function () {
+    ${renderHeartbeatSource()}
     ${renderChartSource()}
     var kitStyle, chartsInstalled = false;
     var pending = new Map(), callbacks = new Set(), next = 0;

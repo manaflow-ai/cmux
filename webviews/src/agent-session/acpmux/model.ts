@@ -38,6 +38,8 @@ export type AcpmuxRow = {
   seq?: number;
   text?: string;
   streaming?: boolean;
+  /// This reply began on the live transport, never during attach or history replay.
+  renderLive?: boolean;
   pending?: boolean;
   failed?: boolean;
   items?: AcpmuxActivity[];

@@ -12,7 +12,8 @@ import { isReactRender, reactRenderPage, renderBridgeScript } from "./renderFram
 import { devRenderFrameURL, LIVE_RENDER_FRAME_DOC } from "./renderFrameShell";
 import { RenderBridgeContext } from "./RenderBridgeContext";
 import { useRenderRequests } from "./useRenderRequests";
-import { ChatSessionContext, TranscriptRowContext } from "./viewIdentity";
+import { ChatSessionContext, TranscriptRowContext, RenderLiveContext } from "./viewIdentity";
+import { renderWatchdog, renderHeartbeatScript } from "./renderWatchdog";
 import { renderStreamScript } from "./renderStreamRuntime";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
@@ -43,12 +44,14 @@ export function useRenderFrame(
   streaming = false,
   frozen = false,
   kit = false,
+  enabled = true,
 ) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(live ? 0 : RENDER_FRAME_MIN_HEIGHT);
   const latest = useRef({ html, streaming, request, frozen });
   latest.current = { html, streaming, request, frozen };
   const [error, setError] = useState<string>();
+  const [stopped, setStopped] = useState(false);
   const measured = useRef(height);
   useEffect(() => {
     if (!frozen) setHeight(measured.current);
@@ -56,6 +59,14 @@ export function useRenderFrame(
   const schedule = useRef<() => void>(() => {});
   useLayoutEffect(() => {
     setError(undefined);
+    setStopped(false);
+    if (!enabled) return;
+    let stalled = false;
+    const watchdog = renderWatchdog(() => {
+      stalled = true;
+      setStopped(true);
+      setError(translate("render.loadFailed"));
+    });
     let reportedError = false;
     let booted = false,
       ready = false;
@@ -67,7 +78,7 @@ export function useRenderFrame(
     const flush = () => {
       timer = undefined;
       animation = undefined;
-      if (!ready) return;
+      if (!ready || stalled) return;
       const { html, streaming } = latest.current;
       if (isReactRender(html) && streaming && !preparingReact) {
         preparingReact = true;
@@ -97,7 +108,7 @@ export function useRenderFrame(
     };
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
-      if (!target || event.source !== target) return;
+      if (stalled || !target || event.source !== target) return;
       const data: unknown = event.data;
       if (!data || typeof data !== "object") return;
       const message = data as { type?: unknown; height?: unknown; error?: unknown };
@@ -113,14 +124,18 @@ export function useRenderFrame(
                 renderBridgeScript(theme, css) +
                 renderStreamScript() +
                 "</head><body></body></html>"
-              : latest.current.html,
+              : renderHeartbeatScript() + latest.current.html,
             css,
           },
           "*",
         );
+        watchdog.start(target);
+      } else if (message.type === "cmux-render-pong") {
+        watchdog.pong((data as { id?: unknown }).id);
       } else if (live && message.type === "cmux-render-stream-ready") {
         if (ready) return;
         ready = true;
+        watchdog.start(target);
         target.postMessage({ type: "cmux-render-kit", enabled: kit }, "*");
         theme();
         schedule.current();
@@ -166,6 +181,7 @@ export function useRenderFrame(
     const scheme = live && typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : undefined;
     scheme?.addEventListener("change", theme);
     return () => {
+      watchdog.dispose();
       clearTimeout(timer);
       if (animation !== undefined) cancelAnimationFrame(animation);
       schedule.current = () => {};
@@ -173,19 +189,21 @@ export function useRenderFrame(
       observer?.disconnect();
       scheme?.removeEventListener("change", theme);
     };
-  }, [live, kit]);
+  }, [live, kit, enabled]);
   useEffect(() => schedule.current(), [html, streaming]);
-  return { frame, height, error };
+  return { frame, height, error, stopped };
 }
 
 export function RenderCard({
   call,
   panel = false,
   streaming = false,
+  turnStreaming = false,
 }: {
   call: RenderCall;
   panel?: boolean;
   streaming?: boolean;
+  turnStreaming?: boolean;
 }) {
   const t = useT();
   const live = useLab("liveRender");
@@ -200,17 +218,25 @@ export function RenderCard({
   const identity = rowId ? [rowId, call.id ?? ""] : (call.id ?? call.html);
   const key = JSON.stringify([sessionId, identity]);
   const requests = useRenderRequests(key);
-  const { frame, height, error } = useRenderFrame(
+  const liveTurn = useContext(RenderLiveContext) && turnStreaming;
+  const [ran, setRan] = useState(() => live && liveTurn);
+  const running = ran || (live && liveTurn);
+  useEffect(() => {
+    if (live && liveTurn) setRan(true);
+  }, [live, liveTurn]);
+  const { frame, height, error, stopped } = useRenderFrame(
     call.html,
     live,
     requests.request,
     streaming,
     live && !!requests.pending,
     kit,
+    running,
   );
+  useEffect(() => {
+    if (stopped) requests.cancel();
+  }, [stopped, requests.cancel]);
   const [expanded, setExpanded] = useState(false);
-  const [ran, setRan] = useState(() => ranRenders.has(call.html));
-  const running = live || ran;
   const run = () => {
     ranRenders.add(call.html);
     setRan(true);
@@ -223,7 +249,7 @@ export function RenderCard({
       className={panel ? "acpmux-render-card acpmux-render-card--panel" : "acpmux-render-card"}
       style={live && streaming && isReactRender(call.html) ? { display: "none" } : undefined}
     >
-      {live && renderExpand && !panel && !streaming && !requests.pending && (
+      {running && !stopped && live && renderExpand && !panel && !streaming && !requests.pending && (
         <button
           type="button"
           ref={expandButton}
@@ -255,7 +281,7 @@ export function RenderCard({
           </div>
         </Dialog>
       )}
-      {!live && (
+      {(!live || !running) && (
         <div className="acpmux-render-card-head">
           <span className="acpmux-render-card-title">{title}</span>
           {!running && (
@@ -292,7 +318,7 @@ export function RenderCard({
           )}
         </div>
       )}
-      {running && (
+      {running && !stopped && (
         <iframe
           key={`${live}:${kit}`}
           ref={frame}
@@ -308,7 +334,7 @@ export function RenderCard({
           }
         />
       )}
-      {kit && error && (
+      {error && (
         <div className="acpmux-render-note" role="status" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
           <span style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
             {t("render.error")} {error}
@@ -330,24 +356,20 @@ export function RenderCard({
           )}
         </div>
       )}
-      {live && running && requests.pending && <RenderConfirm requests={requests} />}
+      {live && running && !stopped && requests.pending && <RenderConfirm requests={requests} />}
       {live && requests.copied && <output className="acpmux-render-note">{t("turn.copied")}</output>}
     </div>
   );
 }
 
-/// A page asks before sending; long drafts stay readable without filling the card (Lucas 2026-10-18).
+/// The full request stays scrollable, with invisible controls named before the reader confirms.
 function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequests> }) {
   const t = useT();
-  const text = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [long, setLong] = useState(false);
   const pending = requests.pending!;
   const appeared = useRef(0);
   useLayoutEffect(() => {
     // Give the reader time to see each request before its buttons accept a click (Lucas 2026-10-18).
     appeared.current = Date.now();
-    setExpanded(false);
   }, [pending]);
   const label =
     pending.method === "sendPrompt"
@@ -357,19 +379,10 @@ function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequ
         : pending.method === "prefill"
           ? t("render.edit")
           : t("render.open");
-  useLayoutEffect(() => {
-    const node = text.current;
-    if (!node || expanded) return;
-    const measure = () => setLong(node.scrollHeight > node.clientHeight + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [pending.text, expanded]);
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape cancels from the buttons inside, as in ArtifactPanel.
     <section
-      aria-label={label}
+      aria-label={`${t("render.origin")}: ${label}`}
       className="acpmux-render-confirm"
       // ui-allow: A new request cannot borrow a click meant for the page beneath it.
       onClickCapture={(event) => {
@@ -388,20 +401,19 @@ function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequ
       }}
     >
       <div className="acpmux-render-confirm-draft">
+        <span className="acpmux-render-confirm-origin">{t("render.origin")}</span>
         <span className="acpmux-render-confirm-label">{label}</span>
-        <div ref={text} className={`acpmux-render-confirm-text${expanded ? " is-expanded" : ""}`}>
-          {pending.text}
+        <div
+          className="acpmux-render-confirm-text"
+          // ui-allow: Keyboard users can scroll the full confirmation before acting.
+          tabIndex={0}
+          role="region"
+          aria-label={label}
+        >
+          {pending.text.replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0]/gu, (character) =>
+            character === "\n" ? character : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
+          )}
         </div>
-        {long && (
-          <button
-            type="button"
-            className="acpmux-review-changes"
-            aria-expanded={expanded}
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded ? t("shell.showLess") : t("render.showAll")}
-          </button>
-        )}
       </div>
       <div className="acpmux-render-confirm-actions">
         <button type="button" className="acpmux-ask-action is-primary" onClick={() => requests.confirm(false)}>

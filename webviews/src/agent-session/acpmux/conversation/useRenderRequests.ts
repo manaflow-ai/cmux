@@ -68,7 +68,7 @@ export function useRenderRequests(key: string) {
         }
       }
       if (method !== "copy" && !bridge) return reply(false, "unavailable");
-      held.current?.reply(false, "replaced");
+      if (held.current) return reply(false, "confirmation pending");
       held.current = { method, text, reply };
       setPending(held.current);
     },
@@ -76,7 +76,7 @@ export function useRenderRequests(key: string) {
   );
   const confirm = (edit: boolean) => {
     const ask = pending;
-    // A replacement that has not drawn yet cannot borrow the previous strip's click.
+    // A cancelled request cannot borrow a click from its previous strip.
     if (!ask || held.current !== ask || (ask.method !== "copy" && !bridge)) return;
     held.current = undefined;
     setPending(undefined);
@@ -95,7 +95,10 @@ export function useRenderRequests(key: string) {
     try {
       const result = ask.method === "sendPrompt" ? bridge!.send(ask.text) : bridge!.openLink(ask.text);
       void Promise.resolve(result).then(
-        (value) => ask.reply(value !== false, value === false ? "unavailable" : null),
+        (value) => {
+          const ok = ask.method === "openLink" ? value === true : value !== false;
+          ask.reply(ok, ok ? null : "unavailable");
+        },
         () => ask.reply(false, "unavailable"),
       );
     } catch {

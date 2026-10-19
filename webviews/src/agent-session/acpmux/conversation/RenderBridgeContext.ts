@@ -5,7 +5,7 @@ export const RenderBridgeContext = createContext<
   | {
       prefill(text: string): void;
       send(text: string): boolean | void | Promise<unknown>;
-      openLink(url: string): void;
+      openLink(url: string): boolean | Promise<boolean>;
     }
   | undefined
 >(undefined);

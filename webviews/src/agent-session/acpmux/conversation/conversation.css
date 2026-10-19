@@ -2110,6 +2110,11 @@ pre.cv-math-source {
   flex: 1 1 180px;
   min-width: 0;
 }
+:root[data-lab-live-render="on"] .acpmux-render-confirm-origin {
+  display: block;
+  color: var(--agent-muted);
+  margin-bottom: 4px;
+}
 :root[data-lab-live-render="on"] .acpmux-render-confirm-label {
   display: block;
   margin-bottom: 2px;
@@ -2117,12 +2122,12 @@ pre.cv-math-source {
   color: var(--agent-text);
 }
 :root[data-lab-live-render="on"] .acpmux-render-confirm-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
+  display: block;
+  max-height: 240px;
+  overflow-y: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+  unicode-bidi: plaintext;
 }
 :root[data-lab-live-render="on"] .acpmux-render-note {
   display: block;
