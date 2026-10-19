@@ -1,18 +1,24 @@
 //! What a peer daemon reads of a session's own words (hq#2509). A summary
 //! carries what the person typed and what the agent said (`title`,
-//! `lastPrompt`, `preview`, `lastMessage`, the running turn's and queued
-//! prompts, the last turn's error), and a peer shows it on another screen,
-//! so a connection with the Peer origin gets those fields masked
+//! `lastPrompt`, `preview`, `lastMessage`, the running turn's prompt, the
+//! last turn's error), and a peer shows it on another screen, so a
+//! connection proven a peer (`peer_auth.rs`) gets those fields masked
 //! (`secret_scan`): a pasted token reads `[GitHub Personal Access Token]`.
-//! The unix socket, the local app and the Web keep the raw text.
+//! So do a chat's title and preview. The unix socket, the local app and the
+//! Web keep the raw text, and so does a peer daemon served as Web (its peer
+//! token withheld over plain `ws://`).
+//!
+//! Queued prompts stay raw: a client edits one starting from its text
+//! (`_acpmux/queue_edit`), so a masked one would be written back over it.
 //!
 //! The exception: `trustedPeers` in config.json names peer devices that get
 //! the raw text, empty by default. A connecting daemon names its device in
-//! the `x-acpmux-peer-device` upgrade header (its hostname). The name is
+//! the `x-acpmux-peer-device` upgrade header (its hostname, as `hostname`
+//! prints it). The list is read when a peer connects. The name is
 //! the peer's own claim: it only picks raw text for a connection already
 //! proven a peer by the peer token, which may attach any session and read
-//! its transcript anyway. That transcript (`session/update`, `_acpmux/event`
-//! and history records) is not masked here.
+//! its transcript anyway. That transcript (`session/update`, `_acpmux/event`,
+//! history records, a chat transcript's turns) is not masked here.
 
 use crate::rpc::{Message, method};
 use serde_json::Value;
@@ -69,30 +75,34 @@ fn mask_text(v: &mut Value) -> bool {
     match v {
         Value::Array(items) => items.iter_mut().for_each(|item| changed |= mask_text(item)),
         Value::Object(map) => {
-            let summary = ["sessionId", "harness", "lastSeq"].iter().all(|k| map.contains_key(*k));
-            if summary {
+            if SUMMARY_KEYS.iter().all(|k| map.contains_key(*k)) {
                 for key in ["title", "lastPrompt", "preview"] {
                     changed |= mask_field(map.get_mut(key));
                 }
                 changed |= mask_field(map.get_mut("lastMessage").and_then(|m| m.get_mut("text")));
                 changed |= mask_field(map.get_mut("turn").and_then(|t| t.get_mut("prompt")));
                 changed |= mask_field(map.get_mut("lastTurn").and_then(|t| t.get_mut("errorText")));
-                if let Some(Value::Array(queue)) = map.get_mut("queue") {
-                    for queued in queue {
-                        changed |= mask_field(queued.get_mut("prompt"));
-                    }
-                }
-            } else if map.contains_key("attention") {
-                // A chat (`chats/activity.rs`): its harness title and preview.
+            } else if map.contains_key("attention") || map.contains_key("turns") {
+                // A chat (`chats/activity.rs`) or its transcript: its harness title and preview.
                 for key in ["title", "preview"] {
                     changed |= mask_field(map.get_mut(key));
                 }
+            } else if map.get("_meta").and_then(|m| m.get("acpmux")).is_some_and(is_summary) {
+                // An ACP `session/list` entry: its title is the summary's.
+                changed |= mask_field(map.get_mut("title"));
             }
             map.values_mut().for_each(|child| changed |= mask_text(child));
         }
         _ => {}
     }
     changed
+}
+
+/// The keys every session summary has (`Hub::session_summary`), this daemon's or a peer's.
+const SUMMARY_KEYS: [&str; 3] = ["sessionId", "harness", "lastSeq"];
+
+fn is_summary(v: &Value) -> bool {
+    SUMMARY_KEYS.iter().all(|k| v.get(*k).is_some())
 }
 
 fn mask_field(field: Option<&mut Value>) -> bool {

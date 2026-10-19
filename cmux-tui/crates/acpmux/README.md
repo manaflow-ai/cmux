@@ -96,13 +96,17 @@ per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` add
 a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
 mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
 
-A peer daemon reads this daemon's session summaries with their text masked (`src/server/peer_text.rs`):
-a token pasted into a prompt shows as `[GitHub Personal Access Token]` in the title, the prompts,
-the preview, the last message and the last turn's error, and a field past 16384 characters is cut.
-The unix socket, the app and the dashboard keep the raw text, and so does a peer device listed in
-`trustedPeers`, for example `"trustedPeers": ["huge-blue"]` (empty by default). A peer names its
-device, its hostname, in the `x-acpmux-peer-device` header; the name is its own claim, and a peer
-that attaches a session still reads its transcript.
+A connection proven a peer (the peer token above) reads this daemon's session summaries with
+their text masked (`src/server/peer_text.rs`): a token pasted into a prompt shows as
+`[GitHub Personal Access Token]` in the title, the prompts, the preview, the last message and the
+last turn's error, and in a chat's title and preview; a field past 16384 characters is cut. Queued
+prompts stay raw, since a client edits one from its text. The unix socket, the app and the
+dashboard keep the raw text, and so does a peer daemon served as Web (its peer token withheld over
+plain `ws://`). So does a peer device listed in `trustedPeers` (empty by default), named as
+`hostname` prints it on that machine, for example `"trustedPeers": ["huge-blue"]`; a peer sends
+that name in the `x-acpmux-peer-device` header, and the list is read when it connects. The name is
+the peer's own claim, and a peer that attaches a session or opens a chat transcript still reads
+its turns.
 
 ## CLI
 
