@@ -2464,8 +2464,7 @@ export class AcpmuxDirectClient {
         // of a gesture names that (the generic refusal's text is about a pick): posted input (a
         // script, a computer-use agent) is never the person's (cx-ocdz), and the Retry click is
         // (hq#2569 item 5). A Retry refused again says "Still", so the click visibly did something.
-        const reason =
-          code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
+        const reason = code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
         this.rows.set(rowId, {
           ...row,
           pending: false,
