@@ -87,8 +87,9 @@ pub struct Session {
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
-    /// Tool calls that run `gh pr create`, until they end (`pull_requests.rs`).
-    pub(super) pr_creates: StdMutex<std::collections::HashSet<String>>,
+    /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
+    /// (`pull_requests.rs`).
+    pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
 }
 
 impl Session {

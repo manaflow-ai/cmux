@@ -3,13 +3,15 @@
 //! so the sidebar's session tree counts every pull request a session opened, not only the one
 //! of the branch its folder has checked out now.
 //!
-//! Only a shell call (`kind` `execute`) whose whole command is `gh pr create ...` counts, after
-//! `cd DIR &&` steps and `VAR=value` / `env` prefixes: a grep or an echo that mentions it, or a
-//! `gh pr create && gh pr view 9`, does not. Of its output only the last line that is nothing but
+//! Only a shell call (`kind` `execute`) whose last command is `gh pr create ...` counts, after
+//! `cd DIR` steps, steps joined to it by `&&` (`git push && gh pr create`) and `VAR=value` / `env`
+//! prefixes: a grep or an echo that mentions it, or a `gh pr create && gh pr view 9`, does not. Of its output only the last line that is nothing but
 //! a pull request URL is kept, which is what gh prints on success; a failed call (gh exits 1 when
 //! the branch already has one, printing its URL) records nothing. Harnesses report the command on the tool call and its output on later updates
-//! (Claude Code, codex-acp), so such a call is remembered until it ends (`Session::pr_creates`).
+//! (Claude Code, codex-acp), so such a call and the URL it printed are remembered until it ends
+//! (`Session::pr_creates`); the URL counts only when the call completes.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -42,11 +44,13 @@ fn script(update: &Value) -> Option<String> {
     }
 }
 
-/// `script`'s top-level commands, split at `&&`, `||`, `;`, `|`, `&` and newlines outside quotes,
-/// `$( )`, backticks and heredoc bodies.
-fn commands(script: &str) -> Vec<String> {
+/// `script`'s top-level commands, each with the separator after it (`&&`, `||`, `;`, `|`, `&` or
+/// a newline; empty for the last), split outside quotes, `$( )`, backticks and heredoc bodies. An
+/// `&` in a redirect (`2>&1`, `>&2`, `&>file`) separates nothing.
+fn commands(script: &str) -> Vec<(String, String)> {
     let chars: Vec<char> = script.chars().collect();
     let mut out = vec![String::new()];
+    let mut seps: Vec<String> = vec![];
     // Open quotes (`'`, `"`, `` ` ``) and parentheses (`(`, also `$(`), innermost last.
     let mut open: Vec<char> = vec![];
     // Heredoc words whose bodies start at the next newline.
@@ -134,9 +138,12 @@ fn commands(script: &str) -> Vec<String> {
                 i = j;
                 continue;
             }
+            '&' if i > 0 && matches!(chars[i - 1], '>' | '<') || next == Some('>') => {}
             '&' | '|' | ';' | '\n' if open.is_empty() => {
                 // `&&` or `||` is one separator.
-                if next == Some(c) {
+                let doubled = next == Some(c) && c != ';' && c != '\n';
+                seps.push(if doubled { format!("{c}{c}") } else { c.to_string() });
+                if doubled {
                     i += 1;
                 }
                 out.push(String::new());
@@ -148,17 +155,24 @@ fn commands(script: &str) -> Vec<String> {
         cur.push(c);
         i += 1;
     }
-    out.into_iter().map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()).collect()
+    seps.push(String::new());
+    out.into_iter()
+        .zip(seps)
+        .map(|(c, sep)| (c.trim().to_owned(), sep))
+        .filter(|(c, _)| !c.is_empty())
+        .collect()
 }
 
-/// The script's whole job is `gh pr create`: any commands before it are `cd`, none come after,
-/// and only `VAR=value` words or `env` precede `gh`.
+/// The script ends in `gh pr create`: each command before it is a `cd` or must succeed for gh to
+/// run (`git push && gh pr create`), none come after, and only `VAR=value` words or `env` precede
+/// `gh`. gh's URL is the last bare pull request URL printed, so earlier steps' output can't stand
+/// in for it (`git push` prints `/pull/new/BRANCH`, which is not one).
 fn is_gh_pr_create(script: &str) -> bool {
     let commands = commands(script);
-    let Some((last, before)) = commands.split_last() else {
+    let Some(((last, _), before)) = commands.split_last() else {
         return false;
     };
-    if !before.iter().all(|c| c == "cd" || c.starts_with("cd ")) {
+    if !before.iter().all(|(c, sep)| c == "cd" || c.starts_with("cd ") || sep == "&&") {
         return false;
     }
     let mut words = last.split_whitespace().skip_while(|w| {
@@ -203,29 +217,35 @@ fn printed_url(output: &str) -> Option<&str> {
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
 /// remembered, and the pull request URL its output prints joins `m.pull_requests`.
 pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta) {
-    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else {
-        return;
-    };
     let mut calls = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(url) = track(&mut calls, update)
+        && m.pull_requests.len() < MAX_PULL_REQUESTS
+        && !m.pull_requests.contains(&url)
+    {
+        m.pull_requests.push(url);
+    }
+}
+
+/// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
+/// the URL to record once the call completes. A failed call records none, though it printed one
+/// before failing ("a pull request for branch ... already exists: URL").
+fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<String> {
+    let id = update.get("toolCallId").and_then(Value::as_str)?;
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
     if execute && script(update).is_some_and(|s| is_gh_pr_create(&s)) {
-        calls.insert(id.to_owned());
+        calls.entry(id.to_owned()).or_default();
     }
-    if !calls.contains(id) {
-        return;
+    let printed = calls.get_mut(id)?;
+    if let Some(url) = printed_url(&output_text(update)) {
+        *printed = Some(url.to_owned());
     }
-    let status = update.get("status").and_then(Value::as_str);
-    // A failed gh opened nothing; "a pull request for branch ... already exists: URL" names one
-    // it did not open now.
-    if status != Some("failed")
-        && let Some(url) = printed_url(&output_text(update))
-        && m.pull_requests.len() < MAX_PULL_REQUESTS
-        && !m.pull_requests.iter().any(|p| p == url)
-    {
-        m.pull_requests.push(url.to_owned());
-    }
-    if matches!(status, Some("completed" | "failed")) {
-        calls.remove(id);
+    match update.get("status").and_then(Value::as_str) {
+        Some("completed") => calls.remove(id).flatten(),
+        Some("failed") => {
+            calls.remove(id);
+            None
+        }
+        _ => None,
     }
 }
 
@@ -242,6 +262,10 @@ mod tests {
             "gh pr create --title x --body \"$(cat <<'EOF'\nSummary | with; a pipe && more\n\"quoted\"\nEOF\n)\"",
             "gh pr create --title 'a && b' --body 'x; y | z'",
             "gh pr create --body \"$(printf 'a)b')\" --title \"x && y\"",
+            "gh pr create --fill 2>&1",
+            "gh pr create --fill &>/tmp/pr.log",
+            "git push && gh pr create --fill",
+            "git add -A && git commit -m 'x; y' && git push -u origin HEAD && gh pr create --fill 2>&1",
         ] {
             assert!(is_gh_pr_create(yes), "{yes}");
         }
@@ -251,7 +275,10 @@ mod tests {
             "gh pr create --fill && gh pr view 9",
             "gh pr create --fill | tee out",
             "gh pr create --body \"$(cat body.md)\" && gh pr view 9",
-            "git push && gh pr create --fill",
+            "git push; gh pr create --fill",
+            "git push || gh pr create --fill",
+            "git push | gh pr create --fill",
+            "sleep 9 & gh pr create --fill",
             "gh pr view 9",
             "",
         ] {
@@ -270,6 +297,36 @@ mod tests {
         let words = json!({"rawInput": {"command": ["gh", "pr", "create"]}});
         assert_eq!(script(&words).unwrap(), "gh pr create");
         assert_eq!(script(&json!({"title": "gh pr create"})).unwrap(), "gh pr create");
+    }
+
+    #[test]
+    fn a_url_counts_only_when_its_call_completes() {
+        let mut calls = std::collections::HashMap::new();
+        let start = json!({"toolCallId": "t1", "kind": "execute", "rawInput": {"command": "gh pr create --fill"}});
+        let printed = json!({"toolCallId": "t1", "status": "in_progress",
+            "rawOutput": {"stdout": "https://github.com/o/r/pull/5\n"}});
+        assert_eq!(track(&mut calls, &start), None);
+        // gh's "already exists: URL" streamed before the call fails records nothing.
+        assert_eq!(track(&mut calls, &printed), None);
+        assert_eq!(track(&mut calls, &json!({"toolCallId": "t1", "status": "failed"})), None);
+        assert!(calls.is_empty());
+        // The URL printed earlier counts once the call completes, though the last update has no output.
+        assert_eq!(track(&mut calls, &start), None);
+        assert_eq!(track(&mut calls, &printed), None);
+        assert_eq!(
+            track(&mut calls, &json!({"toolCallId": "t1", "status": "completed"})).as_deref(),
+            Some("https://github.com/o/r/pull/5")
+        );
+        assert!(calls.is_empty());
+        // Another call's updates are not a gh pr create.
+        assert_eq!(
+            track(
+                &mut calls,
+                &json!({"toolCallId": "t2", "status": "completed",
+            "rawOutput": {"stdout": "https://github.com/o/r/pull/6\n"}})
+            ),
+            None
+        );
     }
 
     #[test]
