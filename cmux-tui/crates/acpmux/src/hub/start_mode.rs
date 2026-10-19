@@ -171,7 +171,10 @@ fn start_level(
 ) -> (DefaultMode, Source) {
     if let Some(value) = managed {
         let level = DefaultMode::parse(value).unwrap_or_else(|| {
-            tracing::warn!(value, "{SETTING}: unknown managed value; new chats keep the harness's own mode");
+            tracing::warn!(
+                value,
+                "{SETTING}: unknown managed value; new chats keep the harness's own mode"
+            );
             DefaultMode::Standard
         });
         return (level, Source::Managed);

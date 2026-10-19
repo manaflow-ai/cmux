@@ -31,7 +31,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Held for a whole test: the tests set process-wide variables.
-static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// 32 bytes as hex: the person key the app makes at each launch.
 const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
@@ -138,7 +138,9 @@ impl Client {
 
     /// `_acpmux/start_mode` for codex: its `source`.
     async fn source(&mut self, dir: &Path) -> Value {
-        let r = self.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+        let r = self
+            .call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")}))
+            .await;
         r["result"]["source"].clone()
     }
 
@@ -173,7 +175,7 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
         "{\n  \"agents\": {\"defaultPermissionMode\": \"ask\", /* safer */},\n  // more\n}\n",
     )
     .unwrap();
-    let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = ENV.lock().await;
     // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
     unsafe {
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
@@ -289,7 +291,7 @@ async fn a_managed_value_the_app_pushes_beats_the_file_config_and_picks() {
     let dir = home("managed", json!({}));
     let settings = dir.join("cmux-next.json");
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
-    let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = ENV.lock().await;
     // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
     unsafe {
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
@@ -312,7 +314,9 @@ async fn a_managed_value_the_app_pushes_beats_the_file_config_and_picks() {
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
     assert_eq!(app.source(&dir).await, "managed");
     // A pick while it is forced changes the chat it is made in, never new chats.
-    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "agent-full-access"})).await;
+    let r = app
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "agent-full-access"}))
+        .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
     drop(app);

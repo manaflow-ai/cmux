@@ -240,7 +240,9 @@ pub(super) async fn route(
                 None | Some(Value::Null) => false,
                 Some(Value::Bool(managed)) => *managed,
                 Some(_) => {
-                    return Err(RpcError::invalid_params("permissionModeManaged must be true or false"));
+                    return Err(RpcError::invalid_params(
+                        "permissionModeManaged must be true or false",
+                    ));
                 }
             };
             hub.apply_permission_push(mode, managed).await;
