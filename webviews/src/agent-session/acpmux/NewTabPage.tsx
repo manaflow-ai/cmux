@@ -95,6 +95,8 @@ export type NewTabHost = {
   focusesField?: boolean;
   /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
   history?: boolean;
+  /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
+  widgets?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -138,6 +140,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
+    ...(object.widgets === true ? { widgets: true } : {}),
   };
 }
 
@@ -179,7 +182,12 @@ export function recentSessions(
     // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
     .filter((entry) => listed(entry) && !entry.unsent);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  const ordered = all.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  // Chats reported in the same millisecond tie on their durable ids, so a snapshot's arrival order
+  // cannot make the rows trade places.
+  const ordered = all.sort(
+    (a, b) =>
+      urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId),
+  );
   if (!fold) return ordered.slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
   const shown = ordered.filter((entry) => !entry.spawnedBy).slice(0, count);

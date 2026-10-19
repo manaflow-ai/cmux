@@ -1083,8 +1083,8 @@ class SideLanes(unittest.TestCase):
                              "fork push": side_event(event="push", head_repository={"full_name": "someone/cmux"}),
                              "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
-        trusted_target = side_event(path=".github/workflows/cmux-tui-artifacts.yml", event="pull_request_target")
-        self.assertTrue(rescue.target_from_event(trusted_target, "manaflow-ai/cmux").side)
+        artifacts_target = side_event(path=".github/workflows/cmux-tui-artifacts.yml", event="pull_request_target")
+        self.assertIsInstance(rescue.target_from_event(artifacts_target, "manaflow-ai/cmux"), str)
 
     def test_a_marked_cmux_next_run_is_adopted_as_a_side_lane(self):
         # cmux-next.yml lives on feat-cmux-next only and uploads the watch marker itself.

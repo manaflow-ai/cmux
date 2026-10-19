@@ -250,9 +250,18 @@ def ensure_group():
 # ---------------------------------------------------------------- verbs
 
 
+# Claude goes through subrouter2 (`sr2 claude`) unless the caller names a
+# launcher: CMUX_TERMINAL_AGENTS_CLAUDE="claude" (or any argv) overrides it.
+def claude_launcher():
+    override = os.environ.get("CMUX_TERMINAL_AGENTS_CLAUDE", "").split()
+    if override:
+        return override
+    return ["sr2", "claude"]
+
+
 def harness_argv(harness, prompt, extra):
     if harness == "claude":
-        return ["claude"] + extra + ([prompt] if prompt else [])
+        return claude_launcher() + extra + ([prompt] if prompt else [])
     if harness == "codex":
         return ["codex"] + extra + ([prompt] if prompt else [])
     raise SystemExit(f"unknown harness {harness}; use claude or codex")
