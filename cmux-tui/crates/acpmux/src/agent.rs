@@ -1065,3 +1065,29 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
 }
+
+#[cfg(all(test, unix))]
+mod spawn_error_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn direct_spawn_failure_does_not_expose_harness_argv() {
+        const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/nonexistent/acpmux-test-harness", "--token", SENTINEL]
+        }))
+        .unwrap();
+        let (inbound, _rx) = mpsc::channel(1);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let error =
+            match ChildAgent::spawn("missing", &profile, &std::env::temp_dir(), inbound, tap).await
+            {
+                Ok(_) => panic!("a missing harness started"),
+                Err(error) => error,
+            };
+        assert!(
+            !error.to_string().contains(SENTINEL),
+            "spawn failure exposed harness argv: {error:#}"
+        );
+    }
+}

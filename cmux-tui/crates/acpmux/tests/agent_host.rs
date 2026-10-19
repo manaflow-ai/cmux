@@ -355,7 +355,10 @@ async fn a_failed_start_leaves_no_live_file() {
     let dir = scratch("nolive");
     let mut spec = spec(&dir, "s-nolive");
     spec.program = "/nonexistent/harness".into();
-    assert!(link::spawn(&launcher(), &spec).await.is_err(), "a missing harness started");
+    const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
+    spec.args = vec!["--token".into(), SENTINEL.into()];
+    let error = link::spawn(&launcher(), &spec).await.expect_err("a missing harness started");
+    assert!(!error.to_string().contains(SENTINEL), "spawn failure exposed harness argv: {error:#}");
     let left: Vec<_> = std::fs::read_dir(dir.join("hosts"))
         .expect("the host created its hosts dir")
         .filter_map(|e| e.ok().map(|e| e.file_name()))
