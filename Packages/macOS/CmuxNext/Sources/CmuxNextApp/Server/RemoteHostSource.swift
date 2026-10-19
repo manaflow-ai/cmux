@@ -106,9 +106,12 @@ final class RemoteHostSource {
         }
         lastListed = names
         for session in hosts where desired[session.machineID] == nil {
+            // Its home registry record (SessionRegistrar) goes with it, as a removed paired server's does.
+            let record = machines.sessionID(machine: session.machineID)
             session.close()
             _ = machines.removeServer(session.machineID)
             logger.info("remote host \(session.name, privacy: .public) left the list")
+            if let record { forget(record) }
         }
         for reach in desired.values.sorted(by: { $0.name < $1.name }) where machines.server(reach.machineID) == nil {
             add(reach)
@@ -126,6 +129,20 @@ final class RemoteHostSource {
         // connects every waiting server then), so the admit check can refuse
         // a route back to this Mac.
         session.connect()
+    }
+
+    private func forget(_ sessionID: String) {
+        guard sessionID != machines.local.identity?.sessionID, machines.local.store.personal.session(sessionID) != nil,
+              machines.local.supports(DaemonCapabilities.shared.profiles),
+              let home = machines.local.connection else { return }
+        // task-owner: one bounded forget-session request per removed host
+        Task { [logger] in
+            do {
+                _ = try await home.forgetSession(sessionID, force: true)
+            } catch {
+                logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     private func closeAll() {

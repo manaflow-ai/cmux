@@ -66,8 +66,10 @@ final class RemoteHostingFollower {
                 guard let self else { return }
                 // Any settings edit wakes the stream; only a change of this key (or the first value) acts.
                 guard first || wanted != desired else { continue }
+                // A reset (set, then unset) means off, as the toggle shows; unset from
+                // the start leaves hosting as the CLI set it.
+                desired = !first && wanted == nil && desired != nil ? false : wanted
                 first = false
-                desired = wanted
                 sync()
             }
         })
@@ -96,9 +98,9 @@ final class RemoteHostingFollower {
     var statusLine: String? {
         guard available else { return nil }
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
+        if let status, status.network != "Running" { return RemoteHostStrings.networkOff }
         if failed { return RemoteHostStrings.changeFailed }
         guard let status else { return nil }
-        if status.network != "Running" { return RemoteHostStrings.networkOff }
         if !status.enabled { return RemoteHostStrings.off }
         if status.serving { return RemoteHostStrings.serving(status.name ?? "") }
         return status.starting ? RemoteHostStrings.starting : RemoteHostStrings.notServing
@@ -127,16 +129,25 @@ final class RemoteHostingFollower {
         guard !Task.isCancelled else { return }
         status = current
         let want: Bool? = policyDisabled ? false : desired
-        guard let want, let current else { return }
+        guard let want, let current else {
+            failed = false
+            return
+        }
         let arguments: [String]
         if want {
             // Already serving this app's session the way the app needs: nothing to redo
             // (enable restarts the listener, which would drop open connections). A listener
             // that is configured but not running is started again by enable.
-            if current.enabled, current.session == session, !current.spawn, current.serving || current.starting { return }
+            if current.enabled, current.session == session, !current.spawn, current.serving || current.starting {
+                failed = false
+                return
+            }
             arguments = ["host", "enable", "--no-spawn", "--session", session, "--json"]
         } else {
-            guard current.enabled else { return }
+            guard current.enabled else {
+                failed = false
+                return
+            }
             arguments = ["host", "disable", "--json"]
         }
         let result = await run(arguments)

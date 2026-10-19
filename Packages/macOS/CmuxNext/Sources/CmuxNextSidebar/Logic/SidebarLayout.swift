@@ -89,7 +89,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // workspaces' second line; the computer itself lives in Cloud/machines.
         // An empty computer shows nothing, unless no computer has a row (the
         // first one keeps its empty placeholder, a drop target).
-        let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
+        // A machine that keeps its own header (a remote host) is a group, not part of the one list.
+        let listsAnyMachineRow = sections.contains { ($0.machine.map { !$0.keepsHeaderInList } ?? false) && !$0.nodes.isEmpty }
         var previousWasMachine = false
         // A block brings the band's own padding: the list's top padding goes after the blocks, as below the band.
         var previousWasBlock = false
