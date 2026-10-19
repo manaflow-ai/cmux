@@ -527,7 +527,10 @@ export function NewTabScreen(props: Props) {
       else input.blur();
     }
   };
+  // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
+  const projectChoice = useRef(0);
   const pickProject = (cwd?: string) => {
+    projectChoice.current += 1;
     touch();
     setPicked(true);
     setNone(cwd === undefined);
@@ -546,9 +549,15 @@ export function NewTabScreen(props: Props) {
     props.environments && props.onNewWorktree
       ? (cwd: string) => {
           setWorktreeError(undefined);
+          const choice = ++projectChoice.current;
           void props.onNewWorktree!(cwd).then(
-            (folder) => folder && pickProject(folder),
-            (error: unknown) => setWorktreeError((error instanceof Error && error.message) || String(error)),
+            (folder) => {
+              if (folder && choice === projectChoice.current) pickProject(folder);
+            },
+            (error: unknown) => {
+              if (choice === projectChoice.current)
+                setWorktreeError((error instanceof Error && error.message) || String(error));
+            },
           );
         }
       : undefined;

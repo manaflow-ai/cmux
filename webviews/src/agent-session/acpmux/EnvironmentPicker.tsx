@@ -67,6 +67,17 @@ export function EnvironmentPicker({
       return words.every((word) => text.includes(word));
     });
   }, [ordered, query]);
+  // Each shown row's environment and place, so a row reads its section without rescanning the list.
+  const positions = useMemo(
+    () =>
+      new Map(
+        shown.map((environment, index) => [
+          environment.id,
+          { environment, index, sectionStart: index === 0 || shown[index - 1]!.kind !== environment.kind },
+        ]),
+      ),
+    [shown],
+  );
   // New environment, last: the host's two connect flows under one heading.
   const actions: { value: string; text: string; kind: "ssh" | "cloud"; run(): void }[] = onConnect
     ? [
@@ -84,6 +95,14 @@ export function EnvironmentPicker({
     if (escaped.current) trigger.current?.focus();
     escaped.current = false;
   };
+  // Picking the environment already chosen changes nothing, so no caller moves focus: the prompt
+  // this picker heads takes it back.
+  const focusPrompt = () => {
+    const scope = control.current?.closest(".acpmux-composer, .nt-composer");
+    scope?.querySelector<HTMLElement>("textarea, [contenteditable='true']")?.focus();
+  };
+  const focusPromptRef = useRef(focusPrompt);
+  focusPromptRef.current = focusPrompt;
   const closeRef = useRef(close);
   closeRef.current = close;
   // ⌥⌘1–9: while the list is open, or while focus is in the composer this picker heads.
@@ -103,6 +122,7 @@ export function EnvironmentPicker({
       event.stopPropagation();
       if (openRef.current) closeRef.current();
       if (environment.id !== latest.current.current) latest.current.onPick(environment.id);
+      else focusPromptRef.current();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -112,7 +132,9 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     close();
     if (action) action.run();
-    else if (value !== current && shown.some((environment) => environment.id === value)) onPick(value);
+    else if (!positions.has(value)) return;
+    else if (value !== current) onPick(value);
+    else focusPrompt();
   };
   const row = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
@@ -126,10 +148,9 @@ export function EnvironmentPicker({
           <span className="acpmux-menu-label">{action.text}</span>
         </span>
       );
-    const environment = shown.find((candidate) => candidate.id === value);
-    if (!environment) return null;
-    const index = shown.indexOf(environment);
-    const sectionStart = index === 0 || shown[index - 1]!.kind !== environment.kind;
+    const position = positions.get(value);
+    if (!position) return null;
+    const { environment, index, sectionStart } = position;
     const number = numbers.get(environment.id);
     return (
       <span
