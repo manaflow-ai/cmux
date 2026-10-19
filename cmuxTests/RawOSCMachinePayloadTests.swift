@@ -1,8 +1,6 @@
 import Foundation
 import Testing
-#if RAW_OSC_CLASSIFIER_ONLY
-@testable import RawOSCClassifier
-#elseif canImport(cmux_DEV)
+#if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
@@ -23,8 +21,6 @@ struct RawOSCMachinePayloadClassifierTests {
         ("Task", String((" [ { \"query\": \"" + String(repeating: "x", count: 300)).prefix(255))),
         ("Task", " [ [1, 2,"),
         ("Task", " [ \"unfinished"),
-        ("Task", " { } trailing"),
-        ("Task", " [ ] trailing"),
         ("Task", " [ 1, unfinished"),
         ("Task", " [-12.5e+2, unfinished"),
         ("Task", " [0.25, unfinished"),
@@ -35,11 +31,16 @@ struct RawOSCMachinePayloadClassifierTests {
         ("Task", "[false]"),
         ("Task", "[null]"),
         ("Task", " [ true, unfinished"),
-        ("Task", " [ false] trailing"),
         ("Task", " [ null, unfinished"),
-        ("Task", "\t[null] trailing"),
         ("Task", "[1 , unfinished"),
-        ("Task", "[true \n , unfinished")
+        ("Task", "[true \n , unfinished"),
+        // A nested container may close while the outer one is cut off.
+        ("Task", #"{"v":1,"meta":{"a":1},"query":"unfinished"#),
+        ("Task", #"[{"event":"stop"},{"event":"#),
+        ("Task", #"{"query":"a } inside a string","more":"#),
+        // Invisible leading characters do not hide the payload's shape.
+        ("Task", "\u{200B}{\"v\":1,\"event\":\"stop\"}"),
+        ("Task", "\u{FEFF}[{\"event\":")
     ] + ((0..<0x20).filter { ![9, 10, 13].contains($0) } + Array(0x7f...0x9f)).flatMap { value in
         let control = String(UnicodeScalar(value)!)
         return [("Task" + control, "Completed"), ("Task", "Completed" + control)]
@@ -69,7 +70,20 @@ struct RawOSCMachinePayloadClassifierTests {
         ("Build", "[1e, done]"),
         ("1scheme://target", "Completed"),
         ("See https://example.com/results", "Completed"),
-        (" scheme://target", "Completed")
+        (" scheme://target", "Completed"),
+        // Closed brackets followed by more text are labels, not truncated JSON.
+        ("Task", " { } trailing"),
+        ("Task", " [ ] trailing"),
+        ("Task", " [ false] trailing"),
+        ("Task", "\t[null] trailing"),
+        ("Todo", "[ ] review PR #42"),
+        ("Todo", "[ ] buy milk"),
+        ("Todo", "[] no items"),
+        ("Todo", "{} placeholder"),
+        ("Build", "[1, 2] round"),
+        ("Build", "[1,2,3] stages done"),
+        ("Note", #"["x"] means quoted"#),
+        ("Form", #"{"name"} is required"#)
     ]
 
     @Test(arguments: machinePayloads)
@@ -83,7 +97,6 @@ struct RawOSCMachinePayloadClassifierTests {
     }
 }
 
-#if !RAW_OSC_CLASSIFIER_ONLY
 @Suite("Raw OSC machine payload admission", .serialized, .exclusiveAppContext)
 @MainActor
 struct RawOSCMachinePayloadTests {
@@ -116,4 +129,3 @@ struct RawOSCMachinePayloadTests {
         #expect(fixture.store.notifications.first?.body == body)
     }
 }
-#endif
