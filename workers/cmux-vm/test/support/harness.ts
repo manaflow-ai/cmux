@@ -24,7 +24,8 @@ import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
-import { AccessTokenStore, AccessTokens, makeAccessTokenService, type AccessTokenKeys, type AccessTokenRecord, type AccessTokenService } from "../../src/access-tokens/tokens.ts";
+import { AccessTokenStore, AccessTokens, makeAccessTokenService, parseAccessTokenKeys, type AccessTokenKeys, type AccessTokenRecord, type AccessTokenService } from "../../src/access-tokens/tokens.ts";
+import { accessTokenSweepStep } from "../../src/index.ts";
 import { UpstreamAccessTokens } from "../../src/upstream/access-tokens.ts";
 import { makeUpstreamAccessTokens } from "../../src/upstream/live-access-tokens.ts";
 
@@ -487,6 +488,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
     setAccessTokenKeys(keys: ReadonlyArray<AccessTokenKeys>) {
       accessTokenKeyState.keys = keys;
     },
+    setAccessTokenKeyConfig(raw: string | undefined) {
+      accessTokenKeyState.keys = parseAccessTokenKeys(raw);
+    },
+    scheduled: () => accessTokenSweepStep(services),
     async sessionToken(user: string, options: { readonly expiresIn?: string; readonly key?: SigningKey } = {}): Promise<string> {
       return new SignJWT({ project_id: STACK_PROJECT_ID })
         .setProtectedHeader({ alg: "ES256", kid: "test-key" })

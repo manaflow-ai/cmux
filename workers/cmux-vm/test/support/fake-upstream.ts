@@ -93,6 +93,7 @@ export function makeFakeUpstream(apiKey: string) {
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
   /** Exec responses by command; the default echoes the command. */
   const execReplies = new Map<string, () => Response>();
+  const beforeOperations = new Map<UpstreamOperation, () => Promise<void>>();
 
   const takeFailure = (operation: UpstreamOperation): Response | null => {
     const queue = failures.get(operation);
@@ -104,6 +105,9 @@ export function makeFakeUpstream(apiKey: string) {
   const fileKey = (vmId: string, path: string) => `${vmId}\u0000${path}`;
 
   const handle = async (operation: UpstreamOperation, request: Request, url: URL, vmId: string | null): Promise<Response> => {
+    const before = beforeOperations.get(operation);
+    beforeOperations.delete(operation);
+    await before?.();
     const failure = takeFailure(operation);
     if (failure !== null) return failure;
     const vm = vmId === null ? undefined : vms.get(vmId);
@@ -315,6 +319,15 @@ export function makeFakeUpstream(apiKey: string) {
     }
     const route = operationOf(request.method, url);
     if (route === null) return Response.json({ code: "NOT_FOUND", message: "no route" }, { status: 404 });
+    if (route.operation === "read" || route.operation === "write" || route.operation === "dir") {
+      const allowed = route.operation === "write" ? ["path", "mode", "sha256"] : ["path"];
+      if ([...url.searchParams.keys()].some((key) => !allowed.includes(key))) {
+        return Response.json({ code: "BAD_REQUEST", message: "unknown file query parameter" }, { status: 400 });
+      }
+    }
+    if (route.operation === "createIdentityToken" && (url.searchParams.size > 0 || raw !== null)) {
+      return Response.json({ code: "BAD_REQUEST", message: "identity tokens accept no body or query" }, { status: 400 });
+    }
     return handle(route.operation, request, url, route.vmId);
   };
 
@@ -325,6 +338,9 @@ export function makeFakeUpstream(apiKey: string) {
     files,
     identities,
     calls,
+    beforeNext(operation: UpstreamOperation, callback: () => Promise<void>) {
+      beforeOperations.set(operation, callback);
+    },
     /** Makes the next `times` calls of `operation` answer `status`. */
     fail(operation: UpstreamOperation, status: number, times = 1, body?: unknown) {
       const queue = failures.get(operation) ?? [];
