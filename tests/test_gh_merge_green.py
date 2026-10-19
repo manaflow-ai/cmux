@@ -277,6 +277,22 @@ class MainFixEvidenceTests(unittest.TestCase):
             self.validate()
 
 class InstalledHelperRegression(unittest.TestCase):
+    def test_help_prints_usage_without_querying_github(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gh = Path(directory) / "gh"
+            gh.write_text("#!/bin/sh\necho gh-called >&2\nexit 2\n")
+            gh.chmod(0o755)
+            for flag in ("--help", "-h"):
+                result = subprocess.run(
+                    [str(ROOT / "scripts/gh-merge-green"), flag],
+                    env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("gh-merge-green OWNER/REPO#PR", result.stdout)
+                self.assertNotIn("gh-called", result.stderr)
+
     def test_main_fix_from_symlink_resolves_checked_in_validator(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -313,7 +329,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, base="feat-cmux-next"):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next"):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -335,7 +351,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base + "\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base + "\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base + "\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "".join("," + json.dumps(k) + ":" + json.dumps(v) for k, v in (pr_fields or {}).items()).replace("'", "'\\''") + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' \"$*\" >> \"$MERGE_ARGS_LOG\"; printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
@@ -366,6 +382,22 @@ class InstalledHelperRegression(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(marker.exists())
                 self.assertIn("full lowercase 40-character SHA", result.stderr)
+
+    def test_bug_fix_without_observed_section_warns_and_still_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, pr_fields={"title": "fix(sidebar): keep the group open", "body": "## Summary\nIt's fixed.\n<!-- Observed -->"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn('no "Observed / Not run" section', result.stderr)
+
+    def test_bug_fix_with_observed_section_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, pr_fields={"title": "Fix the sidebar group", "body": "## Observed / Not run\n- base red, head green"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertNotIn("Observed / Not run", result.stderr)
 
     def test_exploration_label_refuses_before_merging(self):
         with tempfile.TemporaryDirectory() as directory:
