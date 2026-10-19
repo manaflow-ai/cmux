@@ -11,6 +11,9 @@ public struct PaletteSources {
     /// The groups, panes and tabs Go to Workspace (Cmd-P) also searches.
     public var navigation: (any PaletteNavigationSource)?
     public var openIn: (any PaletteOpenInSource)?
+    /// Opens a path or web address typed into Cmd-P or Cmd-Shift-P, or asks
+    /// an agent about it (`GoToPaletteRows`). Nil: no such rows.
+    public var goTo: (any PaletteGoToSource)?
     public var settings: (any PaletteSettingsSource)?
     public var recentDirectories: (any PaletteRecentDirectorySource)?
     /// Lists objects for target arguments (tab groups, windows, ...).

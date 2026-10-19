@@ -1,9 +1,9 @@
 name: cmux-next media
 
 # Screenshots and a short video of each cmux-next UI pull request, posted in
-# one sticky comment (scripts/cmux-next/media/publish.py). The tour builds the
-# merge base and head as separate tagged dev apps on an owned Mac's gui runner,
-# launches each, drives them through the bundled cmux CLI
+# the `tour` part of the PR's status comment (scripts/cmux-next/media/publish.py).
+# The tour builds the merge base and head as separate tagged dev apps on an
+# owned Mac's gui runner, launches each, drives them through the bundled cmux CLI
 # (scripts/cmux-next/media/tour.py), and captures every affected step. Path
 # mapping selects New Tab, agent-pane, or core interactions from the changed
 # files. Tours are data in scripts/cmux-next/media/tours.
@@ -41,6 +41,8 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      # A change to a tour tours it (path_map.py maps tours/<name>.json to <name>).
+      - 'scripts/cmux-next/media/tours/**'
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, ready_for_review, labeled]
@@ -50,6 +52,7 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      - 'scripts/cmux-next/media/tours/**'
   # The batch queue tours a group's combined branch (docs/ci/cmux-next-batch.md#groups):
   # base_sha is the stack's base, so the path map takes the union of the members' tours.
   workflow_dispatch:
@@ -327,6 +330,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/pr-media.py
+            scripts/ci/pr_status.py
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
 

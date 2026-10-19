@@ -19,7 +19,8 @@
 //!   when the chat is moving. A turn running when Stop or close came gets none, however it
 //!   ends: an agent stopped mid-stream may still answer with a connection error. The turn's
 //!   end and Stop's check share one lock, so a Stop after the turn ended but before its
-//!   continuation is scheduled counts too. Each chat staggers its waits a little, so chats an
+//!   continuation is scheduled counts too, and so does one after the continuation fired but
+//!   before its turn started. Each chat staggers its waits a little, so chats an
 //!   outage cut off together do not all come back at the same moment.
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
@@ -29,7 +30,7 @@
 //!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 
-use super::{Control, Hub, PromptOptions, Session, SessionStatus};
+use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
@@ -87,6 +88,9 @@ pub(super) struct CutTurn<'a> {
 enum Mark {
     /// A continuation waits to answer for this cut turn.
     Waiting(String),
+    /// The continuation of this cut turn fired and has not started its turn yet; Stop or
+    /// close now still counts for it.
+    Firing(String),
     /// This turn has ended and whether it is continued is not settled yet; Stop or close now
     /// still counts for it.
     Ending(String),
@@ -119,6 +123,12 @@ pub(super) fn superseded() -> RpcError {
         "auto_resume.superseded: the chat moved on before the continuation ran",
     )
     .with_data(json!({"reason": "auto_resume.superseded"}))
+}
+
+/// The refusal of a continuation Stop or close overtook after it fired.
+fn stopped() -> RpcError {
+    RpcError::invalid_params("auto_resume.stopped: Stop or close came before the continuation ran")
+        .with_data(json!({"reason": "auto_resume.stopped"}))
 }
 
 /// `Err(superseded)` for a continuation (`after`) whose chat moved on, or that would wait.
@@ -172,6 +182,27 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
         );
     }
     Some(delays)
+}
+
+impl TurnInfo {
+    /// The turn a prompt starts (`run_prompt`), before its `turn_started` record gives its seq.
+    pub(super) fn prompted(
+        client: &str,
+        text: &str,
+        turn_id: &str,
+        prompt_id: &str,
+        control: Control,
+    ) -> Self {
+        TurnInfo {
+            started_at: super::now_ms(),
+            client: client.to_owned(),
+            prompt_preview: super::short_text(text, 200),
+            turn_id: turn_id.to_owned(),
+            prompt_id: prompt_id.to_owned(),
+            turn_seq: 0,
+            control,
+        }
+    }
 }
 
 impl Hub {
@@ -248,13 +279,59 @@ impl Hub {
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = self.auto_resumes.lock();
         let ending = match pending.get(&session.id) {
-            Some(Mark::Ending(t)) => Some(t.clone()),
+            Some(Mark::Ending(t) | Mark::Firing(t)) => Some(t.clone()),
             _ => None,
         };
         match session.turn().map(|t| t.turn_id).or(ending) {
             Some(t) => pending.insert(session.id.clone(), Mark::Stopped(t)),
             None => pending.remove(&session.id),
         };
+    }
+
+    /// Starts the chat's turn (`run_prompt`). A continuation (`after` its cut turn) that Stop
+    /// or close overtook since it fired is refused instead, in one step with Stop's check.
+    pub(super) fn start_turn(
+        &self,
+        session: &Session,
+        after: Option<&str>,
+        turn: super::TurnInfo,
+    ) -> Result<(), RpcError> {
+        let mut pending = self.auto_resumes.lock();
+        if let Some(cut) = after {
+            let mark = match pending.get(&session.id) {
+                Some(Mark::Firing(t)) if t == cut => Some(true),
+                Some(Mark::Stopped(t)) if t == cut => Some(false),
+                _ => None,
+            };
+            if mark.is_some() {
+                pending.remove(&session.id);
+            }
+            if mark == Some(false) {
+                return Err(stopped());
+            }
+        }
+        *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
+        Ok(())
+    }
+
+    /// Fires the chat's waiting continuation when it still answers for `cut_turn`: its mark
+    /// stays, as firing, until its turn starts.
+    fn fire_pending(&self, session: &Session, cut_turn: &str) -> bool {
+        let mut pending = self.auto_resumes.lock();
+        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting(t)) if t == cut_turn);
+        if ours {
+            pending.insert(session.id.clone(), Mark::Firing(cut_turn.to_owned()));
+        }
+        ours
+    }
+
+    /// Drops what is left of a continuation of `cut_turn` that did not start its turn.
+    fn clear_fired(&self, session: &Session, cut_turn: &str) {
+        let mut pending = self.auto_resumes.lock();
+        if matches!(pending.get(&session.id), Some(Mark::Firing(t) | Mark::Stopped(t)) if t == cut_turn)
+        {
+            pending.remove(&session.id);
+        }
     }
 
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
@@ -277,17 +354,19 @@ impl Hub {
     ) {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
-        if !self.take_pending(session, cut_turn) {
+        if !self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
             let why = if still_cut(session, cut_turn) { "stopped" } else { "superseded" };
             self.append(session, "mux", "auto_resume_skipped", skipped(why));
             return;
         }
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
+            self.clear_fired(session, cut_turn);
             self.append(session, "mux", "auto_resume_skipped", skipped("closed"));
             return;
         }
         if !still_cut(session, cut_turn) {
+            self.clear_fired(session, cut_turn);
             self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
             return;
         }
@@ -303,19 +382,21 @@ impl Hub {
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": continue_text(cut.error)})];
-        match self.prompt_with(session, blocks, "acpmux", false, opts).await {
+        let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
+        self.clear_fired(session, cut_turn);
+        match result {
             Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
                 self.resume_held(session, &held);
             }
             Ok(_) => {}
-            Err(e)
-                if e.data.as_ref().and_then(|d| d.get("reason"))
-                    == Some(&json!("auto_resume.superseded")) =>
-            {
-                self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
-            }
-            // A failure that is itself a transport error scheduled the next attempt.
-            Err(e) => tracing::warn!(session = %session.id, attempt, "auto resume: {}", e.message),
+            Err(e) => match e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) {
+                Some(why @ ("auto_resume.superseded" | "auto_resume.stopped")) => {
+                    let why = why.trim_start_matches("auto_resume.");
+                    self.append(session, "mux", "auto_resume_skipped", skipped(why));
+                }
+                // A failure that is itself a transport error scheduled the next attempt.
+                _ => tracing::warn!(session = %session.id, attempt, "auto resume: {}", e.message),
+            },
         }
     }
 
