@@ -456,10 +456,6 @@ final class AgentTabStore {
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
 
-    /// A New Tab page whose selected kind is an agent chat: it becomes that chat in place, so it
-    /// takes the chat's chrome from its first frame (cx-ncc.58).
-    func isAgentNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)]?.page.kind == .agent }
-
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
