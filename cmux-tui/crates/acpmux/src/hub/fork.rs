@@ -173,6 +173,7 @@ impl Hub {
             // The fork's own spend. Claude Code restores the parent's running cost into a
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
+            pull_requests: vec![],
             harness_cost_usd: if cut.is_none() { parent_meta.harness_cost_usd } else { None },
             // A fork is the person's new chat, never a sub-session of the parent's parent.
             subsession: None,
