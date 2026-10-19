@@ -71,13 +71,20 @@ export interface Snapshot<Id extends string> {
   readonly extra: Document;
 }
 
+export interface MachinePlatform {
+  readonly os?: string | null;
+  readonly arch?: string | null;
+}
+
 export interface MachineSnapshot extends Snapshot<MachineId> {
   readonly name: string;
-  readonly origin: "local";
+  readonly origin: "local" | "cloud" | "ssh" | "server";
   readonly status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable";
   readonly connectable: boolean;
   readonly deleted: boolean;
   readonly recoverable: boolean;
+  readonly platform?: MachinePlatform | null;
+  readonly capabilities?: readonly string[];
 }
 export interface SessionSnapshot extends Snapshot<SessionId> {
   readonly machineId: MachineId;

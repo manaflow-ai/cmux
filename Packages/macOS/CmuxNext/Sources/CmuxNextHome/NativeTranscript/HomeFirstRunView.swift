@@ -66,7 +66,7 @@ final class HomeFirstRunView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// The agents to list: at most five, most urgent first. No agents, no
     /// list. Rows are rebuilt only when what they show changed.
@@ -201,7 +201,7 @@ final class HomeFirstRunView: NSView {
 final class HomeFirstRunRow: NSView {
     let surface = NSView()
     let glyph = NSImageView()
-    let label: NSTextField
+    let label: ChromeLabel
     /// The row's cmux icon.
     let icon: IconName
     let shortcutLabel = ChromeLabel(labelWithString: "")
@@ -252,7 +252,7 @@ final class HomeFirstRunRow: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override var intrinsicContentSize: NSSize { NSSize(width: width, height: Self.height * scale) }
 

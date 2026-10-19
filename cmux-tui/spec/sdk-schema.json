@@ -1786,6 +1786,31 @@
      "presence": "required",
      "nullable": false
     },
+    "name_source": {
+     "type": {
+      "kind": "ref",
+      "name": "NameSource"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "workspace-name-source-v1"
+    },
+    "name_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "workspace-name-source-v1",
+     "constraints": [
+      {
+       "format": "decimal uint64"
+      }
+     ]
+    },
     "active": {
      "type": {
       "kind": "scalar",
@@ -1953,6 +1978,15 @@
      "nullable": false,
      "since": 12
     },
+    "machine_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "machine_name": {
      "type": {
       "kind": "scalar",
@@ -2046,6 +2080,28 @@
      "nullable": true,
      "since": 12,
      "capability": "daemon-build-v1"
+    },
+    "machine_platform": {
+     "type": {
+      "kind": "ref",
+      "name": "MachinePlatform"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "machine_capabilities": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": [],
+     "since": 12
     }
    },
    "additional_properties": false
@@ -9016,6 +9072,35 @@
     }
    },
    "additional_properties": false
+  },
+  "MachinePlatform": {
+   "kind": "object",
+   "fields": {
+    "os": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "arch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "NameSource": {
+   "kind": "enum",
+   "values": [
+    "user",
+    "auto"
+   ]
   }
  },
  "commands": {
@@ -9062,7 +9147,18 @@
    "capability": null,
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "machine_metadata": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "machine-identity-v1"
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -13773,6 +13869,47 @@
        }
       ]
      },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "description": "Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision."
+     },
+     "expected_name_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "constraints": [
+       {
+        "format": "decimal uint64"
+       }
+      ],
+      "description": "The workspace name_revision the caller read; a rename since then fails."
+     },
+     "release": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "description": "With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -13820,7 +13957,9 @@
     "additional_properties": false,
     "constraints": [
      "At least one of workspace and key must be supplied; both must identify the same workspace when supplied.",
-     "origin and mutation_id are either both present or both absent."
+     "origin and mutation_id are either both present or both absent.",
+     "source auto requires expected_generation and expected_name_revision unless release is true.",
+     "release requires source auto."
     ]
    },
    "result": {
@@ -24608,6 +24747,104 @@
      }
     },
     "additional_properties": false
+   }
+  },
+  "agent-inventory-changed": {
+   "since": 12,
+   "capability": "agent-inventory-watch-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-inventory-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "watch_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ]
+   }
+  },
+  "agent-inventory-watch-ended": {
+   "since": 12,
+   "capability": "agent-inventory-watch-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-inventory-watch-ended"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "watch_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ]
    }
   },
   "bell": {

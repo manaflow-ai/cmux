@@ -401,6 +401,8 @@ fn deferred_wheel_cannot_retarget_a_new_blank_machine_rail() {
             name: "machine-1".to_string(),
             subtitle: "cloud".to_string(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         }],
         active: Some(MachineKey(1)),
         capabilities: MachineCapabilities::default(),
