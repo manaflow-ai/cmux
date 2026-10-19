@@ -21,7 +21,7 @@ extension NowPlayingSource {
 
 extension SidebarModel {
     /// Shows `source` on the Now Playing card while `enabled` (the App passes
-    /// `labs.previewFeatures`: a preview feature until it ships).
+    /// `sidebar.nowPlaying.enabled`, on by default).
     public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
         Task { [weak self] in
             for await nowPlaying in ObservationStream({ enabled() ? source.nowPlaying : nil }) {

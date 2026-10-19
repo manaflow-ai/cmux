@@ -202,7 +202,8 @@ pub enum SubStatus {
     /// Its session is being created.
     #[default]
     Starting,
-    /// It waits for a free slot (`subagents::MAX_LIVE` run at once).
+    /// It waits for a free slot (`OPTCHAT_MAX_LIVE_SUBAGENTS` run at once;
+    /// no cap by default).
     Queued,
     /// A turn runs, or one ended and was not read yet.
     Running,
@@ -243,6 +244,22 @@ pub struct SubRecord {
     /// or a live ask child): a person answers its permission requests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<String>,
+    /// A queued subagent's launch, saved so a restarted host still starts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_launch: Option<QueuedLaunch>,
+}
+
+/// What a queued subagent starts with: its task, directory, effort and
+/// security floor (`Some("ask")` under the spawn floor).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedLaunch {
+    pub task: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floor: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
