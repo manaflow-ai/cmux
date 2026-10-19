@@ -297,6 +297,22 @@ fn a_remote_identify_reveals_no_local_state() {
 }
 
 #[test]
+fn cmux_next_machine_identity_reader_remote_opt_in_still_reveals_no_local_state() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    for option in [true, false] {
+        let reply =
+            send(&fixture.mux, client, json!({"id":1,"cmd":"identify","machine_metadata":option}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        let data = reply["data"].as_object().unwrap();
+        let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
+        assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
+    }
+}
+
+#[test]
 fn command_bearing_unknown_and_id_shaped_params_are_refused_on_every_method() {
     let conversation = "conv_01ARZ3NDEKTSV4RRFFQ69G5FAV";
     for (command, _) in ALLOWED_COMMANDS {

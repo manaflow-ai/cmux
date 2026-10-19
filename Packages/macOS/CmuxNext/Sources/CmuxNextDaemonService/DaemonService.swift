@@ -40,6 +40,8 @@ public final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
+    /// Which kept tabs this launch restarts (`restartsKeptTab`), observed by the tab cells.
+    public internal(set) var keptTabRestarts: KeptTabRestarts = .none
     /// The connection Quit's end choice runs on, kept after
     /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
     @ObservationIgnored var endingConnection: DaemonConnection?
@@ -58,6 +60,8 @@ public final class DaemonService {
     public init(machineID: String = "local") {
         self.machineID = machineID
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
+        // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
+        keptTabRestarts = isLocal ? .expected : .none
     }
 
     /// Records a launch milestone (`daemon_connected`, `launch_snapshot_applied`,

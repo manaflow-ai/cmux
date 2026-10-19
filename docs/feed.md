@@ -82,7 +82,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
 | Kiro CLI     | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | preToolUse / postToolUse |
-| Copilot      | `~/.copilot/config.json`                  | PreToolUse               |
+| Copilot      | `~/.copilot/hooks/cmux.json` or `$COPILOT_HOME/hooks/cmux.json` | preToolUse               |
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
