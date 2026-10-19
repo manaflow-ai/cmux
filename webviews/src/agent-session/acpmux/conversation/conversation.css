@@ -1056,9 +1056,8 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse in turn
-   on a slow 2s cycle, centred on the 20px
-   line; with Reduce Motion on they hold at full strength. */
+/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse
+   in turn on a slow 2s cycle, centred on the 20px line. */
 .cv-working-mark {
   flex: none;
   display: inline-flex;
