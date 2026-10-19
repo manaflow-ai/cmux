@@ -33,8 +33,20 @@ extension TabCell {
         let shownNow = Set((layer.sublayers ?? []).filter { ($0.presentation() ?? $0).opacity > 0.001 }.map(ObjectIdentifier.init))
         let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
         let modelWidth = layer.bounds.width
-        // Samples memoized by device pixel: a tab that shrinks a few points lays out a few times.
-        var byPixel: [Int: (parts: [ObjectIdentifier: Part], title: TitleFade.Sample?, form: TabChromeVisibility)] = [:]
+        // Each sample's width in device pixels; the last is the model width.
+        let keys = times.indices.map { index in
+            Int(((index == times.count - 1 ? modelWidth : max(0, path.value(at: times[index]).x)) * scale).rounded())
+        }
+        // The form of every sample, chosen for the whole path before any is laid out: each part
+        // changes at most once between what shows now and the rest form at the end.
+        let forms: [TabChromeVisibility?] = closingVisibility != nil ? keys.map { _ in nil } : TabChromeVisibility.path(
+            widths: keys.map { CGFloat($0) / scale },
+            from: shownForm(shownNow),
+            isPinned: item.isPinned, isSelected: isSelected, isHovered: isHovered, style: style, metrics: metrics
+        )
+        // Samples memoized by device pixel and form: a tab that shrinks a few points lays out a few times.
+        struct SampleKey: Hashable { var pixel: Int; var form: TabChromeVisibility? }
+        var byPixel: [SampleKey: (parts: [ObjectIdentifier: Part], title: TitleFade.Sample?, form: TabChromeVisibility)] = [:]
         var order: [CALayer] = []
         var known: Set<ObjectIdentifier> = []
         var samples: [(parts: [ObjectIdentifier: Part], title: TitleFade.Sample?, form: TabChromeVisibility)] = []
@@ -50,19 +62,18 @@ extension TabCell {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        for (index, time) in times.enumerated() {
-            let width = index == times.count - 1 ? modelWidth : max(0, path.value(at: time).x)
-            let key = Int((width * scale).rounded())
+        for (pixel, form) in zip(keys, forms) {
+            let key = SampleKey(pixel: pixel, form: form)
             if let sample = byPixel[key] {
                 samples.append(sample)
                 continue
             }
-            layoutParts(slotWidth: CGFloat(key) / scale, onPath: true)
+            layoutParts(slotWidth: CGFloat(pixel) / scale, onPath: true, form: form)
             let sample = record()
             byPixel[key] = sample
             samples.append(sample)
         }
-        // The model values: the parts at the target width (the last sample's).
+        // The model values: the parts at the target width (the last sample's, the rest form).
         layoutParts(slotWidth: modelWidth, onPath: true)
         removeInnerKeyframes()
         // Where the parts change form (the x or the title shows or hides, the content centers, the title
@@ -82,12 +93,9 @@ extension TabCell {
             if !shownNow.contains(id), values.last?.opacity == 0 { for index in values.indices { values[index].opacity = 0 } }
             addKeyframes(values, times: times, steps: steps, to: part)
         }
-        // The title shows where its samples have it, but never only between the ends: a crowded tab
-        // that loses its selection drops its x at once, and the room fits a few letters of the title
-        // for a few samples before the width takes them (a flash, a motion reversal). Its geometry is
-        // the fade's (`TitleFade.follow`), so a title shown at either end fades with the width.
-        let titleHidden = !shownNow.contains(ObjectIdentifier(titleLayer)) && samples.last?.title == nil
-        let titles: [TitleFade.Sample?] = titleHidden ? samples.map { _ in nil } : samples.map(\.title)
+        // The title shows where the path's form has it (it shows or hides once); its geometry is the
+        // fade's (`TitleFade.follow`), so a title shown at either end fades with the width.
+        let titles = samples.map(\.title)
         let titleShown = titles.map { $0 != nil }
         if titleShown.contains(true), titleShown.contains(false),
            let animation = MotionPath.keyframes("opacity", values: titleShown.map { NSNumber(value: $0 ? 1 : 0) }, times: times, on: titleLayer, discrete: true) {
@@ -95,6 +103,15 @@ extension TabCell {
         }
         titleFade.follow(titles, times: times, steps: steps)
         innerPath = InnerPath(end: end, layers: order)
+    }
+
+    /// The form on screen now, from what the parts show (`shown`: the parts whose presentation is
+    /// visible): the start of a width path as the user sees it, also mid-way through an earlier path.
+    private func shownForm(_ shown: Set<ObjectIdentifier>) -> TabChromeVisibility {
+        func on(_ part: CALayer?) -> Bool { part.map { shown.contains(ObjectIdentifier($0)) } ?? false }
+        let title = on(titleLayer)
+        return TabChromeVisibility(showsIcon: on(iconLayer) || on(spinnerLayer?.layer), showsTitle: title,
+                                   showsClose: on(closeGlyphLayer), centersContent: !title)
     }
 
     /// The path ended or was cut (a cancelled move, a width set at once): the keyframes come off.
