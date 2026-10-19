@@ -1,8 +1,11 @@
-//! A hint after `terminal <t> write|keys` (and tmux `send-keys`) types into a
+//! A hint after `terminal <t> write` (and tmux `send-keys -l`) types text into a
 //! terminal whose hooks report a live agent. Typed input lands in the agent's
 //! composer; `cmux agent message` reaches the agent as its own input instead
 //! (cli/agent_message.rs). The input is still sent, so scripts that type into
 //! agents on purpose keep working; the hint goes to stderr.
+
+use std::io::Write;
+use std::time::Duration;
 
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value};
@@ -20,17 +23,21 @@ const SELECTORS: [&str; 7] =
 /// Longest typed text the hint repeats in its command.
 const MAX_QUOTED_CHARS: usize = 200;
 
+/// How long the hint's lookups may wait: the input already succeeded, so a
+/// slow daemon costs at most this before the CLI exits, and no hint.
+const LOOKUP_TIMEOUT: Duration = Duration::from_millis(500);
+
 /// [`wire::print_result`] for a request's result, then the hint on stderr
-/// when the request typed into a live agent.
+/// when the request typed into a live agent. The result prints first.
 pub(super) fn print_result(
     global: &GlobalArgs,
     plan: &RequestPlan,
     reader: &mut Reader,
     result: Value,
 ) -> i32 {
-    let hint = after_input(global, plan, reader);
     let code = wire::print_result(global, plan, result);
-    if let Some(hint) = hint {
+    let _ = std::io::stdout().flush();
+    if let Some(hint) = after_input(global, plan, reader) {
         eprintln!("cmux: {hint}");
     }
     code
@@ -40,16 +47,12 @@ pub(super) fn print_result(
 /// Lookup failures give no hint: the input itself already succeeded.
 fn after_input(global: &GlobalArgs, plan: &RequestPlan, reader: &mut Reader) -> Option<String> {
     if global.output == OutputMode::Quiet
-        || !matches!(
-            plan.operation,
-            WireOperation::Typed(
-                ResourceOperation::TerminalInputWrite | ResourceOperation::TerminalInputKeys
-            )
-        )
+        || !matches!(plan.operation, WireOperation::Typed(ResourceOperation::TerminalInputWrite))
     {
         return None;
     }
     let params = plan.params.as_object()?;
+    reader.get_mut().set_read_timeout(Some(LOOKUP_TIMEOUT)).ok()?;
     let selector: Map<String, Value> = SELECTORS
         .into_iter()
         .filter_map(|key| params.get(key).map(|value| (key.to_owned(), value.clone())))
@@ -66,11 +69,17 @@ fn after_input(global: &GlobalArgs, plan: &RequestPlan, reader: &mut Reader) -> 
         .and_then(Value::as_str)
         .filter(|text| {
             !text.trim().is_empty()
-                && !text.contains('\n')
+                && !text.chars().any(char::is_control)
                 && text.chars().count() <= MAX_QUOTED_CHARS
         })
         .map_or_else(|| "'…'".to_owned(), shell_quote);
-    let command = format!("cmux agent message {terminal} {text}");
+    let mut command = "cmux".to_owned();
+    for (flag, value) in [("--machine", &global.machine), ("--session", &global.session)] {
+        if let Some(value) = value {
+            command.push_str(&format!(" {flag} {}", shell_word(value)));
+        }
+    }
+    command.push_str(&format!(" agent message {terminal} {text}"));
     Some(
         crate::localization::catalog()
             .terminal_input
@@ -78,6 +87,13 @@ fn after_input(global: &GlobalArgs, plan: &RequestPlan, reader: &mut Reader) -> 
             .replace("{terminal}", &terminal)
             .replace("{command}", &command),
     )
+}
+
+/// `value` as one shell word: as it is when it has only safe characters.
+fn shell_word(value: &str) -> String {
+    let safe = !value.is_empty()
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || "._:@-".contains(c));
+    if safe { value.to_owned() } else { shell_quote(value) }
 }
 
 /// POSIX single quotes, which `sh`, `bash` and `zsh` all read back exactly.
