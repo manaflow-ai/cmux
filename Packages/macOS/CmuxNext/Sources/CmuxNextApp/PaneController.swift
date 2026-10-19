@@ -99,6 +99,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // a layout move keeps the pane listed, so its tabs stay.
         services.closeGoneLocalTabs(in: daemon.store)
         currentTabKey = nil
+        DebugTabSwitch.forget(self)
         view.dropParked()
         view.detachContent()
         services.surfaceInvariant.noteChange()
@@ -293,16 +294,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         workspace?.setNeedsTopology()
     }
 
-    /// A terminal, browser or agent page parked in this pane (`PaneContentView+Parking`)
-    /// whose tab closed, moved away or got a new view leaves the window.
+    /// Content parked in this pane (`PaneContentView+Parking`) whose tab closed, moved away or
+    /// got a new view leaves the window. Live views come from `existingContent(for:)`, the one
+    /// lookup of every content kind, so a kind that parks (a page tab) is never dropped as closed.
     private func dropClosedParked(_ snapshot: Snapshot) {
         guard !view.parked.isEmpty else { return }
-        let agentTabs = services.agentTabs
-        let live = Set(snapshot.items.flatMap { item -> [NSView] in
-            let key = item.id.rawValue
-            return [services.cache.existingBrowser(key)?.chrome, agentTabs.existingView(key),
-                    services.cache.existingTerminal(key)?.session.view].compactMap { $0 }
-        }.map(ObjectIdentifier.init))
+        let live = Set(snapshot.items.compactMap { existingContent(for: $0.id.rawValue)?.view }.map(ObjectIdentifier.init))
         view.prunePark { live.contains(ObjectIdentifier($0)) }
     }
 

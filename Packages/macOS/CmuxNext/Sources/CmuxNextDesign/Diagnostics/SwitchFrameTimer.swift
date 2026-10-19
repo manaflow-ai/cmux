@@ -11,9 +11,10 @@ import QuartzCore
 /// commit; a stalled (synthesized) tick waits for the next. Records between ``start()`` and ``stop()``.
 ///
 /// Stages (tab-switch-fast): `input_ms` is the OS event's age when the intent began (a click or key;
-/// absent for a socket action), each ``mark(_:_:)`` adds `<stage>_ms` since the intent, `kind` names
-/// the content shown, and `confirm_ms` is when the daemon stored the selection (``confirmed()``,
-/// asynchronous: the switch never waits for it).
+/// absent for a socket action), each ``mark(_:_:)`` adds `<stage>_ms` since the intent, and ``kinds``
+/// names the content each row showed (`cold`: a first visit, whose content shows a frame later).
+/// ``confirms`` holds, per shown switch, when the daemon stored the selection
+/// (``confirmed(requestedAt:)``, asynchronous: the switch never waits for it).
 @MainActor
 public final class SwitchFrameTimer {
     private struct Started {
@@ -33,8 +34,8 @@ public final class SwitchFrameTimer {
     public private(set) var confirms: [Double] = []
     private var started: [ObjectIdentifier: Started] = [:]
     private var pending: [Pending] = []
-    /// Switches shown and not yet confirmed by the daemon (their intent times).
-    private var unconfirmed: [CFTimeInterval] = []
+    /// Switches shown and not yet confirmed by the daemon: (intent time, shown time).
+    private var unconfirmed: [(start: CFTimeInterval, shown: CFTimeInterval)] = []
     /// One probe per window that showed a switch while recording (a switch outside a window is not timed).
     private var probes: [ObjectIdentifier: CommitProbe] = [:]
     private let capacity = 1_024
@@ -79,8 +80,9 @@ public final class SwitchFrameTimer {
     /// `key` shows its new selection in `window`: the transaction open now carries it to the screen.
     public func shown(_ key: ObjectIdentifier, in window: NSWindow?) {
         guard isRecording, let switched = started.removeValue(forKey: key), let window, let host = window.contentView?.layer else { return }
-        pending.append(Pending(started: switched, applied: CACurrentMediaTime()))
-        unconfirmed.append(switched.start)
+        let applied = CACurrentMediaTime()
+        pending.append(Pending(started: switched, applied: applied))
+        if unconfirmed.count < capacity { unconfirmed.append((switched.start, applied)) }
         let probe = probes[ObjectIdentifier(window)] ?? CommitProbe { [weak self] in self?.committed(at: ($0, $1)) }
         probes[ObjectIdentifier(window)] = probe
         probe.mark(in: host)
@@ -91,9 +93,10 @@ public final class SwitchFrameTimer {
     public func confirmed(requestedAt requested: CFTimeInterval) {
         guard isRecording else { return }
         let now = CACurrentMediaTime()
-        unconfirmed.removeAll { start in
-            guard start <= requested else { return false }
-            if confirms.count < capacity { confirms.append((now - start) * 1_000) }
+        // A write carries the selections shown before it read the window state.
+        unconfirmed.removeAll { switched in
+            guard switched.shown <= requested else { return false }
+            if confirms.count < capacity { confirms.append((now - switched.start) * 1_000) }
             return true
         }
     }

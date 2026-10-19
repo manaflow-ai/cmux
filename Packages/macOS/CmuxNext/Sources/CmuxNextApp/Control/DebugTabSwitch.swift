@@ -57,6 +57,11 @@ enum DebugTabSwitch {
         timer.shown(ObjectIdentifier(owner), in: window)
     }
 
+    /// `owner` (a pane) goes away: a switch it began and never showed ends here.
+    static func forget(_ owner: AnyObject) {
+        if let open = intervals.removeValue(forKey: ObjectIdentifier(owner)) { signposter.endInterval("switch", open.state, "gone") }
+    }
+
     /// A window record write requested at `requested` (`CACurrentMediaTime`) was stored by the daemon.
     static func confirmed(requestedAt requested: CFTimeInterval) {
         timer.confirmed(requestedAt: requested)
