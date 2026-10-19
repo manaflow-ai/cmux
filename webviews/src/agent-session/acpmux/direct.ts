@@ -34,7 +34,7 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
-import { watchGoBack } from "./WatchBanner";
+import { watchGoBack, watchResumeFailed } from "./WatchBanner";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -2912,6 +2912,14 @@ export class AcpmuxDirectClient {
         this.liveTakeOver = liveDetails((error as { details?: unknown }).details);
         this.liveTakeOverFor = sessionId;
         this.emit();
+        return false;
+      }
+      // The resume failed: the chat still views the conversation, and says why.
+      if (error instanceof AcpmuxRpcError && error.reason === "watch.resumeFailed") {
+        const why = (error.data as { error?: unknown } | undefined)?.error;
+        this.notice(
+          watchResumeFailed(text(this.summary?.watching) ?? "", typeof why === "string" ? why : error.message),
+        );
         return false;
       }
       this.notice(error instanceof Error && error.message ? error.message : String(error));

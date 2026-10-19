@@ -2,7 +2,7 @@
 // `hub/watch.rs`, Leo 2026-10-18): the pane names the app the session runs in and offers Take Over.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { WatchBanner, watchGoBack, watchedApp } from "../src/agent-session/acpmux/WatchBanner";
+import { WatchBanner, watchGoBack, watchResumeFailed, watchedApp } from "../src/agent-session/acpmux/WatchBanner";
 
 test("the banner names the app the watched session runs in and offers Take Over", () => {
   const html = renderToStaticMarkup(<WatchBanner family="claude" onTakeOver={() => {}} />);
@@ -41,4 +41,12 @@ test("a take-over says how to continue in the original app", () => {
   expect(fork).toContain("untouched");
   expect(watchGoBack({ family: "opencode", agentSessionId: "x", cwd: "/w" })).toBeUndefined();
   expect(watchGoBack({ family: "claude", cwd: "/w" })).toBeUndefined();
+});
+
+// A take-over whose resume fails stays View Only and says why (Leo 2026-10-19, resume unsupported).
+test("a failed resume says why and that the chat stays View Only", () => {
+  const line = watchResumeFailed("codex", "No such file or directory (os error 2).");
+  expect(line).toContain("Codex");
+  expect(line).toContain("No such file or directory (os error 2). It stays View Only");
+  expect(line).toContain("View Only");
 });

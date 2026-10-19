@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "watch.resumeFailed": {
+      "comment": "Agent pane: the transcript line when Take Over could not resume a Claude Code or Codex session here; the chat stays View Only. {app} is Claude Code or Codex, {reason} the error, never translated",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر استئناف جلسة {app} هذه هنا: {reason}. تبقى للعرض فقط؛ ابدأ محادثة جديدة منها في الأعلى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova sesija aplikacije {app} ne može se nastaviti ovdje: {reason}. Ostaje samo za pregled; pokrenite novi chat iz nje iznad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne {app}-session kunne ikke genoptages her: {reason}. Den forbliver skrivebeskyttet; start en ny chat fra den ovenfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese {app}-Sitzung konnte hier nicht fortgesetzt werden: {reason}. Sie bleibt nur zum Ansehen; starte oben einen neuen Chat daraus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't resume this {app} session here: {reason}. It stays View Only; start a new chat from it above."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo reanudar aquí esta sesión de {app}: {reason}. Sigue en solo lectura; inicia un chat nuevo desde ella arriba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de reprendre ici cette session {app} : {reason}. Elle reste en lecture seule ; démarrez un nouveau chat à partir d’elle ci-dessus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile riprendere qui questa sessione di {app}: {reason}. Resta in sola lettura; avvia una nuova chat da essa qui sopra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この {app} セッションをここで再開できませんでした: {reason}。表示のみのままです。上から新しいチャットを始められます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបន្តវគ្គ {app} នេះនៅទីនេះបានទេ៖ {reason}។ វានៅតែសម្រាប់មើលប៉ុណ្ណោះ; ចាប់ផ្តើមការជជែកថ្មីពីវានៅខាងលើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 {app} 세션을 여기서 재개할 수 없습니다: {reason}. 보기 전용으로 유지되며, 위에서 새 채팅을 시작할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne {app}-økten kunne ikke gjenopptas her: {reason}. Den forblir skrivebeskyttet; start en ny chat fra den ovenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można tu wznowić tej sesji {app}: {reason}. Pozostaje tylko do podglądu; rozpocznij z niej nowy czat powyżej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível retomar esta sessão do {app} aqui: {reason}. Ela continua somente para visualização; inicie um novo chat a partir dela acima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось возобновить здесь этот сеанс {app}: {reason}. Он остаётся только для просмотра; начните из него новый чат выше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถทำเซสชัน {app} นี้ต่อที่นี่ได้: {reason} เซสชันยังคงเป็นแบบดูอย่างเดียว เริ่มแชทใหม่จากเซสชันนี้ได้ที่ด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu {app} oturumu burada sürdürülemedi: {reason}. Yalnızca görüntüleme olarak kalıyor; yukarıdan bundan yeni bir sohbet başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося відновити тут цей сеанс {app}: {reason}. Він лишається лише для перегляду; почніть із нього новий чат вище."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể tiếp tục phiên {app} này tại đây: {reason}. Phiên vẫn ở chế độ chỉ xem; hãy bắt đầu cuộc trò chuyện mới từ phiên này ở trên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在此处恢复这个 {app} 会话：{reason}。它仍为仅查看；可在上方从它开始新的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在此處恢復這個 {app} 工作階段：{reason}。它仍為僅檢視；可在上方從它開始新的聊天。"
+          }
+        }
+      }
+    },
     "watch.goBack": {
       "comment": "Agent pane: the transcript line after this chat took over a Claude Code or Codex session another app ran; {app} is Claude Code or Codex, {command} a shell command, never translated",
       "extractionState": "manual",

@@ -27,6 +27,12 @@ export function watchGoBack(record: {
   return translate(record.fork === true ? "watch.goBackFork" : "watch.goBack", { app: watchedApp(family), command });
 }
 
+/// The transcript line when Take Over could not resume the conversation here (acpmux
+/// `watch.resumeFailed`): the chat stays View Only, and the banner's new-chat button is the way on.
+export function watchResumeFailed(family: string, reason: string): string {
+  return translate("watch.resumeFailed", { app: watchedApp(family), reason: reason.replace(/[.\s]+$/, "") });
+}
+
 /// A chat that shows a Claude Code or Codex session another app runs, without running it
 /// (acpmux `hub/watch.rs`): the transcript follows that app live; a reply, or Take Over, makes this
 /// chat run the conversation (acpmux refuses while the other app still runs

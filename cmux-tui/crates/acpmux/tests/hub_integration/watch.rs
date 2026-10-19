@@ -215,7 +215,8 @@ async fn taking_over_a_watched_chat_lets_it_run_the_conversation() {
     assert!(taken["watching"].is_null(), "{taken}");
     // The record says which app and folder the conversation goes back to (the pane's "to continue
     // there" line).
-    let record = hub.events(&sid, 0, 10_000).unwrap().into_iter().find(|e| e.kind == "watch_taken_over");
+    let record =
+        hub.events(&sid, 0, 10_000).unwrap().into_iter().find(|e| e.kind == "watch_taken_over");
     let record = record.expect("watch_taken_over").msg;
     assert_eq!(record["family"], "codex", "{record}");
     assert_eq!(record["agentSessionId"], id.as_str(), "{record}");
