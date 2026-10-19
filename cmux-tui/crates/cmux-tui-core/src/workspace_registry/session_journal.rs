@@ -161,9 +161,16 @@ pub(crate) struct TerminalOutputRecordsWindow {
 /// the registry writer connection or its mutex.
 pub(crate) struct SessionJournalReader {
     connection: Connection,
+    /// The barrier of the daemon's registry on this file: a creation's
+    /// commits may be in the WAL unsynced, and this connection reads them,
+    /// so every read passes it before its rows go anywhere
+    /// (`deferred_sync`). `None` when this process does not own the registry.
+    barrier: Option<Arc<deferred_sync::DeferredSync>>,
 }
 
 pub(crate) struct JournalRestoreCursor {
+    /// One read snapshot, taken (and passed through the reader's barrier)
+    /// in [`SessionJournalReader::restore_cursor`].
     connection: Connection,
     source_sequence: u64,
     target_head: u64,
@@ -189,11 +196,22 @@ impl SessionJournalReader {
         .with_context(|| format!("open session journal reader {}", database_path.display()))?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA query_only=ON; PRAGMA foreign_keys=ON;")?;
-        Ok(Self { connection })
+        let barrier = deferred_sync::for_database(database_path);
+        Ok(Self { connection, barrier })
+    }
+
+    /// After a read and before its result leaves: everything the read saw
+    /// is durable (see the field docs).
+    pub(super) fn pass_barrier(&self) {
+        if let Some(barrier) = self.barrier.as_ref() {
+            barrier.sync_for_reader();
+        }
     }
 
     pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
-        query_session_journal_after(&self.connection, sequence, limit)
+        let page = query_session_journal_after(&self.connection, sequence, limit)?;
+        self.pass_barrier();
+        Ok(page)
     }
 
     /// The resource events after `revision`, read on this reader's own
@@ -213,7 +231,10 @@ impl SessionJournalReader {
         limit: usize,
         subjects: &[JournalSubject],
     ) -> anyhow::Result<SessionJournalSubjectPage> {
-        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
+        let page =
+            query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)?;
+        self.pass_barrier();
+        Ok(page)
     }
 
     pub(crate) fn restore_cursor(
@@ -222,6 +243,8 @@ impl SessionJournalReader {
     ) -> anyhow::Result<JournalRestoreCursor> {
         self.connection.execute_batch("BEGIN DEFERRED TRANSACTION")?;
         let target_head = query_journal_head(&self.connection)?;
+        // The cursor's snapshot starts here; it reads nothing newer.
+        self.pass_barrier();
         anyhow::ensure!(
             source_sequence <= target_head,
             "cursor.invalid: journal sequence {source_sequence} is ahead of {target_head}"

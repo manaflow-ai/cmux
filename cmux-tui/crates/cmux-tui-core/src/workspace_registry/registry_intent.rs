@@ -274,6 +274,12 @@ impl WorkspaceRegistry {
         // so `intent` is not built on a base a late commit changes; this
         // second drain covers one that went indeterminate meanwhile.
         self.connection.drain_unsettled()?;
+        // A creation's commits skip their own WAL sync and share one at the
+        // end of the creation (`deferred_sync`): commit on this thread,
+        // where the deferral applies, not on the journal writer.
+        if self.connection.deferred_sync().defers_here() {
+            return self.commit_registry_intent_locally(&intent);
+        }
         let Some(sink) = self.connection.accepting_sink().cloned() else {
             return self.commit_registry_intent_locally(&intent);
         };
