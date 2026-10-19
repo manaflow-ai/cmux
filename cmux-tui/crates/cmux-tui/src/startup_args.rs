@@ -96,7 +96,7 @@ impl Args {
     }
 }
 
-const STARTUP_VALUE_OPTIONS: &[&str] = &[
+pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--socket",
     "--session",
     "--machine",
