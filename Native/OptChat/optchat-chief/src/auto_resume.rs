@@ -160,8 +160,8 @@ pub fn error_line(reply: &str) -> Option<&str> {
         || lower.starts_with("(did not start:")
         || lower.starts_with("error:")
         || lower.starts_with("⏺ api error")
-        // The whole reply is one short error (an empty turn with its error).
-        || (reply.trim().len() < 200 && lower.contains("error"));
+        // The whole reply is one short harness error.
+        || (reply.trim().len() < 200 && lower.contains("api error:"));
     marked.then_some(line)
 }
 
@@ -398,6 +398,14 @@ mod tests {
     fn a_real_report_is_done() {
         let r = "I pushed abc123 to feat-cmux-next.\nDecisions: reply `keep` or `drop`.";
         assert_eq!(classify(r, false), StopKind::Done);
+    }
+
+    #[test]
+    fn a_short_reply_about_an_error_is_done() {
+        assert_eq!(
+            classify("Fixed the 500 error in the router.", false),
+            StopKind::Done
+        );
     }
 
     #[test]

@@ -148,6 +148,14 @@ pub enum Input {
         after_network: bool,
         online: bool,
     },
+    /// An agent CLI in a cmux terminal stopped on an error
+    /// (terminal_watch.rs): `[term_…] stopped: …`. Quiet ones (an
+    /// auto-resume is planned or done) are notices; the others reach the
+    /// Chief as a note.
+    TerminalStopped {
+        text: String,
+        quiet: bool,
+    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -824,6 +832,13 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::TerminalStopped { text, quiet } => {
+                if quiet {
+                    self.notice(format!("notice:optchat:terminal-resume:{}", now_ms()), text);
+                } else {
+                    self.queue(text, Source::Note);
+                }
+            }
             Input::AutoResume {
                 id,
                 attempt,

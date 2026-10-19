@@ -50,6 +50,7 @@ pub mod run;
 pub mod session_dir;
 pub mod settle_status;
 pub mod state;
+pub mod terminal_watch;
 pub mod subagents;
 pub mod tools;
 pub mod trace;
