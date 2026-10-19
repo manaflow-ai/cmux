@@ -239,6 +239,9 @@ class GroupBisectAndLand(unittest.TestCase):
         self.assertTrue(all(text == "validated; landing disabled for this run" for _, text in outcome))
 
 class GroupCycle(unittest.TestCase):
+    def setUp(self):
+        nb.GROUP_TRIED.clear()
+
     def test_after_a_group_lands_the_cycle_stops_and_starts_fresh(self):
         item = controller()
         item.reported = lambda target, kinds: ""
@@ -306,6 +309,43 @@ class GroupCycle(unittest.TestCase):
         item, posted, deleted = self.cycle("not landed: lane did not run", "d" * 40)
         self.assertEqual(item.base_sha, "")
         self.assertIn("next-batch/local-1-base", deleted)
+
+    def test_a_reset_keeps_the_old_probe_out_of_the_new_bases_result(self):
+        item = controller()
+        item.base_sha = "a" * 40
+        item.base_tree_waited = True
+        item.push = lambda sha, ref: None
+        item.delete_branch = lambda ref: None
+        item.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        item.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test: test cancelled()"]
+
+        def wait_run(run_id, timeout):
+            item.reset_base()  # feat-cmux-next moved while the old base's probe ran
+            return {"status": "completed", "conclusion": "failure"}
+
+        item.wait_run = wait_run
+        with mock.patch.object(nb.time, "sleep"):
+            item.start_base_probe()
+            old = item.base_probe
+            old.join(timeout=10)
+        self.assertNotIn("failed", item.base_probe_result)
+        self.assertFalse(item.base_tree_waited)
+
+    def test_a_base_change_does_not_hold_the_group_for_the_hour(self):
+        item = controller()
+        item.reported = lambda target, kinds: ""
+        item.fetch = lambda prs: "b" * 40
+        item.group_meta = lambda prs: {target.number: {"labeled": {}} for target in prs}
+        item.is_ancestor = lambda a, b: False
+        ran = []
+        moved = f"not landed: {nb.BASE} changed the group's files since validation; revalidate next cycle"
+        item.run_group = lambda name, members: ran.append(name) or [(members[0], moved)]
+        nb.GROUP_TRIED.clear()
+        prs = [pr(1, labels=["batch:a"])]
+        with mock.patch.object(nb, "now", return_value=NOW):
+            item.run_groups(prs, None, {})
+            item.run_groups(prs, None, {})
+        self.assertEqual(ran, ["a", "a"])
 
     def test_lanes_use_each_members_full_diff(self):
         item = controller()
