@@ -52,7 +52,7 @@ fn fake() -> Fake {
 }
 
 async fn serve(
-    mut stream: tokio::net::TcpStream,
+    stream: tokio::net::TcpStream,
     seen: Arc<Mutex<Seen>>,
     events: broadcast::Sender<String>,
 ) {
@@ -65,6 +65,8 @@ async fn serve(
     }
 }
 
+// tungstenite's handshake callback fixes its error type (an HTTP response).
+#[allow(clippy::result_large_err)]
 async fn socket(
     stream: tokio::net::TcpStream,
     seen: Arc<Mutex<Seen>>,
