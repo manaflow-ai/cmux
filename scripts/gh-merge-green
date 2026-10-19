@@ -765,8 +765,15 @@ if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q 
   echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
 fi
 freeze_args=(check --repo "$repo" --pr "$num" --base "$base")
+# Tests hand the checker recorded issues and events. GH_MERGE_GREEN_TEST left set
+# in a real shell without both fixtures refuses, rather than reading as no freezes.
 if [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
-  freeze_args+=(--files /dev/stdin --issues-file "${GH_MERGE_GREEN_FREEZE_ISSUES:-/dev/null}" --events-file "${GH_MERGE_GREEN_FREEZE_EVENTS:-/dev/null}")
+  if [ -z "${GH_MERGE_GREEN_FREEZE_ISSUES:-}" ] || [ -z "${GH_MERGE_GREEN_FREEZE_EVENTS:-}" ]; then
+    refuse \
+      "not merged: freeze state unknown for $ref (GH_MERGE_GREEN_TEST is set without GH_MERGE_GREEN_FREEZE_ISSUES and GH_MERGE_GREEN_FREEZE_EVENTS)" \
+      'unset GH_MERGE_GREEN_TEST for a real merge; tests set both freeze fixtures'
+  fi
+  freeze_args+=(--files /dev/stdin --issues-file "$GH_MERGE_GREEN_FREEZE_ISSUES" --events-file "$GH_MERGE_GREEN_FREEZE_EVENTS")
 fi
 freeze_status=0
 frozen=$(python3 "$script_dir/ci/merge_freeze.py" "${freeze_args[@]}" <<<"$changed") || freeze_status=$?
