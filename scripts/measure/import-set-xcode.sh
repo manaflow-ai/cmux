@@ -523,6 +523,8 @@ def sha(p):
     return h.hexdigest()[:12]
 def sections(p):
     d = open(p, "rb").read()
+    if struct.unpack_from("<I", d, 0)[0] != 0xFEEDFACF:   # thin 64-bit only (a Debug build is thin)
+        return {}
     n = struct.unpack_from("<I", d, 16)[0]; o = 32; got = {}
     for _ in range(n):
         c, s = struct.unpack_from("<II", d, o)
@@ -535,7 +537,7 @@ def sections(p):
 exe_sha = sha(argv[argv.index("-o") + 1])
 for name, extra in (("default", []), ("reproducible", ["-Xlinker", "-reproducible"]),
                     ("objc_stubs_small", ["-Xlinker", "-objc_stubs_small"]), ("O0", ["-Xlinker", "-O0"])):
-    shas, err, secs, size, stubs = [], "", [], 0, 0
+    shas, err, secs, sizes = [], "", [], set()
     for n in range(count):
         a = list(argv)
         # The same file name: the linker signature's identifier is the output's name.
@@ -546,15 +548,15 @@ for name, extra in (("default", []), ("reproducible", ["-Xlinker", "-reproducibl
             a[a.index("-dependency_info") + 2] = os.path.join(out, f"{name}-{n}.dat")
         t = time.monotonic()
         r = subprocess.run(a + extra, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        secs.append(time.monotonic() - t)
         if r.returncode:
             err = r.stdout.decode(errors="replace").strip().splitlines()[-1:]
             break
+        secs.append(time.monotonic() - t)
         shas.append(sha(exe))
-        size, stubs = os.path.getsize(exe), sections(exe).get("__objc_stubs", 0)
+        sizes.add((os.path.getsize(exe), sections(exe).get("__objc_stubs", 0)))
         os.remove(exe)
     print(f"RESULT relink {name}: links={len(shas)} distinct_outputs={len(set(shas))} "
-          f"counts={sorted(((shas.count(h), h) for h in set(shas)), reverse=True)} exe_bytes={size} objc_stubs_bytes={stubs} "
+          f"counts={sorted(((shas.count(h), h) for h in set(shas)), reverse=True)} exe_and_objc_stubs_bytes={sorted(sizes)} "
           f"link_seconds_median={round(statistics.median(secs), 2) if secs else 0} "
           f"xcodebuild_output={exe_sha} {'error=' + str(err) if err else ''}")
 PY
@@ -590,8 +592,23 @@ int main(void) {
 }
 M
   python3 -I - "$dir" <<'PY' || true   # mask-ok: a diagnostic never fails the run
-import os, statistics, subprocess, sys
+import os, statistics, struct, subprocess, sys
 d = sys.argv[1]
+def stubs(p):
+    b = open(p, "rb").read()
+    if struct.unpack_from("<I", b, 0)[0] != 0xFEEDFACF:
+        return -1
+    n = struct.unpack_from("<I", b, 16)[0]; o = 32
+    for _ in range(n):
+        c, s = struct.unpack_from("<II", b, o)
+        if c == 0x19:
+            for k in range(struct.unpack_from("<I", b, o + 64)[0]):
+                q = o + 72 + 80 * k
+                if b[q:q + 16].split(b"\0")[0] == b"__objc_stubs":
+                    return struct.unpack_from("<Q", b, q + 40)[0]
+        o += s
+    return 0
+built, ns = [], {}
 for name, flag in (("default", []), ("objc_stubs_small", ["-Wl,-objc_stubs_small"])):
     exe = os.path.join(d, name)
     # -fobjc-msgsend-selector-stubs is clang's default for arm64 macOS; say it so the stubs are certain.
@@ -600,8 +617,15 @@ for name, flag in (("default", []), ("objc_stubs_small", ["-Wl,-objc_stubs_small
     if r.returncode:
         print(f"RESULT stubcost {name}: build failed {r.stdout.decode(errors='replace').strip().splitlines()[-1:]}")
         continue
-    ns = [float(subprocess.run([exe], stdout=subprocess.PIPE, check=True).stdout.split()[0]) for _ in range(7)]
-    print(f"RESULT stubcost {name}: ns_per_send_median={round(statistics.median(ns), 4)} min={round(min(ns), 4)} max={round(max(ns), 4)}")
+    built.append((name, exe)); ns[name] = []
+# Interleaved runs, so drift (clock, heat, another job) falls on both modes alike.
+for _ in range(7):
+    for name, exe in built:
+        ns[name].append(float(subprocess.run([exe], stdout=subprocess.PIPE, check=True).stdout.split()[0]))
+for name, exe in built:
+    v = ns[name]
+    print(f"RESULT stubcost {name}: objc_stubs_bytes={stubs(exe)} ns_per_send_min={round(min(v), 4)} "
+          f"median={round(statistics.median(v), 4)} max={round(max(v), 4)}")
 PY
   rm -rf "$dir"
 }
