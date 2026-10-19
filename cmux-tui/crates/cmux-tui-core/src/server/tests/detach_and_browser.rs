@@ -565,10 +565,7 @@ fn identify_and_ping_return_build_metadata() {
     // this crate installs one, so this value is the one every reader sees.
     const BUILD_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
     const GHOSTTY_COMMIT: &str = "fedcba9876543210fedcba9876543210fedcba98";
-    crate::server::install_build_stamp(crate::server::BuildStamp::new(
-        Some(BUILD_COMMIT),
-        Some(GHOSTTY_COMMIT),
-    ));
+    install_build_stamp(BuildStamp::new(Some(BUILD_COMMIT), Some(GHOSTTY_COMMIT)));
     let mux = test_mux();
     let identity = handle_command(
         &mux,
