@@ -314,6 +314,7 @@ done
         for package in ("webviews", "cmux-tui/frontends/web"):
             with self.subTest(package=package):
                 vp_log.unlink(missing_ok=True)
+                self.git("rm", "-r", "-q", "--cached", "--ignore-unmatch", "webviews", "cmux-tui")
                 self.stage_web_file(package)
                 result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log)))
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -607,6 +608,14 @@ done
         self.assertFalse(marker.exists())
 
     def test_trusted_main_post_merge_migrates_legacy_driver_commands(self):
+        self.assert_trusted_post_merge_reinstalls("main")
+
+    def test_trusted_feat_cmux_next_post_merge_reinstalls_its_hooks(self):
+        # Direct pushes land on feat-cmux-next, whose pre-commit formats more
+        # than main's; pulling it must install that copy, not keep an old one.
+        self.assert_trusted_post_merge_reinstalls("feat-cmux-next")
+
+    def assert_trusted_post_merge_reinstalls(self, branch):
         hook = self.repo / "scripts/git-hooks/post-merge"
         hook.unlink()
         self.git("add", ".")
@@ -625,13 +634,13 @@ done
             "commit", "-qm", "add trusted migration hook",
         )
         trusted_main = self.git("rev-parse", "HEAD").stdout.strip()
-        self.git("update-ref", "refs/remotes/upstream/main", trusted_main)
+        self.git("update-ref", f"refs/remotes/upstream/{branch}", trusted_main)
         self.git("switch", "-q", "main")
         self.git("config", "core.hooksPath", "scripts/git-hooks")
         self.git("config", "merge.xcstrings.driver", "python3 scripts/merge-xcstrings.py %O %A %B %P")
         self.git("config", "merge.pbxproj.driver", "python3 scripts/merge-pbxproj.py %O %A %B %P")
 
-        result = self.git("merge", "--ff-only", "upstream/main", check=False)
+        result = self.git("merge", "--ff-only", f"upstream/{branch}", check=False)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), trusted_main)
