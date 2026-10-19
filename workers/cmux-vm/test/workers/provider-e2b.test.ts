@@ -82,15 +82,28 @@ describe("E2B provider adapter", () => {
             if (decision._tag !== "granted") throw new Error("test quota setup failed");
             const refusedOptions = yield* client.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: 60, maxRunSeconds: 10, environment: "test" }, { mayCreate: decision.proof, scope: write }).pipe(Effect.flip);
             const refusedZero = yield* client.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: 0, environment: "test" }, { mayCreate: decision.proof, scope: write }).pipe(Effect.flip);
-            const created = yield* client.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: 60, environment: "test", size: { vcpus: 2, memoryMib: 512, diskMib: 10240 } }, { mayCreate: decision.proof, scope: write });
+            const created = yield* client.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: -1, environment: "test", size: { vcpus: 2, memoryMib: 512, diskMib: 10240 } }, { mayCreate: decision.proof, scope: write });
             rows.push({ tenantId: tenant, kind: "vm", cmuxId: vmId, upstreamId: created.upstreamId, createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
             const owns = yield* tenantOwnsVm(caller, vm);
             if (owns === null) throw new Error("test ownership setup failed");
+            const refusedUser = yield* client.exec(vm, { owns, scope: exec }, { command: "id", linuxUser: "nobody" }).pipe(Effect.flip);
             const current = yield* client.getVm(vm, { owns, scope: read });
             const currentForWrite = yield* client.getVmForWrite(vm, { owns, scope: write });
+            const isolatedClient = makeE2bUpstreamClient({ apiKey: Redacted.make("e2b-test-key"), apiUrl: "https://api.test/", domain: "https://sandbox.test/", fetch: fake.fetch, environment: "test", templateId: "node-22" });
+            const isolatedCurrent = yield* isolatedClient.getVm(vm, { owns, scope: read });
             const execBody = yield* client.exec(vm, { owns, scope: exec }, { command: "echo ok", stdinBase64: "aGk=" });
             const execText = yield* Effect.promise(() => new Response(execBody).text());
-            yield* client.writeFile(vm, { owns, scope: files }, { path: "/tmp/hello.txt", mode: undefined, body: streamOf(new TextEncoder().encode("written")), length: 7 });
+            fake.setExecError("permission_denied");
+            const startFailureBody = yield* client.exec(vm, { owns, scope: exec }, { command: "false" });
+            const startFailure = yield* Effect.either(Effect.promise(() => new Response(startFailureBody).text()));
+            fake.setExecError("deadline_exceeded");
+            const deadlineBody = yield* client.exec(vm, { owns, scope: exec }, { command: "sleep 10", timeoutMs: 10 });
+            const deadline = yield* Effect.promise(() => new Response(deadlineBody).text());
+            fake.setExecError(null);
+            fake.setEnvdVersion("0.5.6");
+            const oldEnvd = yield* client.writeFile(vm, { owns, scope: files }, { path: "/tmp/old.txt", mode: undefined, body: streamOf(new TextEncoder().encode("old")), length: 3 }).pipe(Effect.flip);
+            fake.setEnvdVersion("0.5.7");
+            yield* client.writeFile(vm, { owns, scope: files }, { path: "/tmp/hello.txt", mode: 493, body: streamOf(new TextEncoder().encode("written")), length: 7 });
             const file = yield* client.readFile(vm, { owns, scope: files }, "/tmp/hello.txt", undefined);
             const fileText = yield* Effect.promise(() => new Response(file.body).text());
             const listed = yield* client.listFiles(vm, { owns, scope: files }, "/tmp");
@@ -104,7 +117,7 @@ describe("E2B provider adapter", () => {
             const deletedSnapshot = yield* client.deleteSnapshot(snapshot, { owns: ownsSnapshot, scope: write });
             const deletedVm = yield* client.deleteVm(vm, { owns, scope: write });
             const refusedResize = yield* created.grow({ vcpus: 4 }).pipe(Effect.flip);
-            return { current, currentForWrite, execText, fileText, listed, paused, resumed, shutdown, deletedSnapshot, deletedVm, refusedResize, refusedOptions, refusedZero };
+            return { current, currentForWrite, isolatedCurrent, execText, startFailure, deadline, fileText, listed, paused, resumed, shutdown, deletedSnapshot, deletedVm, refusedResize, refusedOptions, refusedZero, refusedUser, oldEnvd };
           }),
         ),
         services,
@@ -114,20 +127,27 @@ describe("E2B provider adapter", () => {
     expect(result.current.state).toBe("running");
     expect(result.current.resources).toEqual({ cpu: 2, memory: 512, storage: 10240 });
     expect(result.currentForWrite.state).toBe("running");
-    expect(result.refusedOptions).toMatchObject({ _tag: "UpstreamError", status: 409 });
+    expect(result.current.idleTimeoutSeconds).toBe(-1);
+    expect(result.isolatedCurrent.idleTimeoutSeconds).toBe(-1);
+    expect(result.refusedOptions).toMatchObject({ _tag: "UpstreamError", status: 400, unsupported: expect.any(String) });
     expect(result.refusedZero).toMatchObject({ _tag: "UpstreamError", status: 422 });
-    expect(JSON.parse(result.execText)).toEqual({ exitCode: 0, stdout: "ok\n", stderr: "" });
+    expect(result.refusedUser).toMatchObject({ _tag: "UpstreamError", status: 400, unsupported: expect.any(String) });
+    expect(JSON.parse(result.execText)).toEqual({ exitCode: 0, stdout: "ok\n", stderr: "warn\n" });
+    expect(result.startFailure._tag).toBe("Left");
+    expect(JSON.parse(result.deadline).exitCode).toBeNull();
+    expect(result.oldEnvd).toMatchObject({ _tag: "UpstreamError", status: 400, unsupported: expect.any(String) });
     expect(result.fileText).toBe("written");
     expect(result.listed).toEqual([{ name: "hello.txt", kind: "file" }]);
     expect(result.paused.state).toBe("paused");
     expect(result.resumed.state).toBe("running");
-    expect(result.shutdown).toMatchObject({ _tag: "UpstreamError", status: 409 });
+    expect(result.shutdown).toMatchObject({ _tag: "UpstreamError", status: 400, unsupported: expect.any(String) });
     expect(result.deletedSnapshot).toBe("deleted");
     expect(result.deletedVm).toBe("deleted");
-    expect(result.refusedResize).toMatchObject({ _tag: "UpstreamError", status: 409 });
+    expect(result.refusedResize).toMatchObject({ _tag: "UpstreamError", status: 400, unsupported: expect.any(String) });
     expect(fake.calls.some((call) => call.url.endsWith("/process.Process/Start") && call.headers.get("x-access-token") === "envd-sbx-1")).toBe(true);
     expect(fake.calls.some((call) => call.url.endsWith("/process.Process/SendInput") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes("aGk=")).toBe(true);
-    expect(fake.calls.some((call) => call.url.endsWith("/v2/sandboxes/sbx-1/connect") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes('"timeout":60'))).toBe(true);
+    expect(fake.calls.some((call) => call.url.endsWith("/v2/sandboxes/sbx-1/connect") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes('"timeout":3600'))).toBe(true);
+    expect(fake.calls.some((call) => call.url.endsWith("/v2/sandboxes") && new TextDecoder().decode(call.body ?? new Uint8Array()).includes('"timeout":3600'))).toBe(true);
     expect(fake.calls.some((call) => call.url.endsWith("/v2/sandboxes") && call.headers.get("x-api-key") === "e2b-test-key")).toBe(true);
   });
 
@@ -154,6 +174,31 @@ describe("E2B provider adapter", () => {
     );
     expect(result._tag).toBe("Left");
     if (result._tag === "Left") expect(result.left).toMatchObject({ _tag: "UpstreamError", status: 429 });
+  });
+
+  it("kills a sandbox when the detail read after create fails", async () => {
+    const fake = makeFakeE2b();
+    fake.fail("GET", "/sandboxes/sbx-1", 500);
+    const client = makeE2bUpstreamClient({ apiKey: Redacted.make("e2b-test-key"), apiUrl: "https://api.test/", domain: "https://sandbox.test/", fetch: fake.fetch, environment: "test", templateId: "node-22" });
+    const rows: OwnedResource[] = [];
+    const result = await Effect.runPromise(
+      Effect.either(
+        Effect.provide(
+          name(principal, newVmId(), (caller, vm) =>
+            Effect.gen(function* () {
+              const scope = keyHasScope(caller, "vm:write");
+              if (scope === null) throw new Error("test scope setup failed");
+              const decision = yield* tenantMayCreate(caller, "vm");
+              if (decision._tag !== "granted") throw new Error("test quota setup failed");
+              return yield* client.createVm(caller, { cmuxId: vm.value, idleTimeoutSeconds: 60, environment: "test" }, { mayCreate: decision.proof, scope });
+            }),
+          ),
+          makeServices(rows),
+        ),
+      ),
+    );
+    expect(result._tag).toBe("Left");
+    expect(fake.sandboxes.has("sbx-1")).toBe(false);
   });
 
   it("publishes explicit refusals for capabilities E2B does not provide", () => {

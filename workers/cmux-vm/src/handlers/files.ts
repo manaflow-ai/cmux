@@ -63,6 +63,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             const upstream = yield* UpstreamClient;
             yield* upstream.writeFile(vm, proofs, { path: urlParams.path, mode: urlParams.mode, body, length }).pipe(
               Effect.mapError((error) => {
+                if (error.unsupported !== undefined) return badRequest(error.unsupported);
                 if (error.status === 404) return vmNotFound();
                 if (error.status === 409) return conflict(NOT_RUNNING);
                 if (error.status === 400) return badRequest("The file could not be written at that path");

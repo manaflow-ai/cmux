@@ -75,14 +75,21 @@ export const toVm = (
 /** Provider failures on an existing VM: 404 means the VM is gone; 409 is the given conflict; the rest is ours. */
 const onVm =
   (conflictMessage: string) =>
-  (error: UpstreamError): NotFound | Conflict | ServiceUnavailable =>
-    error.status === 404 ? vmNotFound() : error.status === 409 ? conflict(conflictMessage) : unavailable();
+  (error: UpstreamError): BadRequest | NotFound | Conflict | ServiceUnavailable =>
+    error.unsupported !== undefined
+      ? badRequest(error.unsupported)
+      : error.status === 404
+        ? vmNotFound()
+        : error.status === 409
+          ? conflict(conflictMessage)
+          : unavailable();
 
 /** Provider failures reading a VM: 404 means it is gone; anything else is ours. */
 const onRead = (error: UpstreamError): NotFound | ServiceUnavailable => (error.status === 404 ? vmNotFound() : unavailable());
 
 /** Provider failures on a create. */
 const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | QuotaExceeded | ServiceUnavailable => {
+  if (error.unsupported !== undefined) return badRequest(error.unsupported);
   // The source snapshot expired upstream after it was recorded.
   if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");

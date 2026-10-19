@@ -23,6 +23,8 @@ export class UpstreamError extends Data.TaggedError("UpstreamError")<{
   readonly operation: string;
   /** HTTP status from the provider, or null when no response arrived. */
   readonly status: number | null;
+  /** Set when cmux refuses an option the provider cannot enforce; reaches the client as 400. */
+  readonly unsupported?: string;
 }> {}
 
 /** The fields of the provider's VM record this service reads. Everything else is ignored. */
@@ -163,4 +165,3 @@ export interface UpstreamClientService {
 }
 
 export class UpstreamClient extends Context.Tag("cmux-vm/UpstreamClient")<UpstreamClient, UpstreamClientService>() {}
-

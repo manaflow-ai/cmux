@@ -18,7 +18,7 @@ import type { Environment } from "../policy.ts";
 const DEFAULT_API_URL = "https://api.e2b.app/";
 const DEFAULT_SANDBOX_DOMAIN = "https://sandbox.e2b.app/";
 const ENVD_PORT = "49983";
-const DEFAULT_TIMEOUT_SECONDS = 86_400;
+const DEFAULT_TIMEOUT_SECONDS = 3_600;
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const SLOW_REQUEST_TIMEOUT_MS = 120_000;
@@ -34,6 +34,8 @@ export interface E2bClientConfig {
   readonly fetch?: typeof globalThis.fetch;
   readonly environment: string;
   readonly templateId?: string;
+  /** Maximum E2B lifetime for this account; Hobby defaults to one hour. */
+  readonly maxTimeoutSeconds?: number;
 }
 
 interface E2bSandbox {
@@ -116,6 +118,13 @@ const byteSize = (value: unknown): number => {
   return 0;
 };
 
+const metadataNumber = (sandbox: E2bSandbox, key: string): number | null => {
+  const metadata = asRecord(sandbox.metadata);
+  const value = metadata[key];
+  if (typeof value !== "string" || !/^-?\d+$/u.test(value)) return null;
+  return Number(value);
+};
+
 const connectionFrom = (id: string, sandbox: E2bSandbox, configuredDomain: URL): Connection | null => {
   const token = stringValue(sandbox.envdAccessToken);
   if (token === null) return null;
@@ -173,6 +182,8 @@ const environmentOf = (value: string): Environment => value === "local" || value
 export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientService {
   const api = normalizeOrigin(config.apiUrl ?? DEFAULT_API_URL, "E2B API URL must be a bare HTTPS origin");
   const sandboxDomain = domainUrl(config.domain ?? DEFAULT_SANDBOX_DOMAIN);
+  const maxTimeoutSeconds = Math.max(1, Math.floor(config.maxTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS));
+  const lifetimeSeconds = (seconds: number): number => Math.min(maxTimeoutSeconds, timeoutSeconds(seconds));
   const send = config.fetch ?? globalThis.fetch.bind(globalThis);
   const connections = new Map<string, Connection>();
   const vmDetails = new Map<string, { readonly idleTimeoutSeconds: number; readonly updatedAt: string }>();
@@ -211,7 +222,7 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
     if (connection !== null) connections.set(id, connection);
     const previous = vmDetails.get(id);
     vmDetails.set(id, {
-      idleTimeoutSeconds: idleTimeoutSeconds ?? previous?.idleTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS,
+      idleTimeoutSeconds: idleTimeoutSeconds ?? metadataNumber(sandbox, "cmux_idle_timeout") ?? previous?.idleTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -246,7 +257,7 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
     request(operation, api, `/v2/sandboxes/${pathId(id)}/connect`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ timeout }),
+      body: JSON.stringify({ timeout: lifetimeSeconds(timeout) }),
     }, SLOW_REQUEST_TIMEOUT_MS).pipe(
       Effect.flatMap((response) => json(operation, response)),
       Effect.map((sandbox) => connectionFrom(id, sandbox, sandboxDomain) ?? connection),
@@ -344,6 +355,7 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
     let bufferedField: "stdout" | "stderr" = "stdout";
     let buffered = "";
     let startPromise: Promise<void> | null = null;
+    let connectError: string | null = null;
     const escaped = (value: string) => JSON.stringify(value).slice(1, -1);
     const appendBuffered = (value: string) => {
       const room = MAX_BUFFERED_OUTPUT_BYTES - buffered.length;
@@ -388,7 +400,9 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
               const message = asRecord(JSON.parse(new TextDecoder().decode(payload)));
               if ((flags & 2) !== 0) {
                 const error = asRecord(message.error);
-                if (Object.keys(error).length > 0) exitCode = null;
+                const code = stringValue(error.code);
+                if (code === "deadline_exceeded") exitCode = null;
+                else if (code !== null) connectError = stringValue(error.message) ?? code;
               } else {
                 emitMessage(message, controller);
                 if (startPromise !== null) {
@@ -399,6 +413,7 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
             }
           }
           if (pending.byteLength !== 0) throw new ConnectFailure("truncated E2B Connect frame");
+          if (connectError !== null) throw new ConnectFailure(connectError);
           for (const field of ["stdout", "stderr"] as const) {
             const tail = decoders[field].decode();
             if (tail.length === 0) continue;
@@ -437,11 +452,13 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
 
     createVm: (caller, spec: CreateVmSpec, { source }) => {
       if (spec.idleTimeoutSeconds === 0) return Effect.fail(new UpstreamError({ operation: "createVm", status: 422 }));
-      if (spec.maxRunSeconds !== undefined || spec.autoDeleteSeconds !== undefined) return Effect.fail(new UpstreamError({ operation: "createVm", status: 409 }));
+      if (spec.maxRunSeconds !== undefined || spec.autoDeleteSeconds !== undefined) {
+        return Effect.fail(new UpstreamError({ operation: "createVm", status: 400, unsupported: "E2B cannot enforce maxRunSeconds or autoDeleteSeconds" }));
+      }
       if (!sizeWithinLimits(spec.size)) return Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
       const body = {
         templateID: config.templateId ?? "base",
-        timeout: timeoutSeconds(spec.idleTimeoutSeconds),
+        timeout: lifetimeSeconds(spec.idleTimeoutSeconds),
         autoPause: true,
         autoPauseMemory: true,
         secure: true,
@@ -449,6 +466,7 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
           cmux_tenant: caller.value.tenantId,
           cmux_id: spec.cmuxId,
           cmux_env: spec.environment,
+          cmux_idle_timeout: String(spec.idleTimeoutSeconds),
         },
       };
       const create = source === undefined
@@ -462,6 +480,7 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
           const upstreamId = UpstreamId.make(id);
           remember(upstreamId, sandbox, spec.idleTimeoutSeconds);
           return getRaw("createVm", upstreamId).pipe(
+            Effect.tapError(() => discardVm(upstreamId)),
             Effect.map(({ vm }) => {
               const grow = (size: SizeRequest): Effect.Effect<UpstreamVm, UpstreamError> => {
                 if (!sizeWithinLimits(size)) return Effect.fail(new UpstreamError({ operation: "resizeVm", status: 400 }));
@@ -469,7 +488,9 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
                   (size.vcpus !== undefined && size.vcpus > vm.resources.cpu) ||
                   (size.memoryMib !== undefined && size.memoryMib > vm.resources.memory) ||
                   (size.diskMib !== undefined && size.diskMib > vm.resources.storage);
-                return needsResize ? Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 })) : Effect.succeed(vm);
+                return needsResize
+                  ? Effect.fail(new UpstreamError({ operation: "resizeVm", status: 400, unsupported: "E2B cannot resize sandbox resources" }))
+                  : Effect.succeed(vm);
               };
               return { upstreamId, vm, discard: discardVm(upstreamId), grow } satisfies CreatedResource & { readonly vm: UpstreamVm; readonly grow: (size: SizeRequest) => Effect.Effect<UpstreamVm, UpstreamError> };
             }),
@@ -489,7 +510,7 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
 
     pauseVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => pauseById(id, "pauseVm")),
 
-    shutdownVm: () => Effect.fail(new UpstreamError({ operation: "shutdownVm", status: 409 })),
+    shutdownVm: () => Effect.fail(new UpstreamError({ operation: "shutdownVm", status: 400, unsupported: "E2B has no native stopped state" })),
 
     deleteVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => deleteResource("deleteVm", api, `/sandboxes/${pathId(id)}`).pipe(Effect.tap(() => Effect.sync(() => { connections.delete(id); vmDetails.delete(id); })))),
 
@@ -510,12 +531,12 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
     deleteSnapshot: (_snapshot, { owns }) => Effect.flatMap(idOf(owns), (id) => deleteResource("deleteSnapshot", api, `/templates/${pathId(id)}`)),
 
     exec: (_vm, { owns }, spec: ExecSpec) => {
+      if (spec.linuxUser !== undefined) {
+        return Effect.fail(new UpstreamError({ operation: "execVm", status: 400, unsupported: "E2B exec does not support selecting a different Linux user" }));
+      }
       return Effect.flatMap(idOf(owns), (id) => brokerConnection("execVm", id).pipe(
         Effect.flatMap((connection) => {
-          const process = spec.linuxUser === undefined
-            ? { cmd: "/bin/sh", args: ["-lc", spec.command] }
-            : { cmd: "/usr/sbin/runuser", args: ["-u", spec.linuxUser, "--", "/bin/sh", "-lc", spec.command] };
-          const message = { process: { ...process, ...(spec.env === undefined ? {} : { envs: spec.env }) }, stdin: spec.stdinBase64 !== undefined };
+          const message = { process: { cmd: "/bin/sh", args: ["-lc", spec.command], ...(spec.env === undefined ? {} : { envs: spec.env }) }, stdin: spec.stdinBase64 !== undefined };
           const timeout = Math.min(MAX_EXEC_TIMEOUT_MS, Math.max(1, spec.timeoutMs ?? 30_000));
           return connectRequest("execVm", connection, "/process.Process/Start", message, timeout, timeout + 30_000).pipe(
             Effect.flatMap((response) => response.body === null
@@ -550,7 +571,9 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
     writeFile: (_vm, { owns }, file) => {
       return Effect.flatMap(idOf(owns), (id) => brokerConnection("writeFile", id).pipe(
         Effect.flatMap((connection) => {
-          if (!versionAtLeast(connection.envdVersion, MIN_UPLOAD_ENVD_VERSION)) return Effect.fail(new UpstreamError({ operation: "writeFile", status: 409 }));
+          if (!versionAtLeast(connection.envdVersion, MIN_UPLOAD_ENVD_VERSION)) {
+            return Effect.fail(new UpstreamError({ operation: "writeFile", status: 400, unsupported: "E2B file uploads require envd 0.5.7 or newer" }));
+          }
           const query = new URLSearchParams({ path: file.path });
           const sized = new FixedLengthStream(file.length);
           void file.body.pipeTo(sized.writable).catch(() => undefined);

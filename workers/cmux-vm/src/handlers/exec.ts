@@ -7,7 +7,7 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { conflict, unavailable, vmNotFound } from "../errors.ts";
+import { badRequest, conflict, unavailable, vmNotFound } from "../errors.ts";
 import { UpstreamClient } from "../upstream/client.ts";
 import { audited, auditableVmId, withOwnedVm } from "./common.ts";
 
@@ -29,7 +29,9 @@ export const execHandlers = HttpApiBuilder.group(CmuxVmApi, "exec", (handlers) =
             })
             .pipe(
               Effect.mapError((error) =>
-                error.status === 404
+                error.unsupported !== undefined
+                  ? badRequest(error.unsupported)
+                  : error.status === 404
                   ? vmNotFound()
                   : error.status === 409
                     ? conflict("The VM is not running, or it stopped answering during the command (which may have run)")

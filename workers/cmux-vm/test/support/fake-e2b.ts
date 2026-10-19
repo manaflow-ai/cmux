@@ -5,7 +5,7 @@ interface FakeSandbox {
   readonly envdAccessToken: string;
   readonly domain: string;
   readonly templateID: string;
-  readonly envdVersion: string;
+  envdVersion: string;
   readonly startedAt: string;
   state: "running" | "paused";
   readonly metadata: Record<string, string>;
@@ -50,11 +50,12 @@ const base64 = (value: string): string => {
   return btoa(binary);
 };
 
-export function makeFakeE2b() {
+export function makeFakeE2b(options: { readonly envdVersion?: string } = {}) {
   const calls: Call[] = [];
   const sandboxes = new Map<string, FakeSandbox>();
   const snapshots = new Set<string>();
   const pendingSnapshots = new Set<string>();
+  let execEndError: string | null = null;
   let nextSandbox = 1;
   let nextSnapshot = 1;
   const fail = new Map<string, number>();
@@ -81,7 +82,7 @@ export function makeFakeE2b() {
           envdAccessToken: `envd-${sandboxID}`,
           domain: "e2b.app",
           templateID: typeof payload.templateID === "string" ? payload.templateID : "base",
-          envdVersion: "0.5.7",
+          envdVersion: options.envdVersion ?? "0.5.7",
           startedAt: "2026-10-18T00:00:00.000Z",
           state: "running",
           metadata: stringRecord(payload.metadata),
@@ -91,7 +92,7 @@ export function makeFakeE2b() {
         return json({ sandboxID, envdAccessToken: sandbox.envdAccessToken, domain: sandbox.domain, templateID: sandbox.templateID }, 201);
       }
 
-      const sandboxMatch = /^\/sandboxes\/([^/]+)(?:\/(pause|resume|snapshots|connect|timeout))?$/u.exec(url.pathname);
+      const sandboxMatch = /^\/(?:v2\/)?sandboxes\/([^/]+)(?:\/(pause|resume|snapshots|connect|timeout))?$/u.exec(url.pathname);
       if (sandboxMatch !== null) {
         const sandbox = sandboxes.get(decodeURIComponent(sandboxMatch[1] ?? ""));
         if (sandbox === undefined) return json({ message: "not found" }, 404);
@@ -107,7 +108,7 @@ export function makeFakeE2b() {
         }
         if (request.method === "POST" && action === "connect") {
           sandbox.state = "running";
-          return json({ sandboxID: sandbox.sandboxID, envdAccessToken: sandbox.envdAccessToken, domain: sandbox.domain, templateID: sandbox.templateID }, 201);
+          return json({ sandboxID: sandbox.sandboxID, envdAccessToken: sandbox.envdAccessToken, domain: sandbox.domain, templateID: sandbox.templateID, envdVersion: sandbox.envdVersion, metadata: sandbox.metadata }, 201);
         }
         if (request.method === "POST" && action === "timeout") {
           return new Response(null, { status: 204 });
@@ -116,8 +117,7 @@ export function makeFakeE2b() {
           const snapshotID = `snapshot-${nextSnapshot++}`;
           pendingSnapshots.add(snapshotID);
           queueMicrotask(() => {
-            pendingSnapshots.delete(snapshotID);
-            snapshots.add(snapshotID);
+            if (pendingSnapshots.delete(snapshotID)) snapshots.add(snapshotID);
           });
           return json({ snapshotID, names: [snapshotID] }, 201);
         }
@@ -139,9 +139,13 @@ export function makeFakeE2b() {
       if (sandbox === undefined) return json({ message: "missing sandbox" }, 502);
       if (request.headers.get("x-access-token") !== sandbox.envdAccessToken) return json({ message: "unauthorized" }, 401);
       if (url.pathname === "/process.Process/Start" && request.method === "POST") {
+        if (execEndError !== null) {
+          const code = execEndError;
+          return framedResponse([{ message: { error: { code, message: code } }, flags: 2 }]);
+        }
         return framedResponse([
           { message: { event: { start: { pid: 7 } } } },
-          { message: { event: { data: { stdout: base64("ok\n") } } } },
+          { message: { event: { data: { stdout: base64("ok\n"), stderr: base64("warn\n") } } } },
           { message: { event: { end: { exited: true } } } },
           { message: {}, flags: 2 },
         ]);
@@ -179,6 +183,12 @@ export function makeFakeE2b() {
     sandboxes,
     snapshots,
     pendingSnapshots,
+    setEnvdVersion(version: string) {
+      for (const sandbox of sandboxes.values()) sandbox.envdVersion = version;
+    },
+    setExecError(code: string | null) {
+      execEndError = code;
+    },
     fail(method: string, pathname: string, status: number) {
       fail.set(`${method} ${pathname}`, status);
     },
