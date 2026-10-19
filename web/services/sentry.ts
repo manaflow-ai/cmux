@@ -1,12 +1,18 @@
 import type { Event } from "@sentry/nextjs";
 
-const SECRET_KEY =
-  /^(authorization|body|completion|content|cookie|email|handoff_?lease|output|prompt|provider_?account_?id|response|set-cookie|x-cmux-authorization|x-coderouter-(route|handoff)-token|x-coderouter-handoff-lease|x-stack-access-token|x-stack-refresh-token|access_token|refresh_token|id_token|credential|ciphertext|encryptedDataKey)$/i;
+const SECRET_KEY_MARKER =
+  /(?:^|_)(?:authorization|body|completion|content|cookie|credential|email|handoff|lease|output|password|passwd|prompt|provider_account|response|secret|session|token)(?:_|$)/;
+const SECRET_KEY_SHAPE =
+  /(?:^|_)(?:(?:api|access|private|client)_?key|ciphertext|encrypted_data_key)(?:_|$)/;
 const ROUTE_TOKEN = /\b(?:crt|crk)_[A-Za-z0-9_-]{32,}\b/g;
 const HANDOFF_LEASE = /\bcrh_[A-Za-z0-9_-]{32,}\b/g;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
 const JWT = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g;
-const API_KEY = /\b(?:sk|srt)_[A-Za-z0-9_-]{8,}\b/g;
+const API_KEY = /\b(?:sk|srt)[_-][A-Za-z0-9_-]{8,}\b/g;
+const URL_CREDENTIALS = /([A-Za-z][A-Za-z0-9+.\-]*:\/\/)[^/?#\s]+@/g;
+const EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
+const SECRET_ASSIGNMENT =
+  /\b([A-Za-z0-9_]*(?:password|passwd|secret|token|credential|authorization|cookie|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?key)[A-Za-z0-9_]*)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/gi;
 
 /**
  * Defense in depth for telemetry. Product code must still avoid attaching
@@ -62,19 +68,32 @@ function isDeliberateReport(event: Event): boolean {
 function scrubValue(value: unknown): void {
   if (!value || typeof value !== "object") return;
   for (const [childKey, child] of Object.entries(value)) {
-    if (SECRET_KEY.test(childKey)) {
+    if (isSensitiveKey(childKey)) {
       (value as Record<string, unknown>)[childKey] = "[Filtered]";
       continue;
     }
     if (typeof child === "string") {
       (value as Record<string, unknown>)[childKey] = child
+        .replace(URL_CREDENTIALS, "$1[Filtered credentials]@")
         .replace(ROUTE_TOKEN, "[Filtered route token]")
         .replace(HANDOFF_LEASE, "[Filtered handoff lease]")
         .replace(BEARER_TOKEN, "Bearer [Filtered]")
         .replace(JWT, "[Filtered JWT]")
-        .replace(API_KEY, "[Filtered API key]");
+        .replace(API_KEY, "[Filtered API key]")
+        .replace(SECRET_ASSIGNMENT, "$1$2[Filtered]")
+        .replace(EMAIL, "[Filtered email]");
     } else {
       scrubValue(child);
     }
   }
+}
+
+function isSensitiveKey(key: string): boolean {
+  const normalized = key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+  return SECRET_KEY_MARKER.test(normalized) || SECRET_KEY_SHAPE.test(normalized);
 }
