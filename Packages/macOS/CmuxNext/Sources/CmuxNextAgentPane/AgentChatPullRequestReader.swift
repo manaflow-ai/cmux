@@ -37,18 +37,30 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         await read(arguments: ["pr", "view", "--json", AgentPanePullRequest.fields], in: folder)
     }
 
-    /// The pull requests at `urls`, wherever their branches are checked out, by URL: one
-    /// `gh api graphql` read per ``batchSize`` of them, never one per pull request. Only
-    /// `https://github.com/<owner>/<repo>/pull/<n>` URLs are asked; one gh cannot answer is left out.
-    public func read(urls: [String]) async -> [String: AgentPanePullRequest] {
-        let targets = urls.compactMap(Target.init(url:))
-        var answers: [String: AgentPanePullRequest] = [:]
+    /// The pull requests at `urls`, wherever their branches are checked out, by URL. github.com
+    /// ones take one `gh api graphql` read per ``batchSize``, never one call per pull request;
+    /// another host's (GitHub Enterprise) takes one `gh pr view <url>` each. A URL GitHub answered
+    /// for has its pull request, or nil when it has none (gone, or not visible); a URL whose read
+    /// failed (offline, timed out, rate limited) is left out, so its last answer stands.
+    public func read(urls: [String]) async -> [String: AgentPanePullRequest?] {
+        var targets: [Target] = []
+        var others: [String] = []
+        for url in urls {
+            if let target = Target(url: url) { targets.append(target) } else if url.hasPrefix("https://") { others.append(url) }
+        }
+        var answers: [String: AgentPanePullRequest?] = [:]
         for start in stride(from: 0, to: targets.count, by: Self.batchSize) {
             let batch = Array(targets[start..<min(start + Self.batchSize, targets.count)])
             // A missing pull request fails the read but leaves the others' data: read it anyway.
-            guard let data = await run(["api", "graphql", "-f", "query=" + Self.query(batch)], in: nil, anyExit: true)
-            else { continue }
+            // github.com explicitly: a GH_HOST the App passes on names the user's Enterprise host.
+            let arguments = ["api", "graphql", "--hostname", "github.com", "-f", "query=" + Self.query(batch)]
+            guard let data = await run(arguments, in: nil, anyExit: true) else { continue }
             answers.merge(Self.pullRequests(fromGraphQL: data, batch)) { $1 }
+        }
+        for url in others {
+            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: nil) {
+                answers[url] = pullRequest
+            }
         }
         return answers
     }
@@ -91,20 +103,26 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     }
 
     /// Each target's pull request in a GraphQL answer, reshaped as `gh pr view` prints it (the
-    /// rollup's contexts as `statusCheckRollup`), by the target's URL.
-    static func pullRequests(fromGraphQL data: Data, _ targets: [Target]) -> [String: AgentPanePullRequest] {
+    /// rollup's contexts as `statusCheckRollup`), by the target's URL: nil for a target GitHub
+    /// answered null for (no such pull request, or not visible); a target the answer does not
+    /// mention (no `data`) is left out.
+    static func pullRequests(fromGraphQL data: Data, _ targets: [Target]) -> [String: AgentPanePullRequest?] {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let answers = object["data"] as? [String: Any] else { return [:] }
-        var result: [String: AgentPanePullRequest] = [:]
+        var result: [String: AgentPanePullRequest?] = [:]
         for (index, target) in targets.enumerated() {
-            guard var view = (answers["p\(index)"] as? [String: Any])?["pullRequest"] as? [String: Any] else { continue }
+            guard let alias = answers["p\(index)"] else { continue }
+            guard var view = (alias as? [String: Any])?["pullRequest"] as? [String: Any] else {
+                result[target.url] = .some(nil)
+                continue
+            }
             let commit = ((view["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.last?["commit"] as? [String: Any]
             let contexts = (commit?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
             view["statusCheckRollup"] = contexts?["nodes"] as? [[String: Any]] ?? []
             view["commits"] = nil
             guard let reshaped = try? JSONSerialization.data(withJSONObject: view),
                   let pullRequest = AgentPanePullRequest(ghView: reshaped) else { continue }
-            result[target.url] = pullRequest
+            result[target.url] = .some(pullRequest)
         }
         return result
     }

@@ -83,6 +83,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
         guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
+        // One card beside the row at a time: the pull requests' card leaves for the workspace's.
+        let pullRequestCard = SidebarPullRequestCardController.shared
+        if pullRequestCard.isPresented { pullRequestCard.dismiss() }
         let body = body ?? WorkspaceHoverCardView()
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }

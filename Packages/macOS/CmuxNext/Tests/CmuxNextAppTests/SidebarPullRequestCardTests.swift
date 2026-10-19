@@ -94,16 +94,33 @@ import Testing
              "errors":[{"type":"NOT_FOUND","path":["p2"]}]}
             """
         let read = AgentChatPullRequestReader.pullRequests(fromGraphQL: Data(answer.utf8), targets)
-        #expect(read.count == 2)
-        let seven = try #require(read["https://github.com/o/r/pull/7"])
+        #expect(read.count == 3)
+        // GitHub answered null for pull/9: it has none, so its old answer clears.
+        #expect(read.keys.contains("https://github.com/o/r/pull/9"))
+        #expect(read["https://github.com/o/r/pull/9"] == .some(nil))
+        let seven = try #require(read["https://github.com/o/r/pull/7"] ?? nil)
         #expect(seven.state == "open")
         #expect(seven.mergeable == "conflicting")
         #expect(seven.checks == .init(state: "failing", passed: 1, total: 2))
         #expect((seven.additions, seven.deletions) == (120, 8))
         #expect(SidebarSessionTreeFeed.item(seven).state == .conflict)
-        let eight = try #require(read["https://github.com/o/r/pull/8"])
+        let eight = try #require(read["https://github.com/o/r/pull/8"] ?? nil)
         #expect(eight.state == "merged")
         #expect(eight.checks.state == "none")
+    }
+
+    /// A read that failed (offline, rate limited, bad auth: no `data`) answers for no URL, so the
+    /// store keeps each one's last answer instead of dropping every badge.
+    @Test func aFailedGraphQLReadAnswersForNoURL() {
+        let targets = ["https://github.com/o/r/pull/7"].compactMap(AgentChatPullRequestReader.Target.init(url:))
+        for failure in ["", "not json", #"{"message":"API rate limit exceeded"}"#, #"{"data":null,"errors":[{"message":"Bad credentials"}]}"#] {
+            #expect(AgentChatPullRequestReader.pullRequests(fromGraphQL: Data(failure.utf8), targets).isEmpty, "\(failure)")
+        }
+    }
+
+    @Test func pullRequestsOpenedTheSameMomentListByNumber() throws {
+        let badge = try #require(SidebarPullRequestBadge.combining(items: [Self.item(9, .passing), Self.item(10, .passing), Self.item(2, .passing)]))
+        #expect(badge.items.map(\.number) == [10, 9, 2])
     }
 
     @Test func theCardShowsEightLinesThenScrollsAndOpensAClick() {

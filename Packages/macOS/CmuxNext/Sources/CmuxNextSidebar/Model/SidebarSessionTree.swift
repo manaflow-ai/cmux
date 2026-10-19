@@ -38,7 +38,7 @@ public nonisolated struct SidebarPullRequestBadge: Hashable, Sendable {
     /// item newest first; nil when none is open or merged and the card would be empty.
     public static func combining(items: [SidebarPullRequestItem]) -> SidebarPullRequestBadge? {
         guard var badge = combining(items.compactMap(\.state.badgeStatus)) else { return nil }
-        badge.items = items.sorted { ($0.createdAt, $0.url) > ($1.createdAt, $1.url) }
+        badge.items = items.sorted { ($0.createdAt, $0.number, $0.url) > ($1.createdAt, $1.number, $1.url) }
         return badge
     }
 }

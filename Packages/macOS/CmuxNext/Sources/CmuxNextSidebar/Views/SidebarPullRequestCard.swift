@@ -22,14 +22,18 @@ final class SidebarPullRequestCardController {
     /// the gap between them.
     static let grace: Duration = .milliseconds(250)
 
-    private lazy var panel: SidebarUpdateNotesPanel = {
+    /// Made on the first hover, so a sidebar that never shows the card makes no window.
+    private var made: SidebarUpdateNotesPanel?
+    private var panel: SidebarUpdateNotesPanel {
+        if let made { return made }
         let panel = SidebarUpdateNotesPanel(width: SidebarPullRequestCardView.width)
         content.frame = panel.host.bounds
         content.autoresizingMask = [.width, .height]
         panel.host.addSubview(content)
         panel.host.onPointerExit = { [weak self] in self?.scheduleClose() }
+        made = panel
         return panel
-    }()
+    }
     private let content = SidebarPullRequestCardView()
     private let closer = DemandTimer(owner: "sidebar.pull-request-card.close")
     private weak var badge: SidebarPullRequestBadgeView?
@@ -40,7 +44,10 @@ final class SidebarPullRequestCardController {
     }
 
     /// The card is on screen (or opening).
-    var isPresented: Bool { panel.isPresented }
+    var isPresented: Bool { made?.isPresented ?? false }
+
+    /// The card shows `badge`'s pull requests now.
+    func isShowing(for badge: SidebarPullRequestBadgeView) -> Bool { isPresented && self.badge === badge }
 
     /// The pointer reached `badge`: shows `items` beside it; `open` opens a clicked one.
     func badgeEntered(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], open: @escaping (URL) -> Void) {
@@ -62,7 +69,7 @@ final class SidebarPullRequestCardController {
     func dismiss() {
         closer.cancel()
         open = nil
-        panel.dismiss()
+        made?.dismiss()
     }
 
     /// `sidebar.pullRequestCard`.
@@ -74,7 +81,7 @@ final class SidebarPullRequestCardController {
 
     private func closeUnlessPointed() {
         let pointer = NSEvent.mouseLocation
-        if panel.isPresented, panel.cardFrame.contains(pointer) { return }
+        if let made, made.isPresented, made.cardFrame.contains(pointer) { return }
         if let badge, let window = badge.window, !badge.isHidden, Self.screenFrame(of: badge, in: window).contains(pointer) { return }
         dismiss()
     }
@@ -277,6 +284,8 @@ final class SidebarPullRequestCardRow: NSView {
         tracking = area
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
     override func mouseEntered(with event: NSEvent) { hovered = true }
     override func mouseExited(with event: NSEvent) { hovered = false }
     override func mouseDown(with event: NSEvent) {}

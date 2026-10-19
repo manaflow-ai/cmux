@@ -27,7 +27,11 @@ final class SidebarPullRequestBadgeView: NSView {
     func configure(_ badge: SidebarPullRequestBadge?) {
         self.badge = badge
         isHidden = badge == nil
-        if badge == nil, hoverCard.isPresented, pointedAt { hoverCard.dismiss() }
+        // The row was reused or its pull requests changed under an open card: the card follows.
+        if pointedAt, hoverCard.isShowing(for: self) {
+            if let items = badge?.items, !items.isEmpty { showCard(items) } else { hoverCard.dismiss() }
+        }
+        if badge == nil { pointedAt = false }
         guard let badge else { return }
         glyph.image = NSImage.icon(.gitPullrequest, size: Self.glyphSize)
         count.setString(String(badge.count))
@@ -68,10 +72,20 @@ final class SidebarPullRequestBadgeView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        guard let items = badge?.items, !items.isEmpty else { return }
+        guard let items = badge?.items, !items.isEmpty, SidebarPullRequestCardController.isEnabled else { return }
         pointedAt = true
-        let sidebar = sequence(first: self as NSView, next: \.superview).lazy.compactMap { $0 as? SidebarView }.first
+        // The workspace card steps aside: one card beside the row at a time.
+        ancestor(SidebarListView.self)?.hoverCard.coordinator.dismiss(.action)
+        showCard(items)
+    }
+
+    private func showCard(_ items: [SidebarPullRequestItem]) {
+        let sidebar = ancestor(SidebarView.self)
         hoverCard.badgeEntered(self, items: items) { [weak sidebar] url in sidebar?.model.send(.openUpdateLink(url)) }
+    }
+
+    private func ancestor<T: NSView>(_ type: T.Type) -> T? {
+        sequence(first: self as NSView, next: \.superview).lazy.compactMap { $0 as? T }.first
     }
 
     override func mouseExited(with event: NSEvent) {

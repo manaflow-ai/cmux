@@ -114,8 +114,9 @@ public final class SidebarSessionTreeFeed {
 /// The pull request of each session folder's branch and of each pull request URL a session opened,
 /// for the sidebar's session tree: read with the chat header's reader (two gh calls at a time, never
 /// prompting), at most once every five minutes per folder or URL, when the tree passes again (a
-/// lane or a workspace changed). A folder is one `gh pr view` there; every stale URL goes in one
-/// batched GraphQL read (`read(urls:)`), never one call per pull request. Nothing else polls. The
+/// lane or a workspace changed). A folder is one `gh pr view` there; every stale github.com URL
+/// goes in one batched GraphQL read (`read(urls:)`), never one call per pull request; a failed read
+/// keeps the last answers. Nothing else polls. The
 /// chat header's chip shares those two calls, so the sidebar asks seldom and never stalls it.
 @MainActor @Observable
 final class SidebarPullRequestStore {
@@ -164,7 +165,8 @@ final class SidebarPullRequestStore {
             let read = await reader.read(urls: urls)
             guard let self else { return }
             asking.subtract(urls)
-            for url in urls where answers[url] != read[url] { answers[url] = read[url] }
+            // A URL whose read failed keeps its last answer; one GitHub has no pull request for clears.
+            for (url, answer) in read where answers[url] != answer { answers[url] = answer }
         }
     }
 }
