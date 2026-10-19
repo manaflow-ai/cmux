@@ -10,6 +10,7 @@ import Glibc
 public let WorkstreamDefaultRingCapacity = 2_000
 public let WorkstreamDefaultInitialLoadLimit = 300
 public let WorkstreamDefaultHistoryPageSize = 300
+public let WorkstreamDefaultStartupBudgetNanoseconds: UInt64 = 2_000_000_000
 
 /// Main-actor `@Observable` store that holds the Feed state.
 ///
@@ -24,6 +25,11 @@ public final class WorkstreamStore {
     public private(set) var items: [WorkstreamItem] = []
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
+    /// Non-fatal startup evidence for diagnosing bounded persistence loads.
+    public private(set) var lastPersistenceDiagnostic: WorkstreamPersistence.StartupDiagnostics?
+    /// A persistence error never prevents the live transport from starting,
+    /// but remains observable instead of being silently treated as empty state.
+    public private(set) var lastPersistenceError: String?
 
     /// Monotonic change counter bumped on every item mutation (ingest,
     /// resolve, expire, history load). Remote mirrors of the feed (the iOS
@@ -47,6 +53,7 @@ public final class WorkstreamStore {
     private let ringCapacity: Int
     private let initialLoadLimit: Int
     private let historyPageSize: Int
+    private let startupBudgetNanoseconds: UInt64?
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
     /// App-owned migration hook for versioned workstream identities.
@@ -81,6 +88,7 @@ public final class WorkstreamStore {
         ringCapacity: Int = WorkstreamDefaultRingCapacity,
         initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
         historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
+        startupBudgetNanoseconds: UInt64? = WorkstreamDefaultStartupBudgetNanoseconds,
         clock: @escaping @Sendable () -> Date = { Date() },
         workstreamIDNormalizer: @escaping @Sendable (String, String) -> String = { rawValue, _ in
             rawValue
@@ -92,6 +100,7 @@ public final class WorkstreamStore {
         self.ringCapacity = ringCapacity
         self.initialLoadLimit = initialLoadLimit
         self.historyPageSize = historyPageSize
+        self.startupBudgetNanoseconds = startupBudgetNanoseconds
         self.clock = clock
         self.titleProvider = titleProvider
         self.workstreamIDNormalizer = workstreamIDNormalizer
@@ -117,19 +126,25 @@ public final class WorkstreamStore {
     }
 
     private func performStart() async {
-        if let persistence,
-           let snapshot = try? await persistence.loadStartupSnapshot(
-               limit: min(initialLoadLimit, ringCapacity)
-           ) {
-            revision = max(revision, snapshot.revision)
-            let restored = snapshot.items.map(normalizedWorkstreamItem)
-            let liveIDs = Set(items.map(\.id))
-            let restoredItems = restored.filter { !liveIDs.contains($0.id) }
-            items = (restoredItems + items).suffix(ringCapacity).map { $0 }
-            hasMorePersistedItems = snapshot.page.hasMoreBefore
-            oldestLoadedPersistenceOffset = snapshot.page.startOffset
-            rebuildContextIndex()
-            bumpRevision()
+        if let persistence {
+            do {
+                let snapshot = try await persistence.loadStartupSnapshot(
+                    limit: min(initialLoadLimit, ringCapacity),
+                    budgetNanoseconds: startupBudgetNanoseconds
+                )
+                lastPersistenceDiagnostic = snapshot.diagnostics
+                revision = max(revision, snapshot.revision)
+                let restored = snapshot.items.map(normalizedWorkstreamItem)
+                let liveIDs = Set(items.map(\.id))
+                let restoredItems = restored.filter { !liveIDs.contains($0.id) }
+                items = (restoredItems + items).suffix(ringCapacity).map { $0 }
+                hasMorePersistedItems = snapshot.page.hasMoreBefore
+                oldestLoadedPersistenceOffset = snapshot.page.startOffset
+                rebuildContextIndex()
+                bumpRevision()
+            } catch {
+                lastPersistenceError = String(describing: error)
+            }
         }
         do {
             try await transport.subscribe { [weak self] event in

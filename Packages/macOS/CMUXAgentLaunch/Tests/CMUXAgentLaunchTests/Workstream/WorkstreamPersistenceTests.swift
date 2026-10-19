@@ -189,6 +189,39 @@ struct WorkstreamPersistenceTests {
         #expect(snapshot.revision == data.count)
     }
 
+    @Test("startup reports bounded-load diagnostics")
+    func startupReportsDiagnostics() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-diagnostics-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "s",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let snapshot = try await persistence.loadStartupSnapshot(
+            limit: 10,
+            budgetNanoseconds: 0
+        )
+        #expect(snapshot.diagnostics.fileBytes > 0)
+        #expect(snapshot.diagnostics.exceededBudget)
+        #expect(!snapshot.diagnostics.missingFile)
+    }
+
+    @Test("missing startup file is distinguished from an empty successful load")
+    func missingStartupDiagnostics() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-missing-diagnostics-\(UUID().uuidString).jsonl")
+        let snapshot = try await WorkstreamPersistence(fileURL: tmp)
+            .loadStartupSnapshot(limit: 10)
+        #expect(snapshot.items.isEmpty)
+        #expect(snapshot.diagnostics.missingFile)
+        #expect(snapshot.diagnostics.fileBytes == 0)
+    }
+
     @Test("clear removes the backing file")
     func clearRemovesFile() async throws {
         let tmp = FileManager.default.temporaryDirectory

@@ -7,16 +7,47 @@ import Foundation
 /// without awaiting disk IO; reads happen on the caller's executor since
 /// load runs once per process at launch.
 public actor WorkstreamPersistence {
+    public struct StartupDiagnostics: Sendable, Equatable {
+        public let elapsedNanoseconds: UInt64
+        public let fileBytes: UInt64
+        public let exceededBudget: Bool
+        public let missingFile: Bool
+
+        public init(
+            elapsedNanoseconds: UInt64,
+            fileBytes: UInt64,
+            exceededBudget: Bool,
+            missingFile: Bool
+        ) {
+            self.elapsedNanoseconds = elapsedNanoseconds
+            self.fileBytes = fileBytes
+            self.exceededBudget = exceededBudget
+            self.missingFile = missingFile
+        }
+    }
+
     /// The startup state loaded without scanning the complete log.
     public struct StartupSnapshot: Sendable {
         public let items: [WorkstreamItem]
         public let revision: Int
         public let page: Page
+        public let diagnostics: StartupDiagnostics
 
-        public init(items: [WorkstreamItem], revision: Int, page: Page) {
+        public init(
+            items: [WorkstreamItem],
+            revision: Int,
+            page: Page,
+            diagnostics: StartupDiagnostics = StartupDiagnostics(
+                elapsedNanoseconds: 0,
+                fileBytes: 0,
+                exceededBudget: false,
+                missingFile: false
+            )
+        ) {
             self.items = items
             self.revision = revision
             self.page = page
+            self.diagnostics = diagnostics
         }
     }
 
@@ -101,16 +132,58 @@ public actor WorkstreamPersistence {
     /// Loads a bounded startup tail without decoding the complete append-only
     /// log. The revision is the file-byte generation, which is cheap and
     /// monotonic while the append-only file remains in place.
-    public func loadStartupSnapshot(limit: Int) throws -> StartupSnapshot {
+    public func loadStartupSnapshot(
+        limit: Int,
+        budgetNanoseconds: UInt64? = nil
+    ) throws -> StartupSnapshot {
+        let started = DispatchTime.now().uptimeNanoseconds
         guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
-            return StartupSnapshot(items: [], revision: 0, page: empty)
+            return StartupSnapshot(
+                items: [],
+                revision: 0,
+                page: empty,
+                diagnostics: StartupDiagnostics(
+                    elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - started,
+                    fileBytes: 0,
+                    exceededBudget: false,
+                    missingFile: true
+                )
+            )
         }
         let size = try fileSize()
         let items = try loadBoundedLatest(limit: limit)
+        let afterItems = DispatchTime.now().uptimeNanoseconds
+        if let budgetNanoseconds, afterItems - started >= budgetNanoseconds {
+            // There is no stable cursor until the page read completes. Do not
+            // advertise older history that cannot be loaded from this pass.
+            let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
+            return StartupSnapshot(
+                items: items,
+                revision: Int(min(size, UInt64(Int.max))),
+                page: empty,
+                diagnostics: StartupDiagnostics(
+                    elapsedNanoseconds: afterItems - started,
+                    fileBytes: size,
+                    exceededBudget: true,
+                    missingFile: false
+                )
+            )
+        }
         let page = try loadPage(limit: limit)
         let revision = Int(min(size, UInt64(Int.max)))
-        return StartupSnapshot(items: items, revision: revision, page: page)
+        let elapsed = DispatchTime.now().uptimeNanoseconds - started
+        return StartupSnapshot(
+            items: items,
+            revision: revision,
+            page: page,
+            diagnostics: StartupDiagnostics(
+                elapsedNanoseconds: elapsed,
+                fileBytes: size,
+                exceededBudget: budgetNanoseconds.map { elapsed >= $0 } ?? false,
+                missingFile: false
+            )
+        )
     }
 
     /// Returns a durable generation for the append-only log. The mobile Feed
