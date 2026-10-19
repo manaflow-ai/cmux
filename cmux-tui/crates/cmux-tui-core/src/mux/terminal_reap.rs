@@ -480,7 +480,7 @@ impl Mux {
     }
 
     /// Removes the keep-layout records of the tabs of `terminal_ids`.
-    fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
+    pub(super) fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
         let tab_ids = {
             let registry = self.workspace_registry.lock().unwrap();
             let state = self.lock_state_pinned(&registry).unwrap();

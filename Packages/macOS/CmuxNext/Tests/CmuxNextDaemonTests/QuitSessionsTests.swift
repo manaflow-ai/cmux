@@ -129,7 +129,7 @@ struct QuitSessionsTests {
         let h = try await BranchDaemonHarness.start()
         defer { try? FileManager.default.removeItem(at: h.root) }
         guard h.identity.supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
-              h.identity.supports(DaemonCapabilities.shared.tabRestart) else { return await h.stop() }
+              h.identity.supports(DaemonCapabilities.shared.tabRestartKeptLayout) else { return await h.stop() }
         let other = h.root.appendingPathComponent("other")
         let hosts: Set<Int32>
         let before: DaemonTree
@@ -156,6 +156,10 @@ struct QuitSessionsTests {
         _ = try await launcher.ensure()
         let next = DaemonConnection(configuration: BranchDaemonHarness.configuration(), endpointProvider: launcher.endpointProvider)
         _ = try await next.start()
+        // The daemon's event stream drives the store: the test waits on it for the restarted shells.
+        let store = await DaemonStore()
+        let storeTask = Task { await store.run(connection: next) }
+        defer { storeTask.cancel() }
         do {
             let kept = try await next.listWorkspaces()
             let keptTabs = kept.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
@@ -164,14 +168,26 @@ struct QuitSessionsTests {
             #expect(Self.shape(kept) == Self.shape(before))
             let first = try await next.relaunchKeptTabs()
             #expect(first.relaunched == 2 && first.failures.isEmpty, "\(first.failures)")
+            // `restart-tab` answers when its worker started: attach only once the tree events
+            // report both kept tabs running (before that the tab has no surface to attach to).
+            let keptIDs = keptTabs.compactMap(\.tabResourceID)
+            #expect(keptIDs.count == 2, "\(keptTabs)")
+            try await store.waitUntil("both kept tabs run again", timeout: .seconds(20)) {
+                keptIDs.allSatisfy { id in
+                    store.tab(idOrResource: id.rawValue).map { !$0.dead && $0.terminalState == .running } ?? false
+                }
+            }
+            let after = try await next.listWorkspaces()
             // The shell of the second pane runs, in its recorded directory: it echoes $PWD there.
             let endpoint = try #require(await next.endpoint)
             let generation = await next.identity?.generation
-            let output = try await Self.run(#"echo "kept:$PWD""#, in: try #require(keptTabs.last), endpoint: endpoint,
+            let second = try #require(after.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                .first { $0.tabResourceID == keptIDs.last })
+            let output = try await Self.run(#"echo "kept:$PWD""#, in: second, endpoint: endpoint,
                                             generation: generation, until: "kept:/")
             #expect(output.range(of: #"kept:/\S*/other"#, options: .regularExpression) != nil, "\(output)")
-            #expect(try await next.relaunchKeptTabs().relaunched == 0, "a second relaunch restarted a running tab")
-            let after = try await next.listWorkspaces()
+            let again = try await next.relaunchKeptTabs()
+            #expect(again.relaunched == 0 && again.failures.isEmpty, "a second relaunch restarted a running tab: \(again.failures)")
             #expect(Self.shape(after) == Self.shape(before), "the relaunch changed the layout")
             let tabs = after.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.tabs)
             #expect(tabs.map(\.count) == [1, 1], "\(tabs)")

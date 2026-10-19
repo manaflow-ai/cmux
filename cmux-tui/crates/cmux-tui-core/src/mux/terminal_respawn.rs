@@ -40,6 +40,8 @@ use std::time::{Duration, Instant};
 
 use super::*;
 #[cfg(any(unix, windows))]
+use crate::state::kept_tab_store::KeptTabRecord;
+#[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::TerminalExit;
 #[cfg(any(unix, windows))]
 use crate::terminal_loss_log::Prefilled;
@@ -194,6 +196,13 @@ pub(super) struct RespawnPlan {
     /// An explicit user restart (`restart-tab`, `manual.rs`): any end of
     /// the incarnation reopens, not only a host loss.
     pub(super) user_restart: bool,
+    /// The keep-layout record of the tab a user restart reopens (`kept_tabs`,
+    /// `tab-restart-kept-layout-v1`): the new shell starts in its directory,
+    /// and once the new runtime is in its tabs the worker forgets the
+    /// terminal's kept rows, so the tab is an ordinary terminal tab again.
+    /// None for every automatic respawn (kept tabs never respawn by
+    /// themselves).
+    pub(super) kept: Option<KeptTabRecord>,
 }
 
 impl Mux {
@@ -363,6 +372,7 @@ impl Mux {
             delay,
             recorded: end.exit().clone(),
             user_restart: false,
+            kept: None,
         }))
     }
 
@@ -499,6 +509,21 @@ impl Mux {
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         let activated = match self.install_respawned_runtime(&plan, &surface) {
             Ok(true) => {
+                // A restarted kept tab is an ordinary terminal tab again: its
+                // exit closes it, a host loss respawns it, and no frontend
+                // restarts it on its next connect. Forgotten before the launch
+                // stream starts, so even an instant exit sees no record. A
+                // launch that fails before its runtime is in the tabs keeps
+                // the record, so the tab stays kept and dead.
+                if plan.kept.is_some()
+                    && let Err(error) =
+                        self.forget_kept_tabs_of(std::slice::from_ref(&plan.terminal_id))
+                {
+                    eprintln!(
+                        "cmux-tui: restarted terminal {} keeps its keep-layout record: {error:#}",
+                        plan.terminal_id
+                    );
+                }
                 // Output the lost host read but never delivered is not in
                 // the journal: the new generation starts with a marked gap,
                 // before the new shell's first output can be captured.
