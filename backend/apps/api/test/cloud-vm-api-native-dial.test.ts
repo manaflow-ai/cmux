@@ -111,7 +111,7 @@ describe("current Native Cloud dial permission", () => {
 const mintFixture = async () => {
   const f = await fixture()
   let machine: MachineRow = { id: "vm_" + "2".repeat(20), team: TEAM, creator: USER, name: null, size: {}, status: "running", image: { id: "fixture", daemon_version: null }, host: HOST, classic: false,
-    created_at: Date.now(), last_active_at: null, idle_policy: { idle_seconds: 0 }, error: null, revision: "1", provider_name: "owned-native-name", transport: "vm-api", network: target.network, wg_public_key: wg, epoch: 1 }
+    created_at: Date.now(), last_active_at: null, idle_policy: { idle_seconds: 0 }, error: null, revision: "1", provider_name: "owned-native-name", host_id: HOST, transport: "vm-api", network: target.network, wg_public_key: wg, epoch: 1 }
   const rows: Rows = {
     get: <T>() => ({ key: machine.id, n: 1, row: machine as unknown as T }),
     range: <T>() => [{ key: machine.id, n: 1, row: machine as unknown as T }]

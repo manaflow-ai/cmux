@@ -17565,6 +17565,13 @@
                 ]
               }
             }
+          },
+          "native_proof": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ServerNetworkProof"
+            }
           }
         },
         "extra": false
@@ -17676,6 +17683,9 @@
             "minItems": 1,
             "maxItems": 2,
             "uniqueItems": true
+          },
+          "native_proof": {
+            "$ref": "#/$defs/ServerNetworkProof"
           }
         },
         "required": [
@@ -17688,6 +17698,28 @@
             "type": "string",
             "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
+          },
+          "ServerNetworkProof": {
+            "type": "object",
+            "properties": {
+              "signedAt": {
+                "type": "integer"
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{22}$"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]{86}==$"
+              }
+            },
+            "required": [
+              "signedAt",
+              "nonce",
+              "signature"
+            ],
+            "additionalProperties": true
           }
         }
       },
