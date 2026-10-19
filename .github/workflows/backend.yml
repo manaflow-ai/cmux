@@ -581,8 +581,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
         run: bun scripts/cmux-next/release/prod-promote.ts rollback --execute --wrangler backend/apps/api/node_modules/.bin/wrangler
       - name: Smoke production after the rollback
-        working-directory: backend/apps/api
-        run: curl -fsS https://cloud-api.cmux.dev/v1/health
+        run: |
+          curl -fsS https://cloud-api.cmux.dev/v1/health
+          echo "::warning title=cmux-api rolled back::automatic promotes hold while production serves a rollback; move forward only with an exact-SHA promote (target=promote, candidate=<sha>), and keep CMUX_NEXT_PRODUCTION_HOLD on a hold value."
 
   # The Chief brain's off switch on production: the serving commit again with CHIEF_BRAIN_ENABLED "0"
   # (deploy-worker.sh CMUX_DEPLOY_CHIEF_OFF). Same code, so no lifecycle change: target=rollback turns
@@ -640,7 +641,8 @@ jobs:
           CMUX_RELEASE_VERIFY_STEP: "1"
           CMUX_DEPLOY_CHIEF_OFF: "1"
         run: bash scripts/deploy-worker.sh production
-      - name: Smoke the API Worker; roll back on red
+      # No --previous-file: a red smoke here must not roll back to the version with the brain on.
+      - name: Smoke the API Worker (no automatic rollback)
         if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
         working-directory: backend/apps/api
         env:
@@ -649,8 +651,14 @@ jobs:
           SERVING: ${{ steps.serving.outputs.sha }}
         run: >-
           bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api --url https://cloud-api.cmux.dev
-          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
-          --changed-since "$SERVING" --source-dir . --wrangler ./node_modules/.bin/wrangler
+          --routes release-smoke.json --changed-since "$SERVING" --source-dir . --wrangler ./node_modules/.bin/wrangler
+      - name: The brain is off (the brain route answers 404)
+        if: ${{ always() && steps.deploy-api.outcome == 'success' }}
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' https://cloud-api.cmux.dev/v1/chiefs/agent_00000000000000000000000000/brain)"
+          echo "brain route: $code"
+          [ "$code" = 404 ] || { echo "::error::the brain route answers $code, not 404: the off switch did not take"; exit 1; }
+          echo "::warning title=Chief brain off::production serves the off switch; automatic promotes hold until an exact-SHA promote (target=promote, candidate=<sha>). target=rollback turns the brain on again."
 
   deploy-production:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))

@@ -14,7 +14,7 @@
       "reviewer": "hq cloud-api-promote lane 2026-10-19 (new_sqlite_classes ChiefBrainDO; additive; Lawrence chose the Chief brain production promote via the chief)"
     },
     "v16": {
-      "reviewer": "hq cloud-api-promote lane 2026-10-19 (new_sqlite_classes HandDO; additive; hands stay closed in production: no HAND_SANDBOX_SNAPSHOT, no HANDS_MAC_ENABLED)"
+      "reviewer": "hq cloud-api-promote lane 2026-10-19 (new_sqlite_classes HandDO; additive; sandbox hands and Mac hands stay closed in production (no HAND_SANDBOX_SNAPSHOT, no HANDS_MAC_ENABLED); with CHIEF_BRAIN_ENABLED=1 the pairing routes /hand/install.sh, /v1/hands/pair and /v1/hands/pair-codes answer signed-in users, inert without those)"
     }
   },
   "guarded_vars": {

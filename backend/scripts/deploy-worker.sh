@@ -48,7 +48,11 @@ else
   echo "no JWT_PRIVATE_JWK for $env_name" >&2; exit 1
 fi
 # Merging deploys: code ships only onto a schema that already has every migration.
-if [ "$env_name" = staging ] || [ "$env_name" = production ]; then
+# The Chief off switch redeploys the code production serves now, so the schema already fits it; a later
+# migration applied ahead of its code (the rule) must not block the switch (review of #21864, P1).
+if [ "${CMUX_DEPLOY_CHIEF_OFF:-}" = 1 ]; then
+  echo "chief-off: the serving code again; schema verify skipped"
+elif [ "$env_name" = staging ] || [ "$env_name" = production ]; then
   (cd ../../db && bun migrate.ts --env "$env_name" --verify)
 fi
 # Workflow names are account-wide: a preview gets its own (`cmux-automation-run-preview-<n>`)
