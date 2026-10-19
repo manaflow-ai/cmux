@@ -18,7 +18,8 @@ import QuartzCore
 /// drop take tonal steps over the bar's color. Type and glyphs scale with the row height
 /// (the sidebar density setting). A collapsed group shows its member count
 /// after the name (cg-design-judge 2026-10-14), and its members' activity and
-/// unread total. The name and the more button open
+/// unread total. Minimal mode keeps the bar, only shorter: a hairline header
+/// read as a stray line, not a group (Lawrence 2026-10-18, over #19936). The name and the more button open
 /// the group editor (cx-rcby, Lawrence 2026-10-08); a right-click shows the
 /// group's full menu (cx-a9h6); the chevron and the rest of the row collapse.
 final class GroupHeaderRowView: SidebarRowView {
@@ -51,8 +52,6 @@ final class GroupHeaderRowView: SidebarRowView {
     private var isEmpty = false
     private var tint: GroupTint = .palette(.grey)
     private var collapsed = false
-    /// Minimal mode: the name small beside a hairline, not the colored bar (`SidebarRow.isThinHeader`).
-    private var thin = false
     private var chevronFrame: CGRect = .zero
     private var chevronIcon: IconName = .disclosureExpanded
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -111,14 +110,11 @@ final class GroupHeaderRowView: SidebarRowView {
         var childCount: Int
         var collapsed: Bool
         var fontSize: CGFloat
-        var thin: Bool
     }
 
     func configure(_ group: SidebarGroup, row: SidebarRow, animated: Bool) {
-        let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed, fontSize: SidebarStyle.headerFont.pointSize,
-                              thin: row.isThinHeader)
+        let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed, fontSize: SidebarStyle.headerFont.pointSize)
         guard needsConfigure(content) else { return }
-        thin = row.isThinHeader
         tint = group.tint
         isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
@@ -160,12 +156,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The one ink every glyph on the header takes.
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
-    var labelFrame: NSRect {
-        guard thin else { return pill.frame }
-        // A thin header has no chip: the editor and menu open under the header, from its name.
-        let start = nameHitFrame.minX
-        return NSRect(x: start, y: 0, width: max(0, chevronFrame.minX - start), height: bounds.height)
-    }
+    var labelFrame: NSRect { pill.frame }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
     var titleIntrinsicWidth: CGFloat { Self.drawnWidth(name) }
     /// The width a header label needs to draw its text whole: its text in the font it draws in,
@@ -195,7 +186,6 @@ final class GroupHeaderRowView: SidebarRowView {
             // The solid bar in the group's color (Lawrence 2026-10-11); hover,
             // the open editor and a drop take tonal steps over it.
             let tokens = themeTokens
-            if thin { return paintThin(tokens) }
             let chip = tint.headerChip
             var fill = chip.fill
             if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
@@ -225,28 +215,6 @@ final class GroupHeaderRowView: SidebarRowView {
         }
     }
 
-    /// Minimal mode's header: the name and glyphs in secondary ink, the bar a hairline, and the
-    /// row's own fill for hover, the open editor and a drop, all from `tokens` (the row's scope).
-    private func paintThin(_ tokens: ThemeTokens) {
-        let ink = tokens.textSecondary.nsColor
-        name.textColor = ink
-        count.textColor = ink
-        glyph.symbolInk = ink
-        pin.contentTintColor = ink
-        chevron.contentTintColor = ink
-        moreButton.tintOverride = ink
-        addButton.tintOverride = ink
-        dot.isHidden = true
-        ChromeHover.paint(pill, Borders.color(tokens.separator.nsColor), animated: false)
-        paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.borderColor = tokens.focusRing.nsColor.cgColor
-        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
-        layer?.cornerRadius = SidebarStyle.rowCornerRadius
-        CATransaction.commit()
-    }
-
     /// The chevron and the space around it: a click here collapses or expands.
     var disclosureFrame: NSRect { chevronFrame.insetBy(dx: -Metrics.space1, dy: -Metrics.space2) }
 
@@ -266,13 +234,13 @@ final class GroupHeaderRowView: SidebarRowView {
         // on their icon column with the name on their text column, or the name alone on it.
         let lead = SidebarStyle.horizontalInset
         name.isHidden = renaming
-        name.font = thin ? SidebarStyle.subtitleFont : SidebarStyle.groupHeaderFont(barHeight: barHeight)
+        name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = name.font
         // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t).
-        let chevronSide = thin ? min(b.height, SidebarStyle.controlSize) : SidebarStyle.controlSize
+        let chevronSide = min(b.height, SidebarStyle.controlSize)
         chevronFrame = CGRect(x: b.width - Metrics.space3 - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
-        let control = thin ? min(b.height, SidebarStyle.controlSize) : barHeight - Metrics.space1
+        let control = barHeight - Metrics.space1
         // The more button keeps a stable slot left of the chevron.
         moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
@@ -323,17 +291,9 @@ final class GroupHeaderRowView: SidebarRowView {
         count.isHidden = countWidth == 0
         count.frame = NSRect(x: (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
         pill.isHidden = renaming
-        if thin {
-            // Minimal mode: a hairline from the name to the trailing controls.
-            let text = ceil((name.stringValue as NSString).size(withAttributes: [.font: name.font ?? SidebarStyle.subtitleFont]).width)
-            let start = (count.isHidden ? pinned ? pin.frame.maxX : min(name.frame.maxX, name.frame.minX + text) : count.frame.maxX) + Metrics.space2
-            pill.frame = NSRect(x: start, y: (b.height / 2).rounded(), width: max(0, trailing - start), height: Metrics.dividerThickness)
-            pill.cornerRadius = 0
-        } else {
-            // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
-            pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
-            pill.cornerRadius = (barHeight * 0.23).rounded()
-        }
+        // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
+        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
+        pill.cornerRadius = (barHeight * 0.23).rounded()
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
