@@ -63,6 +63,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `phone.allowConnections` | boolean | `false` |  | Let Your Phone Use This Mac. So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. |
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
+| `agents.subsessions.enabled` | boolean | `true` |  | Let Agents Start Sub-sessions. An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar. |
+| `agents.subsessions.maxChildren` | real | `50` | 1 to 1000 | Open Sub-sessions per Session. The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place. |
+| `agents.subsessions.maxDepth` | real | `10` | 1 to 100 | Deepest Nesting. How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.dockColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Dock Column Edge |
@@ -185,6 +188,51 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
+| `editor.fontSize` | real |  | 6 to 72 | Font Size. Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor. |
+| `editor.fontWeight` | string | `"normal"` | `normal`, `bold`, `300`, `500`, `600` | Font Weight |
+| `editor.fontLigatures` | boolean | `false` |  | Font Ligatures |
+| `editor.lineHeight` | real | `0` | 0 to 150 | Line Height. 0 computes it from the font size. A value under 8 multiplies the font size. |
+| `editor.letterSpacing` | real | `0` | -5 to 20 | Letter Spacing |
+| `editor.tabSize` | real | `4` | 1 to 16 | Tab Size |
+| `editor.insertSpaces` | boolean | `true` |  | Insert Spaces. Tab inserts spaces. Off inserts a tab character. |
+| `editor.detectIndentation` | boolean | `true` |  | Detect Indentation. Tab size and spaces follow the file's own indentation. |
+| `editor.wordWrap` | string | `"off"` | `off`, `on`, `wordWrapColumn`, `bounded` | Word Wrap. Opt-Z turns it on and off. |
+| `editor.wordWrapColumn` | real | `80` | 10 to 1000 | Wrap Column |
+| `editor.lineNumbers` | string | `"on"` | `on`, `off`, `relative`, `interval` | Line Numbers |
+| `editor.rulers` | array | `[]` |  | Rulers. Columns where a vertical line shows. |
+| `editor.minimap.enabled` | boolean | `false` |  | Minimap |
+| `editor.renderWhitespace` | string | `"selection"` | `none`, `boundary`, `selection`, `trailing`, `all` | Show Whitespace |
+| `editor.renderControlCharacters` | boolean | `true` |  | Show Control Characters |
+| `editor.renderLineHighlight` | string | `"line"` | `none`, `gutter`, `line`, `all` | Current Line Highlight |
+| `editor.bracketPairColorization.enabled` | boolean | `true` |  | Color Bracket Pairs |
+| `editor.guides.bracketPairs` | boolean | `false` |  | Bracket Pair Guides |
+| `editor.guides.indentation` | boolean | `true` |  | Indentation Guides |
+| `editor.matchBrackets` | string | `"always"` | `always`, `near`, `never` | Highlight Matching Brackets |
+| `editor.stickyScroll.enabled` | boolean | `true` |  | Sticky Scroll. The lines that open the scopes around the top line stay at the top while you scroll. |
+| `editor.folding` | boolean | `true` |  | Code Folding |
+| `editor.scrollBeyondLastLine` | boolean | `false` |  | Scroll Past the Last Line |
+| `editor.smoothScrolling` | boolean | `false` |  | Smooth Scrolling |
+| `editor.mouseWheelZoom` | boolean | `false` |  | Zoom with Command and the Scroll Wheel |
+| `editor.cursorStyle` | string | `"line"` | `line`, `block`, `underline`, `line-thin`, `block-outline`, `underline-thin` | Cursor Style |
+| `editor.cursorBlinking` | string | `"blink"` | `blink`, `smooth`, `phase`, `expand`, `solid` | Cursor Blinking |
+| `editor.cursorSmoothCaretAnimation` | string | `"off"` | `off`, `explicit`, `on` | Animate Cursor Movement |
+| `editor.cursorSurroundingLines` | real | `0` | 0 to 50 | Lines Kept Around the Cursor |
+| `editor.multiCursorModifier` | string | `"alt"` | `alt`, `ctrlCmd` | Add a Cursor With. The key you hold while you click to add a cursor. |
+| `editor.autoClosingBrackets` | boolean | `true` |  | Close Brackets |
+| `editor.autoClosingQuotes` | boolean | `true` |  | Close Quotes |
+| `editor.linkedEditing` | boolean | `false` |  | Rename Matching Tags Together |
+| `editor.quickSuggestions` | boolean | `false` |  | Suggest While Typing |
+| `editor.wordBasedSuggestions` | boolean | `true` |  | Suggest Words from the File |
+| `editor.acceptSuggestionOnEnter` | string | `"on"` | `on`, `smart`, `off` | Return Accepts a Suggestion |
+| `editor.emptySelectionClipboard` | boolean | `true` |  | Copy the Line When Nothing Is Selected |
+| `editor.find.seedSearchStringFromSelection` | string | `"always"` | `always`, `selection`, `never` | Find Starts With |
+| `editor.autoSave` | string | `"afterDelay"` | `afterDelay`, `off` | Save Automatically |
+| `editor.autoSaveDelay` | real | `1000` | 100 to 60000 | Pause Before Saving |
+| `editor.trimTrailingWhitespace` | boolean | `false` |  | Remove Trailing Spaces on Save |
+| `editor.insertFinalNewline` | boolean | `false` |  | End Files with a Newline on Save |
+| `editor.formatOnSave` | boolean | `false` |  | Format on Save. Runs the language's formatter when one is installed. |
+| `editor.importFrom` | string | `"auto"` | `auto`, `vscode`, `cursor`, `windsurf`, `vscodium`, `zed`, `none` | Take Defaults From. cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins. |
 | `appearance.sidebarSurface` | string | `"same"` | `same`, `separate` | Sidebar Background. Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane. |
 | `sidebar.border` | boolean | `false` |  | Border. A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it. |
 | `sidebar.borderWidth` | real |  | 0.5 to 4 | Border Width |

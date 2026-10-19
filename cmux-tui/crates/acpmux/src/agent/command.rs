@@ -66,6 +66,17 @@ pub(crate) fn harness_command(
     }
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
+    // The daemon's own prompt-cache switches and turn-scoped values are
+    // never the agent's (a daemon started from inside a Claude Code or Chief
+    // turn can carry them). The profile, preset and session env below may
+    // still set them. So may the login shell (`login_env`, applied after
+    // this removal) when the daemon's own env lacks the key (a daemon from
+    // `spawn_detached` always does); a key the daemon's env has hides the
+    // login value (`login_env::for_children`) unless it started inside a
+    // Claude Code turn (`nested_overrides`).
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     // Startup files changed since the last read: refresh in the background.
     crate::login_env::refresh_if_changed();
     // The login shell's allow-list for this harness's family (login_env.rs).

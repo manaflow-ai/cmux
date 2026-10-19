@@ -47,11 +47,11 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `agents`: 60
 - `cloud`: 52
 - `remote`: 11
-- `settings`: 88
+- `settings`: 89
 
-## Counts (977 actions)
+## Counts (978 actions)
 
-Palette 941, CLI verbs 535, right-click 502, MCP tools 460.
+Palette 942, CLI verbs 535, right-click 502, MCP tools 460.
 
 ## Menus
 

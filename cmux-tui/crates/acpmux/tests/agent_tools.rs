@@ -135,7 +135,11 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         .iter()
         .filter_map(|s| s["name"].as_str())
         .collect();
-    assert_eq!(names, ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"], "{servers}");
+    assert_eq!(
+        names,
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"],
+        "{servers}"
+    );
     assert_eq!(servers[0]["command"], json!(cua), "{servers}");
     assert_eq!(servers[1]["args"], json!(["secret-mcp"]), "{servers}");
     let secret_env = servers[1]["env"].to_string();
@@ -143,9 +147,17 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert_eq!(servers[2]["args"], json!(["offer-mcp"]), "{servers}");
     let offer_env = servers[2]["env"].to_string();
     assert!(offer_env.contains("ACPMUX_OFFER_SESSION") && offer_env.contains(&id), "{servers}");
-    assert_eq!(servers[3]["args"], json!(["mcp", "serve"]), "{servers}");
+    // Sub-sessions (`subsession_mcp.rs`), on by default: the server acts as
+    // this session with its caller token, on this daemon's socket only.
+    assert_eq!(servers[3]["args"], json!(["subsession-mcp"]), "{servers}");
+    let sub_env = servers[3]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(sub_env.contains(key), "{key}: {servers}");
+    }
+    assert!(sub_env.contains(&id), "{servers}");
+    assert_eq!(servers[4]["args"], json!(["mcp", "serve"]), "{servers}");
     // No allowlist: the cmux server speaks code mode.
-    assert!(!servers[3]["env"].to_string().contains("CMUX_MCP_TOOLS"), "{servers}");
+    assert!(!servers[4]["env"].to_string().contains("CMUX_MCP_TOOLS"), "{servers}");
 
     // A client cannot set the list on its session: only a preset (the
     // Chief's turns, `chief_builtin_presets.rs`) does.
