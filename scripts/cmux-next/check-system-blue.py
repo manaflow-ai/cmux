@@ -49,6 +49,8 @@ SKIP = (
     "webviews/src/gallery/",
     "webviews/src/agent-session/shared/agentBrands.generated.ts",
     "webviews/src/agent-session/acpmux/diffTheme.ts",
+    # The render kit's chart series palette (charts an agent draws in a reply): data colors, not chrome.
+    "webviews/src/agent-session/acpmux/conversation/renderKit.ts",
     "webviews/src/agent-session/acpmux-preview/",
     "webviews/src/agent-session/acpmux/prototype/",
     "webviews/src/pages/settings/mockThemes.ts",
