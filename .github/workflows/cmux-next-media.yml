@@ -250,8 +250,10 @@ jobs:
           set -euo pipefail
           # The checkout is cleaned and the base worktree recreated every run,
           # so optchat-chief built cold (~100 s) for each app; keep its Cargo
-          # target dir on the Mac instead (Cargo locks it across tours).
-          export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target"
+          # target dir on the Mac instead. One per runner: Cargo's lock ends
+          # before build-optchat-chief.sh copies the binary out, so two tours
+          # sharing a dir could ship each other's build.
+          export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
           stamp="$GITHUB_WORKSPACE/scripts/ci/media_module_cache_stamp.py"
           build_one() {
             local dir="$1" tag="$2" log="$3" output="$4" app
