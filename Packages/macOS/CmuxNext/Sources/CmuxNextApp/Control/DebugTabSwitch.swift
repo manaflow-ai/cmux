@@ -18,8 +18,7 @@ extension SwitchFrameTimer {
     /// A debug socket method over this timer (`debug.tab_switch`, `debug.new_workspace`): `action`
     /// `start` or `stop` (else a read), then whether it records and its samples under `key`.
     func handle(_ params: [String: JSONValue], key: String) -> JSONValue {
-        let action = params["action"]?.stringValue
-        if action == "start" { start() } else if action == "stop" { stop() }
+        if params["action"]?.stringValue == "start" { start() } else if params["action"]?.stringValue == "stop" { stop() }
         return ["recording": .bool(isRecording), key: .array(samples.map { .object($0.mapValues { JSONValue.number($0) }) })]
     }
 }
