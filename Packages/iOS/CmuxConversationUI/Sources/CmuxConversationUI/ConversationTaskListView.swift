@@ -29,7 +29,7 @@ struct ConversationTaskListView: View {
             Section(pinned.isEmpty ? ConversationL10n.value("conversation.tasks", "Tasks") : ConversationL10n.value("conversation.recent", "Recent")) {
                 if recent.isEmpty && pinned.isEmpty {
                     ContentUnavailableView(
-                        "No tasks yet",
+                        ConversationL10n.value("conversation.empty.title", "No tasks yet"),
                         systemImage: "bubble.left.and.bubble.right",
                         description: Text(ConversationL10n.value("conversation.empty.description", "Start a task to work with Codex, Claude Code, or OpenCode."))
                     )

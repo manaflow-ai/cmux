@@ -10,6 +10,15 @@ struct ConversationComposerArea: View {
             && !model.isSubmitting
     }
 
+    private var draftPlaceholder: Text {
+        if model.isRunning {
+            return Text(ConversationL10n.value("conversation.follow_up", "Follow up"))
+        }
+        let provider = model.sessions.first(where: { $0.id == model.selectedSessionID })?.provider.displayName
+            ?? ConversationL10n.value("conversation.cloud", "Cloud")
+        return Text("conversation.work_on \(provider)", bundle: .module)
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             if let request = model.blockingRequest {
@@ -27,9 +36,7 @@ struct ConversationComposerArea: View {
                         .accessibilityIdentifier("ConversationComposerTextEditor")
                         .overlay(alignment: .topLeading) {
                             if model.draft.isEmpty {
-                                Text(model.isRunning
-                                    ? ConversationL10n.value("conversation.follow_up", "Follow up")
-                                    : ConversationL10n.value("conversation.work_on", "Work on") + " " + (model.sessions.first(where: { $0.id == model.selectedSessionID })?.provider.displayName ?? ConversationL10n.value("conversation.cloud", "Cloud")))
+                                draftPlaceholder
                                     .font(.body)
                                     .foregroundStyle(.tertiary)
                                     .padding(.horizontal, 16)
@@ -82,7 +89,7 @@ struct ConversationComposerArea: View {
                         .accessibilityHint(model.isRunning && (model.supportsSteering || model.supportsQueueing)
                             ? ConversationL10n.value("conversation.send_working.hint", "Long press for Steer or Queue")
                             : "")
-                        .accessibilityLabel(model.isRunning ? ConversationL10n.value("conversation.send_followup", "Send follow up") : ConversationL10n.value("conversation.send", "Send message"))
+                        .accessibilityLabel(model.isRunning ? ConversationL10n.value("conversation.send_followup", "Send follow up") : ConversationL10n.value("conversation.send_message", "Send message"))
                         .accessibilityIdentifier("ConversationSendButton")
                     }
                 }
