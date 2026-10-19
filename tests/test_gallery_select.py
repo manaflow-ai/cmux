@@ -57,18 +57,23 @@ def state_ids(selection):
 class SelectTests(unittest.TestCase):
     def test_shared_file_pr_renders_the_owning_component_first(self):
         head, base, selection = gallery_select.select(SHARED, HEAD_ALL, BASE_ALL, body="", cap=4)
+        # Half the cap per entry first (2 of 4), so the neighbour shows too.
         self.assertEqual(state_ids(selection), [
             "agent-pane.summary-card/new-state", "agent-pane.summary-card/open",
-            "agent-pane.summary-card/scrolled", "agent-pane.pr-dock/gone"])
+            "agent-pane.pr-dock/gone", "agent-pane.pr-dock/one"])
         # Both themes of each state, in that order.
         self.assertEqual([c["params"]["theme"] for c in head[:2]], ["dark", "light"])
         self.assertEqual(len(head), 6)  # pr-dock/gone is only in the base
         # The base renders the sampled states it has (not the new one).
-        self.assertEqual({c["params"]["variant"] for c in base}, {"open", "scrolled", "gone"})
+        self.assertEqual({c["params"]["variant"] for c in base}, {"open", "gone", "one"})
         self.assertEqual(selection["more"], 11)  # 15 states (3 + 3 + 9), 4 shown
         self.assertEqual(selection["states"][0]["selected_by"],
                          {"why": "own", "file": "webviews/src/summary/summary.css", "distance": 0})
         self.assertEqual(selection["states"][0]["status_hint"], "new")
+
+    def test_one_entry_fills_the_cap_when_nothing_else_is_touched(self):
+        head, _, selection = gallery_select.select(SINGLE, HEAD_ALL, BASE_ALL, body="", cap=2)
+        self.assertEqual(state_ids(selection), ["agent-pane.summary-card/new-state", "agent-pane.summary-card/open"])
 
     def test_single_component_pr_renders_only_that_component(self):
         head, base, selection = gallery_select.select(SINGLE, HEAD_ALL, BASE_ALL, body="", cap=16)
@@ -100,7 +105,7 @@ class SelectTests(unittest.TestCase):
         self.assertEqual(selection["override_ignored"], ["before/after", "below"])
 
     def test_an_entrys_new_and_removed_states_come_first(self):
-        rows = ranked(("agent-pane.pr-dock", 0, "own", "x.tsx", 0), ("agent-pane.summary-card", 0, "own", "x.tsx", 0))
+        rows = ranked(("agent-pane.pr-dock", 0, "own", "x.tsx", 0))
         _, _, selection = gallery_select.select(rows, HEAD_ALL, BASE_ALL, body="", cap=2)
         self.assertEqual(state_ids(selection), ["agent-pane.pr-dock/gone", "agent-pane.pr-dock/one"])
 
@@ -182,7 +187,7 @@ class ReviewTests(unittest.TestCase):
     def test_bad_numbers_never_break_the_section(self):
         text = gallery_select.section({"head_sha": SHA, "more": 1e999, "images": [
             {"state": "a.b/c", "diff_percent": float("inf"), "selected_by": {"distance": 1e999}}]})
-        self.assertIn("0.00%", text)
+        self.assertIn("| 0% |", text)
 
     def test_status_section_lists_states_and_the_download_command(self):
         text = gallery_select.section(self.review())
@@ -190,6 +195,7 @@ class ReviewTests(unittest.TestCase):
         self.assertIn(f"gh run download 123 -R manaflow-ai/cmux -n gallery-advisory-21672-{SHA}", text)
         self.assertIn("agent-pane.summary-card/open", text)
         self.assertIn("1.23%", text)
+        self.assertEqual(self.review()["images"][1]["diff_percent"], 1.2340)
         self.assertIn("summary.css", text)
         self.assertIn("11 more", text)
         self.assertNotIn("<img", text)  # images stay in the artifact, not on the public PR (#21400)
@@ -213,7 +219,8 @@ class ReviewTests(unittest.TestCase):
                             "--touched", str(t / "touched.json"), "--head-all", str(t / "head-all.json"),
                             "--base-all", str(t / "base-all.json"), "--cap", "2", "--out-dir", str(t)],
                            check=True, env={"PR_BODY": ""})
-            self.assertEqual(len(json.loads((t / "head.json").read_text())), 4)
+            # summary-card/new-state (both themes) and pr-dock/gone (base only): one per entry first.
+            self.assertEqual(len(json.loads((t / "head.json").read_text())), 2)
             self.assertEqual(json.loads((t / "selection.json").read_text())["more"], 13)
 
 

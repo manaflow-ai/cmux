@@ -97,7 +97,21 @@ def select(touched: dict, head_all: list[dict], base_all: list[dict], *, body: s
                 if state[0] == row.get("id") and state not in [p[0] for p in picks]:
                     picks.append((state, {"why": str(row.get("why", "")), "file": str(row.get("file", "")),
                                           "distance": int(row.get("distance", 0))}))
-    shown = picks[:cap]
+    # No entry takes more than half the cap while another touched entry waits: the
+    # first pass takes up to that many states of each entry in rank order, then
+    # the rest fills what is left. An entry with many variants (agent-pane.subagents
+    # has 16) otherwise hides every other entry the change reaches. An override is
+    # taken as written.
+    if requested and override:
+        shown = picks[:cap]
+    else:
+        share, taken, first, rest = max(cap // 2, 1), {}, [], []
+        for pick in picks:
+            entry = pick[0][0]
+            (first if taken.get(entry, 0) < share else rest).append(pick)
+            taken[entry] = taken.get(entry, 0) + 1
+        chosen_picks = (first + rest)[:cap]
+        shown = [pick for pick in picks if pick in chosen_picks]
     chosen = {state for state, _ in shown}
     order = {state: index for index, (state, _) in enumerate(shown)}
     head = sorted((c for c in head_all if state_of(c) in chosen), key=lambda c: order[state_of(c)])
@@ -134,7 +148,7 @@ def review(selection: dict, outcomes: list[dict], *, pr: int, head_sha: str, bas
             "state": state, "entry": state.split("/", 1)[0], "variant": state.split("/", 1)[1],
             "theme": str(outcome.get("theme", "")), "scheme": scheme.get(str(outcome.get("id", "")), ""),
             "engine": str(outcome.get("engine", "")), "status": status,
-            "diff_percent": round(float(outcome.get("ratio", 0)) * 100, 3),
+            "diff_percent": round(float(outcome.get("ratio", 0)) * 100, 4),
             "base_image": f"base/{key}" if status not in ("new", "broken") else None,
             "head_image": f"head/{key}" if status not in ("removed",) else None,
             "before_after": f"diff/thumbs/{key}" if outcome.get("thumb") else None,
@@ -199,7 +213,7 @@ def previews(doc: dict) -> dict:
                 "status": image["status"] if image["status"] in ("changed", "new", "removed", "broken", "unchanged")
                 else "changed",
                 "caption": f"{image['state']} ({image.get('scheme') or image['theme']}), "
-                           f"{image['diff_percent']:.2f}% changed; picked by {image['selected_by']['why']}"
+                           f"{image['diff_percent']:.3g}% changed; picked by {image['selected_by']['why']}"
                            + (f" {image['selected_by']['file']}" if image["selected_by"]["file"] else ""),
                 "before": image["base_image"], "after": image["head_image"],
             } for image in doc["images"]]}
@@ -272,7 +286,7 @@ def section(doc: dict) -> str:
         why = picked["why"] + (f" `{Path(picked['file']).name}`" if picked["file"] else "") + \
             (f" ({picked['distance']} hops)" if picked["distance"] else "")
         lines.append(f"| `{image['state']}` | {image['theme'].replace('|', ' ')} | {image['status']} | "
-                     f"{image['diff_percent']:.2f}% | {why} |")
+                     f"{image['diff_percent']:.3g}% | {why} |")
     if len(doc["images"]) > SHOWN_IN_SECTION:
         lines.append(f"| {len(doc['images']) - SHOWN_IN_SECTION} more images in gallery-review.json | | | | |")
     lines += ["", "</details>", "",
