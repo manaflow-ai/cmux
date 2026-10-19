@@ -6,7 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import { audioAttachment, promptBlocks, takesAudio } from "../src/agent-session/acpmux/attachments";
+import { MAX_AUDIO_BYTES, audioAttachment, promptBlocks, takesAudio } from "../src/agent-session/acpmux/attachments";
 import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
 
 const scope = globalThis as Record<string, unknown>;
@@ -45,6 +45,7 @@ async function mount(accepts: boolean) {
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
   const calls: [string, unknown][] = [];
   const attached: { audio: typeof clip; textThen: string }[] = [];
+  const omitted: string[] = [];
   let text = "";
   const field: DictationField = {
     focus() {},
@@ -64,7 +65,11 @@ async function mount(accepts: boolean) {
     useDictation(prompt, call, audio);
     return null;
   }
-  const audio: DictationAudio = { accepts, attach: (a) => attached.push({ audio: a, textThen: text }) };
+  const audio: DictationAudio = {
+    accepts,
+    attach: (a) => attached.push({ audio: a, textThen: text }),
+    omitted: (reason) => omitted.push(reason),
+  };
   const container = document.createElement("div");
   host.append(container);
   root = createRoot(container);
@@ -72,6 +77,7 @@ async function mount(accepts: boolean) {
   return {
     calls,
     attached,
+    omitted,
     text: () => text,
     rerender: (next: boolean) => act(async () => root!.render(<Pane audio={{ ...audio, accepts: next }} />)),
   };
@@ -114,7 +120,7 @@ test("a chat without audio keeps plain dictation", async () => {
 });
 
 test("the recording goes to the agent as an ACP audio block after the transcript", () => {
-  const recording = audioAttachment(clip, "Voice recording");
+  const recording = audioAttachment(clip, "Voice recording")!;
   expect(recording).toMatchObject({ kind: "audio", mimeType: "audio/wav", size: 4, data: clip.data });
   expect(promptBlocks("fix the build", [recording])).toEqual([
     { type: "text", text: "fix the build" },
@@ -144,4 +150,34 @@ test("voice input follows the picked model", () => {
   expect(takesAudio({ audio: true }, undefined)).toBe(true);
   expect(takesAudio({ audio: false }, picker("hears"))).toBe(false);
   expect(takesAudio(undefined, picker("hears"))).toBe(false);
+});
+
+test("a recording left out says why, and only to a harness that takes audio", async () => {
+  const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
+  const pane = await mount(true);
+  await act(async () => {
+    deliverDictation({ state: "listening", text: "a long one", level: 0.4, cancelled: false });
+    deliverDictation({ state: "idle", text: "a long one", level: 0, cancelled: false, audioOmitted: "tooLong" });
+  });
+  expect(pane.omitted).toEqual(["tooLong"]);
+  expect(pane.attached).toEqual([]);
+  expect(pane.text()).toBe("a long one");
+  act(() => root?.unmount());
+  root = undefined;
+  const plain = await mount(false);
+  await act(async () => {
+    deliverDictation({ state: "listening", text: "words", level: 0.4, cancelled: false });
+    deliverDictation({ state: "idle", text: "words", level: 0, cancelled: false, audioOmitted: "narrowband" });
+  });
+  expect(plain.omitted).toEqual([]);
+  act(() => root?.unmount());
+  root = undefined;
+});
+
+test("a recording past the byte cap is no attachment", () => {
+  // Two minutes of 16 kHz 16-bit mono plus its header fits under the cap.
+  const twoMinutes = "A".repeat(Math.ceil(((44 + 16_000 * 2 * 120) * 4) / 3));
+  expect(audioAttachment({ mimeType: "audio/wav", data: twoMinutes }, "Voice recording")).toBeDefined();
+  const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
+  expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
 });

@@ -342,6 +342,8 @@ pub use presentation::{
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 use resource_content::ensure_screen_split_public_ids;
+#[cfg(unix)]
+pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
 };
@@ -520,9 +522,9 @@ pub struct Mux {
     conversations: crate::conversation_store::ConversationHost,
     /// The Chief registry (chief_registry.rs), opened on first use.
     chiefs: crate::chief_registry::ChiefHost,
-    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
-    /// a binary that has a cloud transport; absent otherwise.
-    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
+    /// The cloud conversations proxy and the host replica publisher, installed
+    /// by a binary that has a cloud transport (mux/cloud_conversations.rs).
+    cloud: cloud_conversations::CloudServices,
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
@@ -680,6 +682,8 @@ pub struct Mux {
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
+    #[cfg(unix)]
+    agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Terminals with a possibly live host and no runtime surface (R41),
