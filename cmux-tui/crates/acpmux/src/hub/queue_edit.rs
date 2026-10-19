@@ -77,6 +77,17 @@ impl Hub {
         Ok(reply)
     }
 
+    /// Whether a waiting prompt holds a secret (`secret_scan`). A peer reads it
+    /// masked (`server/peer_text.rs`), so it may not rewrite it: an edit from
+    /// the masked text would write the mask over the secret.
+    pub fn queued_holds_secret(&self, session: &Session, prompt_id: &str) -> bool {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue
+            .iter()
+            .find(|q| q.prompt_id == prompt_id)
+            .is_some_and(|q| !crate::secret_scan::find(&prompt_text(&q.run.blocks)).is_empty())
+    }
+
     /// Replaces a waiting prompt's content; it keeps its place. It runs under the stricter
     /// rules of its sender and its editor.
     fn update_queued(

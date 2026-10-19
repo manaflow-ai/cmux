@@ -32,17 +32,21 @@ public struct SessionStateMirror: Sendable, Hashable {
         /// A browser tab's device emulation as the daemon resolved it
         /// (`extra.emulation`, browser-devices-v1), or nil.
         public var emulation: JSONValue?
+        /// Marked unread by hand (Mark Tab Unread, `extra.marked_unread`, tab-mark-unread-v1),
+        /// apart from notification markers.
+        public var markedUnread: Bool
 
         public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil,
-                    emulation: JSONValue? = nil) {
+                    emulation: JSONValue? = nil, markedUnread: Bool = false) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
             self.icon = icon
             self.emulation = emulation
+            self.markedUnread = markedUnread
         }
 
-        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil }
+        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread }
     }
 
     /// Newest first, at most `closedLimit`.

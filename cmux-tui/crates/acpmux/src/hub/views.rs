@@ -78,7 +78,8 @@ impl Hub {
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
 /// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
-/// `lastMessage`, `preview`, `title`) still carry the raw text.
+/// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
+/// way to a peer daemon (`server/peer_text.rs`).
 ///
 /// `{state, since, error, step, title}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
