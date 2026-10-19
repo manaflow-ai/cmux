@@ -39,7 +39,7 @@ extension PaneContentView {
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
             // Parked in the pane it came from.
-            if view is PaneParkableContent { view.isHidden = false }
+            if view is PaneParkableContent { probeSetHidden(view, false) }
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
@@ -52,7 +52,7 @@ extension PaneContentView {
            let above = subviews.lastIndex(where: { !$0.isHidden && $0 !== view && $0 !== leaving }), above > mine {
             contentHost.addSubview(view, positioned: .above, relativeTo: subviews[above])
         }
-        if view is PaneParkableContent { view.isHidden = false }
+        if view is PaneParkableContent { probeSetHidden(view, false) }
     }
 
     /// The pane stops showing `view`: a terminal, browser or agent page stays here, hidden; other
@@ -70,7 +70,7 @@ extension PaneContentView {
             window.makeFirstResponder(nil)
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        view.isHidden = true
+        probeSetHidden(view, true)
         // A hidden agent page stays sized with the pane, so showing it again needs no redraw at a new
         // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
         // sets their frame.
@@ -100,5 +100,17 @@ extension PaneContentView {
     /// Takes every parked view out of the pane (the pane goes away).
     func dropParked() {
         prunePark { _ in false }
+    }
+}
+
+
+/// PROBE ONLY (perf-drag cx-8w027.19, variant d): a parked view hides by its layer, so its NSView never
+/// changes hidden state (AppKit re-sends the titlebar drag shapes on a hidden change in the band).
+@MainActor private func probeSetHidden(_ view: NSView, _ hidden: Bool) {
+    if ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_VARIANT"] == "d", let layer = view.layer {
+        view.isHidden = false
+        layer.isHidden = hidden
+    } else {
+        view.isHidden = hidden
     }
 }
