@@ -28,7 +28,8 @@ public final class MainThreadWatchdog: Sendable {
         /// At most one hang report per this interval (default 5 min).
         public var hangReportInterval: Duration
         /// Debug builds: a hang still running this long fails an assertion
-        /// (default 10 s; nil in release builds).
+        /// (default 10 s; nil in release builds), if the main thread used
+        /// CPU for at least half of it (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
         public var hangAssertThreshold: Duration?
 
         /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
@@ -329,6 +330,23 @@ public final class MainThreadWatchdog: Sendable {
         var reportedBeat: UInt64 = .max
         var assertedBeat: UInt64 = .max
         var lastReportNanos: UInt64?
+        /// Main-thread CPU time when this stall was first checked.
+        var cpuBeat: UInt64 = .max
+        var cpuAtFirstCheck: UInt64?
+    }
+
+    /// A stall past `assertNanos` fails the debug assertion only when the
+    /// main thread was busy: it used CPU for at least half the threshold.
+    /// A backgrounded app (App Nap, background role) can leave the heartbeat
+    /// stale while the main thread idles in `mach_msg` or barely gets
+    /// scheduled; that is reported as a hang but is no main-thread bug. A
+    /// thread blocked on a lock or a synchronous IPC uses no CPU either; it
+    /// too is reported (``onHang``), not asserted. When the CPU time cannot
+    /// be read (`nil`), wall-clock time alone decides.
+    static func hangFailsAssertion(elapsedNanos: UInt64, mainThreadCPUNanos: UInt64?, assertNanos: UInt64) -> Bool {
+        guard elapsedNanos >= assertNanos else { return false }
+        guard let mainThreadCPUNanos else { return true }
+        return mainThreadCPUNanos >= assertNanos / 2
     }
 
     /// Reports a stall that has lasted `hangThreshold` (once per stall, at
@@ -340,6 +358,10 @@ public final class MainThreadWatchdog: Sendable {
         let started = beatNanos.load(ordering: .acquiring)
         guard now > started else { return }
         let elapsed = now - started
+        if state.cpuBeat != beat {
+            state.cpuBeat = beat
+            state.cpuAtFirstCheck = busy.mainThreadCPUNanos()
+        }
         if elapsed >= hangNanos, state.reportedBeat != beat {
             state.reportedBeat = beat
             let duration = Duration.nanoseconds(Int64(clamping: elapsed))
@@ -352,10 +374,18 @@ public final class MainThreadWatchdog: Sendable {
             }
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
-           !assertionsEnded.load(ordering: .acquiring) {
+           !assertionsEnded.load(ordering: .acquiring),
+           Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(since: state.cpuAtFirstCheck),
+                                   assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
             assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }
+    }
+
+    /// Main-thread CPU used since `start`; nil when either reading failed.
+    private func mainThreadCPU(since start: UInt64?) -> UInt64? {
+        guard let start, let now = busy.mainThreadCPUNanos() else { return nil }
+        return now > start ? now - start : 0
     }
 
     private static func nanos(_ duration: Duration) -> UInt64 {
