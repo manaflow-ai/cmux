@@ -88,7 +88,7 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.moveUp", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: -1, context) })
         registry.bind("workspaceGroup.moveDown", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: 1, context) })
         registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast)
+            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast, toast: false)
         })
         registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupClose.close(invocation, context)

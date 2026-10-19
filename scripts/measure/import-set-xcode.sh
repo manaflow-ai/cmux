@@ -31,20 +31,29 @@
 #     --tool cmux-import-set@sha256:HEX --timeout 9000 --key import-set-xcode-<sha8>-<n>
 # Args: leaf=<repo-relative Swift file> (default CmuxTheme's AppTheme.swift),
 #       module=<the module it adds and removes> (default auto: the probe above;
-#       no macOS module of this graph may import it already).
+#       no macOS module of this graph may import it already),
+#       relinks=<links per linker mode in the relink probe> (default 5, 1-50),
+#       only=relink (build clean A, run the relink probe and the objc stub
+#       cost probe, then stop: no import set legs, one DerivedData tree).
 # Output: RESULT lines; files under .build/import-set-xcode. Exit 0 when every
 # expectation holds. Never changes anything outside this checkout.
 set -euo pipefail
 leaf="Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift"
 module="auto"
+relinks=5
+only=""
 for arg in "$@"; do
   case "$arg" in
     leaf=*) leaf="${arg#leaf=}" ;;
     module=*) module="${arg#module=}" ;;
+    relinks=*) relinks="${arg#relinks=}" ;;
+    only=*) only="${arg#only=}" ;;
     *) echo "import-set-xcode.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$leaf" =~ ^Packages/[A-Za-z0-9_./+-]+\.swift$ && "$leaf" != *..* ]] || { echo "import-set-xcode.sh: leaf must be a Swift file under Packages/" >&2; exit 2; }
+[[ "$relinks" =~ ^[1-9][0-9]?$ && "$relinks" -le 50 ]] || { echo "import-set-xcode.sh: relinks must be 1-50" >&2; exit 2; }
+[[ -z "$only" || "$only" == relink ]] || { echo "import-set-xcode.sh: only must be relink" >&2; exit 2; }
 [[ "$module" == auto || "$module" =~ ^[A-Z][A-Za-z0-9_]{1,40}$ ]] || { echo "import-set-xcode.sh: module must be a module name" >&2; exit 2; }
 tool="${CMUX_CI_TOOL_CMUX_IMPORT_SET:-}"
 [[ -n "$tool" && -f "$tool" ]] || { echo "import-set-xcode.sh: pass --tool cmux-import-set@sha256:HEX" >&2; exit 2; }
@@ -169,7 +178,7 @@ lines.insert(k + 1, "import " + sys.argv[3])
 open(sys.argv[2], "w").write("\n".join(lines))
 PY
 at() { cp "$([[ "$1" == A ]] && echo "$leaf_a" || echo "$leaf_b")" "$leaf"; }
-trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$RA2" "$RB2" "$work/spm" "$work/probe" "$work/relink"' EXIT
+trap 'cp "$leaf_a" "$leaf" 2>/dev/null || true; rm -rf "$D" "$RA" "$RB" "$RA2" "$RB2" "$work/spm" "$work/probe" "$work/relink" "$work/stubcost"' EXIT
 
 # The package's scheme: the executable product's, else the whole package's.
 scheme="$(cd "$work/app-exe" && xcodebuild -list -json -clonedSourcePackagesDirPath "$work/spm" 2>"$work/list.err" | python3 -I -c '
@@ -482,13 +491,14 @@ match_any() {   # LEG REF1 LABEL1 REF2 LABEL2
   fi
 }
 
-# Link the clean A executable again with its own link command, 5 times per
-# linker mode, while its DerivedData is in place: is the link deterministic,
-# and does a linker option make it so?
+# Link the clean A executable again with its own link command, relinks= times
+# per linker mode, while its DerivedData is in place: is the link
+# deterministic, does a linker option make it so, and what does the option
+# cost (executable size, __objc_stubs size, link seconds)?
 relink_probe() {
-  python3 -I - "$work/clean-A.log" "$work/relink" <<'PY' || true   # mask-ok: a diagnostic never fails the run
-import hashlib, os, shlex, subprocess, sys
-log, out = sys.argv[1:3]
+  python3 -I - "$work/clean-A.log" "$work/relink" "$relinks" <<'PY' || true   # mask-ok: a diagnostic never fails the run
+import hashlib, os, shlex, statistics, struct, subprocess, sys, time
+log, out, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
 os.makedirs(out, exist_ok=True)
 lines = open(log, errors="replace").read().splitlines()
 cwd, argv = None, None
@@ -511,11 +521,24 @@ def sha(p):
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
     return h.hexdigest()[:12]
+def sections(p):
+    d = open(p, "rb").read()
+    if struct.unpack_from("<I", d, 0)[0] != 0xFEEDFACF:   # thin 64-bit only (a Debug build is thin)
+        return {}
+    n = struct.unpack_from("<I", d, 16)[0]; o = 32; got = {}
+    for _ in range(n):
+        c, s = struct.unpack_from("<II", d, o)
+        if c == 0x19:   # LC_SEGMENT_64
+            for k in range(struct.unpack_from("<I", d, o + 64)[0]):
+                q = o + 72 + 80 * k
+                got[d[q:q + 16].split(b"\0")[0].decode()] = struct.unpack_from("<Q", d, q + 40)[0]
+        o += s
+    return got
 exe_sha = sha(argv[argv.index("-o") + 1])
 for name, extra in (("default", []), ("reproducible", ["-Xlinker", "-reproducible"]),
                     ("objc_stubs_small", ["-Xlinker", "-objc_stubs_small"]), ("O0", ["-Xlinker", "-O0"])):
-    shas, err = [], ""
-    for n in range(5):
+    shas, err, secs, sizes = [], "", [], set()
+    for n in range(count):
         a = list(argv)
         # The same file name: the linker signature's identifier is the output's name.
         exe = os.path.join(out, f"{name}-{n}", "cmux-next-exe")
@@ -523,16 +546,88 @@ for name, extra in (("default", []), ("reproducible", ["-Xlinker", "-reproducibl
         a[a.index("-o") + 1] = exe
         if "-dependency_info" in a:
             a[a.index("-dependency_info") + 2] = os.path.join(out, f"{name}-{n}.dat")
+        t = time.monotonic()
         r = subprocess.run(a + extra, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if r.returncode:
-            err = r.stdout.decode(errors="replace").strip().splitlines()[-1:] 
+            err = r.stdout.decode(errors="replace").strip().splitlines()[-1:]
             break
+        secs.append(time.monotonic() - t)
         shas.append(sha(exe))
+        sizes.add((os.path.getsize(exe), sections(exe).get("__objc_stubs", 0)))
         os.remove(exe)
-    print(f"RESULT relink {name}: links={len(shas)} distinct_outputs={len(set(shas))} outputs={sorted(set(shas))} "
+    print(f"RESULT relink {name}: links={len(shas)} distinct_outputs={len(set(shas))} "
+          f"counts={sorted(((shas.count(h), h) for h in set(shas)), reverse=True)} exe_and_objc_stubs_bytes={sorted(sizes)} "
+          f"link_seconds_median={round(statistics.median(secs), 2) if secs else 0} "
           f"xcodebuild_output={exe_sha} {'error=' + str(err) if err else ''}")
 PY
   rm -rf "$work/relink"
+}
+
+# The run time cost of -objc_stubs_small: one Objective-C message send through
+# a selector stub, 200 million times, linked with the default (fast) stubs and
+# with small stubs, 7 runs each; the median nanoseconds per send.
+stub_cost_probe() {
+  local dir="$work/stubcost"
+  mkdir -p "$dir"
+  cat >"$dir/bench.m" <<'M'
+#import <Foundation/Foundation.h>
+#include <mach/mach_time.h>
+@interface Box : NSObject { @public long n; }
+- (void)bump;
+@end
+@implementation Box
+- (void)bump { n++; }
+@end
+int main(void) {
+  @autoreleasepool {
+    Box *b = [Box new];
+    const long count = 200000000;
+    mach_timebase_info_data_t tb; mach_timebase_info(&tb);
+    uint64_t t = mach_absolute_time();
+    for (long i = 0; i < count; i++) [b bump];
+    uint64_t e = mach_absolute_time() - t;
+    printf("%.4f %ld\n", (double)e * tb.numer / tb.denom / count, b->n);
+  }
+  return 0;
+}
+M
+  python3 -I - "$dir" <<'PY' || true   # mask-ok: a diagnostic never fails the run
+import os, statistics, struct, subprocess, sys
+d = sys.argv[1]
+def stubs(p):
+    b = open(p, "rb").read()
+    if struct.unpack_from("<I", b, 0)[0] != 0xFEEDFACF:
+        return -1
+    n = struct.unpack_from("<I", b, 16)[0]; o = 32
+    for _ in range(n):
+        c, s = struct.unpack_from("<II", b, o)
+        if c == 0x19:
+            for k in range(struct.unpack_from("<I", b, o + 64)[0]):
+                q = o + 72 + 80 * k
+                if b[q:q + 16].split(b"\0")[0] == b"__objc_stubs":
+                    return struct.unpack_from("<Q", b, q + 40)[0]
+        o += s
+    return 0
+built, ns = [], {}
+for name, flag in (("default", []), ("objc_stubs_small", ["-Wl,-objc_stubs_small"])):
+    exe = os.path.join(d, name)
+    # -fobjc-msgsend-selector-stubs is clang's default for arm64 macOS; say it so the stubs are certain.
+    r = subprocess.run(["xcrun", "clang", "-O2", "-fobjc-arc", "-fobjc-msgsend-selector-stubs", "-framework", "Foundation",
+                        os.path.join(d, "bench.m"), "-o", exe, *flag], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if r.returncode:
+        print(f"RESULT stubcost {name}: build failed {r.stdout.decode(errors='replace').strip().splitlines()[-1:]}")
+        continue
+    built.append((name, exe)); ns[name] = []
+# Interleaved runs, so drift (clock, heat, another job) falls on both modes alike.
+for _ in range(7):
+    for name, exe in built:
+        ns[name].append(float(subprocess.run([exe], stdout=subprocess.PIPE, check=True).stdout.split()[0]))
+for name, exe in built:
+    v = ns[name]
+    print(f"RESULT stubcost {name}: objc_stubs_bytes={stubs(exe)} ns_per_send_min={round(min(v), 4)} "
+          f"median={round(statistics.median(v), 4)} max={round(max(v), 4)}")
+PY
+  rm -rf "$dir"
 }
 
 # A clean build into a reference directory; the index is not compared.
@@ -542,7 +637,13 @@ reference() {   # LABEL SIDE DIR
 
 echo "==> leaf $leaf, module $module"
 echo "==> clean references at the test DerivedData path, each twice"
-at A; plain clean-A; relink_probe; mv "$D" "$RA"; rm -rf "$RA/Index.noindex"
+at A; plain clean-A; relink_probe
+if [[ "$only" == relink ]]; then
+  stub_cost_probe
+  result "only=relink: stopped after the relink and stub cost probes"
+  exit 0
+fi
+mv "$D" "$RA"; rm -rf "$RA/Index.noindex"
 python3 -I - "$work/pins.json" "$work/app-exe/Package.resolved" <<'PY'
 import json, sys
 want = {p["identity"]: p["state"] for p in json.load(open(sys.argv[1]))["pins"]}
