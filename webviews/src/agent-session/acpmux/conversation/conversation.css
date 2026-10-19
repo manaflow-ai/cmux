@@ -2188,16 +2188,15 @@ pre.cv-math-source {
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
    transcript stage's bottom edge, shown while the reader is scrolled up. Glass like the mobile
-   app's: the page reads through a blur, under a thin ring and a soft shadow. Its dots say a reply
-   is streaming below. It fades in and out with the pane's motion tokens. */
+   app's: the page reads through a blur, under a thin ring and a soft shadow. Its accent dots say a
+   reply is streaming below. It fades in and out with the pane's motion tokens. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
   bottom: 12px;
   z-index: var(--layer-sticky);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -2235,16 +2234,35 @@ pre.cv-math-source {
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
 }
+/* The arrow and the dots share one cell: while the agent works, the arrow shrinks and fades out as
+   the accent dots grow in (Claude desktop's Code tab), and back when the turn ends. */
+.acpmux-jump-latest__arrow,
 .acpmux-jump-latest__dots {
+  grid-area: 1 / 1;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.acpmux-jump-latest__dots {
   gap: 3px;
+  color: var(--agent-accent);
+  opacity: 0;
+  transform: scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__arrow {
+  opacity: 0;
+  transform: translateY(3px) scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__dots {
+  opacity: 1;
+  transform: none;
 }
 .acpmux-jump-latest__dots i {
-  width: 3.5px;
-  height: 3.5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.45;
+  opacity: 0.55;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
@@ -2255,28 +2273,39 @@ pre.cv-math-source {
   .acpmux-jump-latest[data-shown] {
     transition-duration: var(--agent-motion-in);
   }
-  .acpmux-jump-latest__dots i {
+  .acpmux-jump-latest__arrow,
+  .acpmux-jump-latest__dots {
+    transition:
+      opacity var(--agent-motion-in) var(--agent-ease-out),
+      transform var(--agent-motion-in) var(--agent-ease-out);
+  }
+  /* Only while shown and working: hidden dots keep no compositor animation running. */
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
     animation: acpmux-jump-latest-dot calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite;
   }
-  .acpmux-jump-latest__dots i:nth-child(2) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(2) {
     animation-delay: calc(var(--agent-motion-in) * 1.5);
   }
-  .acpmux-jump-latest__dots i:nth-child(3) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(3) {
     animation-delay: calc(var(--agent-motion-in) * 3);
   }
 }
-/* Static status indicators (cx-sya4n): the new-content dots hold still. */
-:root[data-status-indicators="static"] .acpmux-jump-latest__dots i {
+/* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
   animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
   0%,
   60%,
   100% {
-    opacity: 0.45;
+    opacity: 0.55;
+    transform: scale(0.8);
   }
   30% {
     opacity: 1;
+    transform: scale(1.15);
   }
 }
 /* A chat reopening where the reader left it stays unseen while older pages bring that row back

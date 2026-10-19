@@ -42,6 +42,10 @@ export const COMPOSER_FIT_STEPS = {
   folderMiddleTruncate: 340,
   /** The row's group gap narrows and the card reaches 10px from the pane's edges (#20548). */
   rowTight: 297,
+  /** The New Tab card's model shows its harness mark alone, its name in its tooltip. Its row holds
+   *  the whole name down to about here (it has no +, Plan or speed bolt); narrower, the name only
+   *  shrank to a sliver and pushed the permission mode into the mic. */
+  newTabModelMark: 297,
   /** The row tightens its gap and padding and narrows +. */
   barTight: 260,
 } as const;
