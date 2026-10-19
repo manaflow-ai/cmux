@@ -193,7 +193,9 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => doc().querySelector<HTMLElement>(".acpmux-quick-menu");
 /// The model rows (the rail's tabs are radio items too).
-const modelRows = (popup: HTMLElement) => [...popup.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
+const modelRows = (popup: HTMLElement) => [
+  ...popup.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]'),
+];
 const modelNames = (popup: HTMLElement) =>
   modelRows(popup).map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
 const railTabs = () => [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")];
@@ -235,11 +237,11 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(rows.some((row) => row?.startsWith("Effort") && row.includes("Medium"))).toBe(true);
   expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
   // Claude Code's order: the models, Effort, More models, then Account last.
-  expect(rows.filter((row) => /^(Effort|More models|Account)/.test(row ?? "")).map((row) => row?.split(/\s/)[0])).toEqual([
-    "Effort",
-    "More",
-    "Account",
-  ]);
+  expect(
+    rows
+      .filter((row) => /^(Effort|More models|Account)/.test(row ?? ""))
+      .map((row) => row?.match(/^(Effort|More models|Account)/)?.[0]),
+  ).toEqual(["Effort", "More models", "Account"]);
 });
 
 test("a number key picks that model in place", async () => {
@@ -304,6 +306,11 @@ test("with no routes, Account offers the CLI login and says how to add one", asy
 });
 
 test("the rail lists Starred, then each harness; a harness's tab lists its models in place", async () => {
+  // Starred shows once a model is starred (in the full picker); then it leads the rail.
+  const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
+  const claude = BUNDLED_MODEL_CATALOG.harnesses.find((harness) => harness.id === "claude")!;
+  const starred = claude.models.find((model) => /haiku/i.test(model.id))!.id;
+  dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify([starred]));
   await mount({ routes: [] });
   await open();
   const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
@@ -320,6 +327,12 @@ test("the rail lists Starred, then each harness; a harness's tab lists its model
   expect(names.every((name) => !/opus|sonnet|haiku/i.test(name))).toBe(true);
   // Effort and Account are the chat's: another harness's tab shows neither.
   expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
+});
+
+test("without a starred model the rail starts at the harnesses", async () => {
+  await mount({ routes: [] });
+  await open();
+  expect(railTabs()[0]?.getAttribute("aria-label")).toBe("Claude Code");
 });
 
 test("More models is a submenu: the harness's other models, then Add harness…", async () => {

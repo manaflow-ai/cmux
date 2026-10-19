@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
 import type { SpeedSection } from "./EffortPicker";
@@ -29,7 +30,55 @@ export type QuickMenu = {
   effort?: { levels: Choice[]; current?: string; onPick(value: string): void; speed?: SpeedSection };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
+  /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
+  /// `models` alone and More models opens the full picker.
+  families?: QuickFamilies;
 };
+
+/// A model row of any harness: `family` is the rail tab (harness) it belongs to.
+export type QuickModel = { id: string; name: string; family: string; disabled?: boolean };
+
+/// A rail tab: its harness's top models (numbered), the rest under More models, or a `note` in
+/// their place (a signed-out harness). `mark` is the AgentMark brand; without one the tab draws
+/// the name's initial.
+export type QuickFamily = {
+  id: string;
+  name: string;
+  mark?: string;
+  starred?: boolean;
+  models: QuickModel[];
+  more: QuickModel[];
+  note?: string;
+};
+
+export type QuickFamilies = {
+  list: QuickFamily[];
+  /// The chat's harness: its tab opens first, and only it shows Effort and Account.
+  current?: string;
+  onPick(model: QuickModel): void;
+  /// Add harness…, the last row of More models.
+  onAddHarness?(): void;
+};
+
+/// How many rows a filtered list shows (keys 1 to 9 pick them).
+const FILTER_ROWS = 9;
+
+/// The models whose name, or whose harness's name, holds every typed word. Starred repeats other
+/// tabs' models, so it is not searched.
+function filtered(families: QuickFamily[], query: string): (QuickModel & { hint: string })[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const rows: (QuickModel & { hint: string })[] = [];
+  for (const family of families) {
+    if (family.starred || family.note) continue;
+    for (const model of [...family.models, ...family.more]) {
+      const text = `${model.name} ${family.name}`.toLowerCase();
+      if (words.every((word) => text.includes(word))) rows.push({ ...model, hint: family.name });
+    }
+  }
+  return rows.slice(0, FILTER_ROWS);
+}
+
+const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\u0000${model.id}`;
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account">;
@@ -63,56 +112,92 @@ export function QuickModelMenu({
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
-  const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
-  const pick = (id: string) => {
+  const families = menu.families;
+  // The rail's tab and the typed filter start over with each opening.
+  const [tab, setTab] = useState(families?.current);
+  const [query, setQuery] = useState("");
+  const chatFamily = families?.current;
+  const familyList = families?.list;
+  useEffect(() => {
+    if (!open) return;
+    setTab(chatFamily ?? familyList?.find((family) => !family.starred)?.id);
+    setQuery("");
+  }, [open, chatFamily, familyList]);
+  const shown = families?.list.find((family) => family.id === tab);
+  const onChatTab = !families || tab === families.current;
+  // What the list draws: the typed filter's matches, else the tab's top models.
+  const rows: (QuickModel & { hint?: string })[] = !families
+    ? models.map((model) => ({ ...model, family: "" }))
+    : query
+      ? filtered(families.list, query)
+      : (shown?.models.slice(0, FILTER_ROWS) ?? []);
+  const pickRow = (row: QuickModel) => {
+    if (row.disabled) return;
     onOpenChange(false);
-    if (id !== current) menu.onModel(id);
+    if (!families) {
+      if (row.id !== current) menu.onModel(row.id);
+    } else if (!(row.family === families.current && row.id === current)) families.onPick(row);
   };
+  const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
     if (!event.currentTarget.contains(event.target as Node)) return;
     if (/^[1-9]$/.test(event.key)) {
-      const choice = models[Number(event.key) - 1];
+      const choice = rows[Number(event.key) - 1];
       if (!choice) return;
       event.preventDefault();
-      pick(choice.id);
-    } else if (event.key.length === 1 && /\S/.test(event.key)) {
+      pickRow(choice);
+    } else if (families && event.key === "Backspace" && query) {
       event.preventDefault();
-      onOpenChange(false);
-      onMore(event.key);
+      setQuery(query.slice(0, -1));
+    } else if (event.key.length === 1 && (/\S/.test(event.key) || (families && query))) {
+      event.preventDefault();
+      // Typing filters the list in place, Claude Code style; without a rail it searches the full picker.
+      if (families) setQuery(query + event.key);
+      else {
+        onOpenChange(false);
+        onMore(event.key);
+      }
     }
   };
-  return (
-    <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
-        {children}
-      </MenuButton>
-      <MenuPopup
-        side="top"
-        align="start"
-        label={t("picker.model")}
-        className="acpmux-quick-menu"
-        // ui-allow: 1 to 9 pick a model in place and a letter opens the full picker searching for it, as in Claude Code's model menu.
-        onKeyDown={keyDown}
-      >
-        <MenuGroup label={t("picker.modelThisSession")}>
-          <MenuRadioGroup value={current ?? ""} onValueChange={pick}>
-            {models.map((choice, index) => (
+  const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
+  const list = (
+    <>
+      <MenuGroup label={query ? `“${query}”` : t("picker.modelThisSession")}>
+        <MenuRadioGroup
+          value={currentValue}
+          onValueChange={(value) => {
+            const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
+            if (row) pickRow(row);
+          }}
+        >
+          {rows.map((choice, index) => {
+            const value = families ? rowValue(choice) : choice.id;
+            return (
               <MenuRadioItem
-                key={choice.id}
-                value={choice.id}
+                key={value}
+                value={value}
                 closeOnClick
+                disabled={choice.disabled}
                 className="acpmux-quick-item"
-                shortcut={index < 9 && choice.id !== current ? String(index + 1) : undefined}
+                shortcut={index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
               >
                 <span className="acpmux-menu-label">{choice.name}</span>
+                {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
               </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuGroup>
-        {(levels.length > 1 || account) && <MenuSeparator />}
-        {effort && levels.length > 1 && (
+            );
+          })}
+        </MenuRadioGroup>
+        {rows.length === 0 && (
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
+          </MenuItem>
+        )}
+      </MenuGroup>
+      {!query && onChatTab && effort && levels.length > 1 && (
+        <>
+          <MenuSeparator />
           <Submenu
             className="acpmux-quick-item acpmux-quick-sub"
             popupClassName="acpmux-quick-menu"
@@ -143,42 +228,149 @@ export function QuickModelMenu({
               </>
             )}
           </Submenu>
-        )}
-        {account && (
-          <Submenu
-            className="acpmux-quick-item acpmux-quick-sub"
-            popupClassName="acpmux-quick-menu"
-            label={
-              <QuickRowLabel
-                label={t("picker.account")}
-                value={
-                  accounts.switchFailed
-                    ? t("picker.accountSwitchFailed")
-                    : accounts.list
-                      ? (activeAccount?.name ?? t("picker.harnessLogin"))
-                      : undefined
-                }
-              />
-            }
-          >
-            <AccountRows
-              list={accounts.list}
-              failed={accounts.failed}
-              switchFailed={accounts.switchFailed}
-              onPick={(routeId) => {
-                onOpenChange(false);
-                accounts.pick(routeId);
-              }}
-            />
-          </Submenu>
-        )}
-        <MenuSeparator />
+        </>
+      )}
+      {!query && <MenuSeparator />}
+      {!query && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
+        <Submenu
+          className="acpmux-quick-item acpmux-quick-sub"
+          popupClassName="acpmux-quick-menu acpmux-quick-more"
+          label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
+        >
+          {shown && shown.more.length > 0 && (
+            <>
+              <MenuRadioGroup
+                value={currentValue}
+                onValueChange={(value) => {
+                  const row = shown.more.find((choice) => rowValue(choice) === value);
+                  if (row) pickRow(row);
+                }}
+              >
+                {shown.more.map((choice) => (
+                  <MenuRadioItem
+                    key={choice.id}
+                    value={rowValue(choice)}
+                    closeOnClick
+                    disabled={choice.disabled}
+                    className="acpmux-quick-item"
+                  >
+                    <span className="acpmux-menu-label">{choice.name}</span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+              {families.onAddHarness && <MenuSeparator />}
+            </>
+          )}
+          {families.onAddHarness && (
+            <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
+              <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
+            </MenuItem>
+          )}
+        </Submenu>
+      )}
+      {!query && !families && (
         <MenuItem className="acpmux-quick-item acpmux-quick-sub" onSelect={() => onMore()}>
           <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
+      )}
+      {!query && onChatTab && account && (
+        <Submenu
+          className="acpmux-quick-item acpmux-quick-sub"
+          popupClassName="acpmux-quick-menu"
+          label={
+            <QuickRowLabel
+              label={t("picker.account")}
+              value={
+                accounts.switchFailed
+                  ? t("picker.accountSwitchFailed")
+                  : accounts.list
+                    ? (activeAccount?.name ?? t("picker.harnessLogin"))
+                    : undefined
+              }
+            />
+          }
+        >
+          <AccountRows
+            list={accounts.list}
+            failed={accounts.failed}
+            switchFailed={accounts.switchFailed}
+            onPick={(routeId) => {
+              onOpenChange(false);
+              accounts.pick(routeId);
+            }}
+          />
+        </Submenu>
+      )}
+    </>
+  );
+  return (
+    <Menu open={open} onOpenChange={onOpenChange}>
+      <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
+        {children}
+      </MenuButton>
+      <MenuPopup
+        side="top"
+        align="start"
+        label={t("picker.model")}
+        className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
+        // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
+        onKeyDown={keyDown}
+      >
+        {families ? (
+          <div className="acpmux-quick-layout">
+            {/* The rail: Starred (when any), then each harness; a tab shows its models in place. */}
+            <div className="acpmux-quick-rail">
+              <MenuRadioGroup
+                value={tab ?? ""}
+                onValueChange={(value) => {
+                  setTab(value);
+                  setQuery("");
+                }}
+              >
+                {families.list.map((family) => (
+                  <MenuRadioItem
+                    key={family.id}
+                    value={family.id}
+                    label={family.name}
+                    title={family.note ? `${family.name} · ${family.note}` : family.name}
+                    className="acpmux-quick-rail-tab"
+                  >
+                    {family.starred ? (
+                      <StarIcon />
+                    ) : family.mark ? (
+                      <AgentMark agent={family.mark} size={16} />
+                    ) : (
+                      <span aria-hidden="true" className="acpmux-quick-rail-initial">
+                        {family.name.trim().charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </div>
+            <div className="acpmux-quick-body">{list}</div>
+          </div>
+        ) : (
+          list
+        )}
       </MenuPopup>
     </Menu>
+  );
+}
+
+/// The rail's Starred tab: an outline star.
+function StarIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

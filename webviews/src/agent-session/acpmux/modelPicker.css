@@ -312,6 +312,43 @@
   font-size: var(--text-caption);
 }
 
+/* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
+   icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
+.acpmux-quick-railed { max-width: min(360px, calc(100vw - 24px)); padding: 0; }
+.acpmux-quick-layout { display: flex; align-items: stretch; }
+.acpmux-quick-rail {
+  flex: none;
+  padding: 6px;
+  border-inline-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.acpmux-quick-rail .ui-menu-group,
+.acpmux-quick-rail [role="group"] { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ui-menu-item.acpmux-quick-rail-tab {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--agent-muted);
+}
+.acpmux-quick-rail-tab .ui-menu-check { display: none; }
+.ui-menu-item.acpmux-quick-rail-tab[data-highlighted],
+.ui-menu-item.acpmux-quick-rail-tab[aria-checked="true"] {
+  background: var(--acpmux-menu-hover);
+  box-shadow: none;
+  color: var(--agent-text);
+}
+.acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; }
+.acpmux-quick-body { flex: 1; min-width: 200px; padding: 6px; }
+/* A filtered row names its harness in secondary text. */
+.acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
+  padding-inline-start: 12px;
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+
 /* The compact menu's chip is a quiet label: the model, then its effort in secondary ink. */
 .acpmux-model .acpmux-model-detail {
   color: var(--agent-muted);

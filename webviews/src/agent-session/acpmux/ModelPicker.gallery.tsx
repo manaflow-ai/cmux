@@ -210,6 +210,28 @@ export default componentEntry<ModelPickerProps>({
     },
     curated: { props: curated, play: openModels },
     "quick-menu": { props: quick, play: openQuick },
+    // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
+    "quick-menu-rail": {
+      props: quick,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        await ctx.waitFor(
+          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-checked="true"]') !== null,
+        );
+      },
+    },
+    // Typing filters every harness's models in place, with no search field.
+    "quick-menu-filter": {
+      props: quick,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        for (const letter of "son") await ctx.press(letter);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
+        );
+      },
+    },
     "more-models": {
       props: curated,
       play: async (ctx) => {

@@ -18,7 +18,7 @@ import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } fr
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
-import { QuickModelMenu } from "./QuickModelMenu";
+import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -514,6 +514,52 @@ export function ModelPicker(props: ModelPickerProps) {
     onLand(model.id);
     close();
   };
+  // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
+  // that can start here, its top models numbered and the rest under More models.
+  const quickFamilies = useMemo(() => {
+    if (!quick) return undefined;
+    const row = (entry: HarnessChoice, model: ModelChoice): QuickModel => ({
+      id: model.id,
+      name: model.name,
+      family: entry.id,
+      ...(model.unavailable ? { disabled: true } : {}),
+    });
+    const startable = harnesses.filter(
+      (entry) => entry.pickable && !blockedProfile(entry) && entry.folder?.state !== "needs-enable",
+    );
+    const list: QuickFamily[] = [];
+    const starred = startable
+      .filter((entry) => loginFor(entry) === undefined)
+      .flatMap((entry) => choicesFor(entry).flatMap((model) => (favorites.has(model.id) ? [row(entry, model)] : [])));
+    if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
+    for (const entry of startable) {
+      const signedOutHere = loginFor(entry) !== undefined;
+      const { latest, older } = signedOutHere
+        ? { latest: [], older: [] }
+        : shownSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
+      list.push({
+        id: entry.id,
+        name: entry.name,
+        ...(agentBrand(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
+        models: latest.slice(0, 9).map((model) => row(entry, model)),
+        more: [...latest.slice(9), ...older].map((model) => row(entry, model)),
+        ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
+      });
+    }
+    return list;
+  }, [quick, harnesses, loginFor, favorites, starredText, harness, props.model, t]);
+  /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
+  const pickQuick = (model: QuickModel) => {
+    const owner = harnesses.find((entry) => entry.id === model.family);
+    if (!owner || model.disabled || !owner.pickable || loginFor(owner) !== undefined) return;
+    if (owner.ids.includes(harness ?? "")) {
+      onLand(model.id);
+      return;
+    }
+    const harnessId = owner.acpmuxHarness ?? owner.id;
+    if (onCombo) onCombo({ harness: harnessId, model: model.id });
+    else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+  };
   const addHarness = () => {
     close();
     onAddAgent?.();
@@ -753,6 +799,16 @@ export function ModelPicker(props: ModelPickerProps) {
                 : [],
             current: props.model,
             onModel: (id) => onLand(id),
+            ...(quickFamilies
+              ? {
+                  families: {
+                    list: quickFamilies,
+                    current: current?.id,
+                    onPick: pickQuick,
+                    ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
+                  },
+                }
+              : {}),
           }}
           onMore={more}
         >

@@ -452,17 +452,25 @@ export function MenuRadioItem({
   disabled,
   shortcut,
   closeOnClick,
+  label,
+  title,
   children,
 }: {
   value: string;
   /** Close the menu when picked (Base UI keeps a radio menu open by default). */
   closeOnClick?: boolean;
+  /** The row's accessible name, for a row that draws only an icon. */
+  label?: string;
+  /** The row's tooltip. */
+  title?: string;
 } & Omit<MenuItemProps, "onSelect">) {
   const context = use(MenuContext);
   return (
     <BaseMenu.RadioItem
       className={cx("ui-menu-item", className)}
       value={value}
+      aria-label={label}
+      title={title}
       disabled={disabled}
       closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}
