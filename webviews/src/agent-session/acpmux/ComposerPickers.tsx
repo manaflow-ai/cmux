@@ -134,8 +134,6 @@ type Props = {
   signIn?: SignIn;
   /// acpmux has answered with its harnesses: only then does an empty catalog mean none is installed.
   harnessesListed?: boolean;
-  /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
-  measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
   showPlan?: boolean;
   /** Host-backed catalog refresh; transport stays outside the picker UI. */
@@ -177,7 +175,6 @@ export function ComposerPickers({
   folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
-  measurePickerRoom,
   showPlan = true,
   catalogRefresh,
   pickerCatalog,
@@ -629,7 +626,6 @@ export function ComposerPickers({
               ? { [snapshot.switching.harness]: t("switch.failedShort") }
               : undefined
           }
-          measureRoom={measurePickerRoom}
           usage={usageNote}
         />
       ) : (
