@@ -407,6 +407,17 @@ sole cause. The underlying APFS/Thunderbolt bridge/device path remains the
 next investigation target; no unmount or repair was attempted while 229 PIDs
 still hold the volume across active worktrees.
 
+## M5S completed-lane cleanup (2026-10-19T15:08Z)
+
+Three detached recovery-lane process groups in the separate
+`cmux-rootcause-20261019` worktree had been idle for more than 13 hours. Their
+provider, crash, and governor status files were complete, so only those three
+groups were sent `SIGTERM`; the protected PID `49398` was not touched. The
+Atelier holder census fell from 229 to 214 PIDs. A bounded directory probe
+still failed with `InterruptedError`, so reducing stale agent ownership has not
+yet cleared the filesystem stall. The completed lane reports remain available
+for the evidence review.
+
 OWC's current [Express 1M2 troubleshooting guide](https://eshop.macsales.com/manuals/OWC-Express-1M2-troubleshooting-guide)
 recommends isolating the enclosure on a direct USB-C/Thunderbolt port, removing
 other external drives, and running First Aid from the bottom of the Disk Utility
