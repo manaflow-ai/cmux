@@ -354,6 +354,7 @@
               "sidebar.showProfileControl",
               "sidebar.minimal",
               "sidebar.density",
+              "sidebar.detailedStatusIcons",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -15224,6 +15225,60 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.detailedStatusIcons.help",
+        "text" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.detailedStatusIcons",
+      "keywords" : [
+        "sidebar",
+        "status",
+        "icons",
+        "badge",
+        "working",
+        "waiting",
+        "input",
+        "error",
+        "done",
+        "agent",
+        "osc 7501"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "detailedStatusIcons"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.detailedStatusIcons",
+        "text" : "Detailed Status Icons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -25825,7 +25880,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "63f499d47a950327123f30fe51ddc6a4196747ec787899a6f8468c9ae54b0868",
+  "schema_hash" : "60f1845f0710920b3e1013aa16e1b139ef004f6265fa07448b4b1bab3df62763",
   "sections" : [
     {
       "id" : "general",

@@ -2360,6 +2360,12 @@
       "title" : "Sidebar Density",
       "type" : "string"
     },
+    "sidebar.detailedStatusIcons" : {
+      "default" : false,
+      "description" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
+      "title" : "Detailed Status Icons",
+      "type" : "boolean"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",
