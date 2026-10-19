@@ -255,7 +255,7 @@ public nonisolated enum SettingsSchema {
 
     static var appearance: [SettingDescriptor] {
         AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
-            + DiffViewerSettingsSchema.descriptors
+            + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors
     }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
