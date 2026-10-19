@@ -185,41 +185,41 @@ with 4001 `moved`.
   256 and 256 KiB) and drops its oldest datagram past it, and media older
   than 250 ms is dropped, so on a backed-up TLS stream media never delays
   control or input and memory stays bounded.
-- WireGuard route confirmation. Reachability can be one-way, so a side
-  that receives its peer's datagrams on a route does not yet know its own
-  reach the peer. Until it does, it sends every datagram on that route and
-  through its TURN allocation too (and to every candidate when it has no
-  route; and every 100 ms to each of the peer's other endpoints, its
-  relayed addresses among them). The confirmation is an overlay UDP
-  datagram to port 7421 of the peer, JSON
-  `{"t":"reach","from":"ip:port","via":"udp"|"turn"}` ("your datagrams
-  reach me": they arrived from `from`, your address as seen here, on my
-  plain UDP socket or my TURN allocation), sent by a version-2 side when an
-  authenticated datagram from its peer arrives: at once on a new route,
-  then 100, 300 and 1000 ms later while datagrams keep arriving, then at
-  most every 3 s. `from` names the carrier that works (the receiver's TURN
-  when it is its relayed address, else plain UDP) and `via` whether it
+- WireGuard route confirmation. Reachability can be one-way, so a side that
+  receives its peer's datagrams on a route does not yet know its own reach
+  the peer. Until it does, it sends every datagram on that route and through
+  its TURN allocation too (and to every candidate when it has no route; and
+  every 100 ms to each of the peer's other endpoints, its relayed addresses
+  among them). The confirmation is an overlay UDP datagram to port 7421 of
+  the peer, JSON `{"t":"reach","from":"ip:port","via":"udp"|"turn"}` ("your
+  datagrams reach me": they arrived from `from`, your address as seen here,
+  on my plain UDP socket or my TURN allocation), sent by a version-2 side
+  when an authenticated datagram from its peer arrives: at once on a new
+  route, then 100, 300 and 1000 ms later while datagrams keep arriving, then
+  at most every 3 s. `from` names the carrier that works (the receiver's
+  TURN when it is its relayed address, else plain UDP) and `via` whether it
   reached the peer's relayed address. The current route is confirmed only
-  when it is that pair. Otherwise the side switches to that pair when it
-  is an upgrade (direct UDP instead of a relayed route), or when no `reach`
+  when it is that pair. Otherwise the side switches to that pair when it is
+  an upgrade (direct UDP instead of a relayed route), or when no `reach`
   confirmed the current route in the 4 s since it became the route (for
   example plain UDP to the peer's relayed address when its own UDP to the
   peer's LAN address is lost), and keeps it while `reach` keeps naming it,
   even though the peer's datagrams arrive on another route, and for 25 s
-  after the last one (an idle link's keepalives every 10 s each draw one). A relayed copy of a datagram never displaces a
-  direct route that still delivers. A side that receives its peer's direct
-  UDP while most of the peer's datagrams arrive relayed sends `reach`
-  for that direct arrival at once (at most every 100 ms), so the peer
-  upgrades; while the route is relayed (its own TURN, or the peer's
-  relayed address) the direct candidates are tried every 5 s. A confirmed route that is silent for 14 s, or that no
-  `reach` confirmed for 25 s, is no longer trusted (every route again until
-  a new `reach`). A bare `{"t":"reach"}`
-  confirms the current route.
-  An older peer (version 0) sends its confirmation through the retired
-  relay, where it is lost, and never sends `reach`: with such a peer a
-  side takes the peer's authenticated datagrams as the confirmation. An
-  address the OS refuses to send to (macOS Local Network privacy answers
-  `EHOSTUNREACH` for LAN peers) is never chosen as the route again.
+  after the last one (an idle link's keepalives every 10 s each draw one),
+  or until the peer announces endpoints without that address. A relayed copy
+  of a datagram never displaces a direct route that still delivers. A side
+  that receives its peer's direct UDP while most of the peer's datagrams
+  arrive relayed sends `reach` for that direct arrival at once (at most
+  every 100 ms), so the peer upgrades; while the route is relayed (its own
+  TURN, or the peer's relayed address) the direct candidates are tried every
+  5 s. A confirmed route that is silent for 14 s, or that no `reach`
+  confirmed for 25 s, is no longer trusted (every route again until a new
+  `reach`). A bare `{"t":"reach"}` confirms the current route. An older peer
+  (version 0) sends its confirmation through the retired relay, where it is
+  lost, and never sends `reach`: with such a peer a side takes the peer's
+  authenticated datagrams as the confirmation. An address the OS refuses to
+  send to (macOS Local Network privacy answers `EHOSTUNREACH` for LAN peers)
+  is never chosen as the route again.
 - WireGuard roaming (no wire change for older peers, which simply never
   announce): a side whose network changed (the phone's `NWPathMonitor`, the
   Mac's routing socket) moves its tunnel onto a new UDP socket and at once
