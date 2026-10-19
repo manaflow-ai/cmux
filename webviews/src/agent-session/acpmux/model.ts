@@ -5,7 +5,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
-import { safeHref } from "./replyHref";
+import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
@@ -21,6 +21,20 @@ export type AcpmuxBackgroundTask = {
   state: "completed" | "failed" | "stopped";
   reason?: string;
 };
+
+/// A compaction of the chat's context (acpmux `compaction`): running, then how it ended. `reason`
+/// is a wrapper's ("account_switch": subrouter compacted before moving the chat to another account).
+export type AcpmuxCompaction = {
+  state: "running" | "completed" | "failed";
+  /// Failed because its turn ended while it ran, not because it said so; a later end replaces it.
+  inferred?: boolean;
+  reason?: string;
+  preTokens?: number;
+  postTokens?: number;
+};
+
+/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
+export type AcpmuxFailover = { from: string; to: string };
 
 export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
@@ -42,6 +56,10 @@ export type AcpmuxRow = {
   plan?: AcpmuxPlanEntry[];
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
+  /// A compaction row's compaction, noted where it happened.
+  compaction?: AcpmuxCompaction;
+  /// A failover row's harnesses.
+  failover?: AcpmuxFailover;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
   /// order the agent made them, or one offer made without a group.
   offers?: AcpmuxSessionOffer[];
@@ -481,6 +499,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     row.kind === "turnSummary" ||
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
+    row.kind === "compaction" ||
+    row.kind === "failover" ||
     row.kind === "plan" ||
     row.kind === "typing"
   )
@@ -489,7 +509,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
-export { safeHref };
+export { appHref, linkHref, safeHref };
 
 /// The text `renderInline` in conversation/Markdown.tsx draws for `tokens`, as the estimator
 /// measures it. Inline code draws in 12px monospace (conversation.css), no wider per character than the prose font's digits,
@@ -500,7 +520,7 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
   return tokens
     .map((token) => {
       if (token.type === "codespan") return (token as Tokens.Codespan).text.replace(/\S/g, "0").replace(/ /g, "0 ");
-      if (token.type === "link" && !safeHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
+      if (token.type === "link" && !linkHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
       if ("tokens" in token) return measuredText(token.tokens, "text" in token ? token.text : (token.raw ?? ""));
       return token.raw ?? ("text" in token ? token.text : "");
     })

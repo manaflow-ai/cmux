@@ -14,6 +14,8 @@ mod input;
 mod lifecycle;
 mod lock_order;
 mod render_geometry;
+#[cfg(unix)]
+mod resize_audit;
 mod stream_progress;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;

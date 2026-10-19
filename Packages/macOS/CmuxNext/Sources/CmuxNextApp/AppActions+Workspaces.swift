@@ -80,6 +80,7 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+        SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
@@ -104,11 +105,13 @@ extension AppActions {
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
+        // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
+        let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
         services.registry.track(Task {
             var pageMade = false
             defer { input.endIncoming(keys, pageMade: pageMade) }
             do {
-                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                _ = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
                 if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
