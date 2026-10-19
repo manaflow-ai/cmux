@@ -54,6 +54,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_CONVERSATION_SNAPSHOT = new CommandMetadata("cloud-conversation-snapshot", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_SUBSCRIBE = new CommandMetadata("cloud-conversation-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_THREAD = new CommandMetadata("cloud-conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_CONVERSATION_TYPING = new CommandMetadata("cloud-conversation-typing", Authority.LOCAL_ADMIN, 12, "cloud-conversation-typing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_UNSUBSCRIBE = new CommandMetadata("cloud-conversation-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_INBOX_LIST = new CommandMetadata("cloud-inbox-list", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_INBOX_OP = new CommandMetadata("cloud-inbox-op", Authority.LOCAL_ADMIN, 12, "conversation-inbox-state-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -331,6 +332,7 @@ public final class Commands {
         values.put("cloud-conversation-snapshot", CLOUD_CONVERSATION_SNAPSHOT);
         values.put("cloud-conversation-subscribe", CLOUD_CONVERSATION_SUBSCRIBE);
         values.put("cloud-conversation-thread", CLOUD_CONVERSATION_THREAD);
+        values.put("cloud-conversation-typing", CLOUD_CONVERSATION_TYPING);
         values.put("cloud-conversation-unsubscribe", CLOUD_CONVERSATION_UNSUBSCRIBE);
         values.put("cloud-inbox-list", CLOUD_INBOX_LIST);
         values.put("cloud-inbox-op", CLOUD_INBOX_OP);

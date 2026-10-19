@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb.
+// cmux-tui mux protocol 12, IR 84cd4c3f33af065e3de184ef0e7620f0a5ee2060ef94477fadee1b71ca92da36.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -714,6 +714,16 @@ pub struct CloudConversationThreadRequest {
 
 #[rustfmt::skip]
 pub type CloudConversationThreadResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationTypingRequest {
+    pub conversation: String,
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationTypingResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4226,6 +4236,10 @@ impl CmuxClient {
 
     pub fn cloud_conversation_thread(&mut self, request: CloudConversationThreadRequest) -> Result<CloudConversationThreadResult> {
         self.execute(&CLOUD_CONVERSATION_THREAD_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_typing(&mut self, request: CloudConversationTypingRequest) -> Result<CloudConversationTypingResult> {
+        self.execute(&CLOUD_CONVERSATION_TYPING_METADATA, &request)
     }
 
     pub fn cloud_conversation_unsubscribe(&mut self, request: CloudConversationUnsubscribeRequest) -> Result<CloudConversationUnsubscribeResult> {
