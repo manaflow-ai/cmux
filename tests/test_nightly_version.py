@@ -9,8 +9,11 @@ number is not above every build on the cmux-next feed and on main's NIGHTLY
 feed, so neither feed can ever offer a downgrade after a switch.
 """
 
+import http.server
+import os
 import re
 import subprocess
+import threading
 import sys
 import tempfile
 from pathlib import Path
@@ -22,7 +25,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 
 def run(*args):
     assert SCRIPT.is_file(), f"{SCRIPT} is missing"
-    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
+    env = {**os.environ, "CMUX_NIGHTLY_FEED_RETRY_DELAYS": "0,0,0"}
+    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=env)
 
 
 def marketing(track, project="0.64.25", build="3718773117601", next_base="1.0.0"):
@@ -113,6 +117,53 @@ def test_a_feed_that_does_not_exist_yet_is_skipped_only_when_optional():
         assert run("check-build", "--build", "3719000000001", "--feed", classic, "--feed-if-present", present).returncode != 0
         broken = write(d, "broken.xml", "<rss")
         assert run("check-build", "--build", "3719000000001", "--feed", classic, "--feed-if-present", broken).returncode != 0
+
+
+def feed_server(body, drops):
+    """A loopback feed server that closes the first `drops` connections
+    without a response (a transit failure), then serves `body`."""
+    state = {"left": drops, "requests": 0}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            state["requests"] += 1
+            if state["left"] > 0:
+                state["left"] -= 1
+                self.close_connection = True
+                self.connection.shutdown(2)
+                return
+            data = body.encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}/appcast.xml", state
+
+
+def test_a_feed_read_that_fails_in_transit_is_tried_again():
+    # Run 39296746784: one TLS handshake timeout on a required feed failed the build.
+    server, url, state = feed_server(appcast("3718900000001"), drops=2)
+    try:
+        result = run("check-build", "--build", "3719000000001", "--feed", url)
+        assert result.returncode == 0, result.stderr
+        assert state["requests"] == 3, state
+        assert "trying again" in result.stderr
+    finally:
+        server.shutdown()
+    server, url, state = feed_server(appcast("3718900000001"), drops=10)
+    try:
+        result = run("check-build", "--build", "3719000000001", "--feed", url)
+        assert result.returncode != 0
+        assert state["requests"] == 4, state
+        assert "cannot read feed" in result.stderr
+    finally:
+        server.shutdown()
 
 
 def main():
