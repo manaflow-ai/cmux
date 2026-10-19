@@ -4,9 +4,9 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPopups
 
-/// Opens each sign-in in its own panel with a Chromium page, the same
-/// panel a page's sign-in popup uses (title and origin, close button,
-/// Escape). It is not a daemon tab: nothing records, restores or lists it.
+/// Opens each sign-in in its own window with a Chromium page, the same
+/// window a page's sign-in popup uses (title, read-only location bar,
+/// traffic lights), where Escape cancels. It is not a daemon tab: nothing records, restores or lists it.
 /// A normal session uses the default browser profile, so a person already
 /// signed in stays signed in; an ephemeral one gets an off-the-record
 /// profile that ends with the panel.
@@ -30,7 +30,7 @@ final class WebAuthSessionWindows: WebAuthSessionOpening {
     }
 }
 
-/// One sign-in's panel and page. Every end (the callback, the close
+/// One sign-in's window and page. Every end (the callback, the close
 /// button, Escape, `window.close()`, the system cancelling) closes it once.
 @MainActor
 final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDelegate {
@@ -43,7 +43,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private unowned let services: AppServices
     private let onEnd: (UUID) -> Void
     private var page: (any BrowserTab)?
-    private var panel: BrowserPopupPanel?
+    private var panel: BrowserPopupWindow?
     private var observation: Task<Void, Never>?
     private var ended = false
 
@@ -82,7 +82,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         if let cef = page as? CEFTab {
             CEFSignInCallbacks.shared.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
-        let panel = BrowserPopupPanel(page: page, frame: Self.frame())
+        let panel = BrowserPopupWindow(page: page, frame: Self.frame())
         panel.onEscape = { [weak self] in self?.close() }
         panel.onClose = { [weak self] in self?.end() }
         self.panel = panel
