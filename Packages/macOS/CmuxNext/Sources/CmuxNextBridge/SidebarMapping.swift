@@ -135,7 +135,9 @@ public struct SidebarMapping {
                 ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
             kindBrand: front?.agentBrand,
-            unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
+            // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
+            unread: unread > 0 ? .count(unread)
+                : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: agentBrand(tabs),
@@ -145,7 +147,7 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
                 return SidebarTab(id: TabID(tab.id), title: title,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
                                   brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },
             muted: muted,

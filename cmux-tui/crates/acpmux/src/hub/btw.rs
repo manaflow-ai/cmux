@@ -118,6 +118,7 @@ impl Hub {
                     // Never the start mode (it may be full access): read-only is set below.
                     keep_harness_mode: true,
                     route: None,
+                    subsession: None,
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.
