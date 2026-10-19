@@ -1,6 +1,6 @@
 /* A session reference's hover card (SessionHoverCard.tsx), as a row of Claude Code's PR list reads:
    the title in the body step (two lines at most), then the status line (SessionStatusLine, styled
-   in startedSessions.css). It is as wide as its title, 240px to 420px. It is a layer over the
+   in startedSessions.css). It is as wide as its title, 240px to 420px, with the started card's corner and inset. It is a layer over the
    transcript: opaque, the page a clear step lighter, with a brighter rim, a dark hairline outside
    it and a soft drop shadow, so it stands apart from a user bubble under it. The whole card is one
    button that opens the session. Sizes are the type scale's steps (desktop.css). */
@@ -8,11 +8,11 @@
   max-width: min(420px, calc(100vw - 12px));
   padding: 0;
   border-color: color-mix(in srgb, var(--agent-text) 26%, transparent);
-  background: color-mix(in srgb, var(--agent-text) 16%, var(--agent-page-bg, var(--surface-popup)));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 24%, var(--agent-page-bg, var(--surface-popup)));
   box-shadow:
     0 0 0 0.5px color-mix(in srgb, black 60%, transparent),
-    0 4px 16px color-mix(in srgb, black 40%, transparent),
-    0 12px 32px color-mix(in srgb, black 24%, transparent);
+    0 8px 24px color-mix(in srgb, black 50%, transparent);
 }
 .acpmux-session-hover {
   box-sizing: border-box;
@@ -22,7 +22,7 @@
   width: max-content;
   min-width: 240px;
   max-width: min(420px, calc(100vw - 32px));
-  padding: 8px 12px;
+  padding: 8px 14px;
   border: 0;
   border-radius: inherit;
   background: none;
