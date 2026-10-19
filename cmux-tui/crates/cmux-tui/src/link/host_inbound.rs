@@ -86,6 +86,9 @@ where
             let mut sshd = tokio::net::TcpStream::connect(me.sshd)
                 .await
                 .map_err(|_| HostRefused::SshUnavailable)?;
+            // Interactive: without it each keystroke ssh sends waits for the
+            // ACK of the previous segment (Nagle), 40-200 ms with delayed ACKs.
+            let _ = sshd.set_nodelay(true);
             let _ = tokio::io::copy_bidirectional(&mut stream, &mut sshd).await;
             Ok(())
         }

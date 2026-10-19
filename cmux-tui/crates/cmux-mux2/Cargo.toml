@@ -19,6 +19,10 @@ name = "mux2"
 path = "src/bin/mux2.rs"
 
 [[bin]]
+name = "mux2-netbench"
+path = "src/bin/mux2-netbench.rs"
+
+[[bin]]
 name = "mux2-verify"
 path = "src/bin/mux2-verify.rs"
 
@@ -37,6 +41,10 @@ path = "src/bin/mux2-ctty-probe.rs"
 [[bin]]
 name = "mux2-wrapcheck"
 path = "src/bin/mux2-wrapcheck.rs"
+
+[[bin]]
+name = "mux2-resumecheck"
+path = "src/bin/mux2-resumecheck.rs"
 
 [dependencies]
 ghostty-vt.workspace = true
