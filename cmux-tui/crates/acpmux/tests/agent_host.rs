@@ -397,15 +397,27 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         socket,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
-    std::fs::write(hosts.join("wrong-socket.json"), serde_json::to_vec(&wrong).unwrap()).unwrap();
+    let wrong_path = hosts.join("wrong-socket.json");
+    std::fs::write(&wrong_path, serde_json::to_vec(&wrong).unwrap()).unwrap();
+    std::fs::set_permissions(&wrong_path, std::fs::Permissions::from_mode(0o600)).unwrap();
 
     let linked = record("linked", acpmux::agent_host::socket_path(&hosts, "linked"));
     let linked_target = dir.join("linked-record.json");
     std::fs::write(&linked_target, serde_json::to_vec(&linked).unwrap()).unwrap();
     std::os::unix::fs::symlink(&linked_target, hosts.join("linked.json")).unwrap();
 
+    let promoted = record(
+        "promoted",
+        acpmux::agent_host::socket_path(&acpmux::agent_host::pool_dir(&hosts), "promoted"),
+    );
+    acpmux::agent_host::write_record_atomic(&hosts.join("promoted.json"), &promoted).unwrap();
+
     let (good, bad) = acpmux::agent_host::load_records(&hosts).unwrap();
-    assert!(good.is_empty(), "untrusted host records were accepted: {good:#?}");
+    assert_eq!(
+        good.iter().map(|(_, record)| record.session_id.as_str()).collect::<Vec<_>>(),
+        ["promoted"],
+        "a promoted pool socket is valid, but no other path is: {good:#?}"
+    );
     assert_eq!(bad.len(), 2, "each refused record is reported: {bad:#?}");
     assert!(outside_socket.exists(), "discovery removed a path outside the hosts directory");
     assert_eq!(std::fs::symlink_metadata(&hosts).unwrap().permissions().mode() & 0o777, 0o700);
