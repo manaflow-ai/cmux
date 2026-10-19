@@ -1,3 +1,4 @@
+-- contract: add identity resources and identity-to-VM grants for the v5 API
 -- Freestyle-compatible identities and grants. Additive only; the worker never
 -- runs DDL. Identity rows use the same tenant ownership table as VMs.
 ALTER TABLE cmux_vm.resources DROP CONSTRAINT IF EXISTS resources_cmux_id_check;
@@ -18,7 +19,7 @@ ALTER TABLE cmux_vm.audit_log DROP CONSTRAINT IF EXISTS audit_log_cmux_id_check;
 ALTER TABLE cmux_vm.audit_log ADD CONSTRAINT audit_log_cmux_id_check
   CHECK (cmux_id IS NULL OR cmux_id ~ '^(vm|snap|vmk|mesh|dev|tun|idn)_[0-9a-hjkmnp-tv-z]{26}$');
 
-CREATE TABLE IF NOT EXISTS cmux_vm.identity_vm_grants (
+CREATE TABLE cmux_vm.identity_vm_grants (
   id                 text PRIMARY KEY CHECK (id ~ '^vmp-[A-Za-z0-9-]+$'),
   tenant_id          text NOT NULL CHECK (char_length(tenant_id) BETWEEN 1 AND 128),
   identity_cmux_id   text NOT NULL CHECK (identity_cmux_id LIKE 'idn\_%'),
@@ -35,7 +36,7 @@ CREATE INDEX IF NOT EXISTS identity_vm_grants_identity_idx
 CREATE INDEX IF NOT EXISTS identity_vm_grants_vm_idx
   ON cmux_vm.identity_vm_grants (tenant_id, vm_cmux_id) WHERE revoked_at IS NULL;
 
-CREATE TABLE IF NOT EXISTS cmux_vm.identity_tokens (
+CREATE TABLE cmux_vm.identity_tokens (
   id                 text PRIMARY KEY CHECK (id ~ '^tok-[A-Za-z0-9-]+$'),
   tenant_id          text NOT NULL CHECK (char_length(tenant_id) BETWEEN 1 AND 128),
   identity_cmux_id   text NOT NULL CHECK (identity_cmux_id LIKE 'idn\_%'),

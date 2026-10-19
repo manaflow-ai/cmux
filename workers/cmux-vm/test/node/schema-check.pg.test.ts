@@ -17,11 +17,12 @@ import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import meshM4 from "../../migrations/0007_cmux_vm_mesh_m4.sql?raw";
 import meshM4Retries from "../../migrations/0008_cmux_vm_mesh_m4_retries.sql?raw";
 import deviceAddress from "../../migrations/0009_cmux_vm_mesh_device_address.sql?raw";
+import identities from "../../migrations/0010_cmux_vm_identities.sql?raw";
 import usage from "../../migrations/0011_cmux_vm_usage.sql?raw";
 import { checkSchema, makeSchemaGate } from "../../src/db/schema-check.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 
-const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress, usage];
+const ALL = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries, deviceAddress, identities, usage];
 
 const problemsOn = async (migrations: ReadonlyArray<string>) => {
   const db = new PGlite();
@@ -43,12 +44,14 @@ describe("checkSchema", () => {
     expect(problems).toContain("cmux_vm.stack_webhook_events: missing");
     expect(problems).toContain("cmux_vm.mesh_devices.public_ipv6: missing");
     expect(problems).toContain("cmux_vm.usage_intervals: missing");
+    expect(problems).toContain("cmux_vm.identity_vm_grants: missing");
   });
 
   it("names the column of 0009 when only it was not applied", async () => {
     const problems = await problemsOn(ALL.slice(0, 8));
     expect(problems).toContain("cmux_vm.mesh_devices.public_ipv6: missing");
     expect(problems).toContain("cmux_vm.usage_intervals: missing");
+    expect(problems).toContain("cmux_vm.identity_vm_grants: missing");
   });
 
   it("names added columns and tables of older missing migrations (0007 and 0008)", async () => {
