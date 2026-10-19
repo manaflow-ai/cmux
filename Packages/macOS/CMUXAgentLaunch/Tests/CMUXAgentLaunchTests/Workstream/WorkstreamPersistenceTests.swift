@@ -116,7 +116,7 @@ struct WorkstreamPersistenceTests {
         encoder.dateEncodingStrategy = .iso8601
         var data = try encoder.encode(old)
         data.append(0x0A)
-        data.append(Data(repeating: 0x78, count: 9 * 1024 * 1024))
+        data.append(Data(repeating: 0x78, count: 17 * 1024 * 1024))
         try data.write(to: tmp)
 
         let persistence = WorkstreamPersistence(fileURL: tmp)
@@ -192,6 +192,43 @@ struct WorkstreamPersistenceTests {
 
         let loaded = try await persistence.loadRecent(limit: 2)
         #expect(loaded.map(\.workstreamId) == ["old", "new"])
+    }
+
+    @Test("startup budget cutoff fails closed without a cursor")
+    func startupBudgetCutoffFailsClosedWithoutCursor() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-oversized-budget-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "oversized",
+            source: .claude,
+            kind: .toolUse,
+            payload: .toolUse(
+                toolName: "Write",
+                toolInputJSON: String(repeating: "x", count: 9 * 1024 * 1024)
+            )
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "new",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let snapshot = try await persistence.loadStartupSnapshot(
+            limit: 2,
+            hardBudgetNanoseconds: 0
+        )
+        #expect(snapshot.diagnostics.exceededBudget)
+        #expect(snapshot.page.startOffset == nil)
+        #expect(!snapshot.page.hasMoreBefore)
     }
 
     @Test("loadPage pages older rows before a stable byte cursor")
@@ -348,7 +385,7 @@ struct WorkstreamPersistenceTests {
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        var data = Data(repeating: 0x78, count: 9 * 1024 * 1024)
+        var data = Data(repeating: 0x78, count: 17 * 1024 * 1024)
         data.append(0x0A)
         data.append(try encoder.encode(item))
         data.append(0x0A)

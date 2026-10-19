@@ -77,6 +77,10 @@ public actor WorkstreamPersistence {
     /// JSON decode. Larger rows are treated as corrupt history by bounded
     /// readers and remain available for later forensic inspection.
     private static let maximumPersistedRowBytes = 8 * 1024 * 1024
+    /// A backward scan never buffers more than this many bytes from an
+    /// oversized row. If no newline is found, the returned progress cursor
+    /// advances another bounded chunk and the next page continues the walk.
+    private static let maximumOversizedRowScanBytes = maximumPersistedRowBytes * 2
     /// Leave one representable value for the startup bump after restoring a
     /// persisted high-water mark.
     private static let maximumRevision = UInt64(Int.max - 1)
@@ -129,6 +133,7 @@ public actor WorkstreamPersistence {
     private struct BoundedLatestResult {
         let items: [WorkstreamItem]
         let exceededBudget: Bool
+        let startOffset: UInt64?
     }
 
     private func loadBoundedLatest(
@@ -136,26 +141,30 @@ public actor WorkstreamPersistence {
         deadlineNanoseconds: UInt64? = nil
     ) throws -> BoundedLatestResult {
         guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
-            return BoundedLatestResult(items: [], exceededBudget: false)
+            return BoundedLatestResult(items: [], exceededBudget: false, startOffset: nil)
         }
         let tail = try readTail(limit: limit, deadlineNanoseconds: deadlineNanoseconds)
-        var latestByID: [UUID: (sequence: Int, item: WorkstreamItem)] = [:]
+        var latestByID: [UUID: (sequence: Int, item: WorkstreamItem, offset: UInt64)] = [:]
         for (sequence, line) in tail.lines.enumerated().reversed() {
             if let deadlineNanoseconds,
                DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds {
                 return BoundedLatestResult(
                     items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
-                    exceededBudget: true
+                    exceededBudget: true,
+                    startOffset: latestByID.isEmpty ? nil : latestByID.values.map(\.offset).min()
                 )
             }
-            guard line.count <= Self.maximumPersistedRowBytes,
-                  let item = try? decoder.decode(WorkstreamItem.self, from: line) else { continue }
-            if latestByID[item.id] == nil { latestByID[item.id] = (sequence, item) }
+            guard line.data.count <= Self.maximumPersistedRowBytes,
+                  let item = try? decoder.decode(WorkstreamItem.self, from: line.data) else { continue }
+            if latestByID[item.id] == nil { latestByID[item.id] = (sequence, item, line.offset) }
             if latestByID.count >= limit { break }
         }
         return BoundedLatestResult(
             items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
-            exceededBudget: tail.exceededBudget
+            exceededBudget: tail.exceededBudget,
+            startOffset: latestByID.isEmpty
+                ? nil
+                : (latestByID.values.map(\.offset).min() ?? tail.startOffset)
         )
     }
 
@@ -215,7 +224,11 @@ public actor WorkstreamPersistence {
             return StartupSnapshot(
                 items: latest.items,
                 revision: try loadRevision(),
-                page: Page(items: [], hasMoreBefore: false, startOffset: nil),
+                page: Page(
+                    items: latest.items,
+                    hasMoreBefore: (latest.startOffset ?? 0) > 0,
+                    startOffset: latest.startOffset
+                ),
                 diagnostics: StartupDiagnostics(
                     elapsedNanoseconds: elapsed,
                     fileBytes: size,
@@ -280,8 +293,15 @@ public actor WorkstreamPersistence {
     }
 
     private struct Tail {
-        let lines: [Data]
+        struct Line {
+            let data: Data
+            let offset: UInt64
+        }
+        let lines: [Line]
         let exceededBudget: Bool
+        let startOffset: UInt64
+        let hasLeadingPartialLine: Bool
+        let endsWithNewline: Bool
     }
 
     private func readTail(
@@ -289,12 +309,12 @@ public actor WorkstreamPersistence {
         deadlineNanoseconds: UInt64? = nil
     ) throws -> Tail {
         guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
-            return Tail(lines: [], exceededBudget: false)
+            return Tail(lines: [], exceededBudget: false, startOffset: 0, hasLeadingPartialLine: false, endsWithNewline: false)
         }
         let fh = try FileHandle(forReadingFrom: fileURL)
         defer { try? fh.close() }
         let fileSize = try fh.seekToEnd()
-        guard fileSize > 0 else { return Tail(lines: [], exceededBudget: false) }
+        guard fileSize > 0 else { return Tail(lines: [], exceededBudget: false, startOffset: 0, hasLeadingPartialLine: false, endsWithNewline: false) }
         let chunkSize = 64 * 1024
         // Include the terminating newline so a valid row at the byte cap is
         // not mistaken for a partial leading row.
@@ -322,7 +342,7 @@ public actor WorkstreamPersistence {
         }
         var data = Data()
         for chunk in chunks.reversed() { data.append(chunk) }
-        var lines = data.split(separator: 0x0A).map(Data.init)
+        var lineRanges = Self.lineRanges(in: data, baseOffset: offset)
         let precedingByte: UInt8?
         if offset > 0 {
             try fh.seek(toOffset: offset - 1)
@@ -334,10 +354,19 @@ public actor WorkstreamPersistence {
             && !data.isEmpty
             && data.first != 0x0A
             && precedingByte != 0x0A
-        if hasLeadingPartialLine, !lines.isEmpty {
-            lines.removeFirst()
+        if hasLeadingPartialLine, !lineRanges.isEmpty {
+            lineRanges.removeFirst()
         }
-        return Tail(lines: lines, exceededBudget: exceededBudget)
+        let lines = lineRanges.map { range in
+            Tail.Line(data: data.subdata(in: range.range), offset: range.startOffset)
+        }
+        return Tail(
+            lines: lines,
+            exceededBudget: exceededBudget,
+            startOffset: offset,
+            hasLeadingPartialLine: hasLeadingPartialLine,
+            endsWithNewline: data.last == 0x0A
+        )
     }
 
     /// Loads up to `limit` items ending before `endOffset`. Order in the
@@ -448,12 +477,48 @@ public actor WorkstreamPersistence {
             // Malformed lines are dropped silently; the audit log is
             // append-only and we don't want a corrupt row to block startup.
         }
-        let selectedStartOffset = selectedRanges.first?.startOffset
+        var pageStartOffset = selectedRanges.first?.startOffset
+        let windowEndsWithNewline: Bool
+        if pageEnd > 0 {
+            try fh.seek(toOffset: pageEnd - 1)
+            windowEndsWithNewline = try fh.read(upToCount: 1)?.first == 0x0A
+        } else {
+            windowEndsWithNewline = false
+        }
+        if hasLeadingPartialLine,
+           out.count < limit,
+           !exceededBudget,
+           (pageEnd < fileSize || windowEndsWithNewline) {
+            // The bounded window ended in the middle of an oversized complete
+            // row. Continue the backward walk from the newline before that
+            // row, discarding its bytes instead of buffering them, so older
+            // valid rows remain reachable in the same page.
+            if let result = try previousLineBoundary(
+                before: offset,
+                fileHandle: fh,
+                deadlineNanoseconds: deadlineNanoseconds
+            ) {
+                if result.foundNewline {
+                    let older = try loadPage(
+                        endingBefore: result.offset,
+                        limit: max(1, limit - out.count),
+                        deadlineNanoseconds: deadlineNanoseconds
+                    )
+                    out = older.page.items + out
+                    exceededBudget = exceededBudget || older.exceededBudget
+                    pageStartOffset = older.page.startOffset ?? result.offset
+                } else {
+                    pageStartOffset = result.offset > 0
+                        ? result.offset
+                        : (pageStartOffset ?? offset)
+                }
+            }
+        }
         // If the bounded window begins in the middle of an oversized row,
         // the first complete row is not a safe cursor: paging before it can
         // land in the same corrupt row and hide older valid history. The
         // window boundary lets the caller walk backwards in bounded chunks.
-        let startOffset = selectedStartOffset ?? (offset > 0 ? offset : nil)
+        let startOffset = pageStartOffset ?? (offset > 0 ? offset : nil)
         return (
             Page(
                 items: out,
@@ -462,6 +527,40 @@ public actor WorkstreamPersistence {
             ),
             exceededBudget
         )
+    }
+
+    private struct BackwardScanResult {
+        let offset: UInt64
+        let foundNewline: Bool
+    }
+
+    private func previousLineBoundary(
+        before offset: UInt64,
+        fileHandle: FileHandle,
+        deadlineNanoseconds: UInt64?
+    ) throws -> BackwardScanResult? {
+        var cursor = offset
+        let chunkSize = 64 * 1024
+        while cursor > 0, offset - cursor < UInt64(Self.maximumOversizedRowScanBytes) {
+            if let deadlineNanoseconds,
+               DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds {
+                return nil
+            }
+            let readSize = min(chunkSize, Int(cursor))
+            guard readSize > 0 else { break }
+            let start = cursor - UInt64(readSize)
+            try fileHandle.seek(toOffset: start)
+            guard let chunk = try fileHandle.read(upToCount: readSize), !chunk.isEmpty else {
+                break
+            }
+            if let index = chunk.lastIndex(of: 0x0A) {
+                return BackwardScanResult(offset: start + UInt64(index) + 1, foundNewline: true)
+            }
+            cursor = start
+        }
+        return cursor < offset
+            ? BackwardScanResult(offset: cursor, foundNewline: false)
+            : nil
     }
 
     /// Truncates the JSONL file. Used by `cmux feed clear`.
