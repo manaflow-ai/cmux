@@ -8,13 +8,13 @@ import ObjectiveC
 /// (`_setNeedsToResetDragMargins:` YES) and that mark structural regions dirty.
 /// CMUX_NEXT_PROBE_NODRAGMARGINS=1 makes `_resetDragMarginsIfNeeded` a no-op (A/B).
 enum DragMarginProbe {
-    nonisolated(unsafe) static var recording = false
-    nonisolated(unsafe) static var resets = 0
-    nonisolated(unsafe) static var needs = 0
-    nonisolated(unsafe) static var structural = 0
-    nonisolated(unsafe) static var needStacks: [String: Int] = [:]
-    nonisolated(unsafe) static var structuralStacks: [String: Int] = [:]
-    nonisolated(unsafe) private static var installed = false
+    nonisolated(unsafe) static var recording = false // crash-allow: probe only, never landed
+    nonisolated(unsafe) static var resets = 0 // crash-allow: probe only, never landed
+    nonisolated(unsafe) static var needs = 0 // crash-allow: probe only, never landed
+    nonisolated(unsafe) static var structural = 0 // crash-allow: probe only, never landed
+    nonisolated(unsafe) static var needStacks: [String: Int] = [:] // crash-allow: probe only, never landed
+    nonisolated(unsafe) static var structuralStacks: [String: Int] = [:] // crash-allow: probe only, never landed
+    nonisolated(unsafe) private static var installed = false // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var originalNeeds: IMP? // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var originalReset: IMP? // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var originalStructural: IMP? // crash-allow: probe only, never landed
