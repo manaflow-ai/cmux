@@ -338,7 +338,8 @@ function shapeTurn(
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
-  shaped.push(...turn.slice(end + 1).map(endedPlan));
+  // A turn the agent started on its own while still working keeps its plan live.
+  shaped.push(...turn.slice(end + 1).map(live ? (row) => row : endedPlan));
   return shaped;
 }
 
