@@ -46,9 +46,15 @@ class Snapshot(Generic[IdT]):
 
 
 @dataclass(frozen=True)
+class MachinePlatform:
+    os: Optional[str] = None
+    arch: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class MachineSnapshot(Snapshot[MachineId]):
     name: str
-    origin: Literal["local"]
+    origin: Literal["local", "cloud", "ssh", "server"]
     status: Literal[
         "running",
         "connecting",
@@ -60,6 +66,8 @@ class MachineSnapshot(Snapshot[MachineId]):
     deleted: bool
     recoverable: bool
     extra: JsonObject = field(default_factory=dict)
+    platform: Optional[MachinePlatform] = None
+    capabilities: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1078,6 +1086,7 @@ __all__ = [
     "LayoutSplit",
     "LayoutStack",
     "LayoutViewport",
+    "MachinePlatform",
     "MachineSnapshot",
     "MouseInput",
     "MutationResult",

@@ -57,7 +57,7 @@ struct PaneMotionVariantTests {
             #expect(screen.context.hosts["p1"]?.frame.size == size)
         }
         #expect(screen.view.paneFrames["p1"]?.rect == target)
-        #expect(screen.view.zoomMotion.leaving.isEmpty)
+        #expect(screen.view.zoomMotion.covered.isEmpty)
         #expect(!screen.step(), "a settled pane prototype kept requesting animation frames")
     }
 

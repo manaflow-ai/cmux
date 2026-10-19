@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextBrowser
+import CmuxNextPopups
 import CmuxNextSettings
 
 /// `debug.popups` (DEBUG builds): the open popup panels, for checks without

@@ -18,9 +18,25 @@ public struct DaemonLanePolicy: Sendable {
     /// phone may read and write only this `personal` projection.
     public let projectionSubject: String
 
-    public init(deviceID: String) {
+    /// `PhoneAccessGate.allowsStartingSessions`, read per request.
+    let allowsStartingSessions: @Sendable () -> Bool
+
+    public init(deviceID: String, allowsStartingSessions: @escaping @Sendable () -> Bool = { true }) {
         projectionSubject = "ios-device:\(deviceID)"
+        self.allowsStartingSessions = allowsStartingSessions
     }
+
+    /// Commands that create a workspace, terminal or tab, refused while the
+    /// person turned off starting new workspaces from a phone.
+    public static let startsSessions: Set<String> = Set(creationFields.keys)
+        .union(["new-browser-tab", "reopen-saved-tab-group", "move-tab-to-new-workspace", "move-tab-group-to-new-workspace"])
+
+    /// Fields that choose a program, its environment or arguments, refused on every phone
+    /// command (remote-relay-authorization.md: command-bearing params stay denied). The
+    /// creation commands already take only their reviewed fields (`creationFields`); this
+    /// covers the rest, such as `move-tab-to-split` and `move-tab-to-column`, whose `respawn`
+    /// starts a fresh shell with its own `cwd`, `env` and `shell_args`.
+    public static let programFields: Set<String> = ["respawn", "env", "shell_args", "argv", "command"]
 
     /// Commands a phone may send. Grouped by purpose; every entry is a
     /// protocol-12 command the iOS `CmuxTUIControl` client or a reasonable
@@ -107,6 +123,14 @@ public struct DaemonLanePolicy: Sendable {
         guard Self.allowedCommands.contains(command) else {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
                                           message: "\(command) is not available to a phone"))
+        }
+        let program = Set(object.keys).intersection(Self.programFields)
+        guard program.isEmpty else {
+            return .refuse(Self.errorLine(id: id, code: "forbidden",
+                                          message: "\(command) does not take \(program.sorted().joined(separator: ", ")) from a phone"))
+        }
+        if Self.startsSessions.contains(command), !allowsStartingSessions() {
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: PhoneAccessGate.startRefusal))
         }
         if let allowed = Self.creationFields[command] {
             let extra = Set(object.keys).subtracting(allowed).subtracting(["id", "cmd"])
