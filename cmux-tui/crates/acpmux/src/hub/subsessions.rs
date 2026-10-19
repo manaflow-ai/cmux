@@ -33,6 +33,10 @@
 //! person's default start mode only when the parent runs with full access,
 //! else in that harness's own (asking) mode.
 //!
+//! A chat the person starts from a suggested task (`offers.rs`) becomes the
+//! offering chat's sub-session too ([`Hub::offer_link`]), so the agent that
+//! suggested it reads, waits on and messages it with the same tools.
+//!
 //! The index of open children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
 
@@ -310,6 +314,17 @@ fn short_name_of(requested: Option<&str>, prompt: &str) -> String {
 }
 
 impl Hub {
+    /// The link that makes a chat the person started for `parent`'s
+    /// suggested task (`offers.rs`) one of its sub-sessions: one level
+    /// under it, its short name from the task's title. The person chose it,
+    /// so no width or depth limit refuses it; it counts as an open child.
+    pub(super) fn offer_link(&self, parent: &Session, title: Option<&str>) -> SubsessionLink {
+        let depth = parent.meta().subsession.as_ref().map_or(0, |l| l.depth) + 1;
+        let base = short_name_of(title, "task");
+        let short = self.subsessions.claim_name(&parent.id, &base);
+        SubsessionLink { started_by: parent.id.clone(), short_name: short, depth }
+    }
+
     /// The limits in force for the session with meta `m`.
     pub fn subsession_effective(&self, m: &SessionMeta) -> Effective {
         let mut children: Option<(u32, Source)> = None;
