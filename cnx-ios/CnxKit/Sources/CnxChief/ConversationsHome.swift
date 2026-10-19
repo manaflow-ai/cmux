@@ -315,7 +315,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// New Chief only where this service answered a Chief brain route.
     private var newChiefAction: (() -> Void)? {
-        sources.brainsAvailable ? startNewChief : nil
+        guard sources.brainsAvailable else { return nil }
+        return { startNewChief() }
     }
 
     private func startNewChief() {
