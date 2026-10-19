@@ -2,6 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import { ackWake, chiefPrincipal, postReply, readConversation, typing } from "./brain-io.ts"
 import { flushMarks, lastTalk, markPending, runError, type Run, type Step, upsertStep } from "./brain-runs.ts"
 import { writeConfig } from "./brain-store.ts"
+import { marksHeader, ttlMs, turnPlan } from "./cache-prefix.ts"
 import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
@@ -161,13 +162,29 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(b.doEnv, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
       continue
     }
-    await (markPending(b.sql, "admitted"), (b.memory.foldDue() ? b.compactor.settle(AbortSignal.timeout(SETTLE_MS)) : Promise.resolve(true)).finally(() => markPending(b.sql, "settled")))
-    if (rows.length > 0) b.openTurn(woken.conversation, rows)
+    // The reference client's Memory.settle(mem, from): every message before the new ones summarized, so the
+    // view shows them all as lines and the input holds only the new messages; bounded (SETTLE_MS), after
+    // which the turn runs on the last rendered view plus the unsummarized messages whole.
+    // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
+    markPending(b.sql, "admitted")
+    const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
+    const fresh = healthy ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(SETTLE_MS)) : b.memory.first() >= b.memory.len()
+    markPending(b.sql, "settled")
+    // Messages that came during the wait ride along (the same conversation's queue, read again).
+    const all = b.sql
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>(`SELECT n, message, seq, kind, thread_root, text, woke FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .toArray()
+    if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
+    if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
   }
 }
 
-/** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>): void {
+/**
+ * Logs the new messages, then builds the input (Memory.turnInput: a fresh view and the new messages, or the last view
+ * plus the unsummarized messages) and its cache marks (cache-prefix.ts) with the turn row in one transaction (a restart
+ * resubmits the same bytes).
+ */
+export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>, fresh = false): void {
   const id = `run_${rows[0]!.n}`
   let input = "[]"
   const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
@@ -177,7 +194,11 @@ export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyAr
       b.memory.append("user", r.text)
       b.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, id, r.n)
     }
-    input = JSON.stringify(b.memory.turnInput(rows.length))
+    // pi-ai drops a whitespace-only text block, which would shift the mark indices.
+    const blocks = b.memory.turnInput(rows.length, fresh).filter((t) => t.trim().length > 0)
+    input = JSON.stringify(blocks)
+    // Where this turn's first request reads (an earlier turn's entry) and writes (the view's last whole block).
+    writeConfig(b.sql, { [`marks:${id}`]: marksHeader(turnPlan(b.sql, b.config().model, blocks, ttlMs(b.doEnv.CHIEF_BRAIN_CACHE_TTL))) })
     b.sql.exec(
       `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
       id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), b.config().model, Date.now(), input
@@ -237,6 +258,9 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     b.turnLive = true
     // After a restart: the ops that joined this turn before (pi takes a repeated operation id once).
     for (const s of b.steerOps(id)) [b.steered.push(s.op), await b.harness.session().steer([{ type: "text" as const, text: s.text }], { operationId: s.op }).catch(() => undefined)]
+    // Messages of a burst that came while the turn was being set up (admitted, not live yet) join it now,
+    // instead of starting a second run after it.
+    if (!child) await b.steerQueued(row.conversation)
     let result = await Promise.race([b.harness.wait(id), limit])
     // Messages that joined the turn: wait for them as well (one that came after the last step runs on, under this turn).
     for (let i = 0; i < b.steered.length && result !== "timeout"; i++) {
@@ -277,7 +301,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     clearTimeout(timer)
     b.turnLive = false
     b.steered = []
-    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?, ?)`, `steer:${id}`, `hands_cont:${id}`, `hands_cont_info:${id}`)
+    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?, ?, ?)`, `steer:${id}`, `hands_cont:${id}`, `hands_cont_info:${id}`, `marks:${id}`)
     b.turnId = undefined
     b.turnConversation = undefined
   }

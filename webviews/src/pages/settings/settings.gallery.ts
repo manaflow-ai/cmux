@@ -222,6 +222,19 @@ Object.assign(variants, {
     steps: [wait('[data-card="backdrop"]')],
     note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
   }),
+  // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
+  "backdrops-link": variant("appearance", {
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] button[aria-expanded] ~ button[aria-expanded]'),
+      input('[data-card="backdrop-link"] input[type="url"]', "https://example.com/harbor.jpg"),
+    ],
+    note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
+  }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   "backdrops-workspace": variant("appearance", {
     focus: "appearance.background",
@@ -790,6 +803,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/ArtBrowser.tsx",
+    "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
