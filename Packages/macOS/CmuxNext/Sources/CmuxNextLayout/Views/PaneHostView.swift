@@ -167,7 +167,7 @@ final class PaneHostView: NSView, RestingPlacement {
     /// column covers it; nil removes the clip. `cutouts` (its own coordinates)
     /// are the parts a pane in front covers that `rect` cannot leave out (a
     /// corner): the mask carries them for a Chromium page, which no view order
-    /// reaches (`CALayer.cmuxStripCutoutsKey`).
+    /// reaches (`StripClipMaskLayer.cutouts`).
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
     @discardableResult
@@ -180,7 +180,7 @@ final class PaneHostView: NSView, RestingPlacement {
             return true
         }
         let mask = layer.mask ?? {
-            let mask = CALayer()
+            let mask = StripClipMaskLayer()
             mask.name = CALayer.cmuxStripClipName
             mask.backgroundColor = NSColor.black.cgColor
             layer.mask = mask
@@ -188,7 +188,7 @@ final class PaneHostView: NSView, RestingPlacement {
         }()
         guard mask.frame != rect || mask.cornerRadius != cornerRadius || stripCutouts != cutouts else { return false }
         stripCutouts = cutouts
-        mask.setValue(cutouts.map { NSValue(rect: $0) }, forKey: CALayer.cmuxStripCutoutsKey)
+        (mask as? StripClipMaskLayer)?.cutouts = cutouts
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mask.frame = rect

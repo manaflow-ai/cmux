@@ -65,7 +65,7 @@ nonisolated enum CEFClipShape {
     }
 
     /// The cutouts the column strip's mask carries on an ancestor
-    /// (`CALayer.cmuxStripCutoutsKey`, `PaneHostView.setStripClip`), in
+    /// (`StripClipMaskLayer.cutouts`, `PaneHostView.setStripClip`), in
     /// `view`'s coordinates.
     @MainActor
     static func cutouts(around view: NSView) -> [CGRect] {
@@ -73,8 +73,8 @@ nonisolated enum CEFClipShape {
         var ancestor = view.superview
         while let current = ancestor {
             if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName,
-               let rects = mask.value(forKey: CALayer.cmuxStripCutoutsKey) as? [NSValue] {
-                result += rects.map { view.convert($0.rectValue, from: current) }
+               let rects = (mask as? StripClipMaskLayer)?.cutouts {
+                result += rects.map { view.convert($0, from: current) }
             }
             ancestor = current.superview
         }
