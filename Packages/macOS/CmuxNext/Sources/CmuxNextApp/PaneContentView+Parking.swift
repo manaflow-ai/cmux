@@ -19,6 +19,10 @@ extension TerminalHostView: PaneParkableContent {}
 /// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
 /// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
 extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
+/// An internal page (Markdown, a file viewer, Settings) is a WKWebView too: taking it out of the window
+/// and back on every switch re-attached its web process the same way (tab-switch-fast). Its view
+/// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory.
+extension InternalPageView: PaneParkableContent {}
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {
@@ -71,10 +75,10 @@ extension PaneContentView {
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // A hidden agent page stays sized with the pane, so showing it again needs no redraw at a new
+        // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
         // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
         // sets their frame.
-        if !(view is AgentPaneView) { view.autoresizingMask = [] }
+        if !(view is AgentPaneView || view is InternalPageView) { view.autoresizingMask = [] }
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()
