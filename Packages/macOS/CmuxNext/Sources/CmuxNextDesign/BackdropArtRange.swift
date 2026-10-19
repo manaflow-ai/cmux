@@ -47,16 +47,19 @@ public nonisolated struct BackdropArtRange: Sendable, Equatable {
 }
 
 public nonisolated extension ThemeTokens {
-    /// The text roles with the contrast each needs over art: primary and secondary text at WCAG
-    /// AA body contrast, tertiary text and status marks at the mark contrast.
-    var backdropTexts: [(color: ThemeRGB, contrast: Double)] {
-        [(textPrimary, Self.minimumTextContrast), (textSecondary, Self.minimumTextContrast),
-         (textTertiary, Self.minimumMarkContrast)]
+    /// The text roles with the contrast each needs over art: primary text at WCAG AA body
+    /// contrast, and with ``ArtLegibility/all`` secondary text at it too and tertiary text and
+    /// status marks at the mark contrast.
+    func backdropTexts(_ legibility: ArtLegibility) -> [(color: ThemeRGB, contrast: Double)] {
+        let primary = [(color: textPrimary, contrast: Self.minimumTextContrast)]
+        guard legibility == .all else { return primary }
+        return primary + [(textSecondary, Self.minimumTextContrast), (textTertiary, Self.minimumMarkContrast)]
     }
 
-    /// The least window tint over `art`, at or above `requested`, that keeps ``backdropTexts``
-    /// legible on the surface color.
-    func legibleTintOpacity(over art: BackdropArtRange = .any, requested: Double) -> Double {
-        art.scrimOpacity(texts: backdropTexts, scrim: surfaceBackground.withAlpha(1), requested: requested)
+    /// The least window tint over `art`, at or above `requested`, that keeps
+    /// ``backdropTexts(_:)`` legible on the surface color.
+    func legibleTintOpacity(over art: BackdropArtRange = .any, requested: Double,
+                            legibility: ArtLegibility) -> Double {
+        art.scrimOpacity(texts: backdropTexts(legibility), scrim: surfaceBackground.withAlpha(1), requested: requested)
     }
 }

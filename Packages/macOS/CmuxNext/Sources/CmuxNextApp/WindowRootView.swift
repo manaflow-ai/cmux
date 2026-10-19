@@ -380,7 +380,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var backdrop: WindowBackdrop {
         WindowBackdrop(themeTokens, reduceTransparency: reduceTransparency(), art: themeScope.backdropArt,
                        selection: themeScope.backdropSelection, tuning: themeScope.appearanceTuning,
-                       tintOpacity: themeScope.backdropTintOpacity)
+                       tintOpacity: themeScope.backdropTintOpacity, legibility: themeScope.artLegibility)
     }
 
     /// An opaque window paints the solid background on this layer. Over a

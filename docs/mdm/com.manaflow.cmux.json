@@ -757,6 +757,16 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.glassLegibility" : {
+      "default" : "primary",
+      "description" : "Main Text keeps primary text readable over any art and lets much more of the art through, like iOS. All Text also keeps secondary and dim text at full contrast, with denser glass.",
+      "enum" : [
+        "primary",
+        "all"
+      ],
+      "title" : "Glass Over Art",
+      "type" : "string"
+    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
