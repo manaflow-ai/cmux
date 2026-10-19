@@ -447,7 +447,7 @@ jobs:
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
           # Lands the repair on the newest tip unless a newer commit wrote the same
           # files; a failure keeps this run out of the next run's "since".
-          "${with_auth[@]}" scripts/cmux-next/base-autofix-push.sh "$remote" feat-cmux-next "$HEAD_SHA" \
+          "${with_auth[@]}" scripts/cmux-next/base-autofix-push.sh "$remote" feat-cmux-next "$HEAD_SHA" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
