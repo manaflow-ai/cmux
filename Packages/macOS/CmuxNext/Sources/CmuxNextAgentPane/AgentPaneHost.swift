@@ -73,6 +73,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
     /// this app starts, never to the one already running.
     private let offersSessionTools: @Sendable () -> Bool
+    /// Whether the daemon's sessions get the session tools now (`AcpmuxEnvironment.sessionTools`,
+    /// the `agent.sessionTools` Debug Settings toggle), read at each daemon start like the offer tools.
+    private let sessionTools: @Sendable () -> Bool
     /// Called with the daemon socket after each successful find or start, so
     /// the Computer Use helper v2 can register this daemon.
     private let daemonReady: @Sendable (String) async -> Void
@@ -90,6 +93,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
         self.offersSessionTools = { environment?.offersSessionTools ?? false }
+        self.sessionTools = { environment?.sessionTools ?? true }
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
     }
@@ -99,10 +103,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
                 offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
+                sessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.sessionTools.value },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
+        self.sessionTools = sessionTools
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
     }
@@ -145,6 +151,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
         environment.computerUse = computerUse()
         environment.offersSessionTools = offersSessionTools()
+        environment.sessionTools = sessionTools()
         let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
