@@ -110,7 +110,14 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
-        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
+        // How the CLI was started is read once, while it runs: at its session start.
+        let process = if is_session_start {
+            let runtime = self.state.lock().unwrap().terminal_catalog.get(&terminal_id).cloned();
+            runtime.and_then(|runtime| runtime.process_id())
+        } else {
+            None
+        };
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, process);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,

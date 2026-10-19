@@ -28,6 +28,10 @@ pub(crate) struct RawAgents {
     plugin: Option<RawAgentPlugin>,
     /// `false` stops the bundled screen-detection plugin. Default `true`.
     screen_detection: Option<bool>,
+    /// What a terminal respawned after its host died (a reboot) does with the
+    /// agent session it ran: `"run"` resumes it (the default), `"type"` only
+    /// types the resume command on the new prompt.
+    resume: Option<String>,
     /// The config file or its `agents` section failed to parse, so the user's
     /// choice is unknown and no plugin runs.
     #[serde(skip)]
@@ -35,6 +39,11 @@ pub(crate) struct RawAgents {
 }
 
 impl RawAgents {
+    /// Whether a respawned terminal runs its agent's resume (`resume`).
+    pub(crate) fn resume_runs(&self) -> bool {
+        self.resume.as_deref() != Some("type")
+    }
+
     /// Agents settings that could not be read (see `unreadable`).
     pub(crate) fn invalid() -> Self {
         Self { unreadable: true, ..Self::default() }
