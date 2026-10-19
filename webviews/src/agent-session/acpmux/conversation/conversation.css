@@ -2681,7 +2681,7 @@ pre.cv-math-source {
 :root[data-lab-table-scroll="on"] .cv-table-wrap:focus-visible { outline:1px solid var(--cv-muted); outline-offset:2px; }
 
 .acpmux-render-card { position:relative; }
-.acpmux-render-enlarge { position:absolute; top:4px; right:4px; z-index:1; opacity:0; background:var(--agent-surface); border-radius:5px; }
+.acpmux-render-enlarge { position:absolute; top:4px; right:4px; z-index:var(--layer-raised); opacity:0; background:var(--agent-surface); border-radius:5px; }
 .acpmux-render-card:hover > .acpmux-render-enlarge,
 .acpmux-render-card:focus-within > .acpmux-render-enlarge { opacity:1; }
 @media (hover:none) { .acpmux-render-enlarge { opacity:1; } }
