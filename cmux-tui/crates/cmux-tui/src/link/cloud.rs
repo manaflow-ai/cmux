@@ -38,10 +38,37 @@ pub(super) trait ConnectInfoSource: Send + Sync + 'static {
     ) -> impl Future<Output = Result<LinkTokenGrant, ConnectInfoError>> + Send;
 }
 
-/// The host credential relay (`cmux.credential.relay`, owned by the apps
-/// lanes). It is not served yet, so every call answers `Unavailable` and a
-/// Cloud dial reports `unreachable`. Gated off until the relay ships.
+/// An unbound link has no Cloud credential authority. The general app-server
+/// credential relay deliberately refuses token minting; only an explicitly
+/// inherited broker can supply the link's per-dial token.
 pub(super) struct RelaySource;
+
+/// Only the explicitly inherited parent channel can replace the unavailable
+/// production source. The general app-server relay never mints link tokens.
+pub(super) enum CloudSource {
+    Unavailable,
+    Broker(super::cloud_broker::BrokerSource),
+}
+
+impl ConnectInfoSource for CloudSource {
+    async fn fetch(&self, host: &str) -> Result<ConnectInfo, ConnectInfoError> {
+        match self {
+            Self::Unavailable => RelaySource.fetch(host).await,
+            Self::Broker(source) => source.fetch(host).await,
+        }
+    }
+
+    async fn mint_token(
+        &self,
+        host: &str,
+        services: &[Service],
+    ) -> Result<LinkTokenGrant, ConnectInfoError> {
+        match self {
+            Self::Unavailable => RelaySource.mint_token(host, services).await,
+            Self::Broker(source) => source.mint_token(host, services).await,
+        }
+    }
+}
 
 impl ConnectInfoSource for RelaySource {
     async fn fetch(&self, _host: &str) -> Result<ConnectInfo, ConnectInfoError> {
@@ -58,7 +85,7 @@ impl ConnectInfoSource for RelaySource {
 }
 
 fn relay_unavailable() -> ConnectInfoError {
-    ConnectInfoError::Unavailable("the cmux credential relay is not available yet".into())
+    ConnectInfoError::Unavailable("no Cloud broker is bound to this link".into())
 }
 
 /// connect_info with the contract's cache rules.

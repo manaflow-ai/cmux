@@ -11,7 +11,7 @@
 //! `SCM_RIGHTS`, and closes the connection. The connection takes no
 //! snapshot, joins no stream and never claims the launch owner.
 
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::sync::PoisonError;
 
 use super::*;
@@ -203,151 +203,19 @@ impl HostAttachment {
     }
 }
 
-/// An aligned control buffer for one descriptor.
-#[repr(C, align(8))]
-struct ControlBuffer([u8; 64]);
-
 fn send_with_descriptor(
     stream: &UnixStream,
     bytes: &[u8],
     descriptor: RawFd,
 ) -> std_io::Result<()> {
-    let mut control = ControlBuffer([0; 64]);
-    let mut iov =
-        libc::iovec { iov_base: bytes.as_ptr() as *mut libc::c_void, iov_len: bytes.len() };
-    // SAFETY: CMSG_SPACE/CMSG_LEN are pure size computations.
-    let (space, length) = unsafe {
-        (
-            libc::CMSG_SPACE(size_of::<libc::c_int>() as u32) as usize,
-            libc::CMSG_LEN(size_of::<libc::c_int>() as u32) as usize,
-        )
-    };
-    debug_assert!(space <= control.0.len());
-    // SAFETY: zeroed msghdr is a valid empty message.
-    let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
-    message.msg_iov = &mut iov;
-    message.msg_iovlen = 1;
-    message.msg_control = control.0.as_mut_ptr().cast();
-    message.msg_controllen = space as _;
-    // SAFETY: the message owns a control buffer of `space` aligned bytes, so
-    // the first header and its one-descriptor payload are in bounds.
-    unsafe {
-        let header = libc::CMSG_FIRSTHDR(&message);
-        if header.is_null() {
-            return Err(std_io::Error::other("no room for SCM_RIGHTS"));
-        }
-        (*header).cmsg_level = libc::SOL_SOCKET;
-        (*header).cmsg_type = libc::SCM_RIGHTS;
-        (*header).cmsg_len = length as _;
-        std::ptr::write_unaligned(libc::CMSG_DATA(header).cast::<libc::c_int>(), descriptor);
-    }
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let flags = libc::MSG_NOSIGNAL;
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    let flags = 0;
-    let sent = loop {
-        // SAFETY: a valid socket and a fully initialized message.
-        let sent = unsafe { libc::sendmsg(stream.as_raw_fd(), &message, flags) };
-        if sent >= 0 {
-            break sent.unsigned_abs();
-        }
-        let error = std_io::Error::last_os_error();
-        if error.kind() != std_io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    };
-    if sent == 0 {
-        return Err(std_io::Error::new(std_io::ErrorKind::WriteZero, "PtyCustody not sent"));
-    }
-    // The descriptor travelled with the first byte; the rest is plain data.
-    let mut writer = stream;
-    writer.write_all(&bytes[sent.min(bytes.len())..])
+    cmux_unix_socket::descriptor::send(stream, bytes, descriptor)
 }
 
 fn receive_with_descriptor(
     stream: &UnixStream,
     length: usize,
 ) -> anyhow::Result<(Vec<u8>, Option<OwnedFd>)> {
-    let mut bytes = vec![0u8; length];
-    let mut received = 0;
-    let mut descriptor: Option<OwnedFd> = None;
-    while received < length {
-        let mut control = ControlBuffer([0; 64]);
-        let mut iov = libc::iovec {
-            iov_base: bytes[received..].as_mut_ptr().cast(),
-            iov_len: length - received,
-        };
-        // SAFETY: zeroed msghdr is a valid empty message.
-        let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
-        message.msg_iov = &mut iov;
-        message.msg_iovlen = 1;
-        message.msg_control = control.0.as_mut_ptr().cast();
-        message.msg_controllen = control.0.len() as _;
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        let flags = libc::MSG_CMSG_CLOEXEC;
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        let flags = 0;
-        // SAFETY: a valid socket, buffer and control buffer for the call.
-        let count = unsafe { libc::recvmsg(stream.as_raw_fd(), &mut message, flags) };
-        if count < 0 {
-            let error = std_io::Error::last_os_error();
-            if error.kind() == std_io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error).context("receive PtyCustody");
-        }
-        for fd in take_descriptors(&message) {
-            anyhow::ensure!(descriptor.is_none(), "terminal host sent more than one descriptor");
-            set_cloexec(&fd)?;
-            descriptor = Some(fd);
-        }
-        anyhow::ensure!(
-            message.msg_flags & libc::MSG_CTRUNC == 0,
-            "PtyCustody control data was truncated"
-        );
-        anyhow::ensure!(count > 0, "terminal host closed before PtyCustody");
-        received += count.unsigned_abs();
-    }
-    Ok((bytes, descriptor))
-}
-
-/// Own every `SCM_RIGHTS` descriptor of a received message.
-fn take_descriptors(message: &libc::msghdr) -> Vec<OwnedFd> {
-    let mut descriptors = Vec::new();
-    // SAFETY: the kernel filled the control buffer of `message`; the CMSG
-    // macros walk only within msg_controllen.
-    unsafe {
-        let mut header = libc::CMSG_FIRSTHDR(message);
-        while !header.is_null() {
-            if (*header).cmsg_level == libc::SOL_SOCKET && (*header).cmsg_type == libc::SCM_RIGHTS {
-                let data = libc::CMSG_DATA(header);
-                let base = data.offset_from(header.cast::<u8>()).unsigned_abs();
-                let payload = ((*header).cmsg_len as usize).saturating_sub(base);
-                for index in 0..payload / size_of::<libc::c_int>() {
-                    let fd = std::ptr::read_unaligned(
-                        data.add(index * size_of::<libc::c_int>()).cast::<libc::c_int>(),
-                    );
-                    if fd >= 0 {
-                        descriptors.push(OwnedFd::from_raw_fd(fd));
-                    }
-                }
-            }
-            header = libc::CMSG_NXTHDR(message, header);
-        }
-    }
-    descriptors
-}
-
-fn set_cloexec(fd: &OwnedFd) -> std_io::Result<()> {
-    // SAFETY: fcntl on a valid owned descriptor.
-    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
-    // SAFETY: as above.
-    if flags < 0
-        || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
-    {
-        return Err(std_io::Error::last_os_error());
-    }
-    Ok(())
+    Ok(cmux_unix_socket::descriptor::receive(stream, length)?)
 }
 
 #[cfg(test)]

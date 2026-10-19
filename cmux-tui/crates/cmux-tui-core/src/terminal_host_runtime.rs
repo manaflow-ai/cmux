@@ -483,6 +483,7 @@ mod unix {
     use std::io as std_io;
     #[cfg(test)]
     use std::io::Read;
+    #[cfg(test)]
     use std::io::Write;
     use std::os::fd::{AsRawFd, RawFd};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};

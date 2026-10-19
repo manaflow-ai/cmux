@@ -26,7 +26,7 @@ applies to the focused cloud workspace's machine.
 | Kill Machine | `cmux cloud kill-machine --target machine:vm-…` |
 | Copy Machine ID / Link / Port | `cmux cloud copy-machine-id`, `copy-machine-link --port <n>`, `copy-machine-port --port <n>` |
 | Cloud Diagnostics… | `cmux cloud diagnostics` |
-| Team Picker | `cmux cloud team-picker` |
+| Switch Active Team… (also Settings > Accounts > Active Team) | `cmux cloud team-picker` |
 | Sign In / Sign Out | `cmux cloud sign-in`, `cmux cloud sign-out` |
 | Open Mobile Pairing | `cmux cloud open-mobile-pairing` |
 

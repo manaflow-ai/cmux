@@ -58,6 +58,27 @@ pub fn verify(stream: &std::os::unix::net::UnixStream) -> Result<(), CallerRefus
     verify_fd(stream.as_raw_fd())
 }
 
+/// Check the kernel uid and pid of an inherited stream's parent endpoint.
+/// This proves parenthood, not code identity. Use it only with a private
+/// inherited channel; it does not authorize a peer on a public socket.
+#[cfg(unix)]
+pub fn verify_inherited_parent(fd: std::os::fd::RawFd) -> Result<(), CallerRefused> {
+    let uid = peer_uid(fd).map_err(CallerRefused::Io)?;
+    // SAFETY: geteuid/getppid have no preconditions.
+    let own = unsafe { libc::geteuid() };
+    let parent = unsafe { libc::getppid() } as u32;
+    if uid != own {
+        return Err(CallerRefused::OtherUser { uid });
+    }
+    if peer_pid(fd).map_err(CallerRefused::Io)? != Some(parent) {
+        return Err(CallerRefused::Io(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "inherited peer is not the parent process",
+        )));
+    }
+    Ok(())
+}
+
 /// [`verify`] for a raw connected Unix socket descriptor (tokio streams).
 #[cfg(unix)]
 pub fn verify_fd(fd: std::os::fd::RawFd) -> Result<(), CallerRefused> {

@@ -24,10 +24,10 @@ struct NativeDeviceStore: Sendable {
         return try NativeDeviceLock(file: directory.appendingPathComponent("identity.lock"))
     }
 
-    func loadOrCreate() throws -> NativeDeviceRecord {
+    func loadOrCreate(create: Bool = true) throws -> NativeDeviceRecord {
         let fd = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         if fd < 0 {
-            guard errno == ENOENT else { throw NativeDeviceEnrollmentError.invalidState }
+            guard errno == ENOENT, create else { throw NativeDeviceEnrollmentError.invalidState }
             let bytes = try secret?.load(namespace: namespace, create: true) ?? Curve25519.KeyAgreement.PrivateKey().rawRepresentation
             guard bytes.count == 32 else { throw NativeDeviceEnrollmentError.invalidState }
             let record = NativeDeviceRecord(privateKey: bytes.base64EncodedString())
