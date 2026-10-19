@@ -426,6 +426,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Router(_)
         | Command::DaemonRun { .. }
         | Command::Stdio { .. }
+        | Command::CliAgent { .. }
         | Command::Session(_)
         | Command::Daemon(_)
         | Command::Harness(_)

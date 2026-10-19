@@ -216,7 +216,8 @@ pub(super) fn create_terminal(
     detached: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
-    let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
+    let mut env =
+        env.as_ref().map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
     if argv.is_some() && command.is_some() {
         anyhow::bail!("argv and command are mutually exclusive");
     }
@@ -228,7 +229,11 @@ pub(super) fn create_terminal(
         (None, Some(command)) if !command.is_empty() => {
             Some(vec![platform::default_shell(), "-lc".to_string(), command])
         }
-        (None, None) => shell_argv(&env, shell_args, frontend_shell(mux, client)),
+        (None, None) => {
+            let argv = shell_argv(&env, shell_args, frontend_shell(mux, client));
+            crate::login_shell::mark(&mut env, argv.as_deref());
+            argv
+        }
         _ => anyhow::bail!("argv or command must be non-empty when provided"),
     };
     let size = paired_surface_size("create-terminal", cols, rows)?;

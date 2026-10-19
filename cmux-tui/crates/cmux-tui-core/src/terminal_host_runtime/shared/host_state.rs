@@ -136,22 +136,12 @@ pub(crate) const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(1
 pub(crate) const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
 pub(crate) const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
 
-pub(crate) fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> anyhow::Result<PtySize> {
-    let pixel_width = cols.checked_mul(cell_pixels.0).ok_or_else(|| {
-        anyhow::anyhow!(
-            "terminal pixel width exceeds {}: {cols} columns at {} pixels per cell",
-            u16::MAX,
-            cell_pixels.0
-        )
-    })?;
-    let pixel_height = rows.checked_mul(cell_pixels.1).ok_or_else(|| {
-        anyhow::anyhow!(
-            "terminal pixel height exceeds {}: {rows} rows at {} pixels per cell",
-            u16::MAX,
-            cell_pixels.1
-        )
-    })?;
-    Ok(PtySize { rows, cols, pixel_width, pixel_height })
+/// The winsize for a grid. The pixel fields saturate at `u16::MAX` so a
+/// grid the size clamp accepts never fails on `ws_xpixel`/`ws_ypixel`.
+pub(crate) fn pty_size(cols: u16, rows: u16, cell_pixels: (u16, u16)) -> PtySize {
+    let pixel_width = cols.saturating_mul(cell_pixels.0);
+    let pixel_height = rows.saturating_mul(cell_pixels.1);
+    PtySize { rows, cols, pixel_width, pixel_height }
 }
 
 pub(crate) fn kitty_graphics_limits_within(
@@ -411,6 +401,11 @@ impl SmartStreamState {
     pub(crate) fn mark_applied(&self, cursor: u64) {
         let prior = self.applied_cursor.fetch_max(cursor, Ordering::AcqRel);
         debug_assert!(prior <= cursor, "smart parser cursor moved backwards");
+        // A subscriber replays only frames after the applied boundary (it
+        // snapshots the rest), so applied frames are never read again: drop
+        // them. Before, every host kept up to 8 MiB / 4096 frames of raw
+        // output it had already parsed for its whole life.
+        self.retained.lock().unwrap().drop_through(cursor.max(prior));
     }
 
     pub(crate) fn close_failed_transition(&self, source_cursor: Option<u64>) {
@@ -468,6 +463,21 @@ impl SmartRetention {
             let Some(frame) = self.frames.pop_front() else { break };
             self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
             self.dropped_through = frame.sequence;
+        }
+    }
+
+    /// Drops the frames up to `cursor` (the applied boundary). A replay
+    /// asked for from before it reports a retention gap, as for frames the
+    /// bounds dropped, so a racing subscriber resnapshots instead of
+    /// silently missing frames.
+    pub(crate) fn drop_through(&mut self, cursor: u64) {
+        while self.frames.front().is_some_and(|frame| frame.sequence <= cursor) {
+            let Some(frame) = self.frames.pop_front() else { break };
+            self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
+            self.dropped_through = self.dropped_through.max(frame.sequence);
+        }
+        if self.frames.is_empty() {
+            self.frames.shrink_to(64);
         }
     }
 
