@@ -78,32 +78,103 @@ public actor CloudMachineLink {
     }
 
     public enum LinkError: Error, LocalizedError {
+        /// Stable classification used by callers that need to choose recovery
+        /// behavior without inspecting localized diagnostics.
+        public enum Category: String, Equatable, Sendable {
+            /// The remote Cloud service did not become available.
+            case daemonUnavailable = "daemon_unavailable"
+            /// The local Cloud client could not be started.
+            case clientUnavailable = "client_unavailable"
+            /// The request could not be sent because its input was invalid.
+            case requestRejected = "request_rejected"
+            /// The caller supplied a status or message without a stable class.
+            case other
+        }
+
         case clientMissing
         case spawnFailed(String)
         case failureMessage(String)
         case exited(status: Int32, output: String)
+        /// The local client exited before it reported a socket, for example
+        /// an older client rejecting a flag. The Cloud service was never reached.
+        case exitedBeforeSocket(status: Int32, output: String)
         case timedOut
         case requestTimedOut
         case inputTooLarge
+
+        /// Stable recovery category for this link failure.
+        public var category: Category {
+            switch self {
+            case .exited(_, let output):
+                // A structured error's code is authoritative. A reachable daemon
+                // rejecting the request (`revision.conflict`, `selector.not_found`)
+                // answered; only transport codes mean it is unavailable.
+                guard let code = Self.structuredErrorCode(output) else { return .daemonUnavailable }
+                return Self.transportErrorCodes.contains(code) ? .daemonUnavailable : .other
+            case .timedOut:
+                return .daemonUnavailable
+            case .clientMissing, .spawnFailed, .exitedBeforeSocket:
+                return .clientUnavailable
+            case .inputTooLarge:
+                return .requestRejected
+            case .failureMessage, .requestTimedOut:
+                return .other
+            }
+        }
 
         public var errorDescription: String? {
             switch self {
             case .inputTooLarge:
                 return String(localized: "cloud.link.inputTooLarge", defaultValue: "The machine input chunk is too large. Split it into smaller chunks and retry.")
             case .clientMissing:
-                return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
+                return String(localized: "cloud.link.clientMissing", defaultValue: "The Cloud connection client is unavailable in this build. Use a build with Cloud support or contact support.")
             case .spawnFailed(let detail):
-                return "cmux-tui could not be started: \(detail)"
+                return String(
+                    format: String(
+                        localized: "cloud.link.spawnFailed",
+                        defaultValue: "Cloud connection could not be started: %@"
+                    ),
+                    Self.sanitizedDetail(detail)
+                )
             case .failureMessage(let detail):
-                return detail
-            case .exited(let status, let output):
+                return Self.sanitizedDetail(detail)
+            case .exited(let status, let output), .exitedBeforeSocket(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
-                return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
+                let message = String(
+                    format: String(
+                        localized: "cloud.link.exited",
+                        defaultValue: "Cloud connection exited with status %@"
+                    ),
+                    String(status)
+                )
+                return message + (tail.isEmpty ? "" : ": \(Self.sanitizedDetail(tail))")
             case .timedOut:
-                return "cmux-tui link did not report a socket within the connect timeout."
+                return String(localized: "cloud.link.timedOut", defaultValue: "The Cloud connection did not report a socket within the connect timeout.")
             case .requestTimedOut:
                 return String(localized: "cloud.link.requestTimedOut", defaultValue: "The Cloud machine did not answer the request before its deadline. The connection will be checked before retrying.")
             }
+        }
+
+        /// Error codes the daemon or link report when the transport, not the
+        /// request, failed.
+        static let transportErrorCodes: Set<String> = ["transport.closed", "transport.timeout"]
+
+        /// The code of a structured error object, or nil when `output` is not one.
+        /// An object without a code is still a daemon answer and yields "".
+        private static func structuredErrorCode(_ output: String) -> String? {
+            guard let data = output.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            if let detail = (object["details"] as? [String: Any])?["error"] as? String,
+               transportErrorCodes.contains(detail) {
+                return detail
+            }
+            return (object["code"] as? String) ?? (object["error_code"] as? String) ?? ""
+        }
+
+        private static func sanitizedDetail(_ detail: String) -> String {
+            let serviceName = String(localized: "cloud.service.name", defaultValue: "Cloud service")
+            return detail.replacingOccurrences(of: "cmux-tui", with: serviceName, options: [.caseInsensitive])
         }
     }
 
@@ -294,7 +365,7 @@ public actor CloudMachineLink {
                     // stderr, not the deadline it never reached.
                     await Self.terminateAndWait(process, exit: processExit, clock: deadlineClock)
                     await Self.awaitStderrDrain(stderrDrain)
-                    throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+                    throw LinkError.exitedBeforeSocket(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
                 case .timedOut?, nil:
                     throw LinkError.timedOut
                 }
