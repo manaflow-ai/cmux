@@ -42,7 +42,8 @@ fn process_launch(pid: u32, env_keys: &[&str]) -> Option<JobLaunch> {
         )
     };
     let argmax = usize::try_from(argmax).ok().filter(|max| result == 0 && *max > 0)?;
-    let mut buffer = vec![0u8; argmax.min(16 * 1024 * 1024)];
+    // An agent's argv and environment fit easily; a longer one is cut and refused.
+    let mut buffer = vec![0u8; argmax.min(256 * 1024)];
     let mut size = buffer.len();
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
     // SAFETY: sysctl writes at most `size` bytes into `buffer`.
@@ -77,6 +78,10 @@ fn process_launch(_pid: u32, _env_keys: &[&str]) -> Option<JobLaunch> {
 
 /// Parses a `KERN_PROCARGS2` buffer: argc (native `i32`), the executable path,
 /// NUL padding, `argc` arguments, then the environment, each NUL-terminated.
+/// A process that set its title (Node's `process.title`) rewrote its
+/// argument area to the title and NULs: the run of NULs before the
+/// environment is skipped, and an empty entry does not end it (Apple's
+/// `key=value` strings after it are never requested keys).
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn parse_procargs2(bytes: &[u8], env_keys: &[&str]) -> Option<JobLaunch> {
     let argc = usize::try_from(i32::from_ne_bytes(bytes.get(..4)?.try_into().ok()?)).ok()?;
@@ -85,7 +90,7 @@ pub(crate) fn parse_procargs2(bytes: &[u8], env_keys: &[&str]) -> Option<JobLaun
     while bytes.get(cursor) == Some(&0) {
         cursor += 1;
     }
-    let mut argv = Vec::with_capacity(argc);
+    let mut argv = Vec::with_capacity(argc.min(bytes.len()));
     for _ in 0..argc {
         let rest = bytes.get(cursor..)?;
         let end = rest.iter().position(|byte| *byte == 0)?;
@@ -96,9 +101,8 @@ pub(crate) fn parse_procargs2(bytes: &[u8], env_keys: &[&str]) -> Option<JobLaun
         return None;
     }
     let environment = bytes.get(cursor..).unwrap_or_default();
-    // The environment follows the last argument and ends at the first empty string.
     let entries = environment.split(|byte| *byte == 0);
-    let entries = entries.take_while(|entry| !entry.is_empty()).filter_map(|entry| std::str::from_utf8(entry).ok());
+    let entries = entries.filter(|entry| !entry.is_empty()).filter_map(|entry| std::str::from_utf8(entry).ok());
     Some(JobLaunch { argv, env: pick_env(entries, env_keys) })
 }
 
@@ -148,8 +152,20 @@ mod tests {
         let launch = parse_procargs2(&bytes, &["CLAUDE_CONFIG_DIR", "CODEX_HOME"]).unwrap();
         assert_eq!(launch.argv, ["claude", "--model", "opus", "--dangerously-skip-permissions"]);
         assert_eq!(launch.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/a/.claude-work".to_string())]);
-        // The apple-specific strings after the environment are not environment.
-        assert!(parse_procargs2(&bytes, &["ptr_munge"]).unwrap().env.is_empty());
+    }
+
+    #[test]
+    fn a_retitled_process_still_gives_its_environment() {
+        // `process.title = "claude"`: the argument area is the title, then NULs
+        // to its old end, before the untouched environment.
+        let mut bytes = 3i32.to_ne_bytes().to_vec();
+        bytes.extend_from_slice(b"/usr/local/bin/node\0\0\0");
+        bytes.extend_from_slice(b"claude\0");
+        bytes.extend_from_slice(&[0; 40]);
+        bytes.extend_from_slice(b"HOME=/Users/a\0CLAUDE_CONFIG_DIR=/Users/a/.claude-2\0\0\0ptr_munge=1\0");
+        let launch = parse_procargs2(&bytes, &["CLAUDE_CONFIG_DIR"]).unwrap();
+        assert_eq!(launch.argv.first().map(String::as_str), Some("claude"));
+        assert_eq!(launch.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/a/.claude-2".to_string())]);
     }
 
     #[test]

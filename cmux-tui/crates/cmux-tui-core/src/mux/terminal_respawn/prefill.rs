@@ -2,10 +2,19 @@
 //! L2):
 //! - the agent session it last ran, when its harness is known, started as
 //!   it was (its flags and account directory, `relaunch_store::agent_launch`):
-//!   `CLAUDE_CONFIG_DIR=<dir> claude <flags> --resume <id>` or
-//!   `CODEX_HOME=<dir> codex resume <id> <flags>`. It runs (with a newline),
-//!   as classic cmux resumes its agents after a relaunch, unless the daemon
-//!   is configured to only type it (`agents.resume: "type"` in cmux-tui.json);
+//!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>` or
+//!   `CODEX_HOME=<dir> codex resume <id> <flags>`. It runs (Return after
+//!   it), as classic cmux resumes its agents after a relaunch, only when all
+//!   of these hold, and is typed for the person to confirm otherwise:
+//!   - the daemon is not configured to only type it (`agents.resume:
+//!     "type"` in cmux-tui.json);
+//!   - its flags do not turn off the CLI's approvals
+//!     (`--dangerously-skip-permissions`, ...): rerunning those is the
+//!     person's call;
+//!   - the new shell is a POSIX shell (sh, bash, zsh, dash, ksh), the
+//!     quoting it is written in;
+//!   - shell integration itself marked the prompt (OSC 133), so the Return
+//!     reaches the shell and not a question from a startup file;
 //! - else, for a command terminal, its argv, shell-quoted, typed without a
 //!   newline so the user decides whether to run it: the full argv
 //!   when this daemon process launched it, else the relaunch record's argv
@@ -14,14 +23,15 @@
 //!   names instead.
 //!
 //! The text is written once the new shell shows its prompt (OSC 133 marks
-//! from shell integration), or once its first output went quiet.
+//! from shell integration, or a guess from the screen), or once its first
+//! output went quiet.
 
 use std::time::{Duration, Instant};
 
 use super::*;
 use crate::terminal_loss_log::Prefilled;
 use crate::workspace_registry::relaunch_store::{
-    AgentLaunch, RelaunchKind, StoredRelaunch, resumable_session_id,
+    AgentLaunch, RelaunchKind, StoredRelaunch, bypasses_approvals, resumable_session_id,
 };
 
 /// The longest wait for the new shell's prompt.
@@ -34,7 +44,8 @@ const QUIET: Duration = Duration::from_millis(400);
 pub(in crate::mux) struct Prefill {
     pub(in crate::mux) kind: Prefilled,
     text: String,
-    /// Run the text (a newline after it) instead of only typing it.
+    /// Run the text (Return after it) when the prompt is marked, instead of
+    /// only typing it.
     run: bool,
 }
 
@@ -66,13 +77,30 @@ impl Prefill {
                 Err(_) => return,
             }
         }
-        let text = if self.run { format!("{}\r", self.text) } else { self.text.clone() };
+        let marked = surface.try_with_terminal(|term| term.prompt_is_marked()).unwrap_or(false);
+        let text = self.input(marked);
         if !surface.is_dead()
             && let Err(error) = surface.write_bytes(text.as_bytes())
         {
             eprintln!("cmux-tui: could not pre-fill a respawned terminal: {error}");
         }
     }
+}
+
+impl Prefill {
+    /// The bytes to write: the text, with Return only when it is to run and
+    /// shell integration marked the prompt.
+    fn input(&self, marked: bool) -> String {
+        if self.run && marked { format!("{}\r", self.text) } else { self.text.clone() }
+    }
+}
+
+/// Whether `shell` (a path or name) is a POSIX shell, the quoting of
+/// [`shell_quoted`] and the `KEY=value command` form.
+pub(in crate::mux) fn posix_shell(shell: &str) -> bool {
+    let name = std::path::Path::new(shell).file_name().and_then(|name| name.to_str());
+    let name = name.unwrap_or_default().trim_start_matches('-');
+    matches!(name, "sh" | "bash" | "zsh" | "dash" | "ksh" | "mksh" | "ksh93")
 }
 
 impl Mux {
@@ -86,7 +114,10 @@ impl Mux {
         if let Some(text) = record.agent.as_ref().and_then(|(harness, session_id)| {
             resume_command(harness, session_id, record.agent_launch.as_ref())
         }) {
-            let run = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).agent_resume_runs;
+            let configured =
+                self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).agent_resume_runs;
+            let bypass = record.agent_launch.as_ref().is_some_and(|launch| bypasses_approvals(&launch.args));
+            let run = configured && !bypass && posix_shell(&super::launch::respawn_shell(Some(record)));
             return Some(Prefill { kind: Prefilled::Harness, text, run });
         }
         if record.kind != RelaunchKind::Command {
@@ -113,8 +144,9 @@ pub(in crate::mux) fn resume_command(
     let mut argv = vec![harness.to_string()];
     match harness {
         "claude" => {
-            argv.extend(flags);
+            // The session first: no flag can take it as its value.
             argv.extend(["--resume".to_string(), session_id.to_string()]);
+            argv.extend(flags);
         }
         "codex" => {
             argv.extend(["resume".to_string(), session_id.to_string()]);
@@ -173,8 +205,8 @@ mod tests {
         assert_eq!(
             resume_command("claude", "abc-123", Some(&claude)).as_deref(),
             Some(
-                "CLAUDE_CONFIG_DIR='/Users/a/Claude Work' claude --dangerously-skip-permissions \
-                 --model claude-sonnet-5-5 --resume abc-123"
+                "CLAUDE_CONFIG_DIR='/Users/a/Claude Work' claude --resume abc-123 \
+                 --dangerously-skip-permissions --model claude-sonnet-5-5"
             )
         );
         let codex = launch(&["-m", "gpt-5.5"], &[("CODEX_HOME", "/Users/a/.codex-2")]);
@@ -182,6 +214,24 @@ mod tests {
             resume_command("codex", "s1", Some(&codex)).as_deref(),
             Some("CODEX_HOME=/Users/a/.codex-2 codex resume s1 -m gpt-5.5")
         );
+    }
+
+    #[test]
+    fn return_follows_only_a_marked_prompt_of_a_run() {
+        let prefill = |run| Prefill { kind: Prefilled::Harness, text: "claude --resume a".into(), run };
+        assert_eq!(prefill(true).input(true), "claude --resume a\r");
+        assert_eq!(prefill(true).input(false), "claude --resume a");
+        assert_eq!(prefill(false).input(true), "claude --resume a");
+    }
+
+    #[test]
+    fn only_posix_shells_run_the_resume() {
+        for shell in ["/bin/zsh", "/opt/homebrew/bin/bash", "-zsh", "sh", "/bin/dash", "ksh"] {
+            assert!(posix_shell(shell), "{shell}");
+        }
+        for shell in ["/opt/homebrew/bin/fish", "/bin/tcsh", "/usr/local/bin/nu", "csh", "elvish", ""] {
+            assert!(!posix_shell(shell), "{shell}");
+        }
     }
 
     #[test]

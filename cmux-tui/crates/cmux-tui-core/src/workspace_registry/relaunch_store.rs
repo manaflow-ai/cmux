@@ -45,7 +45,8 @@ use super::WorkspaceRegistry;
 
 mod agent_launch;
 pub(crate) use agent_launch::{
-    AGENT_JOB_ENV_KEYS, AgentLaunch, account_env_key, agent_launch_from_job,
+    AGENT_JOB_ENV_KEYS, AgentLaunch, account_env_key, agent_launch_from_job, bypasses_approvals,
+    kept_agent_args,
 };
 
 /// The environment keys a relaunch record keeps, by exact name.
@@ -83,7 +84,7 @@ pub(crate) const ARGV_CAP: usize = 64 * 1024;
 /// Prefixes of well-known tokens (OpenAI and Anthropic `sk-`, GitHub,
 /// Slack `xox?-`). An argument or `name=value` value starting with one is
 /// never stored.
-const TOKEN_PREFIXES: &[&str] = &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
+pub(crate) const TOKEN_PREFIXES: &[&str] = &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
 
 /// Shells whose argv may still be "the user's shell" with integration flags.
 const SHELLS: &[&str] = &["bash", "zsh", "fish", "nu", "elvish", "sh", "dash", "ksh", "tcsh"];
@@ -429,7 +430,11 @@ impl WorkspaceRegistry {
             Some((harness, session_id)) if resumable_session_id(session_id) => {
                 let kept = match launch {
                     Some(launch) => Some(launch.clone()),
-                    None => self.stored_agent_launch_of(terminal_public_id, harness, session_id)?,
+                    // A failed lookup costs only the stored launch, never the agent record.
+                    None => self
+                        .stored_agent_launch_of(terminal_public_id, harness, session_id)
+                        .ok()
+                        .flatten(),
                 };
                 let mut record = json!({"harness": harness, "session_id": session_id});
                 if let Some(launch) = kept {
@@ -455,7 +460,6 @@ impl WorkspaceRegistry {
     }
 }
 
-/// The relaunch fields a closed tab keeps for the terminal `terminal_public_id`.
 impl WorkspaceRegistry {
     /// The launch stored with `harness` session `session_id` of terminal
     /// `terminal_public_id`, if that is the session its record names.
@@ -492,9 +496,7 @@ fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
     let harness = agent["harness"].as_str()?;
     let args = agent.get("args")?.as_array()?;
     let args = args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
-    let mut line = vec![harness.to_string()];
-    line.extend(args);
-    let args = stored_argv(&line).map(|line| line[1..].to_vec()).unwrap_or_default();
+    let args = kept_agent_args(harness, &args);
     let key = account_env_key(harness)?;
     let env = agent["env"][key]
         .as_str()
@@ -504,6 +506,7 @@ fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
     Some(AgentLaunch { args, env })
 }
 
+/// The relaunch fields a closed tab keeps for the terminal `terminal_public_id`.
 pub(crate) fn closed_fields(
     connection: &Connection,
     terminal_public_id: &str,
