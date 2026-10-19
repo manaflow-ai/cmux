@@ -600,7 +600,7 @@ fn refused_at_connect(
     ) {
         return false;
     }
-    let _ = reader.get_mut().set_read_timeout(Some(std::time::Duration::from_millis(200)));
+    let _ = reader.get_mut().set_read_timeout(Some(Duration::from_millis(200)));
     let mut line = Vec::new();
     if reader.by_ref().take(4096).read_until(b'\n', &mut line).is_err() {
         return false;
