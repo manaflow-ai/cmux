@@ -6,12 +6,12 @@ import Foundation
 /// prefs as `diff.*` settings, and the "Viewed" marks and the collapsed files
 /// next to the recents. The page reads and writes them only through these
 /// ops, never web storage.
-final class DiffPageStores {
+public final class DiffPageStores {
     let prefs: any DiffPrefsStoring
     let viewed: DiffViewedFiles
     let collapsed: DiffCollapsedFiles
 
-    init(prefs: any DiffPrefsStoring, viewed: DiffViewedFiles, collapsed: DiffCollapsedFiles? = nil) {
+    public init(prefs: any DiffPrefsStoring, viewed: DiffViewedFiles, collapsed: DiffCollapsedFiles? = nil) {
         self.prefs = prefs
         self.viewed = viewed
         self.collapsed = collapsed ?? DiffCollapsedFiles(url: DiffCollapsedFiles.standardURL(viewed: viewed.url))
