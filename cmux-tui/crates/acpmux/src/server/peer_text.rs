@@ -14,7 +14,7 @@
 //! its transcript anyway. That transcript (`session/update`, `_acpmux/event`
 //! and history records) is not masked here.
 
-use crate::rpc::Message;
+use crate::rpc::{Message, method};
 use serde_json::Value;
 
 /// The upgrade request header that names the connecting peer's device.
@@ -28,15 +28,87 @@ pub fn device_name() -> String {
 /// Whether a connection gets the summaries' text raw: every origin but
 /// Peer, and a peer whose one named device is in `trusted`.
 pub fn sends_raw(origin: super::Origin, devices: &[String], trusted: &[String]) -> bool {
-    let _ = (origin, devices, trusted);
-    true
+    origin != super::Origin::Peer
+        || matches!(devices, [one] if !one.is_empty() && trusted.iter().any(|t| t == one))
 }
 
 /// `msg` as a peer may read it: the session text in every summary and chat
 /// it carries masked. Agent updates and records pass as they are.
+/// None when nothing in it changed.
 pub fn masked(msg: &Message) -> Option<Message> {
-    let _ = msg;
-    None
+    match msg {
+        Message::Notification { method, params: Some(params) }
+            if method != method::SESSION_UPDATE && method != method::MUX_EVENT =>
+        {
+            let mut params = params.clone();
+            mask_text(&mut params)
+                .then(|| Message::Notification { method: method.clone(), params: Some(params) })
+        }
+        Message::Response { id, result: Some(result), error } => {
+            let mut result = result.clone();
+            mask_text(&mut result).then(|| Message::Response {
+                id: id.clone(),
+                result: Some(result),
+                error: error.clone(),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// How much of one field a peer reads: a prompt may be megabytes, and
+/// masking all of it for every summary sent would stall the connection.
+const PEER_TEXT_CHARS: usize = 16_384;
+/// How much of a field is scanned: past the cut, so a secret that starts
+/// before it is still whole when it is masked.
+const PEER_SCAN_CHARS: usize = PEER_TEXT_CHARS + 4096;
+
+/// Masks the session text of every summary and chat in `v`; whether any changed.
+fn mask_text(v: &mut Value) -> bool {
+    let mut changed = false;
+    match v {
+        Value::Array(items) => items.iter_mut().for_each(|item| changed |= mask_text(item)),
+        Value::Object(map) => {
+            let summary = ["sessionId", "harness", "lastSeq"].iter().all(|k| map.contains_key(*k));
+            if summary {
+                for key in ["title", "lastPrompt", "preview"] {
+                    changed |= mask_field(map.get_mut(key));
+                }
+                changed |= mask_field(map.get_mut("lastMessage").and_then(|m| m.get_mut("text")));
+                changed |= mask_field(map.get_mut("turn").and_then(|t| t.get_mut("prompt")));
+                changed |= mask_field(map.get_mut("lastTurn").and_then(|t| t.get_mut("errorText")));
+                if let Some(Value::Array(queue)) = map.get_mut("queue") {
+                    for queued in queue {
+                        changed |= mask_field(queued.get_mut("prompt"));
+                    }
+                }
+            } else if map.contains_key("attention") {
+                // A chat (`chats/activity.rs`): its harness title and preview.
+                for key in ["title", "preview"] {
+                    changed |= mask_field(map.get_mut(key));
+                }
+            }
+            map.values_mut().for_each(|child| changed |= mask_text(child));
+        }
+        _ => {}
+    }
+    changed
+}
+
+fn mask_field(field: Option<&mut Value>) -> bool {
+    let Some(Value::String(text)) = field else { return false };
+    let long = text.chars().nth(PEER_TEXT_CHARS).is_some();
+    let head: String = if long { text.chars().take(PEER_SCAN_CHARS).collect() } else { text.clone() };
+    let mut masked = crate::secret_scan::mask(&head);
+    if long {
+        masked = masked.chars().take(PEER_TEXT_CHARS).collect();
+        masked.push('…');
+    }
+    if masked == *text {
+        return false;
+    }
+    *text = masked;
+    true
 }
 
 #[cfg(test)]

@@ -96,6 +96,14 @@ per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` add
 a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
 mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
 
+A peer daemon reads this daemon's session summaries with their text masked (`src/server/peer_text.rs`):
+a token pasted into a prompt shows as `[GitHub Personal Access Token]` in the title, the prompts,
+the preview, the last message and the last turn's error, and a field past 16384 characters is cut.
+The unix socket, the app and the dashboard keep the raw text, and so does a peer device listed in
+`trustedPeers`, for example `"trustedPeers": ["huge-blue"]` (empty by default). A peer names its
+device, its hostname, in the `x-acpmux-peer-device` header; the name is its own claim, and a peer
+that attaches a session still reads its transcript.
+
 ## CLI
 
 Five everyday commands, three groups for the rest:

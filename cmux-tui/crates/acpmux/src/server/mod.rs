@@ -42,6 +42,9 @@ pub struct Conn {
     pub origin: Origin,
     /// The proof it presented (`conn_auth.rs`); what the mode rule reads.
     pub auth: ConnAuth,
+    /// It reads session text raw (`peer_text.rs`): every origin but an
+    /// untrusted peer.
+    raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
@@ -111,7 +114,8 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
-        let _ = self.out.try_send(msg.to_line());
+        let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
+        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
@@ -380,6 +384,9 @@ pub async fn serve_ws_with(
             // Its peer token headers, for the Peer check.
             let seen_peer: Arc<StdMutex<Vec<String>>> = Arc::default();
             let record_peer = seen_peer.clone();
+            // The device a peer names, for `trustedPeers` (`peer_text.rs`).
+            let seen_device: Arc<StdMutex<Vec<String>>> = Arc::default();
+            let record_device = seen_device.clone();
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -402,6 +409,8 @@ pub async fn serve_ws_with(
                     values("origin").into_iter().map(str::to_owned).collect();
                 *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
                     values(peer_auth::HEADER).into_iter().map(str::to_owned).collect();
+                *record_device.lock().unwrap_or_else(|e| e.into_inner()) =
+                    values(peer_text::DEVICE_HEADER).into_iter().map(str::to_owned).collect();
                 let header = req
                     .headers()
                     .get("authorization")
@@ -508,7 +517,11 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_authed(hub, in_rx, out_tx, origin, proof).await;
+            let devices = match origin {
+                Origin::Peer => std::mem::take(&mut *seen_device.lock().unwrap_or_else(|e| e.into_inner())),
+                _ => Vec::new(),
+            };
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, devices).await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -684,7 +697,7 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, Vec::new()).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -695,15 +708,19 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    // The devices a peer named (`peer_text::DEVICE_HEADER`).
+    devices: Vec<String>,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
+    let raw_text = peer_text::sends_raw(origin, &devices, &hub.config.read().await.trusted_peers);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         origin,
         auth,
+        raw_text,
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),

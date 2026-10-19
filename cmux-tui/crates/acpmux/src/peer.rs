@@ -345,6 +345,11 @@ impl Peer {
                 crate::server::peer_auth::HEADER,
                 p.parse().map_err(|_| "bad peer token".to_owned())?,
             );
+            // Which device this is, for the peer's `trustedPeers`
+            // (`server/peer_text.rs`); a name no header can carry is left out.
+            if let Ok(device) = crate::server::peer_text::device_name().parse() {
+                req.headers_mut().insert(crate::server::peer_text::DEVICE_HEADER, device);
+            }
         }
         Ok(req)
     }
