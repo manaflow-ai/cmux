@@ -42,7 +42,8 @@ extension TabCell {
         let forms: [TabChromeVisibility?] = closingVisibility != nil ? keys.map { _ in nil } : TabChromeVisibility.path(
             widths: keys.map { CGFloat($0) / scale },
             from: shownForm(shownNow),
-            isPinned: item.isPinned, isSelected: isSelected, isHovered: isHovered, style: style, metrics: metrics
+            isPinned: item.isPinned, isSelected: isSelected, isHovered: isHovered, isClosable: item.isClosable,
+            style: style, metrics: metrics
         )
         // Samples memoized by device pixel and form: a tab that shrinks a few points lays out a few times.
         struct SampleKey: Hashable { var pixel: Int; var form: TabChromeVisibility? }

@@ -236,7 +236,9 @@ export class ConversationDO extends OwnerDO<Head> {
   async agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> } | { live: unknown }): Promise<void> {
     const state = this.isBound(entity) ? this.bind(entity).currentState : null
     if (!state?.participants.some((p) => p.id === agent && p.kind === "agent" && p.left_at === undefined)) return
-    if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null))
+    // A brain's `off` always passes (once per turn end or skipped wake): a client that shows "Thinking…" from
+    // the send waits for it even when this brain never typed (a skipped turn, brain-turn.ts skip).
+    if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
     const live = "live" in f ? liveBuffer(this.ctx).apply(state.id, agent, f.live) : (liveBuffer(this.ctx).runChanged(agent, f.run, f.steps), { frame: JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }), reset: false })
     if (live) [this.toMembers(state, null, live.frame), live.reset && this.toMembers(state, null, liveBuffer(this.ctx).snapshot(state.id))]
   }
