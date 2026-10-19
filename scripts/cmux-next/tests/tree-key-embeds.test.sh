@@ -38,4 +38,38 @@ after=$(cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py)
 # A blob input a revision lacks is absent from the key, not an error.
 git_q -C "$src" rm -q schemas/x/v.json; git_q -C "$src" commit -m gone
 (cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py >/dev/null) || fail "a missing blob input broke the key"
+
+# 3. Only the crates the published binaries link need covering. A workspace
+#    crate outside the dependency closure of the published packages (per
+#    cmux-tui/Cargo.lock) never reaches a tree binary, so its embeds do not
+#    belong in the key: design-tokens.json, embedded by cmux-theme-tokens, made
+#    every Swift design PR rebuild the whole tree (#21785). The moment such a
+#    crate joins the closure, its embed must be covered again.
+lock="$TMP/lock"
+git_q init "$lock"
+mkdir -p "$lock/cmux-tui/crates/cmux-tui/src" "$lock/cmux-tui/crates/side/src" "$lock/cmux-tui/crates/helper/src" \
+  "$lock/scripts/cmux-next" "$lock/scripts/ci" "$lock/plans/t"
+cp "$ROOT/scripts/ci/check_cmux_tui_tree_inputs.py" "$lock/scripts/ci/"
+printf 'tree cmux-tui\n' > "$lock/scripts/cmux-next/cmux-tui-tree-inputs.txt"
+printf '[package]\nname = "cmux-tui"\n' > "$lock/cmux-tui/crates/cmux-tui/Cargo.toml"
+printf '[package]\nname = "side"\n' > "$lock/cmux-tui/crates/side/Cargo.toml"
+printf '[package]\nname = "helper"\n' > "$lock/cmux-tui/crates/helper/Cargo.toml"
+echo '{}' > "$lock/plans/t/tokens.json"
+echo 'pub fn f() {}' > "$lock/cmux-tui/crates/cmux-tui/src/lib.rs"
+echo 'pub fn h() {}' > "$lock/cmux-tui/crates/helper/src/lib.rs"
+printf 'const T: &str = include_str!("../../../../plans/t/tokens.json");\n' > "$lock/cmux-tui/crates/side/src/lib.rs"
+write_lock() { # <cmux-tui dependencies, quoted and comma-separated>
+  printf 'version = 4\n\n[[package]]\nname = "cmux-tui"\nversion = "0.1.0"\ndependencies = [%s]\n\n[[package]]\nname = "helper"\nversion = "0.1.0"\n\n[[package]]\nname = "side"\nversion = "0.1.0"\n' "$1" \
+    > "$lock/cmux-tui/Cargo.lock"
+}
+write_lock '"helper"'
+git_q -C "$lock" add -A; git_q -C "$lock" commit -m closure
+python3 "$lock/scripts/ci/check_cmux_tui_tree_inputs.py" --root "$lock" >/dev/null 2>"$TMP/err" \
+  || fail "an embed in a crate no published binary links failed the check: $(cat "$TMP/err")"
+write_lock '"helper", "side"'
+git_q -C "$lock" commit -am linked
+if python3 "$lock/scripts/ci/check_cmux_tui_tree_inputs.py" --root "$lock" 2>"$TMP/err"; then
+  fail "an embed in a crate the published binary now links passed uncovered"
+fi
+grep -q "blob plans/t/tokens.json" "$TMP/err" || fail "the check did not name the linked embed: $(cat "$TMP/err")"
 echo "tree-key-embeds: ok"
