@@ -121,7 +121,7 @@ fn the_update_step_runs_between_the_daemon_and_the_harness() {
         StepResult::new(Step::Update, StepState::Ok, "timer")
     };
     let old: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
-    let fake = host_with(old, Some(("old", false)), LOCAL_BIN, crate::hub::BUILD);
+    let fake = host_with(old, Some(("old", false)), LOCAL_BIN, crate::hub::build());
     let mut lines = Vec::new();
     let results = super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |r| {
         lines.push(r.step)
@@ -132,16 +132,16 @@ fn the_update_step_runs_between_the_daemon_and_the_harness() {
     assert_eq!(lines, order, "emitted in the order they ran");
     assert_eq!(results[3].state, StepState::Ok);
     // No daemon, no update: it is skipped like the harness.
-    let current: &[(&str, &str)] = &[(LOCAL_BIN, crate::hub::BUILD)];
-    let fake = host_with(current, None, LOCAL_BIN, crate::hub::BUILD);
+    let current: &[(&str, &str)] = &[(LOCAL_BIN, crate::hub::build())];
+    let fake = host_with(current, None, LOCAL_BIN, crate::hub::build());
     let results =
         super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |_| {}).0;
     assert_eq!(results[2].state, StepState::Fail, "{results:?}");
     assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Skip));
     // A standalone acpmux has no owner; the app's daemon names its path
     // (update_step's tests: the timer is then left alone).
-    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
-    let fake = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::build())];
+    let fake = host_with(both, Some((crate::hub::build(), true)), APP_EXE, crate::hub::build());
     super::machine_steps(&fake, &plan(&[]), &local, true, Some(&update), &mut |_| {});
     assert_eq!(*owners.borrow(), [None, Some(APP_EXE.to_owned())]);
     assert_read_only(&fake);
@@ -159,8 +159,8 @@ fn an_update_step_that_cannot_tell_whose_daemon_runs_writes_nothing() {
         ran.set(true);
         StepResult::new(Step::Update, StepState::Fixed, "installed")
     };
-    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
-    let app = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::build())];
+    let app = host_with(both, Some((crate::hub::build(), true)), APP_EXE, crate::hub::build());
     // Nothing; a standalone daemon's, so a guess would install; and a whole
     // answer in which no daemon says what it is.
     let standalone =
@@ -481,7 +481,7 @@ fn the_probe_finds_an_app_with_a_space_in_its_name() {
 
 #[test]
 fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, build)];
     for fix in [false, true] {
         // The app's daemon runs, this build: ok, though ~/.local/bin is old.
@@ -565,7 +565,7 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
 
 #[test]
 fn doctor_without_fix_changes_nothing() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let local = local_with("nofix", "pi", "command = \"/Users/leo/bin/pi\"\n");
     // An old standalone build (warn); a stopped daemon; a stale profile;
     // nothing installed at all.
@@ -602,7 +602,7 @@ fn doctor_without_fix_changes_nothing() {
 
 #[test]
 fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let local = local_with("fix", "pi", "command = \"/Users/leo/bin/pi\"\n");
     let written: RefCell<Option<String>> = RefCell::default();
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
@@ -726,7 +726,7 @@ fn daemon_skew_on_another_platform_has_no_host_update_try() {
     let p = parse_probe(&format!(
         "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/home/leo/.local/bin/acpmux (deleted)\"}}\0{CONFIG}",
         std::env::consts::ARCH,
-        crate::hub::BUILD
+        crate::hub::build()
     ));
     let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
         Verdict::OtherBuild(result) => result,
@@ -742,7 +742,7 @@ fn daemon_skew_on_another_platform_has_no_host_update_try() {
     let p = parse_probe(&format!(
         "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nreal\t/home/leo/.local/bin/acpmux\t/opt/acpmux/acpmux\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/opt/acpmux/acpmux (deleted)\"}}\0{CONFIG}",
         std::env::consts::ARCH,
-        crate::hub::BUILD
+        crate::hub::build()
     ));
     assert_eq!(p.resolved("/home/leo/.local/bin/acpmux"), "/opt/acpmux/acpmux");
     let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
@@ -857,7 +857,7 @@ fn the_probe_finds_a_cmux_tui_and_asks_it_through_acp() {
 /// A host the app installed its cmux-tui on (this build) without the
 /// `~/.local/bin/acpmux` link; linking makes it current.
 fn tui_only_host(linked: &RefCell<bool>) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut + '_> {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     Fake::new(move |script, _| {
         let is_linked = *linked.borrow();
         if script == "true" {
@@ -885,7 +885,7 @@ fn tui_only_host(linked: &RefCell<bool>) -> Fake<impl Fn(&str, Option<&[u8]>) ->
 
 #[test]
 fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     // Without --fix: the link is named as missing, nothing changes.
     let linked = RefCell::new(false);
     let fake = tui_only_host(&linked);
@@ -937,7 +937,7 @@ fn enroll_never_relinks_the_daemon_binary_while_another_update_runs() {
 
 #[test]
 fn no_standalone_daemon_starts_beside_an_installed_app() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     // A standalone acpmux first, the app second, no daemon running: the
     // app's host, so nothing is started.
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (APP_BIN, build)];
@@ -976,7 +976,7 @@ fn a_daemon_running_as_cmux_tui_acp_is_cmux_own() {
     assert!(!acp("/home/leo/.local/bin/acpmux daemon run"));
     assert!(!acp("/home/leo/.local/bin/cmux-tui remote serve"));
     assert!(!acp(""));
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let bins: &[(&str, &str)] = &[(TUI_BIN, build)];
     let mut p = parse_probe(&probe_out(bins, Some((build, false))));
     assert!(!p.in_use().unwrap().app);
@@ -1013,7 +1013,7 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
     // Through probe(): the daemon names its exe and says it runs as
     // `cmux-tui acp` in its status; only the link is resolved on the host. The link's daemon is
     // repairable, not cmux's.
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (TUI_BIN, build)];
     for (link_target, ours) in [(TUI_BIN, true), ("", false)] {
         let fake = Fake::new(|script, _| {
@@ -1034,7 +1034,7 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
 
 #[test]
 fn the_probe_never_scans_processes() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
     // A standalone daemon (`acpmux daemon run`) and one too old to say who
     // it is: the status alone answers, one script in all.
@@ -1055,7 +1055,7 @@ fn the_probe_never_scans_processes() {
 
 #[test]
 fn a_daemon_too_old_to_say_who_it_is_counts_as_cmux_own_beside_a_cmux() {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let local = Local { harness_dir: None, home: None };
     // Linux: an older `cmux-tui acp` session daemon answers through the
     // standalone acpmux; the cmux-tui is there. Never installed or
@@ -1139,7 +1139,7 @@ fn two_daemon_host_with(
     ours: Option<u16>,
     token: bool,
 ) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut> {
-    let build = crate::hub::BUILD;
+    let build = crate::hub::build();
     let listen = RefCell::new(ours);
     let written = RefCell::new(None::<u16>);
     Fake::new(move |script, stdin| {

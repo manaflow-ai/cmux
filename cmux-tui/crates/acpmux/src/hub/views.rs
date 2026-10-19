@@ -598,7 +598,7 @@ impl Hub {
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
-            "build": BUILD,
+            "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
