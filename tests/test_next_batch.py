@@ -955,6 +955,7 @@ class LandingRetry(unittest.TestCase):
             outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
         self.assertTrue(outcome.startswith("landed"))
         self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
+        self.assertEqual(calls[-1][calls[-1].index("--match-head-commit") + 1], pr(7).sha)
 
     def test_waives_only_lanes_the_stack_passed(self):
         controller = nb.Controller.__new__(nb.Controller)
@@ -973,6 +974,9 @@ class LandingRetry(unittest.TestCase):
             with self.subTest(lanes=lanes):
                 self.assertEqual(controller.waivable("not green: " + lanes + tail, validation), expected)
         self.assertFalse(controller.waivable("not green: cmux-next run still pending on abc1234", validation))
+        controller.failed_jobs = mock.Mock(side_effect=RuntimeError("HTTP 502"))
+        self.assertFalse(controller.waivable(
+            "not green: cmux-next run 1 attempt 1 (pull_request) is failure" + tail, validation))
 
     def test_no_override_for_a_heavy_check_the_stack_did_not_pass(self):
         controller = nb.Controller.__new__(nb.Controller)
