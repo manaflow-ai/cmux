@@ -274,6 +274,15 @@ extension SidebarDocStore {
         send(ops: [["op": "close", "refs": refs]], title: Self.moveTitle, undoable: false)
     }
 
+    /// Rebuilds `shown` over `live` now, for a change the caller just sent
+    /// (a new workspace's placement): the sidebar's next rebuild lists it at its
+    /// place, not in the unplaced tail one observation turn later. Only `shown`:
+    /// no adopt, no remote-close check, and what the last `show` saw stays.
+    public func reshow(live: [SidebarDocWorkspaceRef]) {
+        let next = projection(live: live)
+        if next != shown { shown = next }
+    }
+
     /// The target that puts moved items where `index` (counted without
     /// them) falls among `siblings` (item ids in shown order): before the
     /// sibling there, after the last one, or first.
