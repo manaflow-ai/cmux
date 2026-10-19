@@ -1145,8 +1145,9 @@ fn github_token() -> String {
 }
 
 /// B's session after a prompt with a pasted token, as A's client lists it,
-/// and as B's own client lists it. B trusts the devices in `trusted`.
-async fn listed_through_a_peer(tag: &str, trusted: Vec<String>) -> (Value, Value) {
+/// as B's own client lists it, and as A's watcher hears of it live after a
+/// second such prompt. B trusts the devices in `trusted`.
+async fn listed_through_a_peer(tag: &str, trusted: Vec<String>) -> (Value, Value, Value) {
     let mut cfg = config(PermissionPolicy::Ask);
     cfg.trusted_peers = trusted;
     let b = hub(cfg).await;
@@ -1174,26 +1175,44 @@ async fn listed_through_a_peer(tag: &str, trusted: Vec<String>) -> (Value, Value
     };
     let on_a = pick(ca.call(method::MUX_SESSIONS, json!({})).await.unwrap(), &format!("b/{name}"));
     let on_b = pick(cb.call(method::MUX_SESSIONS, json!({})).await.unwrap(), &name);
-    (on_a, on_b)
+    ca.call(method::MUX_WATCH, json!({})).await.unwrap();
+    let again = format!("again {}", github_token());
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": again}]}),
+    )
+    .await
+    .unwrap();
+    let mirrored = format!("b/{name}");
+    let changed = ca
+        .wait(method::MUX_SESSION_CHANGED, |p| {
+            p["session"]["name"] == mirrored.as_str() && p["kind"] == "turn_end"
+        })
+        .await;
+    (on_a, on_b, changed["session"].clone())
 }
 
 /// hq#2509: a session's own words reach a peer masked, and B's own client
 /// keeps them raw.
 #[tokio::test]
 async fn a_peer_lists_a_sessions_text_masked_and_the_owning_daemon_keeps_it_raw() {
-    let (on_a, on_b) = listed_through_a_peer("masked", vec![]).await;
+    let (on_a, on_b, live) = listed_through_a_peer("masked", vec![]).await;
     let mask = "[GitHub Personal Access Token]";
     assert_eq!(on_a["lastPrompt"], format!("push with {mask}"), "{on_a}");
     assert_eq!(on_a["preview"], format!("echo: push with {mask}"), "{on_a}");
     assert_eq!(on_a["lastMessage"]["text"], format!("echo: push with {mask}"), "{on_a}");
     assert!(!on_a.to_string().contains("ghp_"), "{on_a}");
     assert_eq!(on_b["lastPrompt"], format!("push with {}", github_token()), "{on_b}");
+    // A change B sends while A watches is masked too.
+    assert_eq!(live["lastPrompt"], format!("again {mask}"), "{live}");
+    assert!(!live.to_string().contains("ghp_"), "{live}");
 }
 
 /// hq#2509: a device B names in `trustedPeers` gets the raw text.
 #[tokio::test]
 async fn a_trusted_peer_device_lists_the_raw_text() {
     let me = acpmux::server::peer_text::device_name();
-    let (on_a, _) = listed_through_a_peer("trusted", vec![me]).await;
+    let (on_a, _, live) = listed_through_a_peer("trusted", vec![me]).await;
     assert_eq!(on_a["lastPrompt"], format!("push with {}", github_token()), "{on_a}");
+    assert_eq!(live["lastPrompt"], format!("again {}", github_token()), "{live}");
 }

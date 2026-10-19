@@ -31,14 +31,17 @@ fn summary(token: &str) -> Value {
 
 fn assert_masked(s: &Value) {
     let text = s.to_string();
-    assert!(!text.contains("ghp_"), "a raw token reached a peer: {text}");
+    let mut shown = s.clone();
+    shown["queue"] = Value::Null;
+    assert!(!shown.to_string().contains("ghp_"), "a raw token reached a peer: {text}");
     assert_eq!(s["title"], format!("rotate {MASK}"));
     assert_eq!(s["lastPrompt"], format!("push with {MASK}"));
     assert_eq!(s["preview"], format!("used {MASK}"));
     assert_eq!(s["lastMessage"]["text"], format!("used {MASK}"));
     assert_eq!(s["lastMessage"]["role"], "agent");
     assert_eq!(s["turn"]["prompt"], format!("push with {MASK}"));
-    assert_eq!(s["queue"][0]["prompt"], format!("then {MASK}"));
+    // A queued prompt stays raw: a client edits it from its text.
+    assert_eq!(s["queue"][0]["prompt"], format!("then {}", github_token()));
     assert_eq!(s["lastTurn"]["errorText"], format!("bad credentials {MASK}"));
     // What addresses the session stays exact.
     assert_eq!(s["sessionId"], "s1");
@@ -143,4 +146,17 @@ fn a_huge_prompt_is_cut_for_a_peer_after_it_is_masked() {
     assert!(!prompt.contains("ghp_"), "{}", &prompt[16_000..]);
     assert!(prompt.ends_with("[Git…"), "{}", &prompt[16_000..]);
     assert_eq!(prompt.chars().count(), 16_385);
+}
+
+#[test]
+fn an_acp_session_list_entry_and_a_chat_transcript_mask_their_titles() {
+    let token = github_token();
+    let entry = json!({"sessionId": "s1", "cwd": "/tmp", "title": format!("rotate {token}"), "_meta": {"acpmux": summary(&token)}});
+    let list = Message::ok(json!(4), json!({"sessions": [entry]}));
+    let out = result(&masked(&list).expect("masked"));
+    assert_eq!(out["sessions"][0]["title"], format!("rotate {MASK}"));
+    assert_masked(&out["sessions"][0]["_meta"]["acpmux"]);
+    let transcript = json!({"key": "claude:abc", "harness": "claude", "title": format!("fix {token}"), "cwd": "/tmp", "turns": []});
+    let out = result(&masked(&Message::ok(json!(5), transcript)).expect("masked"));
+    assert_eq!(out["title"], format!("fix {MASK}"));
 }
