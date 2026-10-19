@@ -82,3 +82,44 @@ test("Sentry scrubs auth containers and raw provider tokens", () => {
     expect(serialized).not.toContain(secret);
   }
 });
+
+test("Sentry scrubs structured query strings and Pwd without hiding safe counters", () => {
+  const objectQuery = scrubSentryEvent({
+    request: {
+      query_string: {
+        code: "object-code-secret",
+        sig: "object-signature-secret",
+        page: "2",
+      },
+    },
+    message:
+      "Pwd=pwd-secret completion_tokens=42 prompt_tokens=24 passwordless=true",
+  } as Event);
+  const tupleQuery = scrubSentryEvent({
+    request: {
+      query_string: [
+        ["auth", "tuple-auth-secret"],
+        ["sort", "recent"],
+      ],
+    },
+  } as Event);
+
+  const serialized = JSON.stringify([objectQuery, tupleQuery]);
+  for (const secret of [
+    "object-code-secret",
+    "object-signature-secret",
+    "pwd-secret",
+    "tuple-auth-secret",
+  ]) {
+    expect(serialized).not.toContain(secret);
+  }
+  for (const safe of [
+    "completion_tokens=42",
+    "prompt_tokens=24",
+    "passwordless=true",
+    '"page":"2"',
+    '"sort","recent"',
+  ]) {
+    expect(serialized).toContain(safe);
+  }
+});

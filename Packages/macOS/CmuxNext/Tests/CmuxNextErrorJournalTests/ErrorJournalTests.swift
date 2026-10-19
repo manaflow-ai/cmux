@@ -81,6 +81,36 @@ struct ErrorJournalTests {
         }
     }
 
+    @Test func legacySegmentsAreRedactedBeforeTheyAreReturnedOrRewritten() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let values = ["legacy-secret-value", "legacy-password-value", "legacy-cookie-value"]
+        let legacy = ErrorEntry(
+            fingerprint: "legacy-fingerprint",
+            source: "app",
+            level: .error,
+            template: "AWS_SECRET_ACCESS_KEY=\(values[0])",
+            sample: "Pwd=\(values[1])",
+            topFrame: "token=\(values[0])",
+            context: ["header": "Cookie: session=\(values[2])"],
+            count: 1,
+            firstMs: 1,
+            lastMs: 1
+        )
+        var line = try JSONEncoder().encode(legacy)
+        line.append(UInt8(ascii: "\n"))
+        let segment = directory.appendingPathComponent("segment-000001.ndjson")
+        try line.write(to: segment)
+
+        let journal = ErrorJournal(directory: directory)
+        let entry = try #require(await journal.entries().first)
+        let memory = String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
+        let disk = try String(contentsOf: segment, encoding: .utf8)
+        for value in values {
+            #expect(!memory.contains(value))
+            #expect(!disk.contains(value))
+        }
+    }
+
     @Test func journalArtifactsAreOwnerOnly() async throws {
         struct CursorSource: ErrorHarvestSource {
             let id = "cursor"
