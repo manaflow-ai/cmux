@@ -13,7 +13,7 @@
  */
 import { HttpApiBuilder } from "@effect/platform";
 import { creationResult, issueCreation } from "./generated-creation.ts";
-import { scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
+import { scopedCreationKey, scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
 import { acquireForkSnapshot } from "./fork-capture.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 import { recoverWithdrawnImage } from "./image-recovery.ts";
@@ -356,6 +356,13 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
         const generated = idempotencyKey === undefined ? yield* issueCreation(principal, "fork", payload, source.value) : undefined;
         const effectiveKey = generated?.key ?? idempotencyKey;
         if (effectiveKey === undefined) return yield* Effect.fail(unavailable());
+        // An older fork may have sent its snapshot while still merely "claimed".
+        // Never turn that missing capture receipt into permission to take another one.
+        if (principal.resourceAllowlist === null) {
+          const prior = yield* limits.inspect(principal.tenantId, yield* scopedCreationKey(principal, effectiveKey)).pipe(Effect.mapError(() => unavailable()));
+          if (prior?.progress.phase === "claimed" || prior?.progress.phase === "pending")
+            return yield* Effect.fail(conflict("This fork has no durable capture receipt; its earlier outcome needs reconciliation"));
+        }
         return yield* creationResult(principal, effectiveKey, idempotent(
           principal,
           effectiveKey,

@@ -77,8 +77,8 @@ snapshot succeeds and the create fails, the caller gets 503 `ForkIncomplete`
 with the snapshot's id, the snapshot stays in the tenant's ownership rows, and
 a retry with the same `Idempotency-Key` creates from it without a second
 snapshot. Create with `resources` boots the largest base size inside the
-request and then grows it. Without an idempotency key, a failed grow deletes
-the new VM (409). A keyed create retains its allocation for recovery instead.
+request and then grows it. A failed grow retains the allocation for recovery
+with its original client-supplied or server-issued creation key.
 
 Use the same `Idempotency-Key` and request body when retrying a create or fork.
 Before provider I/O, the API durably retains the public allocation ID, original
@@ -190,9 +190,11 @@ protected records; that version refuses them and needs current software for reco
 
 An uncertain send or failed grow retains the VM and its quota reservation.
 Use the original intent to recover it, or cancel with its handle. A fork that
-retained its snapshot but has not admitted a VM allocation reports unresolved;
-retry the original fork with its handle. Interrupted snapshot acquisition stays pending under the same handle; an
-absent provider lookup does not prove the snapshot was never taken.
+used the older snapshot stage without a VM receipt reports unresolved. New
+forks retain their destination ID before capture and stay pending under the
+same handle. Retry the original fork to continue. An absent provider lookup
+does not prove the snapshot was never taken. Older claims without capture
+receipts require reconciliation; their expiry cannot authorize recapturing.
 
 ## Grow an existing VM
 

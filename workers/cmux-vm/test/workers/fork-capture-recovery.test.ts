@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
+import { memoryLedgerStorage, TenantLedger } from "../../src/limits/ledger.ts";
+import { memoryLimitsLayer } from "../../src/limits/service.ts";
 
 let h: Awaited<ReturnType<typeof makeHarness>>;
 beforeEach(async () => { h = await makeHarness({ maxVms: 2, maxSnapshots: 1 }); });
@@ -131,6 +133,42 @@ it("fences a late capture response before VM allocation and cannot resurrect its
   expect((await fork()).status).toBe(409);
   const status = await h.request("/v1/vm-creations/by-key", headers);
   expect(await status.json()).toMatchObject({ state: "deleted", cancellation: "completed" });
+  expect(allocations()).toHaveLength(0);
+  expect(h.upstream.snapshots.size).toBe(0);
+});
+
+it("quarantines an older unjournaled fork claim after its former expiry", async () => {
+  await h.dispose();
+  const storage = memoryLedgerStorage(), ledger = new TenantLedger(storage);
+  h = await makeHarness({ limits: memoryLimitsLayer(() => storage) });
+  const source = h.addVm("team_alpha"), token = await h.addKey("team_alpha", ["vm:write"]);
+  const digest = async (value: unknown) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)))), b => b.toString(16).padStart(2, "0")).join("");
+  await ledger.begin(await digest(["key", "old-fork"]), await digest(["forkVm", source.vmId, null, null, null, null, null]), 0);
+  const response = await h.request(`/v1/vms/${source.vmId}/fork`, { ...bearer(token), "idempotency-key": "old-fork" }, { method: "POST", body: {} });
+  expect(response.status).toBe(409);
+  expect(captures()).toHaveLength(0);
+  expect(allocations()).toHaveLength(0);
+});
+
+it("enforces current service labels, actor and provider context during fork recovery", async () => {
+  const labels = { role: "cloud" }, source = h.addVm("team_alpha", "running", labels);
+  const service = await h.addServiceKey({ id: "fork-owner", labels, scopes: ["vm:read", "vm:write"] });
+  const headers = { ...bearer(service), "x-cmux-team-id": "team_alpha", "idempotency-key": "service-capture" };
+  const fork = () => h.request(`/v1/vms/${source.vmId}/fork`, headers, { method: "POST", body: { labels: { role: "cloud" } } });
+  h.upstream.faults.lostSnapshotResponses = 1;
+  expect((await fork()).status).toBe(503);
+  const other = await h.addServiceKey({ id: "other-service", labels: { role: "cloud" }, scopes: ["vm:read", "vm:write"] });
+  expect((await h.request("/v1/vm-creations/by-key", { ...headers, ...bearer(other) })).status).toBe(404);
+  h.s3a.changeSnapshotCredential("rotated-provider-context");
+  expect((await fork()).status).toBe(503);
+  h.s3a.changeSnapshotCredential("upstream-test-key");
+  labels.role = "other";
+  expect((await h.request("/v1/vm-creations/by-key", headers)).status).toBe(404);
+  expect((await h.request("/v1/vm-creations/by-key/cancel", headers, { method: "POST" })).status).toBe(404);
+  labels.role = "cloud";
+  expect((await h.request(`/v1/vms/${source.vmId}/snapshots`, headers, { method: "POST", body: { labels } })).status).toBe(403);
+  expect((await h.request("/v1/vm-creations/by-key/cancel", headers, { method: "POST" })).status).toBe(200);
+  expect(captures()).toHaveLength(1);
   expect(allocations()).toHaveLength(0);
   expect(h.upstream.snapshots.size).toBe(0);
 });

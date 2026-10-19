@@ -13,7 +13,7 @@ import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 
 export const reconcileCreation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string, expectedId?: string) => Effect.gen(function* () {
-  const fork = yield* reconcileForkCapture(caller, scope, key);
+  const fork = yield* reconcileForkCapture(caller, scope, key, expectedId);
   if (fork !== null) return fork;
   const status = yield* readVmCreation(caller, key);
   if (expectedId !== undefined && status.id !== expectedId) return yield* Effect.fail(unavailable());

@@ -26,12 +26,13 @@ export const acquireForkSnapshot = <C, V>(caller: Named<C, Principal>, source: N
   })).pipe(Effect.uninterruptible);
 
 /** Reconciliation adopts or deletes existing effects only; it never sends a capture or VM create. */
-export const reconcileForkCapture = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, rawKey: string) => Effect.gen(function* () {
+export const reconcileForkCapture = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, rawKey: string, expectedId?: string) => Effect.gen(function* () {
   const limits = yield* TenantLimits, tenant = caller.value.tenantId, key = yield* scopedCreationKey(caller.value, rawKey);
   const record = yield* limits.inspect(tenant, key).pipe(Effect.mapError(() => unavailable()));
   const p = record?.progress;
   if (p?.phase !== "capturing") return null;
   const before = yield* readVmCreation(caller, rawKey);
+  if (expectedId !== undefined && p.vmId !== expectedId) return yield* Effect.fail(unavailable());
   if (p.cancelled) return before;
   yield* name(p.snapshotId, (snapshot) => Effect.gen(function* () {
     const access = yield* forkSnapshotAccess(caller, snapshot, key, scope);

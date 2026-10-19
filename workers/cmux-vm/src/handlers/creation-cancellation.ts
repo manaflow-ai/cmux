@@ -59,9 +59,9 @@ export const cancelVmCreation = (key: string) => withCaller("vm:write", "write",
   const limits = yield* TenantLimits, scoped = yield* scopedCreationKey(caller.value, key);
   const prior = yield* limits.inspect(caller.value.tenantId, scoped).pipe(Effect.mapError(() => unavailable()));
   if (prior?.progress.phase === "capturing" && prior.progress.vmId === status.id) {
-    yield* limits.cancelCreation(caller.value.tenantId, scoped, status.id).pipe(Effect.mapError(() => unavailable()));
-    const result = yield* reconcileForkCapture(caller, scope, key);
-    return result === null ? yield* Effect.fail(unavailable()) : result;
+    const decision = yield* limits.cancelCreation(caller.value.tenantId, scoped, status.id).pipe(Effect.mapError(() => unavailable()));
+    if (decision !== "accepted") return yield* Effect.fail(conflict("The creation changed; inspect its status"));
+    return yield* continueCancellation(caller, scope, key);
   }
   yield* name(status.id, (vm) => Effect.gen(function* () {
     const pending = yield* pendingVmCreation(caller, vm, key);

@@ -38,7 +38,8 @@ export type RateDecision = typeof RateDecision.Type;
 
 /**
  * Progress a create or fork made under one idempotency key: claimed (no VM
- * send yet), pending (legacy unknown outcome), creating (durable allocation/context and retained quota),
+ * send yet), pending (legacy unknown outcome), capturing (a fork's assigned destination and intermediate),
+ * creating (durable allocation/context and retained quota),
  * snapshotted (a fork took its snapshot, public id, but
  * has not created the VM), done (the VM, public id), snapshotDone (a snapshot
  * create finished, public snapshot id).
