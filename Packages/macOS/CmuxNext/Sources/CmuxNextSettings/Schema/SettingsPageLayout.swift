@@ -133,6 +133,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
+                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
+                group("settings.group.chiefChat"),
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),

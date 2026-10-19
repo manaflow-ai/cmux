@@ -73,6 +73,9 @@ public final class DesignSettings {
     public var classicHome = false
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
+    /// `home.chiefChatIMessageStyle`: the Chief chat's bubbles are iMessage's blue and grey; off by
+    /// default (the theme's colours). The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
+    public var homeChiefChatIMessageStyle = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
