@@ -215,7 +215,6 @@
         "CmuxNextTasks",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
-        "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming"
@@ -270,7 +269,6 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextTabs",
         "CmuxNextTasks",
-        "CmuxNextTerminalGeometry",
         "CmuxNextWakeups"
       ],
       "packages": [
