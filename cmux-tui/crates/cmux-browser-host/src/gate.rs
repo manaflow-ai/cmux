@@ -530,10 +530,10 @@ impl Gate {
             json!({"targetId": target, "world": "host", "source": FOCUSED_INPUT, "args": []});
         match self.driver.call("frame.evaluate", &probe) {
             Ok(Value::Null) => Measured { secret: false, unknown: false, rect: None },
-            Ok(Value::Object(found)) if found.get("unknown").is_none() => Measured {
+            Ok(found @ Value::Object(_)) if found.get("unknown").is_none() => Measured {
                 secret: found.get("secret").and_then(Value::as_bool).unwrap_or(true),
                 unknown: false,
-                rect: rect_of(&Value::Object(found.clone()), "w", "h"),
+                rect: rect_of(&found, "w", "h"),
             },
             _ => unknown,
         }

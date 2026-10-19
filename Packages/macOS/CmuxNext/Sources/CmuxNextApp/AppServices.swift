@@ -58,7 +58,14 @@ final class AppServices {
     let updater = UpdaterService()
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings) } } }
+    var settings: SettingsController? {
+        didSet {
+            if let settings, settings !== oldValue {
+                madeAgentTabs?.follow(settings)
+                browserHost?.follow(settings)
+            }
+        }
+    }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
@@ -204,6 +211,8 @@ final class AppServices {
     let refusalHUD = RefusalHUD()
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
+    /// The agent cursor of `cmux browser <tab>` page commands.
+    private(set) lazy var pageInputCursor = AppPageInputCursor(services: self)
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
@@ -338,6 +347,7 @@ final class AppServices {
         _ = chromiumWarmup  // built here, as before
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
+        if let settings { browserHost?.follow(settings) }
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in

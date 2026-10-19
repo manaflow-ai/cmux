@@ -3,7 +3,9 @@ import CmuxNextAgentCursor
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 import Observation
 import os
@@ -26,6 +28,8 @@ final class AppBrowserHost {
     private let inputBridge: AgentCursorInputBridge
     private var inputObservation: ProviderInputObservation?
     private var inputLeaseObservation: ProviderLeaseObservation?
+    /// Follows `browser.showAgentCursor` (`follow(_:)`).
+    private var agentCursorSettingObservation: Task<Void, Never>?
 
     /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
     /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
@@ -104,6 +108,28 @@ final class AppBrowserHost {
         }
         inputLeaseObservation = provider.observeLeases { [inputBridge] targetID, lease in
             inputBridge.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
+        }
+        // What a type or key input types goes to the window that will draw
+        // it, beside the event (its keystroke caption).
+        inputBridge.onTyping = { [weak services, weak tabs] event, typing in
+            guard let services, let workspaceID = tabs?.workspaceID(ofTab: event.targetID) else { return }
+            Self.window(ofWorkspace: workspaceID, in: services)?.agentCursor.noteTyping(typing, for: event)
+        }
+    }
+
+    /// Follows `browser.showAgentCursor`: off, agent inputs draw nothing and
+    /// every window's agent cursors go; on again, the next input draws.
+    func follow(_ settings: SettingsController) {
+        agentCursorSettingObservation?.cancel()
+        // task-owner: lives as long as the host; event-driven (Observation)
+        agentCursorSettingObservation = Task { [weak self] in
+            for await shown in ObservationStream({ settings.snapshot.browserShowAgentCursor }) {
+                guard let self else { return }
+                self.inputBridge.isEnabled = shown
+                if !shown, let services = self.services {
+                    for slot in AgentCursorWiring.slots(in: services) { slot.removeAll() }
+                }
+            }
         }
     }
 

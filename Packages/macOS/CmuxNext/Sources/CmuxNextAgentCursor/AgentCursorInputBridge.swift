@@ -45,6 +45,13 @@ public final class AgentCursorInputBridge {
     private var holders: [String: String] = [:]
     private let publisher: (String) -> AgentCursorPublisher?
     private let publishers: () -> [AgentCursorPublisher]
+    /// Gets what a type or key event types (its `typing` field) right
+    /// before the event is published, so the window that draws it can show
+    /// the keystroke caption.
+    public var onTyping: ((AutomationInputEvent, AgentTyping) -> Void)?
+    /// False when the person turned the agent cursor off: events are
+    /// counted and dropped, nothing is drawn.
+    public var isEnabled = true
     private static let log = Logger(subsystem: "com.cmux.next", category: "agent-cursor-input")
 
     /// - Parameters:
@@ -59,8 +66,10 @@ public final class AgentCursorInputBridge {
     /// One `input` frame's event (its JSON).
     public func receive(_ data: Data) {
         let event: AutomationInputEvent
+        let typing: AgentTyping?
         do {
-            event = try AutomationInputEvent.decode(data)
+            (data: let plain, typing: typing) = try Self.splitTyping(data)
+            event = try AutomationInputEvent.decode(plain)
         } catch {
             counts.rejected += 1
             Self.log.error("automation.input rejected: \(String(describing: error), privacy: .public)")
@@ -89,8 +98,26 @@ public final class AgentCursorInputBridge {
         // A session that starts again (seq 0 after later events) replaces the
         // older one of that name in every publisher, which would refuse its seq.
         if order == .restart { forget(event.sessionID) }
+        guard isEnabled else { return }
+        if let typing { onTyping?(event, typing) }
         owner.publish(event)
         counts.published += 1
+    }
+
+    /// The event without its `typing` field (which the vendored decoder
+    /// does not know yet), and the typing; a `typing` the schema rejects
+    /// rejects the event, as the decoder rejects any other bad field.
+    static func splitTyping(_ data: Data) throws -> (data: Data, typing: AgentTyping?) {
+        guard var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = object.removeValue(forKey: "typing") else {
+            return (data, nil)
+        }
+        guard let typing = AgentTyping.parse(raw) else { throw AutomationInputEventError.invalidField("typing") }
+        let kind = object["kind"] as? String
+        guard kind == AutomationInputEvent.Kind.type.rawValue || kind == AutomationInputEvent.Kind.key.rawValue else {
+            throw AutomationInputEventError.invalidField("typing")
+        }
+        return (try JSONSerialization.data(withJSONObject: object), typing)
     }
 
     /// A lease frame (`observeLeases`): a session that holds no lease any

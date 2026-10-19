@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CoreText
 public import QuartzCore
 
 /// One agent's cursor: arrow, click ripple and the hidden-target indicator,
@@ -25,6 +26,10 @@ public final class AgentCursorLayer {
     let arrow = CAShapeLayer()
     let ripple = CAShapeLayer()
     let indicator = CAShapeLayer()
+    /// The keystroke caption: a pill under and right of the arrow with what
+    /// the agent types (``AgentKeystrokeCaption``).
+    let caption = CALayer()
+    let captionText = CATextLayer()
     private let fill: CGColor
 
     public init(color: CGColor) {
@@ -43,9 +48,58 @@ public final class AgentCursorLayer {
         indicator.path = CGPath(ellipseIn: CGRect(x: -5, y: -5, width: 10, height: 10), transform: nil)
         indicator.fillColor = color
         indicator.isHidden = true
+        caption.backgroundColor = CGColor(gray: 0.08, alpha: 0.86)
+        caption.borderColor = color
+        caption.borderWidth = 1.5
+        caption.cornerRadius = Self.captionHeight / 2
+        caption.anchorPoint = .zero
+        caption.opacity = 0
+        captionText.font = Self.captionFont
+        captionText.fontSize = Self.captionFontSize
+        captionText.foregroundColor = CGColor(gray: 1, alpha: 1)
+        captionText.alignmentMode = .center
+        captionText.truncationMode = .start
+        caption.addSublayer(captionText)
         root.addSublayer(ripple)
         root.addSublayer(arrow)
         root.addSublayer(indicator)
+        root.addSublayer(caption)
+    }
+
+    static let captionFontSize: CGFloat = 12
+    static let captionHeight: CGFloat = 22
+    static let captionFont = CTFontCreateUIFontForLanguage(.emphasizedSystem, captionFontSize, nil)
+        ?? CTFontCreateWithName("Helvetica-Bold" as CFString, captionFontSize, nil)
+    /// Where the caption's top-left corner sits from the arrow tip: right of
+    /// the arrow's tail, so it never covers the point the agent acts on.
+    static let captionOffset = CGPoint(x: 16, y: 20)
+    /// How long the caption stays after the last keystroke.
+    static let captionHideDelay: CFTimeInterval = 1.6
+    static let captionHideKey = "agentCursor.captionHide"
+
+    /// The width `text` needs in the caption font.
+    static func captionWidth(_ text: String) -> CGFloat {
+        let attributed = CFAttributedStringCreate(nil, text as CFString, [kCTFontAttributeName: captionFont] as CFDictionary)
+        guard let attributed else { return 0 }
+        let line = CTLineCreateWithAttributedString(attributed)
+        return ceil(CTLineGetTypographicBounds(line, nil, nil, nil))
+    }
+
+    /// Shows `text` in the caption at once, then fades it out
+    /// ``captionHideDelay`` after this keystroke unless another comes.
+    func showCaption(_ text: String, scale: CGFloat) {
+        let padding: CGFloat = 9
+        let width = Self.captionWidth(text) + padding * 2
+        caption.frame = CGRect(origin: Self.captionOffset, size: CGSize(width: width, height: Self.captionHeight))
+        let lineHeight = ceil(Self.captionFontSize * 1.3)
+        captionText.frame = CGRect(x: padding, y: (Self.captionHeight - lineHeight) / 2,
+                                   width: width - padding * 2, height: lineHeight)
+        captionText.contentsScale = scale
+        captionText.string = text
+        caption.opacity = 1
+        caption.removeAnimation(forKey: Self.captionHideKey)
+        caption.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: caption),
+                    forKey: Self.captionHideKey)
     }
 
     /// The person paused or took over: an outline, no fill.
@@ -58,6 +112,7 @@ public final class AgentCursorLayer {
         didSet {
             indicator.isHidden = !showsIndicator
             arrow.isHidden = showsIndicator
+            caption.isHidden = showsIndicator
         }
     }
 
