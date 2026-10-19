@@ -121,6 +121,7 @@ enum PaneHandlers {
                 } else {
                     try await command.send(on: daemon)
                 }
+                BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
                 if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
                 content?.layoutModel.applySplitSizing(sizing)

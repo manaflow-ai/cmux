@@ -106,7 +106,7 @@ extension AppActions {
             var pageMade = false
             defer { input.endIncoming(keys, pageMade: pageMade) }
             do {
-                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                _ = try await windows.createWorkspace(spawn, on: daemon, into: target); BenchSpans.mark("cmdN.created")
                 pageMade = true
                 if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
