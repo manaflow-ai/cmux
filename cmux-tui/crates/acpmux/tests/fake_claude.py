@@ -273,7 +273,10 @@ while True:
                                "miseDataDir": os.environ.get("MISE_DATA_DIR"), "proxy": os.environ.get("HTTPS_PROXY"),
                                "cloudMlRegion": os.environ.get("CLOUD_ML_REGION"),
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
-                               "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_"))})
+                               "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_")),
+                               "promptCache": {k: v for k, v in os.environ.items()
+                                               if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
+                                               or k == "FORCE_PROMPT_CACHING_5M"}})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                      "delta": {"type": "text_delta", "text": text}}})
             send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
