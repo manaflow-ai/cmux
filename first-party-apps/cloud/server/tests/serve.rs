@@ -33,10 +33,14 @@ fn default_list() -> Value {
 #[test]
 fn a_list_answers_then_emits_its_events() {
     let input = format!(
-        "{}\n{}\n{}\n",
+        "{}\n{}\n{}\n{}\n{}\n",
         r#"{"type":"relay.result","id":"r99","ok":true,"value":{}}"#,
         r#"{"type":"op","id":"1","op":"cloud.machine.list","origin":"user"}"#,
-        json!({ "type": "relay.result", "id": "r1", "ok": true, "value": default_list(), "revision": "41" }),
+        json!({ "type": "relay.session", "id": "r1", "signed_in": true,
+            "team": "team_aaaaaaaaaaaaaaaaaaaa", "scope": "a".repeat(64) }),
+        json!({ "type": "relay.result", "id": "r2", "ok": true, "value": default_list(), "revision": "41" }),
+        json!({ "type": "relay.session", "id": "r3", "signed_in": true,
+            "team": "team_aaaaaaaaaaaaaaaaaaaa", "scope": "a".repeat(64) }),
     );
     let lines = run(input);
     // The server asks for the link details before anything else.
@@ -47,14 +51,19 @@ fn a_list_answers_then_emits_its_events() {
     let lines = &lines[1..];
     let kinds: Vec<&str> = lines.iter().map(|l| l["type"].as_str().expect("type")).collect();
     // The list fills an empty projection: one upsert per machine, one revision.
-    assert_eq!(kinds, ["relay.op", "result", "event", "event", "event"], "{lines:?}");
-    assert_eq!(lines[0]["op"], "cloud.machine.list");
-    assert_eq!(lines[0]["params"], json!({}));
-    assert!(lines[0].get("idempotency_key").is_none(), "a read carries no key");
-    assert_eq!(lines[1]["id"], "1");
-    assert_eq!(lines[1]["ok"], true);
-    assert_eq!(lines[1]["result"]["revision"], 1);
-    for (line, id) in lines[2..].iter().zip([common::vm(1), common::vm(2), common::vm(3)]) {
+    assert_eq!(
+        kinds,
+        ["relay.session", "relay.op", "relay.session", "result", "event", "event", "event"],
+        "{lines:?}"
+    );
+    assert_eq!(lines[1]["op"], "cloud.machine.list");
+    assert_eq!(lines[1]["params"], json!({}));
+    assert_eq!(lines[1]["expected_scope"], "a".repeat(64));
+    assert!(lines[1].get("idempotency_key").is_none(), "a read carries no key");
+    assert_eq!(lines[3]["id"], "1");
+    assert_eq!(lines[3]["ok"], true);
+    assert_eq!(lines[3]["result"]["revision"], 1);
+    for (line, id) in lines[4..].iter().zip([common::vm(1), common::vm(2), common::vm(3)]) {
         assert_eq!(line["event"], "cloud.machine.watch");
         assert_eq!(line["data"]["type"], "upsert");
         assert_eq!(line["data"]["revision"], 1);
