@@ -1234,7 +1234,13 @@ async fn a_peer_edits_a_queued_prompt_from_its_masked_text_without_losing_the_se
         .unwrap();
     let mut ca = client(a.clone()).await;
     let listed = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
-    let on_a = listed["sessions"].as_array().unwrap().iter().find(|x| x["name"] == "b/queue-edit").cloned().unwrap();
+    let on_a = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["name"] == "b/queue-edit")
+        .cloned()
+        .unwrap();
     let mask = "[GitHub Personal Access Token]";
     let shown = on_a["queue"][0]["prompt"].as_str().unwrap().to_owned();
     assert_eq!(shown, format!("deploy with {mask} now"), "{on_a}");
