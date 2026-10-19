@@ -14,6 +14,7 @@ enum DragMarginProbe {
     nonisolated(unsafe) static var structural = 0 // crash-allow: probe only, never landed
     nonisolated(unsafe) static var needStacks: [String: Int] = [:] // crash-allow: probe only, never landed
     nonisolated(unsafe) static var structuralStacks: [String: Int] = [:]
+    static let stacksOn = ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_STACKS"] == "1"
     nonisolated(unsafe) static var movableFlags: [String: Int] = [:] // crash-allow: probe only, never landed // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var installed = false // crash-allow: probe only, never landed
     nonisolated(unsafe) private static var originalNeeds: IMP? // crash-allow: probe only, never landed
@@ -57,7 +58,7 @@ enum DragMarginProbe {
                             let flags = ["movableByWindowBackground", "movable", "titlebarAppearsTransparent"].map { "\($0)=\(window.value(forKey: $0) ?? "nil")" } // crash-allow: probe only, never landed
                             movableFlags[flags.joined(separator: " "), default: 0] += 1
                         }
-                        if needs <= 40 { needStacks[stackKey(), default: 0] += 1 }
+                        if needs <= 40, stacksOn { needStacks[stackKey(), default: 0] += 1 }
                     }
                 }
                 guard let original = originalNeeds else { return } // crash-allow: probe only
@@ -82,7 +83,7 @@ enum DragMarginProbe {
                 if Thread.isMainThread {
                     if recording {
                         structural += 1
-                        if structural <= 40 { structuralStacks[stackKey(), default: 0] += 1 }
+                        if structural <= 40, stacksOn { structuralStacks[stackKey(), default: 0] += 1 }
                     }
                 }
                 guard let original = originalStructural else { return } // crash-allow: probe only

@@ -170,6 +170,7 @@ try:
     time.sleep(2)
     report["frames_idle"] = rpc("debug.frames", {"action": "stop"})
     # Pass A: frame intervals of the drag alone (no debug reads or recording between events).
+    rpc("debug.hangs", {"clear": True, "limit": 0})  # PROBE ONLY: stalls of pass A only
     rpc("debug.frames", {"action": "start"})
     time.sleep(0.3)
     report["drag_started_ms"] = 300
@@ -246,7 +247,7 @@ tf = report.get("tabs_frames") or {}
 print("tabs:", json.dumps({k: v for k, v in tf.items() if k != "dragmargins"})[:400], "resets", (tf.get("dragmargins") or {}).get("resets"), "needs", (tf.get("dragmargins") or {}).get("needs"))
 print("drag resets:", ((report.get("frames") or {}).get("dragmargins") or {}).get("resets"), "needs", ((report.get("frames") or {}).get("dragmargins") or {}).get("needs"))
 for record in ((report.get("hangs") or {}).get("records") or [])[:6]:
-    print("hang %.1f ms %s: %s" % (record.get("duration_ms", 0), record.get("kind"), " < ".join(str(f)[:60] for f in (record.get("frames") or [])[:30])))
+    print("hang %.1f ms %s %s: %s" % (record.get("duration_ms", 0), record.get("kind"), {k: v for k, v in record.items() if k not in ("frames", "duration_ms", "kind")}, " < ".join(str(f)[:60] for f in (record.get("frames") or [])[:30])))
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
