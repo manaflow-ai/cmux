@@ -36,6 +36,18 @@ import Testing
         #expect(backdrop.artView.layer?.contentsRect == covered.contentsRect, "the art layer does not show the new placement")
         #expect(backdrop.artFillView.isHidden == !covered.fills, "the blurred fill does not follow the placement")
 
+        // `appearance.backgroundAvoidPanes` off: the art frames itself in the whole window.
+        let playback = DesignSettings.shared.backdropPlayback
+        defer { DesignSettings.shared.backdropPlayback = playback }
+        DesignSettings.shared.backdropPlayback.avoidsPanes = false
+        backdrop.layoutSubtreeIfNeeded()
+        backdrop.needsLayout = true
+        backdrop.layout()
+        #expect(backdrop.artPlacement == open, "the art still avoids the panes with the setting off")
+        DesignSettings.shared.backdropPlayback.avoidsPanes = true
+        backdrop.needsLayout = true
+        backdrop.layout()
+        #expect(backdrop.artPlacement == covered)
         backdrop.setCover(nil, for: "agentChat.1")
         backdrop.setCover(nil, for: "sidebar")
         #expect(backdrop.coveredColumns.isEmpty)
