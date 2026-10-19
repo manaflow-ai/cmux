@@ -69,7 +69,10 @@ extension NotificationCenterService {
             return false
         }
         let target = located.tab.surface
-        let failed = await services.daemon(for: located.pane).failure("chief-pet-reply") { connection in
+        let daemon = services.daemon(for: located.pane)
+        // An older daemon ignores `expect_foreground`: the reply still goes, checked one round trip early.
+        let guarded = daemon.supports(DaemonCapabilities.shared.sendExpectForeground)
+        let failed = await daemon.failure("chief-pet-reply") { connection in
             let process = try await connection.request(TerminalProcessInfoRequest(surface: target), timeout: .seconds(1))
             guard process.runningProgram != nil, let program = process.foregroundExecutable else {
                 throw ChiefPetReplyRefusal()
@@ -81,7 +84,7 @@ extension NotificationCenterService {
             note("pet reply refused: only a shell runs in \(located.tab.id), or the daemon refused")
             return false
         }
-        note("pet reply \(located.tab.id)")
+        note("pet reply \(located.tab.id)\(guarded ? "" : " (unguarded: the daemon lacks send-expect-foreground-v1)")")
         acknowledge(located.tab)
         return true
     }

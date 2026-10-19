@@ -1445,6 +1445,8 @@ server reads the surface's foreground process-group leader again; when it is a d
 cannot be read, the request fails with `foreground changed: ...` and writes nothing. A reply typed to an
 agent therefore never runs as a shell command after that agent exited. It needs `surface`: with
 `terminal_id` the request fails with `bad request`. A server without the capability ignores the field.
+The check is best effort: the program can still exit between the read and the write, a window of
+microseconds instead of a client round trip.
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id

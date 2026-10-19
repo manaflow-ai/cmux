@@ -119,6 +119,9 @@ public struct DaemonCapabilities: Sendable {
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public let batchClose = "batch-close-v1"
+    /// `expect_foreground` on `send`: the daemon writes only while that program is still the
+    /// terminal's foreground (the Chief pet's typed reply).
+    public let sendExpectForeground = "send-expect-foreground-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
     /// `if_empty` on `close-workspace`: the daemon closes the workspace only
@@ -432,7 +435,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
-                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission] }
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

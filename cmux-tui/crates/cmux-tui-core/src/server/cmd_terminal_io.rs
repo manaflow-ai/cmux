@@ -101,7 +101,9 @@ pub(super) fn send(
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
         (None, Some(_)) if expect_foreground.is_some() => {
-            anyhow::bail!("bad request: expect_foreground needs surface, not terminal_id")
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "bad request: expect_foreground needs surface, not terminal_id"
+            )));
         }
         (None, Some(terminal_id)) => {
             return super::creating_input::send_to_terminal(
