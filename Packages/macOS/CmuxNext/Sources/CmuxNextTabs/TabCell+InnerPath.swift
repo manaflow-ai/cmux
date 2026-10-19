@@ -110,7 +110,8 @@ extension TabCell {
     private func shownForm(_ shown: Set<ObjectIdentifier>) -> TabChromeVisibility {
         func on(_ part: CALayer?) -> Bool { part.map { shown.contains(ObjectIdentifier($0)) } ?? false }
         let title = on(titleLayer)
-        return TabChromeVisibility(showsIcon: on(iconLayer) || on(spinnerLayer?.layer), showsTitle: title,
+        // A spinner that fades out (`isSpinnerExiting`) no longer stands for the icon.
+        return TabChromeVisibility(showsIcon: on(iconLayer) || (!isSpinnerExiting && on(spinnerLayer?.layer)), showsTitle: title,
                                    showsClose: on(closeGlyphLayer), centersContent: !title)
     }
 

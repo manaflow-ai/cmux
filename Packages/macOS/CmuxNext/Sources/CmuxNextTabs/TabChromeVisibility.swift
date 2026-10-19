@@ -82,9 +82,10 @@ public struct TabChromeVisibility: Hashable, Sendable {
             contents[index] - (close ? m.closeButtonSize + m.titleCloseSpacing : 0)
         }
         let keepsIcon = start.showsIcon && end.showsIcon
-        let close = once(rest.indices.map { index in
-            rest[index].showsClose && (!keepsIcon || available(index, close: true) >= m.iconSize)
-        }, from: start.showsClose)
+        // A width that springs past an end (bounce) or turns back (a retarget) can leave a kept icon no
+        // room for the x for a few samples: the x waits there instead of covering the icon.
+        let fits = rest.indices.map { !keepsIcon || available($0, close: true) >= m.iconSize }
+        let close = zip(once(rest.indices.map { rest[$0].showsClose && fits[$0] }, from: start.showsClose), fits).map { $0 && $1 }
         let icon = once(rest.indices.map { index in
             shows[index] && (available(index, close: close[index]) >= m.iconSize || !close[index])
         }, from: start.showsIcon)
