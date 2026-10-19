@@ -95,6 +95,17 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.defaultPermissionMode" : {
+      "default" : "fullAccess",
+      "description" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+      "enum" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "title" : "Permission Mode for New Chats",
+      "type" : "string"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -1960,6 +1971,17 @@
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
     },
+    "notifications.dockBounce" : {
+      "default" : "once",
+      "description" : "When a notification alerts while cmux isn't the active app.",
+      "enum" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "title" : "Bounce Dock Icon",
+      "type" : "string"
+    },
     "notifications.mutedWorkspaces" : {
       "default" : [
 
@@ -2219,6 +2241,17 @@
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
+    },
+    "sessions.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake While Agents Work",
+      "type" : "string"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,

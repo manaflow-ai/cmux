@@ -57,12 +57,10 @@ final class HomeHostView: NSView {
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
         loadAvatar()
-        sidebar.onAvatar = { [weak self, weak service] text in
-            self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
-            self?.transcript.avatarText = text
+        sidebar.onAvatar = { [weak self, weak service] in
+            self?.loadAvatar()
             // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
-            guard self?.control.named == nil else { return }
-            service?.directory.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
+            if self?.control.named == nil { service?.refreshChiefAvatar() }
         }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))

@@ -78,7 +78,7 @@ import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import type { ComposerAttachment } from "./attachments";
+import { audioAttachment, type ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -197,6 +197,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
+import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
@@ -544,6 +545,7 @@ const MessageRow = memo(
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <FailedPrompt row={row} />
+          {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -1084,7 +1086,8 @@ function restingAnchor(
 }
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
-/// from the latest message (ChatGPT and Codex style). Its dots say a reply is streaming below. It stays
+/// from the latest message (ChatGPT and Codex style). While the agent works its arrow morphs into
+/// three accent dots that pulse (Claude desktop's Code tab), saying a reply is streaming below. It stays
 /// mounted while hidden (inert) so it fades out as it fades in (conversation.css).
 function JumpToLatest({
   shown,
@@ -1111,15 +1114,15 @@ function JumpToLatest({
       // A click does not focus a button in WebKit, so focus on it means Return or Space.
       onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >
-      {working ? (
-        <span className="acpmux-jump-latest__dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-      ) : (
+      {/* Both stay mounted so the arrow morphs into the dots and back (conversation.css). */}
+      <span className="acpmux-jump-latest__arrow" aria-hidden="true">
         <ArrowDown size={14} />
-      )}
+      </span>
+      <span className="acpmux-jump-latest__dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
     </button>
   );
 }
@@ -3373,7 +3376,10 @@ function AcpmuxPane() {
       return newTabDictationField.current ?? prompt.current;
     },
   }).current;
-  const dictation = useDictation(dictationTarget, callNative);
+  const dictation = useDictation(dictationTarget, callNative, {
+    accepts: snapshot.summary?.promptCapabilities?.audio === true,
+    attach: (audio) => composerHandle.current?.attach(audioAttachment(audio, translate("dictation.recording"))),
+  });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
