@@ -45,4 +45,21 @@ struct RightSidebarWidthSettingsTests {
 
         #expect(restored == RightSidebarWidthSettings.settingsEditorMaximumWidth)
     }
+
+    @Test func minimumWidthOverrideIsClampedToSupportedRange() {
+        #expect(RightSidebarWidthSettings.sanitizedMinimumWidth(220) == 220)
+        #expect(
+            RightSidebarWidthSettings.sanitizedMinimumWidth(40)
+                == RightSidebarWidthSettings.minimumWidthRange.lowerBound
+        )
+        #expect(
+            RightSidebarWidthSettings.sanitizedMinimumWidth(10_000)
+                == RightSidebarWidthSettings.minimumWidthRange.upperBound
+        )
+        #expect(RightSidebarWidthSettings.sanitizedMinimumWidth(.nan) == RightSidebarWidthSettings.minimumWidth)
+    }
+
+    @Test func defaultMinimumWidthIsInsideOverrideRange() {
+        #expect(RightSidebarWidthSettings.minimumWidthRange.contains(RightSidebarWidthSettings.minimumWidth))
+    }
 }
