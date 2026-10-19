@@ -70,7 +70,7 @@ fn a_huge_error_is_cut_before_it_is_scanned_and_its_head_still_masked() {
     let error = lane["error"].as_str().unwrap();
     assert!(error.starts_with("401 for [GitHub Personal Access Token] x"), "{}", &error[..60]);
     assert!(error.ends_with('…'), "the error was not cut");
-    assert!(error.chars().count() <= 4_097, "{} chars", error.chars().count());
+    assert!(error.chars().count() <= 3_073, "{} chars", error.chars().count());
 }
 
 #[test]
