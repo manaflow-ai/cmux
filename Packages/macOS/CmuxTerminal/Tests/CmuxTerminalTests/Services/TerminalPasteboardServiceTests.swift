@@ -617,8 +617,10 @@ struct ImageMaterializationTests {
 // it (Leo hit it over ssh during `gh auth refresh`), and writing it would wipe
 // whatever the user had copied on this Mac.
 @MainActor
-@Suite("Empty clipboard writes")
+@Suite("Empty clipboard writes", .serialized)
 struct EmptyClipboardWriteTests {
+    // The scratch boards are returned so the caller keeps them alive: their
+    // deinit releases the named pasteboards the service writes to.
     private func makeService() -> (TerminalPasteboardService, ScratchPasteboard, ScratchPasteboard) {
         let standard = ScratchPasteboard()
         let selection = ScratchPasteboard()
@@ -629,21 +631,34 @@ struct EmptyClipboardWriteTests {
         return (service, standard, selection)
     }
 
-    @Test(arguments: [GHOSTTY_CLIPBOARD_STANDARD, GHOSTTY_CLIPBOARD_SELECTION])
-    func emptyWriteKeepsWhatTheUserCopied(location: ghostty_clipboard_e) throws {
-        let (service, _, _) = makeService()
-        let board = try #require(service.pasteboard(for: location))
+    /// Pasteboard writes go through a transaction lane and can land after
+    /// the call returns.
+    private func settle(_ board: NSPasteboard, until done: (NSPasteboard) -> Bool) async throws {
+        for _ in 0..<100 where !done(board) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    @Test(arguments: [GHOSTTY_CLIPBOARD_STANDARD.rawValue, GHOSTTY_CLIPBOARD_SELECTION.rawValue])
+    func emptyWriteKeepsWhatTheUserCopied(locationRawValue: UInt32) async throws {
+        let location = ghostty_clipboard_e(rawValue: locationRawValue)
+        let (service, standard, selection) = makeService()
+        let board = location == GHOSTTY_CLIPBOARD_STANDARD ? standard.pasteboard : selection.pasteboard
         let copied = "copied-\(UUID().uuidString)"
         service.writeString(copied, to: location)
+        try await settle(board) { $0.string(forType: .string) == copied }
         #expect(board.string(forType: .string) == copied)
+        let changeCount = board.changeCount
 
         service.writeRepresentations([.init(mimeType: "text/plain", string: "")], to: location)
         service.writeString("", to: location)
+        try await settle(board) { $0.changeCount != changeCount }
 
+        #expect(board.changeCount == changeCount)
         #expect(board.string(forType: .string) == copied)
     }
 
-    @Test func emptyPlainTextIsDroppedFromAMixedWrite() throws {
+    @Test func emptyPlainTextIsDroppedFromAMixedWrite() async throws {
         let (service, standard, _) = makeService()
         let html = "<b>kept</b>"
         service.writeRepresentations(
@@ -653,14 +668,16 @@ struct EmptyClipboardWriteTests {
             ],
             to: GHOSTTY_CLIPBOARD_STANDARD
         )
+        try await settle(standard.pasteboard) { $0.string(forType: .html) == html }
         #expect(standard.pasteboard.string(forType: .html) == html)
         #expect(standard.pasteboard.string(forType: .string) == nil)
     }
 
-    @Test func nonEmptyWriteStillReplacesTheClipboard() throws {
+    @Test func nonEmptyWriteStillReplacesTheClipboard() async throws {
         let (service, standard, _) = makeService()
         service.writeString("first", to: GHOSTTY_CLIPBOARD_STANDARD)
         service.writeString("XXXX-XXXX", to: GHOSTTY_CLIPBOARD_STANDARD)
+        try await settle(standard.pasteboard) { $0.string(forType: .string) == "XXXX-XXXX" }
         #expect(standard.pasteboard.string(forType: .string) == "XXXX-XXXX")
     }
 }
