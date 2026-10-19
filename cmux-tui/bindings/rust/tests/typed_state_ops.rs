@@ -529,6 +529,7 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         top_index: Update::Unchanged,
         icon: Update::Unchanged,
         pinned: None,
+        parent_group: Update::Unchanged,
     };
     let updated = session.update_workspace_group(GROUP, update).unwrap().value;
     assert_eq!((updated.name.as_str(), updated.collapsed), ("Deep work", true));
@@ -637,6 +638,42 @@ fn workspace_place_and_the_personal_lists_decode_typed_snapshots() {
     // Nothing to change is refused before any request.
     let nothing = workspace.place(WorkspacePlaceOptions::default());
     assert!(matches!(nothing, Err(Error::InvalidArgument(_))), "{nothing:?}");
+    client.close().unwrap();
+    mock.finish();
+}
+
+#[test]
+fn nested_workspace_groups_send_and_decode_their_parent() {
+    let mock = mock(|stream, reader| {
+        let list = request(reader, "workspace_group.list");
+        let mut top = group_snapshot("Cloud", Value::Null, false, 0);
+        top["id"] = json!("grp_top");
+        let mut nested = group_snapshot("Project", Value::Null, false, 1);
+        nested["parent_group"] = json!("grp_top");
+        respond(stream, &list, json!({"ok": true, "result": [top, nested]}));
+        let create = request(reader, "workspace_group.create");
+        assert_eq!(create["params"]["parent_group"], "grp_top", "{create}");
+        let mut created = group_snapshot("Feature", Value::Null, false, 0);
+        created["parent_group"] = json!("grp_top");
+        mutation_ok(stream, &create, created);
+        let update = request(reader, "workspace_group.update");
+        assert_eq!(update["params"]["parent_group"], Value::Null, "{update}");
+        mutation_ok(stream, &update, group_snapshot("Feature", Value::Null, false, 2));
+    });
+    let client = mock.client();
+    let session = client.session(SessionId::parse(SESSION).unwrap());
+    let groups = session.workspace_groups().unwrap();
+    assert_eq!(groups[0].parent_group, None, "a top-level group has no parent");
+    assert_eq!(groups[1].parent_group.as_deref(), Some("grp_top"));
+    let create = WorkspaceGroupCreateOptions {
+        parent_group: Some("grp_top".into()),
+        ..WorkspaceGroupCreateOptions::new("Feature")
+    };
+    let created = session.create_workspace_group(create).unwrap().value;
+    assert_eq!(created.parent_group.as_deref(), Some("grp_top"));
+    let top_level =
+        WorkspaceGroupUpdateOptions { parent_group: Update::Clear, ..Default::default() };
+    assert_eq!(session.update_workspace_group(GROUP, top_level).unwrap().value.parent_group, None);
     client.close().unwrap();
     mock.finish();
 }

@@ -45,6 +45,11 @@ pub struct WorkspaceGroupSnapshot {
     /// workspaces close. Older daemons omit it (not pinned).
     #[serde(default)]
     pub pinned: bool,
+    /// The group this group sits in (`workspace-group-nest-v1`), or `None`
+    /// at the top level. Groups nest at most three levels. Older daemons
+    /// omit it.
+    #[serde(default)]
+    pub parent_group: Option<String>,
 }
 
 /// A session-qualified workspace in the personal order.
@@ -100,8 +105,11 @@ pub struct WorkspaceGroupCreateOptions {
     pub collapsed: Option<bool>,
     /// The room's state id; the daemon defaults to the default room.
     pub room: Option<String>,
-    /// Position among all groups; the daemon defaults to the end.
+    /// Position among the groups with the same parent; the daemon
+    /// defaults to the end.
     pub index: Option<u32>,
+    /// Create the group inside this group (`workspace-group-nest-v1`).
+    pub parent_group: Option<String>,
 }
 
 impl WorkspaceGroupCreateOptions {
@@ -130,6 +138,9 @@ pub struct WorkspaceGroupUpdateOptions {
     pub icon: Update<String>,
     /// Pin (save) or unpin the group (`workspace-group-pin-v1`).
     pub pinned: Option<bool>,
+    /// Nest the group in this group (`workspace-group-nest-v1`); `Clear`
+    /// moves it to the top level.
+    pub parent_group: Update<String>,
 }
 
 /// Fields of `workspace.place`. `group: Update::Clear` ungroups the
@@ -184,9 +195,13 @@ impl Session {
         options: WorkspaceGroupCreateOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<WorkspaceGroupSnapshot>> {
-        let WorkspaceGroupCreateOptions { name, color, collapsed, room, index } = options;
+        let WorkspaceGroupCreateOptions { name, color, collapsed, room, index, parent_group } =
+            options;
         if let Some(room) = &room {
             validate_state_id("room", room)?;
+        }
+        if let Some(parent) = &parent_group {
+            validate_state_id("parent_group", parent)?;
         }
         let params = self
             .params()
@@ -194,6 +209,7 @@ impl Session {
             .optional_string("color", color)
             .optional_bool("collapsed", collapsed)
             .optional_string("room", room)
+            .optional_string("parent_group", parent_group)
             .optional_u32(field::INDEX, index);
         mutation_snapshot(
             self.client.mutate(ops::WORKSPACE_GROUP_CREATE, params, mutation)?,
@@ -217,8 +233,16 @@ impl Session {
         options: WorkspaceGroupUpdateOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<WorkspaceGroupSnapshot>> {
-        let WorkspaceGroupUpdateOptions { name, color, collapsed, room, top_index, icon, pinned } =
-            options;
+        let WorkspaceGroupUpdateOptions {
+            name,
+            color,
+            collapsed,
+            room,
+            top_index,
+            icon,
+            pinned,
+            parent_group,
+        } = options;
         if name.is_none()
             && matches!(color, Update::Unchanged)
             && collapsed.is_none()
@@ -226,10 +250,11 @@ impl Session {
             && matches!(top_index, Update::Unchanged)
             && matches!(icon, Update::Unchanged)
             && pinned.is_none()
+            && matches!(parent_group, Update::Unchanged)
         {
             return Err(Error::InvalidArgument(
                 "workspace group update must change name, color, collapsed, room, top_index, icon, \
-                 or pinned"
+                 pinned, or parent_group"
                     .to_string(),
             ));
         }
@@ -256,6 +281,14 @@ impl Session {
             Update::Unchanged => params,
             Update::Clear => params.value("icon", Value::Null),
             Update::Set(icon) => params.string("icon", icon),
+        };
+        let params = match parent_group {
+            Update::Unchanged => params,
+            Update::Clear => params.value("parent_group", Value::Null),
+            Update::Set(parent) => {
+                validate_state_id("parent_group", &parent)?;
+                params.string("parent_group", parent)
+            }
         };
         mutation_snapshot(
             self.client.mutate(ops::WORKSPACE_GROUP_UPDATE, params, mutation)?,
