@@ -1,7 +1,7 @@
 //! The brain's conversation port over the daemon's cloud commands. The proxy
 //! pages are smaller than the local owner's (snapshot tail 50, history 200);
 //! the brain's catch-up pages back until it has every message, so clamping
-//! loses nothing. Typing has no cloud frame yet (proxy part 1).
+//! loses nothing.
 
 use cmux_conversation::{Change, Message, Op, Summary};
 use serde_json::{Value, json};
@@ -82,9 +82,20 @@ impl<R: Rpc> ConversationPort for CloudPort<R> {
         }))
     }
 
-    /// The cloud owner has no typing indicator yet: said, not swallowed.
-    fn typing(&mut self, _conversation: &str, _on: bool) -> Result<(), OpError> {
-        Err(OpError::Rejected("typing_unsupported".into()))
+    /// The owner's `typing` frame on the conversation's shared socket
+    /// (`cloud-conversation-typing`, the frame web and iOS send). A daemon
+    /// without the command says `typing_unsupported`, once, not every turn.
+    fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {
+        match self.rpc.call(
+            "cloud-conversation-typing",
+            json!({"conversation": conversation, "on": on}),
+        ) {
+            Ok(_) => Ok(()),
+            Err(OpError::Rejected(why)) if why.contains("unknown variant `cloud-conversation-typing`") => {
+                Err(OpError::Rejected("typing_unsupported".into()))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// The cloud owner has no draft operation yet: said, not swallowed.

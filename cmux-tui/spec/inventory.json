@@ -573,6 +573,7 @@
       "cloud-conversation-subscribe",
       "cloud-conversation-unsubscribe",
       "cloud-conversation-live",
+      "cloud-conversation-typing",
       "cloud-mux-subscribe",
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",

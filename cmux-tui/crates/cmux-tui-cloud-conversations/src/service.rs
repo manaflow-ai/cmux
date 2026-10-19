@@ -767,6 +767,35 @@ impl CloudConversations {
         Ok(subscription.state.reply(&target))
     }
 
+    /// `cloud-conversation-typing` (`cloud-conversation-typing-v1`): the
+    /// lease's participant is typing (`on`) or stopped, as the owner's
+    /// ephemeral `typing {on, conversation}` frame on the conversation's
+    /// shared socket, the frame the web and iOS clients send; the owner
+    /// broadcasts it as `conversation-typing` and turns it off when the socket
+    /// closes. Any client of this daemon may send it while some client
+    /// subscribes the conversation (a Chief brain reads and writes on two
+    /// connections), else `not_subscribed`. The newest state replaces one
+    /// that has not gone out yet; it goes out once the socket is live.
+    pub fn typing(&self, conversation: &str, on: bool) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) =
+            subscriptions.get_mut(&target).filter(|subscription| !subscription.clients.is_empty())
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        subscription.outbox.retain(|frame| !is_typing_frame(frame));
+        subscription
+            .outbox
+            .push(json!({"t": "typing", "on": on, "conversation": conversation}).to_string());
+        Ok(subscription.state.reply(&target))
+    }
+
     /// Emits `target`'s current socket state. The daemon calls it after it
     /// sent a subscribe reply: replies and events travel on different queues
     /// of a connection, so a change that raced the reply could otherwise
@@ -1043,6 +1072,12 @@ enum Ended {
     Unauthenticated,
 }
 
+/// A pending `typing` frame of `cloud-conversation-typing` (the outbox holds
+/// at most one: the newest state wins).
+fn is_typing_frame(frame: &str) -> bool {
+    serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "typing")
+}
+
 fn run_driver(inner: &Arc<Inner>, target: Target) {
     let mut stream = StreamState::new(target.clone());
     let mut reporter = StateReporter { inner, target: target.clone(), last: None };
@@ -1142,7 +1177,7 @@ fn pump(
         if inner.stream_session().is_err() {
             return Ended::Reconnect;
         }
-        // A client's request on the socket (`run.live.get`) goes out once
+        // A client's request on the socket (`run.live.get`, `typing`) goes out once
         // the stream is live; a failed send drops the socket, and the
         // owner's join snapshot answers instead.
         if stream.is_live() {

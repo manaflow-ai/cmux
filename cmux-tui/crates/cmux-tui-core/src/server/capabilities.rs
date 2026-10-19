@@ -28,6 +28,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
     }
     if mux.serves_ws_listen() {
