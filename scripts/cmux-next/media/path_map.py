@@ -5,10 +5,13 @@ The mapper deliberately uses paths rather than labels, titles, or PR metadata.
 It is a small CLI so the same decision is used by pull-request media jobs and
 incremental DEV builds.
 
-Webview code (webviews/) takes no Mac tour: it renders the same in Linux
-Chromium, where the gallery advisory run (gallery-advisory.yml) captures its
-fixture states. Those paths are listed under "gallery". Glass and themes still
-tour on the Mac, since they show the webview over the native window backdrop.
+Webview code (webviews/) takes no Mac tour: its look is checked in Linux
+Chromium by the gallery advisory run (gallery-advisory.yml), which renders the
+gallery fixture states a change touches. Those paths are listed under
+"gallery". Two kinds still tour on the Mac: glass and themes, which show the
+webview over the native window backdrop, and the native bridge (the files that
+talk to the app, the daemon or the pane protocol), which only a real app
+exercises.
 """
 
 from __future__ import annotations
@@ -34,6 +37,8 @@ NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # Webview code: the gallery advisory run captures it on Linux (glass and themes excepted).
 WEBVIEW = re.compile(r"^webviews/")
+# Webview code that talks to the app or the daemon: the gallery's mock providers never run it.
+NATIVE_BRIDGE = re.compile(r"(?:/(?:native|nativeError|bridge|bridgeSocket|wire|message-port)\.tsx?$|/protocol/)")
 # A tour's own file: a pull request that edits a tour gets that tour's shots.
 TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/([a-z0-9-]+)\.json$")
 
@@ -50,7 +55,7 @@ def tours_for_path(path: str) -> list[str]:
         return [tour_file[1]] if tour_file[1] in TOUR_ORDER else []
     if not is_ui_path(normalized):
         return []
-    if WEBVIEW.search(normalized):
+    if WEBVIEW.search(normalized) and not NATIVE_BRIDGE.search(normalized):
         return ["glass"] if GLASS.search(normalized) else []
     selected: list[str] = []
     if NEW_TAB.search(normalized):
@@ -69,7 +74,8 @@ def tours_for_path(path: str) -> list[str]:
 def is_gallery_path(path: str) -> bool:
     """Webview code the gallery advisory run captures on Linux instead of a Mac tour."""
     normalized = path.strip().lstrip("./")
-    return bool(WEBVIEW.search(normalized)) and not tours_for_path(normalized)
+    return bool(WEBVIEW.search(normalized)) and not NATIVE_BRIDGE.search(normalized) \
+        and not tours_for_path(normalized)
 
 
 def map_paths(paths: list[str]) -> dict[str, object]:

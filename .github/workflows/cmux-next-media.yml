@@ -29,6 +29,11 @@ name: cmux-next media
 #     replaces the waiting one, and a running tour is never cancelled.
 #   - on a pull request labeled `media-tour` (add the label to get a tour;
 #     every later push of that pull request tours again).
+# Either way a change with nothing for a Mac to tour takes no Mac: no UI
+# paths, or only webview code, whose look the gallery advisory run checks in
+# Linux Chromium on the pull request (a webview-only merge gets no capture of
+# its own). Native-bridge, glass and theme webview files still tour. Add the
+# `media-tour-mac` label (with `media-tour`) to tour a webview change on a Mac.
 # A pull request without the label starts no job. Classic main has no
 # cmux-next UI, and a nightly schedule would run only from main's copy of
 # this file, so neither has a tour.
@@ -96,29 +101,23 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          BEFORE: ${{ github.event.before }}
-          SHA: ${{ github.sha }}
+          # The same diff the tour maps: the pull request's base and head at
+          # the event, or the push's before and after.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          listing="$RUNNER_TEMP/changed-files.jsonl"
-          if [ -n "$PR" ]; then
-            expected=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .changed_files)
-            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | @json' > "$listing"
-          else
-            gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$SHA" --jq '.files[] | @json' > "$listing"
-            expected=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$SHA" --jq '.files | length')
-            # The compare API lists at most 300 files.
-            [ "$expected" -lt 300 ] || expected=-1
-          fi
-          python3 - "$listing" "$expected" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
+          listing="$RUNNER_TEMP/changed-files.json"
+          gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '[.files[] | {filename, previous_filename}]' > "$listing"
+          python3 - "$listing" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
           import json, pathlib, sys
-          rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
-          if len(rows) != int(sys.argv[2]):
-              print(f"listed {len(rows)} of {sys.argv[2]} changed files; the Mac maps the paths itself")
+          rows = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          # The compare API lists at most 300 files; past that the Mac maps the paths itself.
+          if len(rows) >= 300:
+              print(f"{len(rows)} changed files listed, the compare API's cap; the Mac maps the paths itself")
               sys.exit(0)
           paths = sorted({p for row in rows for p in (row.get("filename"), row.get("previous_filename")) if p})
-          pathlib.Path(sys.argv[3]).write_text("\n".join(paths) + "\n")
+          pathlib.Path(sys.argv[2]).write_text("\n".join(paths) + "\n")
           print(f"{len(paths)} changed path(s)")
           PY
 
@@ -129,7 +128,12 @@ jobs:
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           SAME_REPO: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
-        run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO" --paths-file "$RUNNER_TEMP/changed-paths.txt"
+          FORCE_MAC: ${{ contains(github.event.pull_request.labels.*.name, 'media-tour-mac') }}
+        run: |
+          force=()
+          if [ "$FORCE_MAC" = true ]; then force=(--force-mac); fi
+          python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO" \
+            --paths-file "$RUNNER_TEMP/changed-paths.txt" "${force[@]}"
 
   tour:
     name: Tour the app
@@ -450,6 +454,8 @@ jobs:
                   failed.add(path.parent.name)
           if status == "recorder-failed":
               print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
+          elif status == "no-ui-paths" and data.get("gallery"):
+              print("Only webview code changed; the gallery advisory run checks it in Linux Chromium.")
           elif status == "no-ui-paths":
               print("No UI paths changed; no interaction tour was needed.")
           PY

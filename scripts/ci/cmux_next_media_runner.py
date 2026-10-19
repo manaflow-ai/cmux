@@ -22,9 +22,10 @@ runs-on only as this script's output.
 
 With --paths-file (the changed paths, read on Linux by the route job), a change
 the Mac tour would not capture takes no Mac: no UI paths, or only webview code,
-which the gallery advisory run captures in Linux Chromium (path_map.py). A
-missing or unreadable file leaves the pick as it was, so the tour never skips
-for want of the paths.
+whose look the gallery advisory run checks in Linux Chromium (path_map.py). A
+missing or unreadable file, or a path map that fails to load, leaves the pick
+as it was, so the tour never skips for want of the paths. --force-mac (the
+`media-tour-mac` label) tours on a Mac whatever changed.
 
 Rules, in order: a change with nothing to tour gets nothing; a fork head gets nothing (owned Macs run trusted code only);
 CI_PR_POOL_OWNED must be 1; the first owned pool class whose gui label has
@@ -43,20 +44,26 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cmux-next" / "media"))
-import path_map  # noqa: E402
+MEDIA = Path(__file__).resolve().parents[1] / "cmux-next" / "media"
 
 
 def scope_reason(paths: list[str] | None) -> str | None:
     """Why the change needs no Mac tour, or None when it does (or the paths are unknown)."""
     if paths is None:
         return None
-    mapping = path_map.map_paths(paths)
+    try:
+        sys.path.insert(0, str(MEDIA))
+        import path_map  # noqa: PLC0415 - a broken map must not fail the route
+        mapping = path_map.map_paths(paths)
+    except Exception as error:  # noqa: BLE001
+        print(f"path map unavailable ({error}); picking a Mac", file=sys.stderr)
+        return None
     if mapping["is_ui"]:
         return None
     if mapping["gallery"]:
-        return (f"only webview code changed ({len(mapping['gallery'])} path(s)); the gallery advisory run "
-                "captures it in Linux Chromium")
+        return (f"only webview code changed ({len(mapping['gallery'])} path(s)), which the gallery advisory "
+                "run checks in Linux Chromium on the pull request (its artifact holds any captures); add the "
+                "media-tour-mac label to tour it on a Mac")
     return "no UI paths changed"
 
 
@@ -94,8 +101,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--same-repo", required=True, choices=("true", "false"))
     parser.add_argument("--paths-file", type=Path, help="newline-delimited changed paths, when known")
+    parser.add_argument("--force-mac", action="store_true", help="tour on a Mac whatever changed")
     args = parser.parse_args(argv)
-    skip = scope_reason(read_paths(args.paths_file))
+    skip = None if args.force_mac else scope_reason(read_paths(args.paths_file))
     if skip:
         label, reason = "", skip
     else:

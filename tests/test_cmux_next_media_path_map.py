@@ -62,6 +62,15 @@ class WebviewPathTests(unittest.TestCase):
         self.assertEqual(path_map.tours_for_path("webviews/src/theme/composerStates.css"), ["glass"])
         self.assertEqual(path_map.tours_for_path("webviews/src/styles/glass.css"), ["glass"])
 
+    def test_the_native_bridge_still_tours_on_the_mac(self) -> None:
+        for path in ("webviews/src/agent-session/acpmux/native.ts",
+                     "webviews/src/agent-session/acpmux/bridgeSocket.ts",
+                     "webviews/src/comments/bridge.ts",
+                     "webviews/src/protocol/generated/messages.ts"):
+            with self.subTest(path=path):
+                self.assertNotEqual(path_map.tours_for_path(path), [])
+                self.assertEqual(path_map.map_paths([path])["gallery"], [])
+
     def test_a_native_change_beside_webview_changes_still_tours(self) -> None:
         result = path_map.map_paths([
             "webviews/src/new-tab/NewTabRows.tsx",
