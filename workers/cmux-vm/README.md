@@ -97,6 +97,21 @@ SELECT, the Worker's database role needs, applied by an operator:
 GRANT INSERT, UPDATE ON cmux_vm.api_keys TO <worker role>;
 ```
 
+## End-user access tokens (cx-b4h.23)
+
+`POST /v1/access-tokens` lets a tenant session or key with
+`access-token:create` mint a short-lived `cmux_at_...` token for one of the
+tenant's own users and VM ids. The Worker stores only the token id and claims;
+the Ed25519 key set is supplied as `CMUX_VM_ACCESS_TOKEN_KEYS` (a JSON array of
+`kid`, `privateJwk`, `publicJwk` and `active` entries). `exec`, PTY open/attach,
+and file routes accept the bearer token only for its VM ids and scopes. Lists,
+lifecycle changes and all other routes remain unavailable. `GET` lists token
+metadata and `DELETE` revokes through the tenant Durable Object deny list.
+
+Tokens with `ssh` can use `POST /v1/access-tokens/{id}/ssh` to receive a
+Freestyle delegated SSH credential; the provider identity is revoked with the
+cmux token.
+
 Migrations are applied by an operator with `psql -f migrations/<file>.sql`,
 staging branch first; the Worker never runs DDL. Deploys run only from CI,
 gated by the environment variable `CMUX_VM_DEPLOY_ENABLED`, and create or

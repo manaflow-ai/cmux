@@ -24,6 +24,7 @@ import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
+import { AccessTokensGroupDefinition } from "./access-tokens/api.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -36,7 +37,7 @@ export class Authentication extends HttpApiMiddleware.Tag<Authentication>()("cmu
     bearer: HttpApiSecurity.bearer.pipe(
       HttpApiSecurity.annotate(
         OpenApi.Description,
-        "A cmux VM API key (cmuxvm_sk_...), or a cmux session token together with the X-Cmux-Team-Id header.",
+        "A cmux VM API key (cmuxvm_sk_...), a cmux session token together with the X-Cmux-Team-Id header, or a short-lived cmux_at_... end-user token.",
       ),
     ),
   },
@@ -439,6 +440,7 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(SnapshotsGroupDefinition.middleware(Authentication))
   .add(TerminalsGroupDefinition.middleware(Authentication))
   .add(ApiKeysGroupDefinition.middleware(Authentication))
+  .add(AccessTokensGroupDefinition.middleware(Authentication))
   .add(MeshGroupDefinition.middleware(Authentication))
   // No credential: a one-time enrollment code authorizes the call (mesh M2, cx-0op.4).
   .add(MeshEnrollGroupDefinition)

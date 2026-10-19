@@ -9,10 +9,13 @@ import type { Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 
 /** The credential behind caller `C` carries scope `S`. */
-export interface KeyHasScope<C, S extends Scope> extends Proof<`KeyHasScope:${S}`, [C]> {}
+export interface KeyHasScope<C, S extends Scope> extends Proof<`KeyHasScope:${S}`, [C]> {
+  /** The verifier's Linux-user restriction, when this is an access-token proof. */
+  readonly linuxUser?: string;
+}
 
 export function keyHasScope<C, const S extends Scope>(caller: Named<C, Principal>, scope: S): KeyHasScope<C, S> | null {
   if (!caller.value.scopes.has(scope)) return null;
   const KeyHasScope = defineProof(`KeyHasScope:${scope}`);
-  return KeyHasScope.prove(caller);
+  return Object.freeze({ ...KeyHasScope.prove(caller), ...(caller.value.accessTokenLinuxUser === undefined ? {} : { linuxUser: caller.value.accessTokenLinuxUser }) });
 }

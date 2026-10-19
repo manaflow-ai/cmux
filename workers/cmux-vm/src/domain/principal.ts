@@ -9,6 +9,7 @@ import type { Scope } from "./scopes.ts";
 export type Actor =
   | { readonly kind: "session"; readonly userId: UserId }
   | { readonly kind: "api_key"; readonly keyId: ApiKeyId }
+  | { readonly kind: "access-token"; readonly tokenId: string; readonly principal: UserId }
   /** A cmux service key acting for the team its request named (cx-b4h.13). */
   | { readonly kind: "service"; readonly serviceId: string };
 
@@ -20,6 +21,9 @@ export interface Principal {
   readonly resourceAllowlist: ReadonlySet<string> | null;
   /** When the credential stops working: an API key's expiry; null for a session or a key without one. */
   readonly credentialExpiresAt: Date | null;
+  /** Access-token claims used by the brokered route gate. */
+  readonly accessTokenScopes?: ReadonlyArray<string>;
+  readonly accessTokenLinuxUser?: string;
   /**
    * Set when a device signed this request with its install key (mesh M3/M4):
    * the request runs as `actor` (the device's owner), and the audit log
@@ -48,6 +52,8 @@ export const actorRef = (actor: Actor): string => {
       return `key:${actor.keyId}`;
     case "service":
       return `service:${actor.serviceId}`;
+    case "access-token":
+      return `token:${actor.tokenId}`;
   }
 };
 

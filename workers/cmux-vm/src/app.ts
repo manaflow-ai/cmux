@@ -32,6 +32,9 @@ import type { UpstreamMesh } from "./upstream/mesh.ts";
 import type { MembershipCache } from "./auth/membership-cache.ts";
 import type { WebhookDeliveryStore } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
+import { accessTokensHandlers } from "./handlers/access-tokens.ts";
+import type { AccessTokenStore, AccessTokens } from "./access-tokens/tokens.ts";
+import type { UpstreamAccessTokens } from "./upstream/access-tokens.ts";
 
 export type Services =
   | OwnershipStore
@@ -45,7 +48,11 @@ export type Services =
   | TenantPolicy
   | Entitlements
   | S3aServices
-  | MeshServices;
+  | MeshServices
+  | AccessTokenServices;
+
+type AccessTokenServices = AccessTokenStore | AccessTokens | UpstreamAccessTokens;
+  
 
 /** Mesh experiment (cx-0op); the membership cache and webhook deliveries are M4 (cx-0op.6, cx-0op.7). */
 type MeshServices = MeshStore | UpstreamMesh | MeshConfig | MembershipCache | WebhookDeliveryStore;
@@ -87,7 +94,7 @@ export interface WebHandlerOptions {
   readonly stackWebhookSecret?: Redacted.Redacted<string>;
 }
 
-export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHandlerOptions = {}) => {
+export const makeWebHandler = (services: Layer.Layer<Services | unknown>, options: WebHandlerOptions = {}) => {
   const authenticated = <A, E, R>(group: Layer.Layer<A, E, R>) => group.pipe(Layer.provide(authenticationLayer));
   const api = HttpApiBuilder.api(CmuxVmApi).pipe(
     Layer.provide(healthHandlers),
@@ -97,6 +104,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(snapshotsHandlers)),
     Layer.provide(authenticated(terminalsHandlers)),
     Layer.provide(authenticated(apiKeysHandlers)),
+    Layer.provide(authenticated(accessTokensHandlers)),
     Layer.provide(authenticated(meshHandlers)),
     // The one-time enrollment code is the credential (mesh M2, cx-0op.4).
     Layer.provide(meshEnrollHandlers),

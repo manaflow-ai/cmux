@@ -263,7 +263,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     deleteSnapshot: (_snapshot, { owns }) =>
       Effect.flatMap(idOf(owns), (id) => deleteById("deleteSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`)),
 
-    exec: (_vm, { owns }, spec) =>
+    exec: (_vm, { owns, scope }, spec) =>
       Effect.flatMap(idOf(owns), (id) => send("execVm", vmPath(id, "/exec-await"), {
         method: "POST",
         json: {
@@ -271,7 +271,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
           ...(spec.env === undefined ? {} : { env: spec.env }),
           ...(spec.stdinBase64 === undefined ? {} : { stdin: spec.stdinBase64 }),
           ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
-          ...(spec.linuxUser === undefined ? {} : { linuxUser: spec.linuxUser }),
+          ...(scope.linuxUser === undefined && spec.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser ?? spec.linuxUser }),
         },
         timeoutMs: (spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) + 30_000,
       }).pipe(

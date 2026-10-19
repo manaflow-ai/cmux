@@ -13,7 +13,7 @@ import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
-import { memoryLimitsLayer } from "../../src/limits/service.ts";
+import { memoryLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
@@ -24,6 +24,8 @@ import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
+import { AccessTokenStore, AccessTokens, makeAccessTokenService, type AccessTokenRecord } from "../../src/access-tokens/tokens.ts";
+import { UpstreamAccessTokens } from "../../src/upstream/access-tokens.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -76,6 +78,7 @@ interface StoredKey extends ApiKeyRecord {
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const keys: StoredKey[] = [];
+  const accessTokens: AccessTokenRecord[] = [];
   /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
   const serviceKeys: Array<{
     readonly id: string;
@@ -121,6 +124,9 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
   const getKey = createLocalJWKSet({ keys: [jwk] });
+  const { publicKey: accessPublicKey, privateKey: accessPrivateKey } = await generateKeyPair("Ed25519");
+  const accessPublicJwk = { ...(await exportJWK(accessPublicKey)), alg: "EdDSA", kid: "access-test" };
+  const accessPrivateJwk = { ...(await exportJWK(accessPrivateKey)), alg: "EdDSA", kid: "access-test" };
 
   const ownership = Layer.succeed(OwnershipStore, {
     find: (tenantId, kind, cmuxId) =>
@@ -193,6 +199,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstreamFetch = async (request: Request): Promise<Response> =>
     (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
+  const limits = memoryLimitsLayer();
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
@@ -212,7 +219,33 @@ export async function makeHarness(options: HarnessOptions = {}) {
     auditStore,
     policy,
     entitlements,
-    memoryLimitsLayer(),
+    limits,
+    Layer.succeed(AccessTokenStore, {
+      insert: (record) => Effect.sync(() => void accessTokens.push(record)),
+      find: (tenantId, id) => Effect.sync(() => accessTokens.find((record) => record.tenantId === tenantId && record.id === id) ?? null),
+      list: (tenantId, limit) => Effect.sync(() => accessTokens.filter((record) => record.tenantId === tenantId).slice(-limit).reverse()),
+      revoke: (tenantId, id, at) => Effect.sync(() => {
+        const record = accessTokens.find((candidate) => candidate.tenantId === tenantId && candidate.id === id);
+        if (record === undefined) return null;
+        if (record.revokedAt === null) {
+          const next = { ...record, revokedAt: at };
+          accessTokens[accessTokens.indexOf(record)] = next;
+          return next;
+        }
+        return record;
+      }),
+      setProviderIdentity: (tenantId, id, identityId) => Effect.sync(() => {
+        const index = accessTokens.findIndex((record) => record.tenantId === tenantId && record.id === id);
+        if (index >= 0) accessTokens[index] = { ...accessTokens[index], providerIdentityId: identityId };
+      }),
+    }),
+    Layer.effect(AccessTokens, Effect.map(TenantLimits, (tenantLimits) => makeAccessTokenService([
+      { kid: "access-test", privateJwk: accessPrivateJwk, publicJwk: accessPublicJwk, active: true },
+    ], tenantLimits))),
+    Layer.succeed(UpstreamAccessTokens, {
+      mintSsh: (_vm, _proofs, linuxUser) => Effect.succeed({ host: "beta-ssh.freestyle.sh", user: `vm+${linuxUser}`, password: "fake-provider-token", identityId: `identity-${crypto.randomUUID()}`, tokenId: "fake-provider-token" }),
+      revokeIdentity: (_identityId) => Effect.void,
+    }),
     Layer.succeed(
       UpstreamClient,
       makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),

@@ -7,6 +7,7 @@ import { HttpServerRequest } from "@effect/platform";
 import { name } from "@gdp-ts/core";
 import { Clock, Effect, Layer, Option, Redacted } from "effect";
 import { Authentication } from "../api.ts";
+import { ACCESS_TOKEN_PREFIX, AccessTokens } from "../access-tokens/tokens.ts";
 import { ApiKeyStore } from "../db/stores.ts";
 import type { Principal } from "../domain/principal.ts";
 import { SESSION_SCOPES, scopeSetOf } from "../domain/scopes.ts";
@@ -33,6 +34,7 @@ export const authenticationLayer = Layer.effect(
     const membership = yield* TeamMembership;
     const apiKeys = yield* ApiKeyStore;
     const serviceKeys = yield* ServiceKeys;
+    const accessTokens = yield* Effect.serviceOption(AccessTokens);
 
     /** A service key acts only for the team its request names, and only when its team list allows that team. */
     const fromServiceKey = (
@@ -107,10 +109,35 @@ export const authenticationLayer = Layer.effect(
         return principal;
       });
 
+    const fromAccessToken = (token: string): Effect.Effect<Principal, Unauthorized | ServiceUnavailable> => {
+      const now = new Date(Date.now());
+      if (Option.isNone(accessTokens)) return Effect.fail(unavailable());
+      return accessTokens.value.verify(Redacted.make(token), now).pipe(
+        Effect.map((verified) => ({
+          tenantId: verified.tenantId,
+          actor: { kind: "access-token" as const, tokenId: verified.id, principal: verified.principal },
+          scopes: scopeSetOf([
+            ...(verified.scopes.includes("exec") ? ["vm:exec" as const] : []),
+            ...(verified.scopes.includes("pty") ? ["vm:terminal" as const] : []),
+            ...(verified.scopes.includes("files:read") || verified.scopes.includes("files:write") ? ["vm:files" as const] : []),
+          ]),
+          resourceAllowlist: new Set(verified.vmIds),
+          credentialExpiresAt: verified.expiresAt,
+          accessTokenScopes: verified.scopes,
+          accessTokenLinuxUser: verified.linuxUser,
+        })),
+        Effect.catchTags({
+          AccessTokenRejected: () => Effect.fail(unauthorized()),
+          AccessTokenUnavailable: () => Effect.fail(unavailable()),
+        }),
+      );
+    };
+
     return Authentication.of({
       bearer: (token) => {
         const raw = Redacted.value(token);
         if (raw.length === 0) return Effect.fail(unauthorized());
+        if (raw.startsWith(ACCESS_TOKEN_PREFIX)) return fromAccessToken(raw);
         return raw.startsWith(API_KEY_PREFIX) ? fromApiKey(raw) : fromSession(token);
       },
     });

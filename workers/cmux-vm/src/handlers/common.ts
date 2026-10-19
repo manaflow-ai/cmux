@@ -7,11 +7,12 @@
  * caller's own tenant), then ownership (another tenant's resource is 404).
  */
 import { name, type Named } from "@gdp-ts/core";
+import { HttpServerRequest } from "@effect/platform";
 import { Clock, Effect, Option } from "effect";
 import { AuditStore } from "../db/stores.ts";
 import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
-import { missingScope, QuotaExceeded, unavailable, vmNotFound, type ServiceUnavailable } from "../errors.ts";
+import { Forbidden, missingScope, QuotaExceeded, unavailable, vmNotFound, type ServiceUnavailable } from "../errors.ts";
 import { parseVmId, type VmId } from "../lib/ids.ts";
 import type { RateClass } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
@@ -84,6 +85,20 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
 ) =>
   Effect.gen(function* () {
     const principal = yield* CurrentPrincipal;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    if (principal.actor.kind === "access-token") {
+      const scopes = new Set(principal.accessTokenScopes ?? []);
+      const path = request.url;
+      if (S === "vm:exec" && !scopes.has("exec")) return yield* Effect.fail(new Forbidden({ message: "This access token lacks the exec scope" }));
+      const terminalAllowed = path.endsWith("/terminal") || (request.method === "GET" && /\/terminals\/[^/]+$/u.test(path));
+      if (S === "vm:terminal" && (!scopes.has("pty") || !terminalAllowed)) {
+        return yield* Effect.fail(new Forbidden({ message: "This access token may open or attach PTY sessions only" }));
+      }
+      if (S === "vm:files") {
+        const needed = request.method === "PUT" ? "files:write" : "files:read";
+        if (!scopes.has(needed)) return yield* Effect.fail(new Forbidden({ message: `This access token lacks the ${needed} scope` }));
+      }
+    }
     return yield* name(principal, rawId, (caller, raw) =>
       Effect.gen(function* () {
         const granted = keyHasScope(caller, scope);

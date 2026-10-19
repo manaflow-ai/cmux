@@ -204,11 +204,31 @@ export class TenantLedger {
     if (held !== undefined && held.holder === holder) await this.storage.delete(storageKey);
   }
 
+  async revokeAccessToken(tokenId: string, expiresMs: number, nowMs: number): Promise<void> {
+    if (expiresMs > nowMs) await this.storage.put(`access-revoke:${tokenId}`, { expiresMs });
+  }
+
+  async isAccessTokenRevoked(tokenId: string, nowMs: number): Promise<boolean> {
+    const key = `access-revoke:${tokenId}`;
+    const value = checked(Schema.Struct({ expiresMs: Schema.Number }), await this.storage.get(key));
+    if (value === undefined) return false;
+    if (value.expiresMs <= nowMs) {
+      await this.storage.delete(key);
+      return false;
+    }
+    return true;
+  }
+
   /** Drops a bounded number of expired idempotency records. */
   private async sweep(nowMs: number): Promise<void> {
     const records = await this.storage.list({ prefix: "idem:", limit: 64 });
     for (const [key, value] of records) {
       const record = checked(isRecord, value);
+      if (record === undefined || record.expiresMs <= nowMs) await this.storage.delete(key);
+    }
+    const revocations = await this.storage.list({ prefix: "access-revoke:", limit: 64 });
+    for (const [key, value] of revocations) {
+      const record = checked(Schema.Struct({ expiresMs: Schema.Number }), value);
       if (record === undefined || record.expiresMs <= nowMs) await this.storage.delete(key);
     }
   }

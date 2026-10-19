@@ -54,4 +54,12 @@ export class TenantLimitsObject extends DurableObject {
   unlock(key: string, holder: string): Promise<void> {
     return this.ledger.unlock(key, holder);
   }
+
+  revokeAccessToken(tokenId: string, expiresMs: number, nowMs: number): Promise<void> {
+    return this.ledger.revokeAccessToken(tokenId, expiresMs, nowMs);
+  }
+
+  isAccessTokenRevoked(tokenId: string, nowMs: number): Promise<boolean> {
+    return this.ledger.isAccessTokenRevoked(tokenId, nowMs);
+  }
 }

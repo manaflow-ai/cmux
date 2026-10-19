@@ -31,6 +31,8 @@ export interface TenantLimitsService {
   readonly lock: (tenantId: TenantId, key: string, holder: string, leaseMs: number) => Effect.Effect<boolean, LimitsUnavailable>;
   /** Releases the lock if `holder` holds it; best effort (the lease ends it otherwise). */
   readonly unlock: (tenantId: TenantId, key: string, holder: string) => Effect.Effect<void>;
+  readonly revokeAccessToken: (tenantId: TenantId, tokenId: string, expiresMs: number) => Effect.Effect<void, LimitsUnavailable>;
+  readonly isAccessTokenRevoked: (tenantId: TenantId, tokenId: string, nowMs: number) => Effect.Effect<boolean, LimitsUnavailable>;
 }
 
 export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimits, TenantLimitsService>() {}
@@ -45,6 +47,8 @@ interface LedgerHandle {
   abandon(key: string, nowMs: number): Promise<void>;
   lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean>;
   unlock(key: string, holder: string): Promise<void>;
+  revokeAccessToken(tokenId: string, expiresMs: number, nowMs: number): Promise<void>;
+  isAccessTokenRevoked(tokenId: string, nowMs: number): Promise<boolean>;
 }
 
 const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLimitsService => {
@@ -64,6 +68,8 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     abandon: (tenantId, key) => call((ledger, now) => ledger.abandon(key, now))(tenantId).pipe(Effect.ignore),
     lock: (tenantId, key, holder, leaseMs) => call((ledger, now) => ledger.lock(key, holder, leaseMs, now))(tenantId),
     unlock: (tenantId, key, holder) => call((ledger) => ledger.unlock(key, holder))(tenantId).pipe(Effect.ignore),
+    revokeAccessToken: (tenantId, tokenId, expiresMs) => call((ledger, now) => ledger.revokeAccessToken(tokenId, expiresMs, now))(tenantId),
+    isAccessTokenRevoked: (tenantId, tokenId, nowMs) => call((ledger) => ledger.isAccessTokenRevoked(tokenId, nowMs))(tenantId),
   };
 };
 
@@ -97,6 +103,8 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         unlock: async (key, holder) => {
           await stub.unlock(key, holder);
         },
+        revokeAccessToken: (tokenId, expiresMs, nowMs) => stub.revokeAccessToken(tokenId, expiresMs, nowMs),
+        isAccessTokenRevoked: (tokenId, nowMs) => stub.isAccessTokenRevoked(tokenId, nowMs),
       };
     }),
   );

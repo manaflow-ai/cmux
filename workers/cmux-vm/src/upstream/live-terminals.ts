@@ -24,22 +24,22 @@ const decodeAs =
 export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminalsService {
   const http = makeUpstreamHttp(config);
   return {
-    openTerminal: (_vm, { owns }, options) =>
+    openTerminal: (_vm, { owns, scope }, options) =>
       http.upgrade(
         "openTerminal",
         `/v5/vms/${proofSegment(owns)}/pty${query([
           ["exec", options.command],
           ["cols", options.cols],
           ["rows", options.rows],
-          ["linuxUser", options.user],
+          ["linuxUser", scope.linuxUser ?? options.user],
           ["slug", options.name],
           ["replaceOnExit", options.restartOnExit],
         ])}`,
       ),
-    attachTerminal: (_vm, { owns }, session, user) =>
+    attachTerminal: (_vm, { owns, scope }, session, user) =>
       http.upgrade(
         "attachTerminal",
-        `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", user]])}`,
+        `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", scope.linuxUser ?? user]])}`,
       ),
     listTerminals: (_vm, { owns }, user) =>
       http

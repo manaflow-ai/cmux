@@ -10,7 +10,7 @@ import { checkSchema, makeSchemaGate } from "./db/schema-check.ts";
 import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
-import { durableObjectLimitsLayer } from "./limits/service.ts";
+import { durableObjectLimitsLayer, TenantLimits } from "./limits/service.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer } from "./policy.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
 import { upstreamLayer } from "./upstream/live.ts";
@@ -23,6 +23,9 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
+import { sqlAccessTokenStoreLayer } from "./access-tokens/store.ts";
+import { AccessTokens, makeAccessTokenService, parseAccessTokenKeys } from "./access-tokens/tokens.ts";
+import { upstreamAccessTokensLayer } from "./upstream/live-access-tokens.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -51,6 +54,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
+  /** JSON Ed25519 signing keys for end-user access tokens. */
+  readonly CMUX_VM_ACCESS_TOKEN_KEYS?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -63,7 +68,7 @@ const liveServices = (env: Env) => {
   });
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
-    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
+    Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer, sqlAccessTokenStoreLayer).pipe(
       Layer.provide(sql),
     ),
     policy,
@@ -72,6 +77,8 @@ const liveServices = (env: Env) => {
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
     upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    upstreamAccessTokensLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    Layer.effect(AccessTokens, Effect.map(TenantLimits, (limits) => makeAccessTokenService(parseAccessTokenKeys(env.CMUX_VM_ACCESS_TOKEN_KEYS), limits))),
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
     Layer.provideMerge(
       stackLayers({

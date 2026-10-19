@@ -25,6 +25,7 @@ export const SCOPES = [
   "acl:read",
   "acl:write",
   "admin",
+  "access-token:create",
 ] as const;
 
 export const Scope = Schema.Literal(...SCOPES);
