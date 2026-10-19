@@ -52,7 +52,7 @@ describe("startedSessions", () => {
 });
 
 describe("startedPullRequests", () => {
-  test("counts each pull request once, recorded URL or branch PR, toned by the branch PR", () => {
+  test("counts each pull request once, recorded URL or branch PR, toned and named by the branch PR", () => {
     const entry = child("c", {
       pullRequests: [
         "https://github.com/o/r/pull/7",
@@ -61,21 +61,24 @@ describe("startedPullRequests", () => {
       ],
       pullRequest: { number: 8, title: "x", state: "open", checks: "passing" },
     });
-    expect(startedPullRequests(entry)).toEqual({ count: 2, tone: "ready" });
+    expect(startedPullRequests(entry)).toEqual({ count: 2, tone: "ready", number: 8, repo: "r" });
   });
 
   test("failing checks, merged, and URL-only badges", () => {
     expect(
       startedPullRequests(child("f", { pullRequest: { number: 1, title: "x", state: "open", checks: "failing" } })),
-    ).toEqual({ count: 1, tone: "failing" });
+    ).toEqual({ count: 1, tone: "failing", number: 1 });
     expect(startedPullRequests(child("m", { pullRequest: { number: 1, title: "x", state: "merged" } }))).toEqual({
       count: 1,
       tone: "merged",
+      number: 1,
     });
-    expect(startedPullRequests(child("u", { pullRequests: ["https://github.com/o/r/pull/3"] }))).toEqual({
-      count: 1,
-      tone: "unknown",
-    });
+    // Without a branch PR the newest recorded URL names the badge.
+    expect(
+      startedPullRequests(
+        child("u", { pullRequests: ["https://github.com/o/r/pull/3", "https://github.com/o/cmux/pull/22092"] }),
+      ),
+    ).toEqual({ count: 2, tone: "unknown", number: 22092, repo: "cmux" });
     expect(startedPullRequests(child("none"))).toBeUndefined();
   });
 });
@@ -217,7 +220,9 @@ describe("name chips", () => {
 });
 
 describe("StartedSessionCard", () => {
-  test("draws the title, what the chat does now, its pull request badge and state", () => {
+  // Claude Code's pull request rows (its Changes panel and PR list): the title, then a dim line
+  // naming `repo #N` with the PR's status in its colour at the end.
+  test("draws the title over what the chat does now, its pull request and that PR's status", () => {
     const html = renderToStaticMarkup(
       <StartedSessionCard
         child={{
@@ -225,7 +230,7 @@ describe("StartedSessionCard", () => {
           title: "Switch gh-merge-green to merge-freeze issues",
           state: "running",
           activity: "`ss -ltnp`",
-          pullRequests: { count: 2, tone: "ready" },
+          pullRequests: { count: 2, tone: "ready", number: 22092, repo: "cmux" },
         }}
         onOpen={() => undefined}
       />,
@@ -233,28 +238,46 @@ describe("StartedSessionCard", () => {
     expect(html).toContain("Switch gh-merge-green to merge-freeze issues");
     expect(html).toContain(">ss -ltnp<");
     expect(html).toContain('data-state="running"');
-    expect(html).toContain('data-tone="ready"');
-    expect(html).toContain("2 Ready");
+    expect(html).toMatch(/class="acpmux-started-line"[^]*>cmux #22092<[^]*and 1 more/);
+    expect(html).toMatch(/class="acpmux-started-status" data-tone="ready"[^>]*>[^]*>Ready</);
   });
 
-  test("an idle chat has no second line", () => {
+  test("an idle chat has no second line; with a pull request the line names it", () => {
     const html = renderToStaticMarkup(
       <StartedSessionCard child={{ sessionId: "s", title: "Done task", state: "idle" }} onOpen={() => undefined} />,
     );
     expect(html).not.toContain("acpmux-started-line");
+    const merged = renderToStaticMarkup(
+      <StartedSessionCard
+        child={{
+          sessionId: "s",
+          title: "Done task",
+          state: "idle",
+          pullRequests: { count: 1, tone: "merged", number: 4 },
+        }}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(merged).toContain(">#4<");
+    expect(merged).not.toContain("more");
+    expect(merged).toMatch(/data-tone="merged"[^]*>Merged</);
   });
 
-  test("a failed chat says so, with its failing pull request; one waiting on the person says it needs input", () => {
+  test("a failed chat says so, with its failing checks; one waiting on the person says it needs input", () => {
     const failed = renderToStaticMarkup(
       <StartedSessionCard
-        child={{ sessionId: "s", title: "Broken task", state: "failed", pullRequests: { count: 1, tone: "failing" } }}
+        child={{
+          sessionId: "s",
+          title: "Broken task",
+          state: "failed",
+          pullRequests: { count: 1, tone: "failing", number: 9, repo: "cmux" },
+        }}
         onOpen={() => undefined}
       />,
     );
     expect(failed).toContain('data-state="failed"');
     expect(failed).toContain(">Failed<");
-    expect(failed).toContain('data-tone="failing"');
-    expect(failed).toContain("1 Failing");
+    expect(failed).toMatch(/data-tone="failing"[^]*>Checks failed</);
     const waiting = renderToStaticMarkup(
       <StartedSessionCard
         child={{ sessionId: "s", title: "Asking task", state: "waiting" }}
@@ -263,7 +286,23 @@ describe("StartedSessionCard", () => {
     );
     expect(waiting).toContain('data-state="waiting"');
     expect(waiting).toContain(">Needs input<");
-    expect(waiting).not.toContain("acpmux-started-prs");
+    expect(waiting).not.toContain("acpmux-started-status");
+  });
+
+  test("a pull request of unknown state names no status", () => {
+    const html = renderToStaticMarkup(
+      <StartedSessionCard
+        child={{
+          sessionId: "s",
+          title: "URL task",
+          state: "idle",
+          pullRequests: { count: 1, tone: "unknown", number: 3 },
+        }}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(html).toContain(">#3<");
+    expect(html).not.toContain("acpmux-started-status");
   });
 
   test("started session cards are off by default", () => {
