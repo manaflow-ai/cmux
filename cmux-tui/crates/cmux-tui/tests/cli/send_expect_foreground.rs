@@ -132,3 +132,32 @@ fn expect_foreground_needs_a_live_surface() {
     );
     assert_eq!(refused["ok"], false, "expect_foreground by terminal_id was accepted: {refused}");
 }
+
+#[test]
+fn a_reply_is_refused_when_the_foreground_cannot_be_read() {
+    let server = HeadlessServer::start("send-expect-foreground-unreadable");
+    let (_, surface) = terminal(&server);
+    send(&server, surface, "cat\n");
+    let program = wait_for_foreground(&server, surface, "cat", |name| name.ends_with("cat"));
+    // The terminal's child exits altogether: there is no foreground left to read.
+    send(&server, surface, "\u{4}");
+    wait_for_foreground(&server, surface, "the shell", |name| !name.ends_with("cat"));
+    send(&server, surface, "exit\n");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while raw_request(&server, serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}))
+        ["data"]["foreground_executable"]
+        .is_string()
+    {
+        assert!(Instant::now() < deadline, "the shell never exited");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let refused = raw_request(
+        &server,
+        serde_json::json!({
+            "id": 4, "cmd": "send", "surface": surface, "text": "late_reply\r",
+            "expect_foreground": program,
+        }),
+    );
+    assert_eq!(refused["ok"], false, "a reply with no foreground to check was written: {refused}");
+}
