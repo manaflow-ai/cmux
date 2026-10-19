@@ -39,7 +39,7 @@ export interface TenantLimitsService {
   readonly rate: (tenantId: TenantId, rateClass: RateClass, rule: RateRule) => Effect.Effect<RateDecision, LimitsUnavailable>;
   readonly reserve: (tenantId: TenantId, kind: string, limit: number, liveCount: number) => Effect.Effect<ReserveDecision, LimitsUnavailable>;
   readonly release: (tenantId: TenantId, reservationId: string) => Effect.Effect<void>;
-  readonly listGenerated: (tenantId: TenantId, scope: string, cursor: string | undefined, limit: number) => Effect.Effect<GeneratedCreationPage, LimitsUnavailable>;
+  readonly listGenerated: (tenantId: TenantId, scope: string, cursor: string | undefined, limit: number, pending?: boolean) => Effect.Effect<GeneratedCreationPage, LimitsUnavailable>;
   readonly begin: (tenantId: TenantId, key: string, fingerprint: string, clientFingerprint?: string, generated?: GeneratedCreation) => Effect.Effect<IdempotencyBegin, LimitsUnavailable>;
   readonly advance: (tenantId: TenantId, key: string, progress: IdempotencyProgress) => Effect.Effect<void, LimitsUnavailable>;
   readonly abandon: (tenantId: TenantId, key: string) => Effect.Effect<void>;
@@ -66,7 +66,7 @@ interface LedgerHandle {
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision>;
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
   release(reservationId: string): Promise<void>;
-  listGenerated(scope: string, cursor: string | undefined, limit: number): Promise<GeneratedCreationPage>;
+  listGenerated(scope: string, cursor: string | undefined, limit: number, pending?: boolean): Promise<GeneratedCreationPage>;
   begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin>;
   advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<void>;
   abandon(key: string, nowMs: number): Promise<void>;
@@ -96,7 +96,7 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
       call((ledger, now) => ledger.reserve(kind, limit, liveCount, now, crypto.randomUUID()))(tenantId),
     // Releases are best effort: an unreleased reservation lapses on its own.
     release: (tenantId, reservationId) => call((ledger) => ledger.release(reservationId))(tenantId).pipe(Effect.ignore),
-    listGenerated: (tenantId, scope, cursor, limit) => call((ledger) => ledger.listGenerated(scope, cursor, limit))(tenantId),
+    listGenerated: (tenantId, scope, cursor, limit, pending) => call((ledger) => ledger.listGenerated(scope, cursor, limit, pending))(tenantId),
     begin: (tenantId, key, fingerprint, clientFingerprint, generated) => call((ledger, now) => ledger.begin(key, fingerprint, now, clientFingerprint, generated))(tenantId),
     advance: (tenantId, key, progress) => call((ledger, now) => ledger.advance(key, progress, now))(tenantId),
     // An unabandoned claim lapses after its lease.
@@ -137,7 +137,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         release: async (reservationId) => {
           await stub.release(reservationId);
         },
-        listGenerated: (scope, cursor, limit) => decoded(GeneratedCreationPage)(stub.listGenerated(scope, cursor, limit)),
+        listGenerated: (scope, cursor, limit, pending) => decoded(GeneratedCreationPage)(stub.listGenerated(scope, cursor, limit, pending)),
         begin: (key, fingerprint, nowMs, clientFingerprint, generated) => decoded(IdempotencyBegin)(stub.begin(key, fingerprint, nowMs, clientFingerprint, generated)),
         advance: async (key, progress, nowMs) => {
           const confirmed = await decoded(Schema.Boolean)(stub.advance(key, progress, nowMs));

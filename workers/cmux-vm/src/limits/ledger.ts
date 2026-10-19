@@ -8,6 +8,7 @@
  * keep request/provider digests, public creation intent and public cmux ids.
  */
 import { SnapshotCapture, SnapshotKeyFence, snapshotCapture, type SnapshotCaptureCommand, type SnapshotCaptureResult } from "./snapshot-capture.ts";
+import { pendingCreations, VmReservationLink } from "./pending-creations.ts";
 import { Schema } from "effect";
 import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { VmCreationReceipt } from "../api/creations.ts";
@@ -105,7 +106,7 @@ export const IdempotencyRecord = Schema.Struct({
 
 export type IdempotencyRecord = typeof IdempotencyRecord.Type;
 
-const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number, retained: Schema.optional(Schema.Boolean) });
+const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number, retained: Schema.optional(Schema.Boolean), vmCreation: Schema.optional(VmReservationLink) });
 
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
@@ -362,7 +363,7 @@ export class TenantLedger {
       if (progress.phase === "creating" || progress.phase === "capturing") {
         const held = checked(isReservation, await storage.get(`reserve:${progress.reservationId}`));
         if (!held || held.kind !== "vm" || (held.retained !== true && held.expiresMs <= nowMs)) throw new Error("allocation reservation expired");
-        await storage.put(`reserve:${progress.reservationId}`, { ...held, retained: true });
+        await storage.put(`reserve:${progress.reservationId}`, { ...held, retained: true, vmCreation: { key, vmId: progress.vmId } });
       }
       if (record.generated !== undefined && (progress.phase === "creating" || progress.phase === "capturing" || progress.phase === "snapshotted")) {
         await storage.put(`${generatedPrefix(record.generated.scope)}${record.generated.cursor}`, { key, generated: record.generated });
@@ -411,7 +412,8 @@ export class TenantLedger {
   }
 
   /** Bounded, read-only scan. Cursors are domain-separated digests of random server handles. */
-  async listGenerated(scope: string, cursor: string | undefined, limit: number): Promise<GeneratedCreationPage> {
+  async listGenerated(scope: string, cursor: string | undefined, limit: number, pending = false): Promise<GeneratedCreationPage> {
+    if (pending) return pendingCreations(this.storage, scope, cursor, limit, readRecord);
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (cursor !== undefined && !/^[a-f0-9]{64}$/.test(cursor))) throw new Error("invalid creation page");
     const prefix = generatedPrefix(scope);
     const rows = [...await this.storage.list({ prefix, ...(cursor === undefined ? {} : { startAfter: prefix + cursor }), limit: limit + 1 })];

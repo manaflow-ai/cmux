@@ -30,9 +30,11 @@ export class VmCreationListItem extends VmCreationStatus.extend<VmCreationListIt
 }) {}
 export class VmCreationList extends Schema.Class<VmCreationList>("VmCreationList")({
   items: Schema.Array(VmCreationListItem), nextCursor: Schema.NullOr(Schema.String),
+  pendingIndex: Schema.optional(Schema.Literal("ready", "building", "unavailable")).annotations({ description: "Present for state=pending. Building needs the next cursor; unavailable means some older retained slots have no recoverable journal. Never treat either as complete history." }),
 }) {}
 export const VmCreationListQuery = Schema.Struct({
-  cursor: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))),
+  state: Schema.optional(Schema.Literal("pending")),
+  cursor: Schema.optional(Schema.String.pipe(Schema.pattern(/^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$/))),
   limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
 });
 

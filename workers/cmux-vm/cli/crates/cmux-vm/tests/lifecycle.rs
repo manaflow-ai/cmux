@@ -6,6 +6,81 @@ use serde_json::{Value, json};
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+#[tokio::test]
+async fn pending_history_advances_bounded_index_work_without_polling_or_exposing_it_as_empty() {
+    let server = MockServer::start().await;
+    let cursor = format!("i1_{}", "a".repeat(32));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(|request: &wiremock::Request| {
+            request.url.query_pairs().all(|(key, _)| key != "cursor")
+        })
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"items":[], "nextCursor":cursor, "pendingIndex":"building"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let receipt = json!({"items":[], "nextCursor":null, "pendingIndex":"ready"});
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .and(query_param("cursor", cursor.as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "creation", "list", "--pending"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out), receipt);
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn pending_history_refuses_an_older_api_that_ignored_the_filter() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"items":[], "nextCursor":null})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["creation", "list", "--pending"]).await;
+    assert_eq!(out.code, exit::UNEXPECTED);
+    assert!(out.stderr.contains("pending history"));
+    assert!(!out.stdout.contains("no creations"));
+}
+
+#[tokio::test]
+async fn pending_history_reports_incomplete_legacy_work_and_preserves_the_view_in_its_cursor_hint()
+{
+    let server = MockServer::start().await;
+    let cursor = format!("p1_001fffffffffffff-{}", "b".repeat(64));
+    Mock::given(method("GET"))
+        .and(path("/v1/vm-creations"))
+        .and(query_param("state", "pending"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({"items":[], "nextCursor":cursor, "pendingIndex":"unavailable"}),
+            ),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["creation", "list", "--pending"]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains("pending history is incomplete"));
+    assert!(
+        out.stdout
+            .contains(&format!("creation list --pending --cursor {cursor}"))
+    );
+}
+
 const VM_ID: &str = "vm_0123456789abcdefghjkmnpqrs";
 const KEY: &str = "cmuxvm_sk_test";
 

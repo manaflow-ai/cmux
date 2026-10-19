@@ -15,6 +15,7 @@ export const GeneratedCreation = Schema.Struct({
   sourceId: Schema.optional(VmId),
 });
 export type GeneratedCreation = typeof GeneratedCreation.Type;
-export const GeneratedCreationPage = Schema.Struct({ items: Schema.Array(GeneratedCreation), nextCursor: Schema.NullOr(Schema.String) });
+export const GeneratedCreationPage = Schema.Struct({ items: Schema.Array(GeneratedCreation), nextCursor: Schema.NullOr(Schema.String),
+  pendingIndex: Schema.optional(Schema.Literal("ready", "building", "unavailable")) });
 export type GeneratedCreationPage = typeof GeneratedCreationPage.Type;
 export const creationDiscoveryScope = (principal: Principal) => principal.actor.kind === "service" ? actorRef(principal.actor) : "tenant";

@@ -59,7 +59,7 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.release(reservationId);
   }
 
-  listGenerated(scope: string, cursor: string | undefined, limit: number): Promise<GeneratedCreationPage> { return this.ledger.listGenerated(scope, cursor, limit); }
+  listGenerated(scope: string, cursor: string | undefined, limit: number, pending?: boolean): Promise<GeneratedCreationPage> { return this.ledger.listGenerated(scope, cursor, limit, pending); }
 
   begin(key: string, fingerprint: string, nowMs: number, clientFingerprint?: string, generated?: GeneratedCreation): Promise<IdempotencyBegin> {
     return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint, generated);

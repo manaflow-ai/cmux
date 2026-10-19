@@ -1888,15 +1888,26 @@
             "description": "a string at most 128 character(s) long"
           },
           {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending"
+              ]
+            },
+            "required": false
+          },
+          {
             "name": "cursor",
             "in": "query",
             "schema": {
               "type": "string",
-              "description": "a string matching the pattern ^[a-f0-9]{64}$",
-              "pattern": "^[a-f0-9]{64}$"
+              "description": "a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$",
+              "pattern": "^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$"
             },
             "required": false,
-            "description": "a string matching the pattern ^[a-f0-9]{64}$"
+            "description": "a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$"
           },
           {
             "name": "limit",
@@ -8775,6 +8786,15 @@
                 "type": "null"
               }
             ]
+          },
+          "pendingIndex": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "building",
+              "unavailable"
+            ],
+            "description": "Present for state=pending. Building needs the next cursor; unavailable means some older retained slots have no recoverable journal. Never treat either as complete history."
           }
         },
         "additionalProperties": false

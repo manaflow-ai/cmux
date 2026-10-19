@@ -1410,6 +1410,11 @@ export interface components {
         VmCreationList: {
             items: components["schemas"]["VmCreationListItem"][];
             nextCursor: string | null;
+            /**
+             * @description Present for state=pending. Building needs the next cursor; unavailable means some older retained slots have no recoverable journal. Never treat either as complete history.
+             * @enum {string}
+             */
+            pendingIndex?: "ready" | "building" | "unavailable";
         };
         VmCreationListItem: {
             /** @enum {string} */
@@ -3184,7 +3189,8 @@ export interface operations {
     "vmCreations.listVmCreations": {
         parameters: {
             query?: {
-                /** @description a string matching the pattern ^[a-f0-9]{64}$ */
+                state?: "pending";
+                /** @description a string matching the pattern ^(?:[a-f0-9]{64}|p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32})$ */
                 cursor?: string;
                 /** @description a string to be decoded into a number */
                 limit?: string;
