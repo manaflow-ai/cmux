@@ -6,7 +6,9 @@
 #   2. its cmux-next.yml push run has a successful "cmux-next Release compile
 #      (Xcode 26)" job (main's promote job checks this again), and
 #   3. its generated page strings are fresh (gen-strings --check, on the commit
-#      requested; a stale one is passed over for an older green one).
+#      requested; a stale one is passed over for an older green one). Since
+#      #21946 the tables are build output: a commit that no longer tracks them
+#      passes when they generate (no translation missing).
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
@@ -104,7 +106,11 @@ strings_fresh() { # <sha>
     [[ "$1" == "$head" ]] || cleanup_strings
     return 0
   fi
-  (cd "$root/webviews" && node scripts/pages/gen-strings.mjs --check) || rc=$?
+  if git -C "$root" ls-files --error-unmatch webviews/src/pages/settings/generated/strings.json >/dev/null 2>&1; then
+    (cd "$root/webviews" && node scripts/pages/gen-strings.mjs --check) || rc=$?
+  else
+    (cd "$root/webviews" && node scripts/pages/gen-strings.mjs) || rc=$?
+  fi
   [[ "$1" == "$head" ]] || cleanup_strings
   return "$rc"
 }
