@@ -113,8 +113,8 @@ extension SidebarListViewComponents {
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
-            // A drop never scrolls to reveal (hq-2d, cx-8quut): only the drag's autoscroll moved the view. The reloads
-            // that show it see no focus change and no user move, so they only anchor.
+            // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
+            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
             revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
             let sentBefore = SidebarDocStore.current?.lastIntentKey
             doc.drop(items, target)
@@ -131,7 +131,8 @@ extension SidebarListViewComponents {
         }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
-        // A drop moves rows, not the list: its reloads anchor on the first visible row and never reveal (cx-fnfj, cx-8quut).
+        // A drop moves rows, not the list: its reloads anchor on the first visible row (cx-fnfj, cx-8quut) and reveal only
+        // a focused row the drop moved or pushed out of view (sidebar-focused-visible).
         revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):

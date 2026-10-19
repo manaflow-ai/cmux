@@ -1721,7 +1721,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same. */
   readonly "conversation.import": {
     readonly params: {
       readonly id?: ConversationId
@@ -1734,6 +1734,7 @@ export interface CloudOps {
       readonly title?: string
       readonly participants?: ReadonlyArray<HomeParticipantInput>
       readonly after_seq?: number
+      readonly fill?: boolean
       readonly messages: ReadonlyArray<unknown>
       readonly read_cursors?: unknown
     }

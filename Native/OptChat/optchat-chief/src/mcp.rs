@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    DATE_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    CONTROL_DESCRIPTION, DATE_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION,
+    TELL_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -45,7 +45,15 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     }
     if !subagent && grant.allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text}, "required": ["id", "message"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}}, "required": ["id", "message"], "additionalProperties": false}}));
+        list.push(json!({"name": "control", "description": CONTROL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": crate::tools::CONTROL_ACTIONS},
+            "id": {"type": "string", "minLength": 1, "description": "The subagent (a<N>); status without it shows all."},
+            "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
+            "option": {"type": "string", "minLength": 1, "description": "answer: the option id of its pending prompt, or deny."},
+            "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."}},
+          "required": ["action"], "additionalProperties": false}}));
     }
     if !subagent && grant.allows("profile") {
         list.push(crate::chief_profile::profile_tool());
@@ -127,6 +135,7 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
             let answer = Call::parse(name, &args).and_then(|call| match call {
                 Call::Spawn { .. }
                 | Call::Tell { .. }
+                | Call::Control(_)
                 | Call::Profile { .. }
                 | Call::Chiefs { .. }
                     if backend.subagent() =>

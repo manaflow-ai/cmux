@@ -116,13 +116,15 @@ extension PaneController {
         // that types its own text first keeps the keys where they are.
         let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
+        // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
+        let size = newTerminalSize
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
@@ -165,7 +167,7 @@ extension PaneController {
                 continue
             }
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
-            if services.madeAgentTabs?.closeWhenCreated(id.rawValue, close: { [weak self] real in self?.close([StripTabID(real)]) }) == true { continue }
+            if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
