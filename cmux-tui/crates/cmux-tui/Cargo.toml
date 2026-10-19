@@ -52,6 +52,8 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# `cmux settings list|schema|validate`: the settings schema and owner state.
+cmux-config.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true
@@ -113,6 +115,9 @@ async-trait.workspace = true
 # sockets to the cmux Cloud API. Both are already in the graph via acpmux.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# cmux NEXT's Chief home adoption copies live SQLite databases with
+# `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
+rusqlite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

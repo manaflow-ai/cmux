@@ -234,6 +234,19 @@ else `current`; with `--socket` or `--session` they target that session's
 an incognito workspace that the session closes at its next start. Workspace
 groups and their order are personal state of this Mac's home session.
 
+```text
+cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>] [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+```
+
+`cmux status wait` blocks until the status entry `KEY` of the workspace holds
+`--until`, then prints `{workspace_id, key, cleared, entry}`. `settled`, the
+default, returns when the entry is gone (cleared, its owner ended or its TTL
+passed) or shows `success` (exit 0), or shows `error` (exit 1); a key with no
+entry is settled at once. `cleared` waits for the entry to go, and `state=<s>`
+(`busy`, `waiting`, `success`, `error` or `info`) for that state. It follows the
+session's event stream instead of polling, and a passed timeout exits 124 with
+`wait.timeout`, also when the daemon stops answering.
+
 Rooms and groups (workspace, tab, screen and saved tab groups) take their id or
 their exact name. The CLI reads the list on the request's connection and sends
 the id, so a retry with `--idempotency-key` repeats the same request; a name
@@ -339,6 +352,7 @@ cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 cmux terminal <selector> copy [--mode screen|selection|scrollback]
 cmux terminal <selector> process show
 cmux terminal <selector> process wait [--timeout-ms <n>]
+cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>|--timeout-ms <n>]
 cmux terminal <selector> viewport scroll --delta-rows <n>
 cmux terminal <selector> move|project --workspace <sel> --screen <sel> --pane <sel> --index <n>
 cmux terminal <selector> attach [--read-only]
@@ -356,6 +370,16 @@ Example: `cmux terminal current keys ctrl+c enter`.
 `screen wait` prints its result either way and exits 1 when the timeout passes
 without a match. `cmux agents wait` does the same: it prints its receipt
 (`matched: false`) and exits 1 when its timeout passes.
+
+`wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
+from OSC 133 shell integration); `--until idle` when no plain command runs, no
+program reports `working` (OSC 7501) and no OSC 9;4 progress is under way. Both
+follow the session's event stream instead of polling and print the terminal
+record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
+stops answering. Both read shell state from OSC 133 marks: in a shell without
+integration `--until idle` returns while a command still runs. After the daemon
+reattaches to a running terminal host, the prompt and command state come back
+only with the shell's next mark.
 
 ### browser (daemon-owned)
 

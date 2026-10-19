@@ -103,6 +103,9 @@ pub enum FreeState {
     NotVerified,
     ServiceOff,
     Backoff,
+    /// The app's key-id store (the Mac's Keychain) refused access: no lease
+    /// until the provider registers again or the setting changes.
+    StoreFailed,
 }
 
 /// Whether `origin` (an origin string, any trailing slash) is a known cmux API
@@ -189,6 +192,13 @@ enum LeaseError {
     Network,
     /// The provider left or did not answer in time.
     Gone,
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn unix_now() -> u64 {
@@ -338,11 +348,6 @@ impl FreeTier {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
         });
-        write
-            .write_all(
-                format!("{}\n", json!({"provider": true, "pid": std::process::id()})).as_bytes(),
-            )
-            .await?;
         {
             let mut inner = self.lock();
             // The old provider's connection ends (its serve loop waits on `replaced`).
@@ -362,6 +367,15 @@ impl FreeTier {
             if register.signed_in {
                 Self::set_state(&mut inner, FreeState::Off, None);
             }
+        }
+        // The provider line comes after the registration is applied: when the app reads it, the
+        // relay's state already reflects this registration (its events follow through the writer).
+        // A write error (the app went away right now) ends this provider like an EOF does: never
+        // an early return that leaves a dead connection registered with a live token.
+        let line = format!("{}\n", json!({"provider": true, "pid": std::process::id()}));
+        if write.write_all(line.as_bytes()).await.is_err() {
+            self.end_provider(&provider);
+            return Ok(());
         }
         let writer = tokio::spawn(async move {
             while let Some(line) = outgoing.recv().await {
@@ -402,19 +416,25 @@ impl FreeTier {
                 }
             }
         }
+        self.end_provider(&provider);
+        writer.abort();
+        Ok(())
+    }
+
+    /// The provider's connection ended: when it is still the registered one, drop it with the
+    /// free token (the token never outlives its provider) and report off. Pending waiters see a
+    /// closed channel (Gone).
+    fn end_provider(&self, provider: &Provider) {
         {
             let mut inner = self.lock();
-            if inner.provider.as_ref().is_some_and(|p| p.generation == generation) {
+            if inner.provider.as_ref().is_some_and(|p| p.generation == provider.generation) {
                 inner.provider = None;
                 inner.token = None;
                 inner.state = FreeState::Off;
                 inner.until_ms = None;
             }
         }
-        // Pending waiters see a closed channel (Gone).
         provider.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
-        writer.abort();
-        Ok(())
     }
 
     fn apply_setting(inner: &mut Inner, enabled: bool, managed: bool, registered: bool) {
@@ -423,7 +443,7 @@ impl FreeTier {
         if !enabled {
             inner.token = None;
             Self::set_state(inner, FreeState::Off, None);
-        } else if registered || inner.state == FreeState::Off {
+        } else if registered || matches!(inner.state, FreeState::Off | FreeState::StoreFailed) {
             // A new provider registration asks again after any refusal state.
             Self::set_state(inner, FreeState::Idle, None);
         }
@@ -492,7 +512,9 @@ impl FreeTier {
             FreeState::UsedThisMonth if inner.until_ms.is_some_and(|until| until > now_ms) => {
                 Err(refusal(inner.state))
             }
-            FreeState::Unsupported | FreeState::NotVerified => Err(refusal(inner.state)),
+            FreeState::Unsupported | FreeState::NotVerified | FreeState::StoreFailed => {
+                Err(refusal(inner.state))
+            }
             FreeState::ServiceOff | FreeState::Backoff
                 if inner.retry_at.is_some_and(|at| at > Instant::now()) =>
             {
@@ -540,6 +562,7 @@ impl FreeTier {
                 let state = match &error {
                     LeaseError::App(code) if code == "unsupported" => FreeState::Unsupported,
                     LeaseError::App(code) if code == "disabled" => FreeState::Off,
+                    LeaseError::App(code) if code == "store_failed" => FreeState::StoreFailed,
                     LeaseError::Server(_, code) if code == "free.not_configured" => {
                         inner.retry_at = Some(Instant::now() + SERVICE_OFF_RETRY);
                         FreeState::ServiceOff
@@ -559,8 +582,15 @@ impl FreeTier {
                         FreeState::Backoff
                     }
                 };
+                // Backoff names its retry time, so a reader can wait for it (no fixed sleep).
                 let until = match state {
                     FreeState::UsedThisMonth => Some(next_month_ms(now)),
+                    FreeState::Backoff => Some(
+                        unix_now_ms()
+                            + inner.retry_at.map_or(0, |at| {
+                                at.saturating_duration_since(Instant::now()).as_millis() as u64
+                            }),
+                    ),
                     _ => None,
                 };
                 tracing::info!(
@@ -596,7 +626,7 @@ impl FreeTier {
                     let body = json!({
                         "key_id": field(&reply, "key_id")?,
                         "challenge": challenge,
-                        "assertion": field(&reply, "assertion")?,
+                        "assertion": base64url(&field(&reply, "assertion")?),
                     });
                     match self.post_token(origin, "/v1/inference/free/token", &body).await {
                         // The grant's month ended (or the key is unknown): a fresh key, because
@@ -635,7 +665,7 @@ impl FreeTier {
             let body = json!({
                 "platform": platform,
                 "key_id": field(&reply, "key_id")?,
-                "attestation": field(&reply, "attestation")?,
+                "attestation": base64url(&field(&reply, "attestation")?),
                 "device_token": field(&reply, "device_token")?,
                 "challenge": challenge,
             });
@@ -732,7 +762,8 @@ impl Provider {
         };
         if let Some(code) = reply.get("error").and_then(Value::as_str) {
             let code = match code {
-                "unsupported" | "invalid_key" | "disabled" | "refused" | "busy" => code,
+                "unsupported" | "invalid_key" | "disabled" | "refused" | "busy"
+                | "store_failed" => code,
                 _ => "failed",
             };
             return Err(LeaseError::App(code.to_owned()));
@@ -742,6 +773,13 @@ impl Provider {
 }
 
 /// A string field of a provider reply: base64 text, bounded.
+/// The same bytes as unpadded base64url. The token route decodes only base64url
+/// (home-core device-proof b64u), so a standard-base64 proof from the app would
+/// be refused there and every renewal would fall back to a fresh key.
+fn base64url(value: &str) -> String {
+    value.trim_end_matches('=').replace('+', "-").replace('/', "_")
+}
+
 fn field(reply: &Value, name: &str) -> Result<String, LeaseError> {
     let value = reply.get(name).and_then(Value::as_str).ok_or(LeaseError::App("failed".into()))?;
     if value.is_empty()
@@ -773,6 +811,11 @@ fn refusal(state: FreeState) -> Box<Response<Body>> {
             "free.unavailable",
             "Free AI access is not available now. Sign in to use AI models.",
         ),
+        FreeState::StoreFailed => (
+            StatusCode::UNAUTHORIZED,
+            "free.store_failed",
+            "This Mac's Keychain refused access. Sign in to use AI models.",
+        ),
         FreeState::Off => {
             (StatusCode::UNAUTHORIZED, "free.sign_in_required", "Sign in to use AI models.")
         }
@@ -785,27 +828,84 @@ fn refusal(state: FreeState) -> Box<Response<Body>> {
     Box::new(crate::json_error(status, code, message))
 }
 
+/// The peer of one admin connection, read from the whole socket when it is
+/// accepted, before the connection is split into read and write halves: the
+/// facts [`provider_peer_allowed`] needs. Reading them is cheap; the app check
+/// runs only when the connection asks to be the provider. Only
+/// [`ProviderPeer::of_unix`] can make a peer that passes. Neither Clone nor
+/// Copy: a peer read for one connection cannot be given to another
+/// (`serve_with_admin` is public).
+pub struct ProviderPeer {
+    same_user: bool,
+    #[cfg(target_os = "macos")]
+    token: Option<cmux_link::app_caller::PeerToken>,
+}
+
+impl ProviderPeer {
+    /// A peer that is never the provider: for a host that cannot read its
+    /// peer's user and audit token. The Windows admin socket passes it, so
+    /// Windows refuses `attest_provider` (providers are mac and ios only).
+    pub fn refused() -> Self {
+        Self {
+            same_user: false,
+            #[cfg(target_os = "macos")]
+            token: None,
+        }
+    }
+
+    /// The peer of an accepted unix socket: its user and, on macOS, its
+    /// audit token.
+    #[cfg(unix)]
+    pub fn of_unix(stream: &tokio::net::UnixStream) -> Self {
+        // SAFETY: geteuid has no preconditions.
+        let own = unsafe { libc::geteuid() };
+        Self {
+            same_user: stream.peer_cred().is_ok_and(|cred| cred.uid() == own),
+            #[cfg(target_os = "macos")]
+            token: {
+                use std::os::fd::AsRawFd;
+                cmux_link::app_caller::peer_token(stream.as_raw_fd())
+            },
+        }
+    }
+}
+
 /// Whether the peer of an admin connection may be the attestation provider:
 /// the same user always; on a Team-signed macOS build also the signed cmux app
 /// that contains this relay (cmux-link prover A, named by the audit token). A
 /// DEV (ad-hoc) build checks the user only: a wrong provider can only deny the
 /// free tier, never forge a proof (the API checks the attestation).
-#[cfg(unix)]
-pub fn provider_peer_allowed(stream: &tokio::net::UnixStream) -> bool {
-    // SAFETY: geteuid has no preconditions.
-    let own = unsafe { libc::geteuid() };
-    if !stream.peer_cred().is_ok_and(|cred| cred.uid() == own) {
+pub fn provider_peer_allowed(peer: &ProviderPeer) -> bool {
+    if !peer.same_user {
         return false;
     }
     #[cfg(target_os = "macos")]
-    {
-        use std::os::fd::AsRawFd;
-        if cmux_link::app_caller::signed_app_build() {
-            let Some(token) = cmux_link::app_caller::peer_token(stream.as_raw_fd()) else {
-                return false;
-            };
-            return cmux_link::app_caller::verify_containing_app(&token).is_ok();
-        }
+    if cmux_link::app_caller::signed_app_build() {
+        let Some(token) = peer.token.as_ref() else {
+            return false;
+        };
+        return cmux_link::app_caller::verify_containing_app(token).is_ok();
     }
     true
+}
+
+#[cfg(test)]
+mod peer_tests {
+    use super::*;
+
+    #[test]
+    fn a_peer_the_host_cannot_read_is_never_the_provider() {
+        assert!(!provider_peer_allowed(&ProviderPeer::refused()));
+    }
+
+    /// Off macOS there is no app check: a same-user peer read at accept,
+    /// before the split, may be the provider.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[tokio::test]
+    async fn a_same_user_unix_peer_read_at_accept_may_be_the_provider() {
+        let (stream, _other) = tokio::net::UnixStream::pair().expect("socket pair");
+        let peer = ProviderPeer::of_unix(&stream);
+        let (_read, _write) = stream.into_split();
+        assert!(provider_peer_allowed(&peer));
+    }
 }

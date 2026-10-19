@@ -48,6 +48,7 @@ pub(super) fn handle_resource_line(
         })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
+    crate::debug_spans::mark("origin.admitted");
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
         Err(error) => {
@@ -249,12 +250,13 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 /// The conversation events a page-bound connection of the Channels page
 /// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 7]> = std::sync::LazyLock::new(|| {
+static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
     [
         "conversation-changed",
         "conversation-typing",
         "conversation-draft",
         "conversation-run-changed",
+        "conversation-live",
         "conversation-inbox-changed",
         "chief-changed",
         "participant-avatar-changed",

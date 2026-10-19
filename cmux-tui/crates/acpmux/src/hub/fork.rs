@@ -29,10 +29,15 @@ impl Hub {
         name: Option<String>,
         cwd: Option<PathBuf>,
         session_env: std::collections::BTreeMap<String, String>,
+        workspace_id: Option<String>,
         through: Option<u64>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
-        let (is_claude, fork_env) = self.harness_env(&parent_meta).await;
+        let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
+        // The fork's workspace: the one the request names (typed or in its
+        // env, `session_env::workspace_id`), else its parent's.
+        let workspace_id = workspace_id.or_else(|| parent_meta.workspace_id.clone());
+        crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
         let sid = parent_meta
             .agent_session_id
             .clone()
@@ -148,11 +153,14 @@ impl Hub {
             remote_origin: parent_meta.remote_origin,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
+            workspace_id,
             // The fork resumes the parent from its store, and its conversation lands there.
             chat_store: parent_meta.chat_store.clone(),
             adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
+            // It runs the parent's mode: a spawn from other preset contents leaves it too.
+            preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // Filled below with the fork's own seqs of the marked prompts it copies.
             bookmarks: Default::default(),
             // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.

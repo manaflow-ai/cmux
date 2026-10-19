@@ -129,6 +129,16 @@ cmux agents wait --until text --target tab_… --text '^done [0-9]+$' --regex
 
 It prints `{until, matched, waited_seconds, match, state}` and exits 1 when the timeout (default 30 s, at most 120 s) passes without a match, as `screen wait` does. `match.state` says how an idle agent stopped (`idle`, `done`, `blocked`, or `closed`). A terminal, tab or agent id no owner knows exits with `selector.not_found`; a dialog target that is not such an id (a request id, a chat session) may name a dialog that has not appeared yet, so it waits. The MCP tool `agents_wait` takes the same arguments.
 
+To react to whatever changes next, long-poll events and keep the cursor:
+
+```bash
+cmux agents events --timeout 0 --json                    # a cursor from now (next_after)
+cmux agents events --after evc1_… --timeout 60 --json    # the events since, or the first one
+cmux agents events --after evc1_… --kind dialog --kind agent
+```
+
+It prints `{events, next_after, timed_out}` and exits 0 either way; pass `next_after` back as `--after` for no gaps or duplicates. Kinds are `dialog`, `notification`, `tab`, `workspace` and `agent`; a `reset` event means the daemon restarted or the cursor had to start over, so read `cmux agents snapshot` again. Dialogs and agent chat states are read every second, so one that opens and resolves between two reads is missed, and their baseline is the first app read that answers. Without `--json` it prints one line per event and the cursor on stderr. The timeout is at most 60 s. The MCP tool `agents_events` takes the same arguments.
+
 ## Notifications and attention
 
 ```bash

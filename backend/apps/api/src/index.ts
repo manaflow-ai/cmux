@@ -8,7 +8,7 @@ import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
 import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
-import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket } from "./wire-ticket.ts"
+import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket, type WireScope } from "./wire-ticket.ts"
 
 /** The owner each wire scope reaches (principalForOwner). */
 const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
@@ -32,6 +32,8 @@ export { MuxDO } from "./mux-do.ts"
 export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
+import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
+import { FAULT_PATH, handleFault } from "./chief-fault.ts"
 import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_PATH, OPENCODE_IMPL_PATH, opencodeOn } from "./chief-brain-opencode/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
@@ -68,12 +70,12 @@ const gateUnreachable = (e: unknown) => {
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocol
  * `cmux.wire.v1`. The credential is the Authorization header (native clients), a `ticket.<ticket>`
- * subprotocol from POST /v1/wire/ticket (browsers), or the legacy `bearer.<token>` subprotocol
- * (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
+ * subprotocol from POST /v1/wire/ticket, bound to its scope (browsers); the legacy `bearer.<token>` subprotocol is
+ * retired (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
  * authenticates and passes the principal to the owner DO; frames never carry identity.
  */
-const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
-  const credential = await wireCredential(request, env, scope, spent)
+const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: WireScope, conversation?: string /* or agent for mux */): Promise<Response> => {
+  const credential = await wireCredential(request, env, spent, scope)
   if (!credential.ok) return credential.response
   const { principal: authenticatedToken, protocols } = credential
   if (!authenticatedToken?.user || !authenticatedToken.team) return wireUnauthenticated()
@@ -173,7 +175,7 @@ export default {
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
-    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, m[1]!)
+    if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, m[1] as WireScope)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
     if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "conv", conv[1]!)
@@ -182,11 +184,15 @@ export default {
     if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
     // Chief hands (hand-routes.ts): the installer, pairing, the hand socket, and the person's hand management.
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
+    // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
+    if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
     if (chiefBrain && chiefBrain[2] !== "brain" && opencodeOn(env)) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrain[2] === "brain" ? "brain" : "runs", chiefBrain[3])
+    const fault = url.pathname.match(FAULT_PATH)
+    if (fault) return handleFault(request, env, fault[1]!)
     const brainImpl = url.pathname.match(OPENCODE_IMPL_PATH)
     if (brainImpl) return handleBrainImpl(request, env, brainImpl[1]!)
     const opencodeHost = url.pathname.match(OPENCODE_HOST_PATH)
@@ -253,7 +259,10 @@ export default {
       if (compare.status === "rejected") throw compare.reason
       return
     }
-    const report = await sweepFeedText(sweepDeps(env))
-    console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
+    const [report, hands] = await Promise.allSettled([sweepFeedText(sweepDeps(env)), (async () => (await import("./hand-sweep.ts")).sweepSandboxVms(env))()])
+    if (hands.status === "fulfilled") console.log(JSON.stringify({ msg: "hand.sandbox_sweep", ...hands.value }))
+    else console.error(JSON.stringify({ msg: "hand.sandbox_sweep.failed", error: String(hands.reason).slice(0, 200) }))
+    if (report.status === "rejected") throw report.reason
+    console.log(JSON.stringify({ msg: "feed.sweep", ...report.value }))
   }
 } satisfies ExportedHandler<Env>

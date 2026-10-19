@@ -59,12 +59,16 @@ Scroll (strip and sidebar):
 
 - V1 clamped to the content; V2 the focused item is fully visible after settle when it
   must be revealed; V3 a focused item that stays focused and visible keeps its screen
-  position unless the clamp forces a move; V4 a reveal aligns the nearer edge; V5 items
-  removed or added before the visible ones do not move what the user sees (the strip
-  anchors on the focused column, the sidebar on the focused row when visible, else the
-  first visible row); V6 the same geometry settled again does not scroll (one scroll per
+  position unless the clamp forces a move; the sidebar reveal-scrolls a moved row only
+  after the user's own move (a keyboard move, the Move Up/Down action, an explicit focus
+  change); it never reveal-scrolls on a drop (only the drag autoscroll moves the view
+  during and after a drop), and never on a change from another client; V4 a reveal aligns
+  the nearer edge; V5 items removed, added or moved before the visible ones do not move
+  what the user sees (the strip anchors on the focused column; the sidebar list anchors
+  on the first visible row that did not move); V6 the same geometry settled again does not scroll (one scroll per
   change; animations interpolate to the computed target with the `.move`/`.scroll`
   Motion tokens, instant under Reduce Motion).
+  Rule changed 2026-10-16, chief approved, cx-ml98q.
 - Sidebar reveal happens when the active workspace changed, or when it was fully visible
   before. A user who scrolled the list away from the active row keeps that view through
   unrelated closes.

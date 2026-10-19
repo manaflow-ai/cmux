@@ -122,7 +122,7 @@ impl Mux {
             return false;
         }
         if let Some(screen) = layout_changed {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         } else {
             self.emit(MuxEvent::TreeChanged);
         };
@@ -206,7 +206,7 @@ impl Mux {
                     .any(|workspace| workspace.screens.iter().any(|screen| screen.id == *source))
             })
         }) {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         }
         true
     }

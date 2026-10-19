@@ -167,26 +167,26 @@ final class WorkspaceHoverCardView: NSView {
         return Date().timeIntervalSince(newest) < 3600 ? .seconds(1) : .seconds(60)
     }
 
-    private let titleLabel = NSTextField(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
     /// The kind or host icon, leading the name on the card's icon column.
     private let kindIcon = LineIconView()
     /// The workspace's status in the shared indicator, on its own row under the name with its
     /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
-    private let activityLabel = NSTextField(labelWithString: "")
+    private let activityLabel = ChromeLabel(labelWithString: "")
     private let activityRow = NSStackView()
-    private let ageLabel = NSTextField(labelWithString: "")
+    private let ageLabel = ChromeLabel(labelWithString: "")
     private let factsStack = NSStackView()
-    private let resourceLabel = NSTextField(labelWithString: "")
+    private let resourceLabel = ChromeLabel(labelWithString: "")
     /// The user's card (`cmux.hovercard/1`) once its first scene arrives; the built-in rows hide.
     private let customSlot = NSView()
     /// Why the user's card did not render: shown under the built-in card, which stays.
-    private let customError = NSTextField(wrappingLabelWithString: "")
+    private let customError = ChromeLabel(wrappingLabelWithString: "")
     private weak var customView: NSView?
     private var customHeight: NSLayoutConstraint?
     /// The last resource line, shown only with the built-in card.
     private var resourceLine: String?
-    private var factViews: [(icon: NSImageView, label: NSTextField)] = []
+    private var factViews: [(icon: NSImageView, label: ChromeLabel)] = []
     /// The built-in card's rows (hidden while the user's card shows).
     private var builtIn: [NSView] = []
     /// The shown content, for the live elapsed times (`tick`).
@@ -294,7 +294,7 @@ final class WorkspaceHoverCardView: NSView {
     func tick(now: Date) -> Bool {
         guard let content else { return false }
         var resized = false
-        func set(_ label: NSTextField, _ text: String) {
+        func set(_ label: ChromeLabel, _ text: String) {
             resized = resized || label.stringValue.count != text.count
             label.stringValue = text
         }
@@ -332,7 +332,7 @@ final class WorkspaceHoverCardView: NSView {
             row.label.stringValue = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
             row.label.font = fact.since == nil ? Typography.body : Self.liveFont
             row.label.maximumNumberOfLines = fact.lines
-            row.label.cell?.truncatesLastVisibleLine = true
+            row.label.truncatesLastVisibleLine = true
             row.label.lineBreakMode = fact.lines > 1 ? .byWordWrapping : .byTruncatingMiddle
             row.label.preferredMaxLayoutWidth = fact.lines > 1 ? Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 : 0
         }
@@ -341,17 +341,21 @@ final class WorkspaceHoverCardView: NSView {
     }
 
     /// Every text an embedded view shows, by its accessibility (a SwiftUI scene has no labels).
+    /// Depth first, a parent before its children, children in order. An explicit stack, not a
+    /// recursive local function: Swift 6.3.3's SendNonSendable pass crashed now and then on the
+    /// local function's capture of the result (Release compile, CmuxNextSidebar).
     private static func texts(in view: NSView) -> [String] {
         var out: [String] = []
-        func walk(_ element: Any) {
-            guard let object = element as? any NSAccessibilityProtocol else { return }
+        var pending: [Any] = [view]
+        while let element = pending.popLast() {
+            guard let object = element as? any NSAccessibilityProtocol else { continue }
             if let role = object.accessibilityRole(), role == .staticText,
                let value = object.accessibilityValue() as? String ?? object.accessibilityLabel(), !value.isEmpty {
                 out.append(value)
             }
-            for child in object.accessibilityChildren() ?? [] { walk(child) }
+            // Reversed, so the first child pops first.
+            pending.append(contentsOf: (object.accessibilityChildren() ?? []).reversed())
         }
-        walk(view)
         return out
     }
 
@@ -418,7 +422,7 @@ final class WorkspaceHoverCardView: NSView {
 
     private func addFactRow() {
         let icon = NSImageView()
-        let label = NSTextField(labelWithString: "")
+        let label = ChromeLabel(labelWithString: "")
         label.font = Typography.body
         label.lineBreakMode = .byTruncatingMiddle
         // The card takes its width from its content (cx-k9mc).
@@ -463,7 +467,7 @@ extension WorkspaceHoverCardView {
 /// An icon on a first-baseline row whose center sits on the middle of `line`'s first line (midway
 /// between its ascender and descender), so it stays with the name's first line when the name wraps.
 private final class LineIconView: NSImageView {
-    weak var line: NSTextField?
+    weak var line: ChromeLabel?
     /// The icon's height (its constraint), not `bounds`, which is zero before the first layout.
     var side: CGFloat = 0
 

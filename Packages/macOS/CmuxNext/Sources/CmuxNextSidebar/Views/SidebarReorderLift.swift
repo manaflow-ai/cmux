@@ -24,7 +24,7 @@ import QuartzCore
         frame.origin.y = min(max(origin.y, visible.minY - frame.height / 2), visible.maxY - frame.height / 2)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        lift.frame = frame
+        lift.setFrameOrigin(frame.origin) // the position only: a running morph's additive springs keep their shape
         CATransaction.commit()
     }
 
@@ -34,18 +34,33 @@ import QuartzCore
         frame.origin.y = min(max(y, visible.minY - frame.height / 2), visible.maxY - frame.height / 2)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        lift.frame = frame
+        lift.setFrameOrigin(frame.origin)
         CATransaction.commit()
     }
 
-    /// Flies the card to `destination` (its slot) and removes it.
-    static func land(_ lift: DragLiftView, at destination: NSRect?, completion: @escaping () -> Void) {
+    /// Settles the card into `destination` (its slot) on the drag's one
+    /// spring: position, size, corner shape and shadow together, from what
+    /// is on screen (DESIGN "Drag feel" 6). A second call retargets the
+    /// landing (the model's slot moved, a refusal sends it back) with no
+    /// jump; only the last call's `completion` runs. The caller removes the card.
+    static func land(_ lift: DragLiftView, at destination: NSRect?, completion: @escaping @MainActor () -> Void) {
+        lift.landings &+= 1
+        let landing = lift.landings
+        // A window with no screen never advances an animation: the card lands at once.
+        guard Motion.canAnimate(in: lift) else {
+            Motion.withoutAnimation { lift.frame = destination ?? lift.frame }
+            lift.setLifted(false, animated: false)
+            return completion()
+        }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            MainActor.assumeIsolated { // main-proof: CA runs transaction completions on the main thread
+                guard lift.landings == landing else { return }
+                completion()
+            }
+        }
         lift.setLifted(false, animated: true)
-        Motion.animate(.settle, in: lift, {
-            lift.animator().frame = destination ?? lift.frame
-        }, completion: {
-            lift.removeFromSuperview()
-            completion()
-        })
+        lift.morph(to: destination ?? lift.frame)
+        CATransaction.commit()
     }
 }

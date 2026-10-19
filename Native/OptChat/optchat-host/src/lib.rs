@@ -36,7 +36,9 @@ pub use model::{
 };
 pub use report::{Report, Reporter};
 
-pub use optchat_core::{CompactPrompt, CompactRequest, Kind, NodeId, RenderedView, ZoomError};
+pub use optchat_core::{
+    CompactPrompt, CompactRequest, Frozen, Kind, NodeId, RenderedView, TurnInput, ZoomError,
+};
 
 use std::time::Duration;
 

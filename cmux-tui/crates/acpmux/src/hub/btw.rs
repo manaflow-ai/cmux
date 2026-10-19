@@ -97,7 +97,8 @@ impl Hub {
         let name = self.unique_name(&format!("{}-btw", meta.name));
         let (side, context) = match self.btw_fork_point(session, &meta).await? {
             Some(through) => (
-                self.fork(session, Some(name), None, Default::default(), Some(through)).await?,
+                self.fork(session, Some(name), None, Default::default(), None, Some(through))
+                    .await?,
                 None,
             ),
             None => {
@@ -112,8 +113,11 @@ impl Hub {
                     adopt: None,
                     remote: meta.remote_origin,
                     env: Default::default(),
+                    // The side chat works in its chat's workspace (agent_displays.rs).
+                    workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
                     keep_harness_mode: true,
+                    route: None,
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.

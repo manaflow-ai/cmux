@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
+import CmuxNextFocus
 
 // Resolution (plans/cmux-next/keybindings.md section 4): a key-down to its
 // binding table winner, before the tier check. The table holds the Ghostty

@@ -58,25 +58,28 @@ impl ReopenRequest {
 
 /// What a reopen created, in public ids.
 #[derive(Default)]
-struct Reopened {
-    workspaces: Vec<String>,
-    screens: Vec<String>,
-    tabs: Vec<String>,
+pub(super) struct Reopened {
+    pub(super) workspaces: Vec<String>,
+    pub(super) screens: Vec<String>,
+    pub(super) tabs: Vec<String>,
     /// (closed workspace key, reopened workspace key) per reopened workspace.
     placements: Vec<(String, String)>,
     /// A closed tab's id to the id it reopened as.
     reopened_as: std::collections::HashMap<String, String>,
+    /// A closed pane's id to the pane split off its neighbor again; the
+    /// group's kept tabs of that pane follow it there.
+    panes: std::collections::HashMap<String, super::closed_pane_split::SplitPane>,
 }
 
 impl Reopened {
-    fn note_workspace(&mut self, workspace: String) {
+    pub(super) fn note_workspace(&mut self, workspace: String) {
         if !self.workspaces.contains(&workspace) {
             self.workspaces.push(workspace);
         }
     }
 
     /// Note `tab`, reopened from the closed tab `record`.
-    fn note_tab(&mut self, record: &Value, tab: String) {
+    pub(super) fn note_tab(&mut self, record: &Value, tab: String) {
         if let Some(closed) = record["tab_id"].as_str() {
             self.reopened_as.insert(closed.to_string(), tab.clone());
         }
@@ -85,7 +88,7 @@ impl Reopened {
 }
 
 /// Split `members` into the ones to restore and the ones to keep.
-fn choose(
+pub(super) fn choose(
     members: Vec<Value>,
     chosen: Option<&[usize]>,
 ) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
@@ -118,13 +121,14 @@ fn commit_reopen(
 ) -> anyhow::Result<StateChanges> {
     let record = closed_record(transaction, closed_id)?
         .ok_or_else(|| state_not_found("closed", closed_id))?;
-    let keep = record["members"]
+    let mut keep = record["members"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|member| !restored.contains(member))
         .cloned()
         .collect::<Vec<_>>();
+    super::closed_pane_split::follow_split_panes(&mut keep, &reopened.panes);
     let remaining = keep.len();
     let kind = record["kind"].as_str().unwrap_or_default().to_string();
     // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
@@ -528,14 +532,14 @@ impl Mux {
         Ok(())
     }
 
-    fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
+    pub(super) fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
         self.with_state(|state| {
             state.resource_indexes.tab_ids.get(&surface).map(|id| id.to_string())
         })
         .context("reopened tab has no public id")
     }
 
-    fn public_screen_of_pane(&self, pane: PaneId) -> anyhow::Result<(String, String)> {
+    pub(super) fn public_screen_of_pane(&self, pane: PaneId) -> anyhow::Result<(String, String)> {
         self.with_state(|state| {
             let (workspace, screen) = state.screen_of(pane)?;
             let workspace = &state.workspaces[workspace];
@@ -546,7 +550,7 @@ impl Mux {
 
     /// Restore one tab record into `pane`. `reattach` lets a still-running
     /// terminal get a new view instead of a new process.
-    fn reopen_tab_record(
+    pub(super) fn reopen_tab_record(
         self: &Arc<Self>,
         actor: &Actor,
         pane: PaneId,
@@ -648,17 +652,26 @@ impl Mux {
         Ok(())
     }
 
-    fn reopen_closed_tab(
+    pub(super) fn reopen_closed_tab(
         self: &Arc<Self>,
         actor: &Actor,
         record: &Value,
         reopened: &mut Reopened,
     ) -> anyhow::Result<()> {
         let tab = &record["screens"][0]["tabs"][0];
+        let closed_pane = record["pane_id"].as_str();
+        // The tab's own pane: live, or split off its neighbor again by an
+        // earlier reopen, while still in the tab's workspace. With it gone,
+        // the neighbor it was split off takes the tab first, then splits
+        // again (cx-gzh.32).
+        let (home, neighbor) = self.with_state(|state| {
+            (
+                super::closed_pane_split::home_pane(state, record, &reopened.panes),
+                super::closed_pane_split::split_neighbor(state, record),
+            )
+        });
         let pane = self.with_state(|state| {
-            record["pane_id"]
-                .as_str()
-                .and_then(|pane| pane_by_public_id(state, pane))
+            home.or(neighbor)
                 .or_else(|| {
                     let workspace = record["workspace_id"].as_str()?;
                     let workspace = state
@@ -669,8 +682,19 @@ impl Mux {
                 })
                 .or_else(|| state.active_pane())
         });
+        // Back in its own pane, the tab is created at its recorded index in
+        // one change (one `tab-added` there; cx-d1xb8), not at the end and
+        // then moved, which a client animates across the strip. A pinned tab
+        // takes the place its pin gives it.
+        let index = recorded_index(record)
+            .filter(|_| pane.is_some() && pane == home && tab["pinned"].as_bool() != Some(true));
         let surface = match pane {
-            Some(pane) => self.reopen_tab_record(actor, pane, tab, true)?,
+            Some(pane) => match index {
+                Some(index) => tab_strip::tab_slot::scoped(pane, index, || {
+                    self.reopen_tab_record(actor, pane, tab, true)
+                })?,
+                None => self.reopen_tab_record(actor, pane, tab, true)?,
+            },
             // No workspace at all: the tab gets a workspace of its own.
             None => {
                 let first = self.new_workspace_as(actor, None, None)?.id;
@@ -680,7 +704,20 @@ impl Mux {
                 self.reopen_tab_record(actor, pane, tab, true)?
             }
         };
-        self.restore_tab_index(actor, surface, record, tab);
+        let home = match (home, neighbor) {
+            (None, Some(neighbor)) => {
+                let pane = self.split_closed_pane_again(actor, surface, neighbor, &record["split"]);
+                let split = pane.and_then(|pane| {
+                    self.with_state(|state| super::closed_pane_split::SplitPane::of(state, pane))
+                });
+                if let (Some(closed), Some(split)) = (closed_pane, split) {
+                    reopened.panes.insert(closed.to_string(), split);
+                }
+                pane
+            }
+            (home, _) => home,
+        };
+        self.restore_tab_index(actor, surface, home, record, tab);
         let pane =
             self.with_state(|state| state.pane_of(surface)).context("reopened tab has no pane")?;
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
@@ -691,30 +728,30 @@ impl Mux {
         Ok(())
     }
 
-    /// Put a tab that reopened in its own pane back at its recorded index
-    /// (clamped). A pinned tab keeps the place its pin gave it. A reopened
-    /// tab is always the LAST tab of its pane (new tabs and reattached
-    /// views append), so `move_tab`'s insertion index equals the recorded
-    /// index (it only subtracts one for an index past the old position).
+    /// Put a tab that reopened in its own pane (`home`) back at its recorded
+    /// index (clamped) when its creation did not already place it there. A
+    /// creation in `home` takes the scoped index, so this is a no-op (no move,
+    /// no event) unless the tab was created elsewhere: split off its neighbor
+    /// again (cx-gzh.32), or by a creation path that ignores the scope. Such
+    /// a tab is the LAST tab of its pane, so `move_tab`'s insertion index
+    /// equals the recorded index (it only subtracts one for an index past
+    /// the old position). A pinned tab keeps the place its pin gave it.
     fn restore_tab_index(
         self: &Arc<Self>,
         actor: &Actor,
         surface: SurfaceId,
+        home: Option<PaneId>,
         record: &Value,
         tab: &Value,
     ) {
         if tab["pinned"].as_bool() == Some(true) {
             return;
         }
-        let Some(index) = record["index"].as_u64().and_then(|index| usize::try_from(index).ok())
-        else {
+        let Some(index) = recorded_index(record) else {
             return;
         };
-        let original = self.with_state(|state| {
-            let pane =
-                record["pane_id"].as_str().and_then(|pane| pane_by_public_id(state, pane))?;
-            (state.pane_of(surface) == Some(pane)).then_some(pane)
-        });
+        let original =
+            home.filter(|pane| self.with_state(|state| state.pane_of(surface)) == Some(*pane));
         if let Some(pane) = original {
             self.move_tab_as(actor, surface, pane, index);
         }
@@ -852,4 +889,9 @@ impl Mux {
         }
         Ok(())
     }
+}
+
+/// The strip index a closed tab member recorded in its pane.
+fn recorded_index(record: &Value) -> Option<usize> {
+    record["index"].as_u64().and_then(|index| usize::try_from(index).ok())
 }

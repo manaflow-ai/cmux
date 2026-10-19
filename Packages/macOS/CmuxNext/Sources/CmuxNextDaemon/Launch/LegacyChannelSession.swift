@@ -19,7 +19,7 @@ import Foundation
 /// that snapshot lists workspaces, and its own session is untouched (never
 /// started, or only the launch's own unused New Tab page). Nothing is
 /// copied, so nothing can diverge; the decision is recorded beside the
-/// channel's state (`cmux/tags/<channel>/legacy-session-adopted`) so every
+/// channel's own state directory (`legacy-session-adopted` beside it, from BuildIdentity) so every
 /// later launch keeps it, also after the own session would no longer count
 /// as untouched. A session the person used is never replaced.
 struct LegacyChannelSession: Sendable {
@@ -44,8 +44,9 @@ struct LegacyChannelSession: Sendable {
     /// The old shared registry root: cmux-tui's default state root on macOS.
     var legacyRoot: URL { applicationSupport.appendingPathComponent("cmux-tui/sessions", isDirectory: true) }
 
-    func marker(channel: String) -> URL {
-        applicationSupport.appendingPathComponent("cmux/tags/\(channel)/\(Self.markerName)")
+    /// Beside the channel's own state directory (BuildIdentity's `cmux/tags/<channel>/tui`).
+    func marker(stateDirectory: URL) -> URL {
+        stateDirectory.deletingLastPathComponent().appendingPathComponent(Self.markerName)
     }
 
     /// The channel of an untagged channel build (`com.cmuxterm.app.<channel>`
@@ -63,7 +64,7 @@ struct LegacyChannelSession: Sendable {
     }
 
     private func decide(channel: String, session: String, stateDirectory: URL) -> Bool {
-        let marker = marker(channel: channel)
+        let marker = marker(stateDirectory: stateDirectory)
         if FileManager.default.fileExists(atPath: marker.path) { return true }
         guard let legacy = rememberedSnapshot(),
               URL(fileURLWithPath: legacy).deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path

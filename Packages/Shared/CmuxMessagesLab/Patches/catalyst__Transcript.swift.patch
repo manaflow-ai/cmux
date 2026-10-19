@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
-@@ -609,8 +609,7 @@
+@@ -638,8 +638,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -10,7 +10,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -683,7 +682,7 @@
+@@ -712,7 +711,7 @@
              guard let spec else { return nil }
              switch spec.kind {
              case let .part(p): return p.text?.text ?? p.part.plainText
@@ -19,7 +19,7 @@
              case let .receipt(b, r): return b + " " + r
              case let .label(text, _, _): return text
              case let .notice(text): return text
-@@ -758,7 +757,7 @@
+@@ -787,7 +786,7 @@
              // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
@@ -28,7 +28,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1411,6 +1410,16 @@
+@@ -1440,6 +1439,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
@@ -45,3 +45,31 @@
      /// Window y of the cell's top: the outgoing fill shades with it.
      var windowY: CGFloat = 0 {
          didSet {
+@@ -1555,6 +1564,8 @@
+             a.isRemovedOnCompletion = false
+             a.calculationMode = .linear
+             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
++            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
++            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
+             hi.add(a, forKey: "dots")
+         }
+     }
+@@ -1565,6 +1576,8 @@
+     func startTypingBreath(insert: CFTimeInterval) {
+ #if !os(iOS) || targetEnvironment(macCatalyst)
+         guard Springs.typingStillPhase == nil else { return }
++        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
++        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
+         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
+         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
+         // fixed point to b: e x (a - b).
+@@ -1663,7 +1676,8 @@
+     /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
+     var needsTypingBreath: Bool {
+ #if !os(iOS) || targetEnvironment(macCatalyst)
+-        Springs.typingStillPhase == nil && typingContainer.animation(forKey: "breath.transform.scale") == nil
++        // cmux: no breathing under Reduce Motion (cx-sya4n).
++        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
+ #else
+         false
+ #endif

@@ -21,11 +21,12 @@ import Testing
 struct AgentLanesTests {
     /// One session summary as acpmux sends it, with its lane.
     static func summary(_ id: String, _ state: String, since: Double = 1_760_000_000_000, error: String? = nil,
-                        parent: String? = nil, peer: String? = nil) -> [String: Any] {
+                        parent: String? = nil, peer: String? = nil, workspaceID: String? = nil) -> [String: Any] {
         var summary: [String: Any] = ["sessionId": id, "name": id, "status": "idle",
                                       "lane": ["state": state, "since": since, "error": error as Any]]
         if let parent { summary["tags"] = [AgentActivityLane.parentTag: parent] }
         if let peer { summary["peer"] = peer; summary["name"] = "\(peer)/\(id)" }
+        if let workspaceID { summary["workspaceId"] = workspaceID }
         return summary
     }
 
@@ -77,6 +78,43 @@ struct AgentLanesTests {
         withExtendedLifetime((acpmux, feed)) {}
     }
 
+    @Test func aLanePreservesTheExistingSessionWorkspaceBinding() {
+        let summary = Self.summary("codex-1", "working", workspaceID: "workspace-7")
+        let lane = AgentActivityLane.of(summary: summary)
+        #expect(lane?.workspaceID == "workspace-7")
+    }
+
+    /// hq#2509: a lane row says which harness owns it and what it is doing now. acpmux masks
+    /// secrets in `lane.step` before the summary leaves it; the raw prompt beside it still holds
+    /// the token, so the app reads only `lane.step` and never falls back to the prompt.
+    @Test func aLaneShowsTheDaemonsMaskedStepNeverTheRawPrompt() {
+        let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+        var summary = Self.summary("op-busy", "working")
+        summary["harness"] = "codex"
+        summary["turn"] = ["prompt": "push with \(token)", "startedAt": 1_760_000_500_000.0]
+        summary["lastMessage"] = ["role": "agent", "text": token]
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "step": "push with [github token]"]
+        let lane = AgentActivityLane.of(summary: summary)
+        #expect(lane?.harness == "codex")
+        #expect(lane?.step == "push with [github token]")
+
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull()]
+        #expect(AgentActivityLane.of(summary: summary)?.step == nil, "an acpmux from before lane.step shows no step")
+    }
+
+    /// hq#2509: a lane's title is acpmux's masked `lane.title`, never the summary's raw title or
+    /// latest prompt; an acpmux from before it shows the session's name.
+    @Test func aLanesTitleIsTheDaemonsMaskedTitle() {
+        let token = "gh" + "p_" + "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234"
+        var summary = Self.summary("op-busy", "working")
+        summary["title"] = "push \(token)"
+        summary["lastPrompt"] = "push \(token)"
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull(), "title": "push [github token]"]
+        #expect(AgentActivityLane.of(summary: summary)?.title == "push [github token]")
+        summary["lane"] = ["state": "working", "since": 1_760_000_500_000.0, "error": NSNull()]
+        #expect(AgentActivityLane.of(summary: summary)?.title == "op-busy")
+    }
+
     @Test func theLanesItemShowsOnlyWhileLabsPreviewFeaturesAreOn() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-lanes-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -87,7 +125,7 @@ struct AgentLanesTests {
         await settings.reload()
         let lanes = AgentLaneStore()
         lanes.lanes = ["op-broke": AgentActivityLane(id: "op-broke", name: "op-broke", title: "op-broke", peer: nil, parent: nil,
-                                                     state: .failed, since: nil, error: "Credit balance too low")]
+                                                     state: .failed, since: nil, error: "Credit balance too low", workspaceID: nil)]
         let center = WhatsNewCenter(currentVersion: "0", defaults: UserDefaults(suiteName: "cnc-lanes-\(UUID().uuidString)")!, sources: [])
         let model = SidebarModel()
         let feed = SidebarWhatsNewItemFeed.start(model: model, center: center, settings: settings, lanes: lanes)

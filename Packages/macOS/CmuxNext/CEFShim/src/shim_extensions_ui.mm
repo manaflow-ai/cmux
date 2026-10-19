@@ -120,6 +120,16 @@ int cmux_shim_popup_window_bounds(int window_id, int* x, int* y, int* width, int
   return fork_api().popup_window_bounds ? fork_api().popup_window_bounds(window_id, x, y, width, height) : 0;
 }
 
+int cmux_shim_devtools_inspected_bounds(int browser_id, int* x, int* y, int* width, int* height) {
+  int out[4] = {0, 0, 0, 0};
+  if (!fork_api().devtools_inspected_bounds || !fork_api().devtools_inspected_bounds(browser_id, out)) return 0;
+  if (x) *x = out[0];
+  if (y) *y = out[1];
+  if (width) *width = out[2];
+  if (height) *height = out[3];
+  return 1;
+}
+
 int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height) {
   return fork_api().popup_window_attach && parent_view
              ? fork_api().popup_window_attach(window_id, parent_view, width, height)

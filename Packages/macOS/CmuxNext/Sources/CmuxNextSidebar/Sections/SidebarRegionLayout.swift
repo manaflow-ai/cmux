@@ -25,6 +25,12 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     /// first glyph on this column (SIDEBAR-FOOTER-AND-SPACE-MENU F1). Nil
     /// keeps `iconButtonWidth` and `tileGap`.
     public var glyphColumn: CGFloat?
+    /// A list block's edges (sidebar-v2): consecutive sections drawn in one
+    /// list keep the band's spacing. Nil: `padding`. A leading separator
+    /// draws in the top edge, as between two sections of one band.
+    public var topPadding: CGFloat?
+    public var bottomPadding: CGFloat?
+    public var leadingSeparator = false
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
@@ -72,11 +78,18 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     public var cards: [CGRect]
     /// Indices into `cards` of tiles sections, which take a stronger step.
     public var tiledCards: Set<Int> = []
+    /// The section of each card, in `cards` order (a view keeps a card's layer by its section).
+    public var cardSections: [LayoutSectionID] = []
     /// Lines between sections (lines looks).
     public var separators: [CGRect]
+    /// The key of each line, in `separators` order: the section below it (`leadingSeparatorKey` for the first line).
+    public var separatorKeys: [String] = []
+    public static let leadingSeparatorKey = "leading"
     /// Each shown section's full-width frame, in order (the tonal step
     /// under `appearance.borders = none`).
     public var sectionFrames: [CGRect]
+    /// The section of each frame, in `sectionFrames` order.
+    public var sectionIDs: [LayoutSectionID] = []
     public var height: CGFloat
     /// Height of the first `maxRows` rows of each section (the content a
     /// pinned region shows before it scrolls), summed.
@@ -93,19 +106,24 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         // An app section shows only with content (a height from its provider).
         let shown = sections.filter { section in
             switch section.content {
-            case .items: !section.items.isEmpty || header(section, look) != nil
+            case .items: !section.items.isEmpty || header(section, look) != nil || emptyTitle(section) != nil
             case .app: (appHeights[section.id] ?? 0) > 0
             default: false
             }
         }
         guard !shown.isEmpty else { return .empty }
         var result = SidebarRegionLayout.empty
-        var y = m.padding
-        var capped = m.padding
+        var y = m.topPadding ?? m.padding
+        var capped = y
+        if m.leadingSeparator, look.separatesSections {
+            result.separators.append(CGRect(x: 0, y: (y - m.lineWidth) / 2, width: width, height: m.lineWidth))
+            result.separatorKeys.append(leadingSeparatorKey)
+        }
         for (index, section) in shown.enumerated() {
             if index > 0 {
                 if look.separatesSections {
                     result.separators.append(CGRect(x: 0, y: y + (m.sectionGap - m.lineWidth) / 2, width: width, height: m.lineWidth))
+                    result.separatorKeys.append(section.id.rawValue)
                 }
                 y += m.sectionGap
                 capped += m.sectionGap
@@ -119,7 +137,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
             let top = y
             if carded { y += m.cardPadding }
             var sectionCapped: CGFloat = carded ? m.cardPadding * 2 : 0
-            let title = header(section, look)
+            let title = header(section, look) ?? emptyTitle(section)
             if title != nil {
                 result.rows.append(SidebarRegionRow(kind: .header(section.id), frame: CGRect(x: x, y: y, width: innerWidth, height: m.headerHeight)))
                 y += m.headerHeight
@@ -151,19 +169,27 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 y += m.cardPadding
                 if tiled { result.tiledCards.insert(result.cards.count) }
                 result.cards.append(CGRect(x: x, y: top, width: innerWidth, height: y - top))
+                result.cardSections.append(section.id)
             }
             result.sectionFrames.append(CGRect(x: 0, y: top, width: width, height: y - top))
+            result.sectionIDs.append(section.id)
             capped += sectionCapped
             if tiled {
                 y += m.sectionGap
                 capped += m.sectionGap
             }
         }
-        y += m.padding
-        capped += m.padding
+        y += m.bottomPadding ?? m.padding
+        capped += m.bottomPadding ?? m.padding
         result.height = y
         result.cappedHeight = min(capped, y)
         return result
+    }
+
+    /// An empty titled section's title: it draws it in every look, so the section stays in sight and takes a drop
+    /// there (an empty section with no title takes no space).
+    static func emptyTitle(_ section: LayoutSection) -> String? {
+        section.content == .items && section.items.isEmpty ? section.headerTitle : nil
     }
 
     /// The header a section draws in `look`, or nil.

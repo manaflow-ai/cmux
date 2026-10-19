@@ -75,6 +75,11 @@ final class HomeService {
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
+    /// This Mac's old Messages-list pins, moved into those owners once (cx-frn2y).
+    @ObservationIgnored private(set) lazy var pinMigration = HomePinMigration(account: { [weak self] in self?.pinAccount ?? "local" })
+    /// The docked Home's shown view: the sidebar marks its Home or Channels entry by it (cx-frn2y).
+    var dockMode: HomeDockMode = .messages
+    var dockShowsChannels: Bool { dockMode == .channels }
     /// Its durable copy is keyed by the Chief owner (one per Chief home), so
     /// a relaunch or another build shows the same history before the owner
     /// answers (home-state-ownership.md section 4).
@@ -122,6 +127,7 @@ final class HomeService {
             if case .cloudConversations = event { self?.handle(event) }
         }
         installChiefMigration()
+        pinMigration.attach([homeInbox, homeCloudInbox])
         settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
         }
@@ -224,6 +230,7 @@ final class HomeService {
         homeCloudInbox.note(event)
         switch event {
         case .conversationChanged(let changed):
+            if case .message(let message) = changed.change { brain.ask(after: message, in: conversations.first { $0.id == changed.conversation }) }
             updateList(changed)
             homeSource.publish(changed, summary: conversations.first { $0.id == changed.conversation })
             guard let session = sessions[changed.conversation] else { return }
@@ -236,6 +243,10 @@ final class HomeService {
                 conversation: ConversationID(draft.conversation), participant: ParticipantID(draft.participant),
                 turn: IdempotencyKey(draft.item.turn), segment: draft.item.segment, seq: draft.item.seq,
                 isTalk: draft.item.kind == "talk", text: draft.item.text, fresh: draft.item.fresh, done: draft.item.done)))
+        case .conversationLive(let live):
+            homeSource.publish(live)
+        case .conversationRunChanged(let changed):
+            homeSource.publish(changed)
         case .cloudConversations(let event):
             handleCloud(event)
         default:

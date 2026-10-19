@@ -14,6 +14,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -58,7 +59,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** The bar's count, the highlights drawn and the current match's text. */

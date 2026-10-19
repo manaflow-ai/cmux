@@ -27,6 +27,12 @@ final class BrowserHibernation {
     private(set) var pressure: MemoryPressureLevel = .normal
     /// When each hidden page was last visible.
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
+    /// When an agent last called each page (`noteAgentUse`).
+    private var agentUsedAt: [String: ContinuousClock.Instant] = [:]
+    /// Seconds after an agent's call during which its hidden page stays awake
+    /// whatever the memory pressure, so a page does not close under a script
+    /// or between two calls of one task.
+    static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, used by the `release` effect.
     private var prepared: [String: (state: BrowserRestoreState, snapshot: CGImage?)] = [:]
     private var probing: Set<String> = []
@@ -34,8 +40,7 @@ final class BrowserHibernation {
     private var pressureSource: (any DispatchSourceMemoryPressure)?
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
-    /// Memory pressure changed (the App resizes the terminal warm set and
-    /// the parked workspaces).
+    /// Memory pressure changed (the App resizes the terminal warm set).
     var onPressureChange: ((MemoryPressureLevel) -> Void)?
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
     private var settingsObservation: Task<Void, Never>?
@@ -110,10 +115,23 @@ final class BrowserHibernation {
         exemptions[key] = nil
     }
 
+    /// An agent acted on tab `key` (`cmux browser`, MCP, the browser REPL):
+    /// a hidden page's clock starts again, so a page an agent drives in the
+    /// background does not hibernate between two of its calls, and a page an
+    /// agent woke sleeps again once the agent leaves it alone that long.
+    func noteAgentUse(_ key: String) {
+        guard let cache, cache.browsers[key] != nil else { return }
+        agentUsedAt[key] = .now
+        guard cache.lifecycle.phase(key) == .mountedHidden else { return }
+        hiddenAt[key] = .now
+        replan()
+    }
+
     func forget(_ key: String) {
         agentPages?.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
+        agentUsedAt[key] = nil
         prepared[key] = nil
         probing.remove(key)
         exemptions[key] = nil
@@ -125,14 +143,25 @@ final class BrowserHibernation {
     func replan() {
         guard let cache else { return }
         let now = ContinuousClock.now
+        var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
             guard let at = hiddenAt[key], !probing.contains(key), let entry = cache.browsers[key] else { return nil }
+            if let used = agentUsedAt[key] {
+                let left = Self.agentGrace - (now - used).seconds
+                if left > 0, setting.isEnabled {
+                    exemptions[key] = .agentDriving
+                    graceEnds = min(graceEnds ?? left, left)
+                    return nil
+                }
+                agentUsedAt[key] = nil
+                if exemptions[key] == .agentDriving { exemptions[key] = nil }
+            }
             return candidate(key, entry: entry, hiddenFor: (now - at).seconds)
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }
         for key in plan.due { prepare(key) }
-        if let next = plan.nextCheck {
+        if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
         } else {
             deadline.cancel()
@@ -184,6 +213,11 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
+                return
+            }
+            // An agent called the page while the probe ran: it stays awake (the person's Hibernate Tab still applies).
+            if !user, let used = self.agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace {
+                self.exemptions[key] = .agentDriving
                 return
             }
             guard let state = source.hibernationState() else {

@@ -31,6 +31,9 @@ struct Fake {
     /// This daemon operation answers `selector.not_found` after the delay,
     /// as a wait on a terminal that closes.
     fail_after: Option<(&'static str, Duration)>,
+    /// The app's `feed.list` and `snapshot.get` take this long, and fail
+    /// when it is longer than the caller's timeout.
+    app_delay: Option<Duration>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -40,12 +43,43 @@ struct Fake {
 struct Live {
     daemon: Option<Value>,
     feed: Option<Value>,
+    /// The app's topology (`snapshot.get`); a fixed window without it.
+    topology: Option<Value>,
+    /// The daemon's journal: batch `i` is revision `i + 1` of
+    /// [`GENERATION`]. With it, the snapshot carries a cursor and the event
+    /// stream resumes from one (`agents_events`).
+    journal: Option<Vec<Value>>,
+    /// The journal's generation; [`GENERATION`] when unset.
+    generation: Option<String>,
+    /// Revisions before this one are no longer kept: an older cursor
+    /// expired.
+    oldest: usize,
+    /// Every daemon read fails.
+    daemon_down: bool,
     changes: Vec<(Instant, Change)>,
 }
+
+impl Live {
+    fn generation(&self) -> String {
+        self.generation.clone().unwrap_or_else(|| GENERATION.to_owned())
+    }
+}
+
+/// The fake daemon's journal generation.
+const GENERATION: &str = "gen_fake";
 
 enum Change {
     Daemon(Value),
     Feed(Value),
+    Topology(Value),
+    /// One journal batch: its changes.
+    Journal(Value),
+    /// The daemon restarted with a new journal generation.
+    Generation(&'static str),
+    /// The journal dropped the revisions before this one.
+    Expire(usize),
+    /// Daemon reads fail (true) or answer again (false).
+    DaemonDown(bool),
 }
 
 impl Live {
@@ -60,6 +94,11 @@ impl Live {
             match change {
                 Change::Daemon(value) => self.daemon = Some(value),
                 Change::Feed(value) => self.feed = Some(value),
+                Change::Topology(value) => self.topology = Some(value),
+                Change::Journal(changes) => self.journal.get_or_insert_with(Vec::new).push(changes),
+                Change::Generation(generation) => self.generation = Some(generation.to_owned()),
+                Change::Expire(oldest) => self.oldest = oldest,
+                Change::DaemonDown(down) => self.daemon_down = down,
             }
         }
     }
@@ -72,7 +111,7 @@ impl Fake {
 
     /// A daemon snapshot and pending dialogs that `then` changes later.
     fn live(daemon: Option<Value>, feed: Option<Value>) -> Self {
-        Self { live: RefCell::new(Live { daemon, feed, changes: Vec::new() }), ..Self::default() }
+        Self { live: RefCell::new(Live { daemon, feed, ..Live::default() }), ..Self::default() }
     }
 
     fn then(self, after: Duration, change: Change) -> Self {
@@ -131,8 +170,16 @@ impl Backend for Fake {
         }
         let mut live = self.live.borrow_mut();
         live.settle();
+        if live.daemon_down {
+            return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
         if let Some(daemon) = &live.daemon {
-            return Ok(daemon.clone());
+            let mut daemon = daemon.clone();
+            if let Some(journal) = &live.journal {
+                daemon["cursor"] =
+                    json!({"generation": live.generation(), "revision": journal.len().to_string()});
+            }
+            return Ok(daemon);
         }
         Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
@@ -141,10 +188,18 @@ impl Backend for Fake {
         &self,
         method: &str,
         params: Value,
-        _timeout: Duration,
+        timeout: Duration,
         idempotency_key: Option<&str>,
         mutation: bool,
     ) -> Result<Value, CallFailure> {
+        if let Some(delay) = self.app_delay
+            && matches!(method, "feed.list" | "snapshot.get")
+        {
+            std::thread::sleep(delay.min(timeout));
+            if delay > timeout {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+        }
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
@@ -170,7 +225,14 @@ impl Backend for Fake {
         }
         match method {
             "action.list" => Ok(self.actions.clone()),
-            "snapshot.get" => Ok(json!({"topology": {"windows": [{"id": "win_a"}]}})),
+            "snapshot.get" => {
+                let mut live = self.live.borrow_mut();
+                live.settle();
+                Ok(live
+                    .topology
+                    .clone()
+                    .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
             "feed.list" => {
                 let mut live = self.live.borrow_mut();
                 live.settle();
@@ -185,10 +247,18 @@ impl Backend for Fake {
     fn session_events(
         &self,
         _session: Option<&str>,
+        cursor: Option<&Value>,
         deadline: Instant,
         tick: Duration,
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure> {
+        self.sent.borrow_mut().push(json!({"kind": "events", "cursor": cursor}));
+        if self.fail_resources || self.live.borrow().daemon_down {
+            return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if self.live.borrow().journal.is_some() {
+            return self.journal_events(cursor, deadline, tick, on_wake);
+        }
         if on_wake(Some(&json!({"kind": "snapshot"}))) {
             return Ok(());
         }
@@ -228,6 +298,96 @@ impl Backend for Fake {
             "mutation": mutation,
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
+    }
+}
+
+impl Fake {
+    /// `session.events` over the fake journal, as the daemon streams it:
+    /// a snapshot without a cursor (or with another generation's), else the
+    /// batches after the cursor, then each batch as it is due.
+    fn journal_events(
+        &self,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        let head = || {
+            let mut live = self.live.borrow_mut();
+            live.settle();
+            live.journal.as_ref().map_or(0, Vec::len)
+        };
+        let generation = self.live.borrow().generation();
+        let oldest = self.live.borrow().oldest;
+        let mut next = match cursor {
+            Some(cursor)
+                if cursor["generation"] == generation.as_str()
+                    && cursor["revision"].as_str().unwrap().parse::<usize>().unwrap() >= oldest =>
+            {
+                let revision = cursor["revision"].as_str().unwrap().parse::<usize>().unwrap();
+                if revision > head() {
+                    return Err(CallFailure {
+                        kind: FailureKind::Rejected,
+                        error: json!({"code": "cursor.invalid", "message": "ahead"}),
+                        idempotency_key: None,
+                    });
+                }
+                revision
+            }
+            other => {
+                let revision = head();
+                let item = json!({
+                    "kind": "snapshot",
+                    "cursor": {"generation": generation, "revision": revision.to_string()},
+                    "reset_reason": match other {
+                        None => "initial",
+                        Some(cursor) if cursor["generation"] == generation.as_str() => {
+                            "cursor_expired"
+                        }
+                        Some(_) => "generation_changed",
+                    },
+                    "snapshot": self.live.borrow().daemon.clone().unwrap_or_else(|| json!({})),
+                });
+                if on_wake(Some(&item)) {
+                    return Ok(());
+                }
+                revision
+            }
+        };
+        loop {
+            let pending = head();
+            while next < pending {
+                let changes = self.live.borrow().journal.as_ref().unwrap()[next].clone();
+                let item = json!({
+                    "kind": "delta",
+                    "cursor": {"generation": generation, "revision": (next + 1).to_string()},
+                    "previous_revision": next.to_string(),
+                    "revision": (next + 1).to_string(),
+                    "changes": changes,
+                });
+                next += 1;
+                if on_wake(Some(&item)) {
+                    return Ok(());
+                }
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(());
+            }
+            let due = self
+                .live
+                .borrow()
+                .changes
+                .iter()
+                .filter(|(_, change)| matches!(change, Change::Journal(_)))
+                .map(|(at, _)| *at)
+                .min();
+            let wake = due.unwrap_or(deadline).min(now + tick).min(deadline);
+            std::thread::sleep(wake.saturating_duration_since(now));
+            if head() == next && on_wake(None) {
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -297,69 +457,6 @@ fn call(server: &mut Server<Fake>, name: &str, arguments: Value) -> Value {
     let response = server.handle(&request).expect("a response");
     assert!(response.get("error").is_none(), "{response}");
     response["result"].clone()
-}
-
-#[test]
-fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
-    let operations = v2_tools::catalog()["operations"].as_object().expect("operations");
-    let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();
-    let excluded = v2_tools::exclusions()
-        .into_iter()
-        .map(|exclusion| (exclusion.name, exclusion.reason))
-        .collect::<BTreeMap<_, _>>();
-    for name in operations.keys() {
-        assert!(
-            tools.contains(name.as_str()) != excluded.contains_key(name),
-            "{name} must be exactly one of a tool or an exclusion"
-        );
-    }
-    assert_eq!(tools.len() + excluded.len(), operations.len());
-    assert!(excluded.values().all(|reason| reason.len() > 10), "every exclusion has a reason");
-    for tool in v2_tools::tools() {
-        assert!(matches!(tool.operation.class(), OperationClass::Read | OperationClass::Mutation));
-        assert_eq!(tool.mutation, tool.operation.class() == OperationClass::Mutation);
-    }
-    for (name, _) in v2_tools::EXCLUDED {
-        assert!(operations.contains_key(*name), "stale exclusion {name}");
-    }
-}
-
-#[test]
-fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
-    let cases = super::super::command::cases::safe_operation_cases();
-    let sends =
-        |args: &[&str]| match super::super::parse(&strings(args), super::super::Surface::Cmux) {
-            Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
-                request.operation.name().ok()
-            }
-            _ => None,
-        };
-    for tool in v2_tools::tools() {
-        if super::super::command::cases::MULTI_REQUEST_OPERATIONS.contains(&tool.wire) {
-            continue;
-        }
-        let (args, _) = cases
-            .iter()
-            .find(|(_, operation)| *operation == tool.wire)
-            .unwrap_or_else(|| panic!("the CLI has no command for {}", tool.wire));
-        assert_eq!(
-            sends(args.as_slice()).as_deref(),
-            Some(tool.wire),
-            "`cmux {}` must send {}",
-            args.join(" "),
-            tool.wire
-        );
-    }
-    for (wire, _) in v2_tools::EXCLUDED {
-        if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
-            assert_eq!(
-                sends(args.as_slice()),
-                None,
-                "`cmux {}` offers excluded {wire}",
-                args.join(" ")
-            );
-        }
-    }
 }
 
 #[test]
@@ -592,6 +689,8 @@ fn json_rpc_lifecycle_and_errors() {
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
     for expected in [
         "workspace_list",
+        "machine_list",
+        "machine_get",
         "terminal_input_write",
         "window_list",
         "agents_snapshot",
@@ -599,7 +698,7 @@ fn json_rpc_lifecycle_and_errors() {
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
-    for absent in ["machine_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
+    for absent in ["session_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
         assert!(!names.contains(absent), "{absent} must not be a tool");
     }
     assert_eq!(names.len(), tools.len(), "tool names are unique");
@@ -676,65 +775,6 @@ fn notifications_wait_for_initialization_and_the_capability_says_so() {
     output.tools_changed().unwrap();
     let last: Value = serde_json::from_str(buffer.text().lines().last().unwrap()).unwrap();
     assert_eq!(last, json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}));
-}
-
-#[test]
-fn tool_schemas_follow_the_catalog() {
-    let name_ok = |name: &str| {
-        !name.is_empty()
-            && name.len() <= 64
-            && name
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-    };
-    for tool in v2_tools::tools() {
-        assert!(name_ok(&tool.name), "{}", tool.name);
-        let schema = tool.input_schema();
-        let properties = schema["properties"].as_object().expect("properties");
-        assert_eq!(schema["additionalProperties"], false);
-        assert!(!properties.contains_key("machine"), "{} exposes the machine", tool.name);
-        // `git.checkpoint.get` looks a create up by the key it ran under.
-        let lookup = tool.wire == "git.checkpoint.get";
-        let keyed = properties.contains_key("idempotency_key");
-        assert_eq!(keyed, tool.mutation || lookup, "{}", tool.name);
-        assert_eq!(properties.contains_key("offset"), tool.paginated, "{}", tool.name);
-        for required in schema["required"].as_array().unwrap() {
-            assert!(properties.contains_key(required.as_str().unwrap()), "{}", tool.name);
-        }
-        let annotations = &tool.descriptor_json()["annotations"];
-        assert_eq!(annotations["readOnlyHint"], !tool.mutation);
-        assert_eq!(annotations["openWorldHint"], tool.wire == "git.push", "{}", tool.name);
-    }
-    let create = v2_tools::find("workspace_create").expect("workspace_create").input_schema();
-    assert_eq!(create["properties"]["initial_content"]["enum"], json!(["terminal", "empty"]));
-    assert!(create["required"].as_array().unwrap().contains(&json!("initial_content")));
-    assert_eq!(create["properties"]["ephemeral"]["type"], "boolean");
-    assert!(v2_tools::find("workspace_list").unwrap().paginated);
-    assert!(!v2_tools::find("notification_list").unwrap().paginated, "owner's own limit");
-}
-
-#[test]
-fn ids_take_a_unique_prefix_and_a_session_qualifier() {
-    let tool = v2_tools::find("workspace_get").expect("workspace_get");
-    let call = tool.plan(&object(json!({"workspace": "build-box:ws_1a2b"}))).expect("plan");
-    assert_eq!(call.session.as_deref(), Some("build-box"));
-    assert_eq!(call.plan.params["workspace"], "ws_1a2b");
-    assert_eq!(
-        call.prefixes,
-        [Prefix { field: "workspace".into(), list: ResourceOperation::WorkspaceList }]
-    );
-    assert_eq!(call.plan.params["machine"], "current");
-    assert_eq!(call.plan.params["session"], "current");
-
-    for whole in [WORKSPACE, "current", "name:ws_1", "workspace:ws_1a"] {
-        let call = tool.plan(&object(json!({"workspace": whole}))).expect("plan");
-        assert!(call.prefixes.is_empty(), "{whole}");
-        assert_eq!(call.session, None, "{whole}");
-        assert_eq!(call.plan.params["workspace"], whole);
-    }
-    let two = tool.plan(&object(json!({"workspace": "a:ws_1", "session": "b"})));
-    assert!(two.is_err(), "one call reaches one session");
-    assert!(tool.plan(&object(json!({"bogus": "x"}))).is_err());
 }
 
 #[test]
@@ -1242,4 +1282,8 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
     }
 }
 
+mod agent_events;
 mod agent_wait;
+
+mod catalog;
+mod machine_catalog;
