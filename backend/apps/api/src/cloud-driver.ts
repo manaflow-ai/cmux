@@ -41,7 +41,7 @@ export interface RawCloudDriver {
   /** VM API only: resume the exact capture key before requiring its source. False never admits new capture work. */
   resumeSnapshot?(slug: string, tag: VmTag, allowSend: boolean): Promise<{ readonly id: string } | null>
   /** Snapshot a running or paused VM under `slug` (Freestyle `POST /v5/vms/{id}/snapshot`). */
-  createSnapshot(vmId: string, slug: string): Promise<{ readonly id: string }>
+  createSnapshot(vmId: string, slug: string, tag?: VmTag): Promise<{ readonly id: string }>
   /** Delete a snapshot (Freestyle `DELETE /v5/snapshots/{id}`; 404 is success). */
   deleteSnapshot(id: string): Promise<void>
   /** Grow a VM (Freestyle `POST /v5/vms/{id}/resize`: grow only; memory in MiB, storage in MiB). */
@@ -273,7 +273,7 @@ export class GuardedCloudDriver {
       if (existing.sourceVmId !== vm.id) throw new DriverError("cloud.provider.name_conflict", "the snapshot name belongs to another snapshot", true)
       return { id: existing.id }
     }
-    return this.raw.createSnapshot(vm.id, slug)
+    return this.raw.createSnapshot(vm.id, slug, tag)
   }
 
   /** Deletes the snapshot under our recorded `slug`; none there is success. */

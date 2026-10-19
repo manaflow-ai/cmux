@@ -207,6 +207,18 @@ describe("generated VM API Cloud transport", () => {
     expect(x.calls.some((r) => r.method !== "GET")).toBe(false);
   });
 
+  it("rechecks the original Cloud machine tag before admitting a fresh capture", async () => {
+    const x = fake((r) => {
+      const path = new URL(r.url).pathname;
+      if (path === "/v1/snapshot-creations/by-key") return new Response(null, { status: 404 });
+      if (path === "/v1/snapshot-creations" || path === "/v1/snapshots") return json({ items: [], nextCursor: null });
+      if (path === "/v1/vms") return json({ items: [vm()], nextCursor: null });
+      return json({ ...vm(), labels: { ...labels(), cmux_next_machine: "another-machine" } });
+    });
+    await expect(x.guarded.snapshot(name, { team, machine }, slug)).rejects.toThrow("unconfirmed snapshot source");
+    expect(x.calls.some((r) => r.method !== "GET")).toBe(false);
+  });
+
   it("writes UTF-8 bytes and root exec stdin without putting content in query strings", async () => {
     const x = fake(async (r) => {
       if (r.method === "PUT") {

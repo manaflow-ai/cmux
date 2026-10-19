@@ -125,11 +125,13 @@ export class VmApiCloudDriver implements RawCloudDriver {
   async resumeSnapshot(name: string, tag: VmTag, allowSend = true): Promise<{ id: string } | null> {
     return this.captures.resumeFor(tag, name, allowSend)
   }
-  async createSnapshot(vmId: string, name: string): Promise<{ id: string }> {
-    const resumed = await this.captures.resume(name, { source: vmId }, true)
+  async createSnapshot(vmId: string, name: string, tag?: VmTag): Promise<{ id: string }> {
+    if (tag && tag.team !== this.team) throw unavailable("wrong Cloud team", true)
+    const resumed = await this.captures.resume(name, { source: vmId, ...(tag ? { machine: tag.machine } : {}) }, true)
     if (resumed) return resumed
     const vm = await this.vm(vmId)
     if (!vm) throw unavailable("snapshot source is missing", true)
+    if (tag && vm.labels.cmux_next_machine !== tag.machine) throw unavailable("unconfirmed snapshot source", true)
     return this.captures.create(vmId, name, this.labels(name, vm.labels.cmux_next_machine))
   }
   async deleteSnapshot(id: string): Promise<void> { this.empty(await this.request(() => this.client.DELETE("/v1/snapshots/{snapshotId}", { params: { path: { snapshotId: id } } }))) }

@@ -46,7 +46,7 @@ export class VmApiSnapshotCaptures {
     if (found.response.status === 404) {
       // A legacy key may have expired while its canonical snapshot still exists.
       const owned = await this.request(() => this.lookupOwned(name, expected))
-      if (owned) return owned
+      if (owned) return { id: owned.id }
       // Refuse fresh captures against a Worker predating durable capture support.
       const support = await this.request(() => this.client.GET("/v1/snapshot-creations", { params: { query: { limit: "1" } } }))
       if (support.response.status !== 200 || !Array.isArray(support.data?.items) || !(support.data?.nextCursor === null || typeof support.data?.nextCursor === "string"))
