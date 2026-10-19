@@ -1,5 +1,5 @@
 package import CmuxInstallAuthCore
-import Foundation
+package import Foundation
 
 /// Resolves the picker’s opaque Stack reference through the original owner before minting in that team.
 package actor CloudTeamScope {
