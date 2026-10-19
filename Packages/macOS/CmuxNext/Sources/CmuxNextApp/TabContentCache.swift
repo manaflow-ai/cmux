@@ -84,9 +84,9 @@ final class TabContentCache {
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
-    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
-        try await cef.makeUserTab($0)
-    }
+    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in try await cef.makeUserTab($0) }
+    /// Makes a Chromium page in the current turn while Chromium runs (`ChromiumNewTabNow`; a seam for tests).
+    lazy var chromiumNow = ChromiumNow(cef)
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).

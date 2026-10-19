@@ -14,16 +14,11 @@ import Testing
     @Test func aNewTabPageHasItsChromeWhenThePaneFirstShowsIt() throws {
         let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
         cache.browserTabs.cefUnavailable = { nil }
-        let make = ChromiumNewTabNow.make
-        ChromiumNewTabNow.make = { _, configuration in  // Chromium runs
-            MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab(configuration)
-        }
+        cache.chromiumNow.runs = { true }  // Chromium runs
+        cache.chromiumNow.make = { MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab($0) }
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 41), kind: .browser, url: BrowserNewTabPage.chromiumURL,
                                        browserRenderer: "frontend", browserEngine: "cef"))
-        defer {
-            ChromiumNewTabNow.make = make
-            cache.release(tab.id)
-        }
+        defer { cache.release(tab.id) }
         let entry = try #require(cache.browser(for: tab), "the page and its toolbar exist in the turn the pane shows the tab")
         #expect(entry.tab.id.rawValue == tab.id)
         #expect(entry.tab.state.url?.absoluteString == BrowserNewTabPage.chromiumURL)
@@ -34,9 +29,8 @@ import Testing
     /// the fast path may claim it only for the page it makes.
     @Test func aNewTabPageNotMadeNowLeavesItsClosedHistoryForTheLaterPage() throws {
         let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
-        let make = ChromiumNewTabNow.make
-        ChromiumNewTabNow.make = { _, _ in nil }  // Chromium still starting
-        defer { ChromiumNewTabNow.make = make }
+        cache.chromiumNow.runs = { false }  // Chromium still starting
+        cache.chromiumNow.make = { _ in Issue.record("no page is made while Chromium starts"); return nil }
         let url = try #require(URL(string: BrowserNewTabPage.chromiumURL))
         let histories = cache.pageRequests.closedHistories
         histories.save(HibernatedBrowserTab(id: BrowserTabID(rawValue: "closed"), engine: .cef, profile: .default,
