@@ -46,7 +46,7 @@ public actor ErrorJournal {
         self.redactor = redactor
         var store = ErrorSegmentStore(directory: directory, segmentBytes: limits.segmentBytes)
         let snapshots = store.load()
-        var loaded: [String: ErrorEntry] = [:]
+        var latestByOriginalFingerprint: [String: ErrorEntry] = [:]
         var changed = false
         for var entry in snapshots {
             let original = entry
@@ -66,7 +66,12 @@ public actor ErrorJournal {
                 topFrame: topFrame
             ).hex
             if entry != original { changed = true }
-            loaded[entry.fingerprint] = entry
+            latestByOriginalFingerprint[original.fingerprint] = entry
+        }
+        var loaded: [String: ErrorEntry] = [:]
+        for originalFingerprint in latestByOriginalFingerprint.keys.sorted() {
+            guard let entry = latestByOriginalFingerprint[originalFingerprint] else { continue }
+            loaded[entry.fingerprint] = Self.mergeLoaded(loaded[entry.fingerprint], with: entry)
         }
         var migrationError: String?
         if changed {
@@ -76,6 +81,19 @@ public actor ErrorJournal {
         table = loaded
         self.store = store
         lastWriteError = migrationError
+    }
+
+    private static func mergeLoaded(_ existing: ErrorEntry?, with incoming: ErrorEntry) -> ErrorEntry {
+        guard var merged = existing else { return incoming }
+        merged.count &+= incoming.count
+        merged.level = max(merged.level, incoming.level)
+        merged.firstMs = min(merged.firstMs, incoming.firstMs)
+        if incoming.lastMs >= merged.lastMs {
+            merged.lastMs = incoming.lastMs
+            merged.sample = incoming.sample
+            merged.context = incoming.context
+        }
+        return merged
     }
 
     /// Folds one occurrence into its entry and schedules the write.

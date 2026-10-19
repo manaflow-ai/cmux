@@ -12,6 +12,7 @@ struct ErrorSegmentStore {
     private var current: URL?
     private var currentBytes = 0
     private var sequence = 0
+    private var cleanupPending = false
 
     init(directory: URL, segmentBytes: Int) {
         self.directory = directory
@@ -57,6 +58,10 @@ struct ErrorSegmentStore {
     /// Appends `changed`; compacts `all()` into a new segment first when the newest one is full.
     mutating func write(changed: [ErrorEntry], all: () -> [ErrorEntry]) throws {
         guard !changed.isEmpty else { return }
+        if cleanupPending {
+            try compact(all())
+            return
+        }
         let data = try Self.lines(changed)
         if current == nil || currentBytes + data.count > segmentBytes {
             try compact(all())
@@ -90,7 +95,11 @@ struct ErrorSegmentStore {
             do { try files.removeItem(at: oldURL) }
             catch { if firstRemovalError == nil { firstRemovalError = error } }
         }
-        if let firstRemovalError { throw firstRemovalError }
+        if let firstRemovalError {
+            cleanupPending = true
+            throw firstRemovalError
+        }
+        cleanupPending = false
     }
 
     /// Bytes of every segment on disk.
