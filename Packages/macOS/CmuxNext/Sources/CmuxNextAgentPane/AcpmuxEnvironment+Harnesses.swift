@@ -77,6 +77,12 @@ extension AcpmuxEnvironment {
         }
     }
 
+    /// `_acpmux/harness/health` (`refresh`: the daemon checks again). Named so a caller can default
+    /// to it without an async closure literal default argument (crash_ratchet, cx-bsue).
+    public nonisolated static func harnessHealth(_ environment: AcpmuxEnvironment, refresh: Bool) async throws -> Data {
+        try await environment.harness(.health, params: ["refresh": refresh])
+    }
+
     /// Calls `onChange` for each `_acpmux/harnesses_changed` the daemon sends (a profile file
     /// written, removed or reloaded), until the task is cancelled or the daemon closes the
     /// connection. Event-driven: one `_acpmux/watch` connection, no polling.

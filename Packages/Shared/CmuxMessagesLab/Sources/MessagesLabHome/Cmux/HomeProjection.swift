@@ -157,6 +157,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
                hasOlder newHasOlder: Bool, draft: HomeTurnDraft? = nil) {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
         let typing = wantedTyping
+        // My sends while the Chief's reply streamed stay below the text it showed then (ProjectionCore+Freeze).
+        let items = core.arrange(items)
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
@@ -328,6 +330,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
         if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
         if store.state.atNewest {
+            // The Chief's reply text already on screen stays where it is, above this send (cmux: send order).
+            for a in core.freezeStream(before: key, in: store.state) { controller.dispatch(a) }
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
@@ -675,6 +679,9 @@ struct ProjectionCore {
     var links: HomeMapping.Links = { _ in nil }
     /// The agent's running reply on screen (`stream(_:state:)`, MessagesLab ask 11).
     var shownStream: ShownStream?
+    /// Running replies whose shown text was frozen in place by my send (`freezeStream(before:)`),
+    /// by turn: the frozen text stays above that send, the rest streams below it.
+    var frozen: [IdempotencyKey: FrozenReply] = [:]
 
     init(me: ParticipantID) { self.me = me }
 
@@ -713,4 +720,7 @@ struct ProjectionCore {
     }
 
     mutating func forget(_ key: IdempotencyKey) { aliases[key] = nil }
+
+    /// A frozen piece of the running reply joins the shown snapshot at the newest (ProjectionCore+Freeze).
+    mutating func insertShown(_ item: TranscriptItem) { shown.append(item) }
 }

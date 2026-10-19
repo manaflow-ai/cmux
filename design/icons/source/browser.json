@@ -733,6 +733,28 @@
     "speaker.slash.fill"
    ],
    "note": "cx-6qwm.2 media hub"
+  },
+  {
+   "name": "browser.toolbar.extensions",
+   "meaning": "Browser toolbar Extensions button (the Chrome puzzle)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' transform='scale(1.2)'><path d='M 4.5 17 c -0.41 0 -0.77 -0.15 -1.06 -0.44 A 1.44 1.44 0 0 1 3 15.5 V 12 a 2.12 2.12 0 0 0 1.42 -0.61 A 1.88 1.88 0 0 0 5 10 a 1.88 1.88 0 0 0 -0.58 -1.39 A 2.12 2.12 0 0 0 3 8 V 4.5 c 0 -0.41 0.15 -0.77 0.44 -1.06 A 1.44 1.44 0 0 1 4.5 3 H 8 c 0 -0.56 0.19 -1.03 0.58 -1.42 A 1.93 1.93 0 0 1 10 1 c 0.56 0 1.03 0.19 1.42 0.58 c 0.39 0.39 0.58 0.86 0.58 1.42 h 3.5 c 0.41 0 0.77 0.15 1.06 0.44 c 0.29 0.29 0.44 0.65 0.44 1.06 V 8 a 1.94 1.94 0 0 1 1.42 0.58 c 0.39 0.39 0.58 0.86 0.58 1.42 c 0 0.56 -0.19 1.03 -0.58 1.42 A 1.94 1.94 0 0 1 17 12 v 3.5 c 0 0.41 -0.15 0.77 -0.44 1.06 A 1.44 1.44 0 0 1 15.5 17 Z m 0 -1.5 h 11 v -11 h -11 v 2.33 a 3.23 3.23 0 0 1 1.47 1.28 C 6.32 8.69 6.5 9.32 6.5 10 c 0 0.7 -0.18 1.33 -0.53 1.91 A 3.12 3.12 0 0 1 4.5 13.17 Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' transform='scale(1.2)'><path d='M 4.5 17 c -0.41 0 -0.77 -0.15 -1.06 -0.44 A 1.44 1.44 0 0 1 3 15.5 V 12 a 2.12 2.12 0 0 0 1.42 -0.61 A 1.88 1.88 0 0 0 5 10 a 1.88 1.88 0 0 0 -0.58 -1.39 A 2.12 2.12 0 0 0 3 8 V 4.5 c 0 -0.41 0.15 -0.77 0.44 -1.06 A 1.44 1.44 0 0 1 4.5 3 H 8 c 0 -0.56 0.19 -1.03 0.58 -1.42 A 1.93 1.93 0 0 1 10 1 c 0.56 0 1.03 0.19 1.42 0.58 c 0.39 0.39 0.58 0.86 0.58 1.42 h 3.5 c 0.41 0 0.77 0.15 1.06 0.44 c 0.29 0.29 0.44 0.65 0.44 1.06 V 8 a 1.94 1.94 0 0 1 1.42 0.58 c 0.39 0.39 0.58 0.86 0.58 1.42 c 0 0.56 -0.19 1.03 -0.58 1.42 A 1.94 1.94 0 0 1 17 12 v 3.5 c 0 0.41 -0.15 0.77 -0.44 1.06 A 1.44 1.44 0 0 1 15.5 17 Z m 0 -1.5 h 11 v -11 h -11 v 2.33 a 3.23 3.23 0 0 1 1.47 1.28 C 6.32 8.69 6.5 9.32 6.5 10 c 0 0.7 -0.18 1.33 -0.53 1.91 A 3.12 3.12 0 0 1 4.5 13.17 Z'/></g></svg>",
+   "alts": [],
+   "note": "Chrome's toolbar Extensions icon, copied exactly from Chromium components/vector_icons/extension_chrome_refresh_old.icon (BSD-3-Clause, The Chromium Authors), its 20-unit canvas scaled 1.2 to the 24 grid. Filled like Chrome; Line and Solid are the same.",
+   "replaces": [
+    "puzzlepiece.extension"
+   ]
+  },
+  {
+   "name": "browser.toolbar.downloads",
+   "meaning": "Browser toolbar Downloads button (the Chrome arrow into a tray)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' transform='scale(1.2)'><path d='M 4 18 a 1.99 1.99 0 0 1 -1.42 -0.57 A 1.99 1.99 0 0 1 2 16 v -3 h 2 v 3 h 12 v -3 h 2 v 3 c 0 0.55 -0.2 1.02 -0.6 1.43 c -0.38 0.38 -0.85 0.57 -1.4 0.57 Z m 6 -4 L 5 9 l 1.4 -1.45 l 2.6 2.6 V 2 h 2 v 8.15 l 2.6 -2.6 L 15 9 Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' transform='scale(1.2)'><path d='M 4 18 a 1.99 1.99 0 0 1 -1.42 -0.57 A 1.99 1.99 0 0 1 2 16 v -3 h 2 v 3 h 12 v -3 h 2 v 3 c 0 0.55 -0.2 1.02 -0.6 1.43 c -0.38 0.38 -0.85 0.57 -1.4 0.57 Z m 6 -4 L 5 9 l 1.4 -1.45 l 2.6 2.6 V 2 h 2 v 8.15 l 2.6 -2.6 L 15 9 Z'/></g></svg>",
+   "alts": [],
+   "note": "Chrome's toolbar Downloads icon, copied exactly from Chromium chrome/app/vector_icons/download_toolbar_button_chrome_refresh_old.icon (BSD-3-Clause, The Chromium Authors), its 20-unit canvas scaled 1.2 to the 24 grid. Filled like Chrome; Line and Solid are the same.",
+   "replaces": [
+    "arrow.down.to.line"
+   ]
   }
  ]
 }

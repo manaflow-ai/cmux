@@ -71,6 +71,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// An agent row of the first-run panel was picked: the host opens that
     /// tab (its daemon tab id).
     public var onFirstRunAgent: (String) -> Void = { _ in }
+    /// The Switching card's Hide: the host records it, then clears the card.
+    public var onHideSwitchKeys: () -> Void = {}
+    /// The Switching card's Keyboard Shortcuts… button (the Mission Control note).
+    public var onOpenKeyboardShortcutSettings: () -> Void = {}
     /// The host is still loading the conversation's first page: the
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
@@ -107,6 +111,12 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
+        firstRun.switchCard.onHide = { [weak self] in
+            self?.firstRun.switchCard.apply(nil)
+            self?.firstRun.needsLayout = true
+            self?.onHideSwitchKeys()
+        }
+        firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
@@ -267,10 +277,10 @@ public final class HomeNativeTranscriptView: NSView {
         layoutNotice()
     }
 
-    /// The first-run rows' shortcuts and the tab hint's keys, as the
-    /// registry shows them; nil hides one.
-    public func setFirstRunShortcuts(terminal: String?, agent: String?, tabs: String?) {
-        firstRun.setShortcuts(terminal: terminal, agent: agent, tabs: tabs)
+    /// The first-run rows' shortcuts and the Switching card's keys, as the
+    /// live binding table has them; nil hides one (nil `switching`: no card).
+    public func setFirstRunShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
+        firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
     }
 
     /// The user's agents for the first-run panel's glance (the host maps

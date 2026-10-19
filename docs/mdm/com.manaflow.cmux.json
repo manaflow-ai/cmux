@@ -106,6 +106,28 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.subsessions.enabled" : {
+      "default" : true,
+      "description" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
+      "title" : "Let Agents Start Sub-sessions",
+      "type" : "boolean"
+    },
+    "agents.subsessions.maxChildren" : {
+      "default" : 50,
+      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+      "maximum" : 1000,
+      "minimum" : 1,
+      "title" : "Open Sub-sessions per Session",
+      "type" : "number"
+    },
+    "agents.subsessions.maxDepth" : {
+      "default" : 10,
+      "description" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own.",
+      "maximum" : 100,
+      "minimum" : 1,
+      "title" : "Deepest Nesting",
+      "type" : "number"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -724,7 +746,7 @@
       "type" : "boolean"
     },
     "appearance.focusIndicator" : {
-      "default" : "both",
+      "default" : "tabs",
       "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
       "enum" : [
         "border",
@@ -1347,6 +1369,12 @@
       "title" : "Search Engine",
       "type" : "string"
     },
+    "browser.showAgentCursor" : {
+      "default" : true,
+      "description" : "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots.",
+      "title" : "Show Agent Cursor",
+      "type" : "boolean"
+    },
     "browser.showBookmarksBar" : {
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
@@ -1490,6 +1518,377 @@
       "description" : "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).",
       "title" : "DisableTelemetry",
       "type" : "boolean"
+    },
+    "editor.acceptSuggestionOnEnter" : {
+      "default" : "on",
+      "description" : "editor.acceptSuggestionOnEnter",
+      "enum" : [
+        "on",
+        "smart",
+        "off"
+      ],
+      "title" : "Return Accepts a Suggestion",
+      "type" : "string"
+    },
+    "editor.autoClosingBrackets" : {
+      "default" : true,
+      "description" : "editor.autoClosingBrackets",
+      "title" : "Close Brackets",
+      "type" : "boolean"
+    },
+    "editor.autoClosingQuotes" : {
+      "default" : true,
+      "description" : "editor.autoClosingQuotes",
+      "title" : "Close Quotes",
+      "type" : "boolean"
+    },
+    "editor.autoSave" : {
+      "default" : "afterDelay",
+      "description" : "editor.autoSave",
+      "enum" : [
+        "afterDelay",
+        "off"
+      ],
+      "title" : "Save Automatically",
+      "type" : "string"
+    },
+    "editor.autoSaveDelay" : {
+      "default" : 1000,
+      "description" : "editor.autoSaveDelay",
+      "maximum" : 60000,
+      "minimum" : 100,
+      "title" : "Pause Before Saving",
+      "type" : "number"
+    },
+    "editor.bracketPairColorization.enabled" : {
+      "default" : true,
+      "description" : "editor.bracketPairColorization.enabled",
+      "title" : "Color Bracket Pairs",
+      "type" : "boolean"
+    },
+    "editor.cursorBlinking" : {
+      "default" : "blink",
+      "description" : "editor.cursorBlinking",
+      "enum" : [
+        "blink",
+        "smooth",
+        "phase",
+        "expand",
+        "solid"
+      ],
+      "title" : "Cursor Blinking",
+      "type" : "string"
+    },
+    "editor.cursorSmoothCaretAnimation" : {
+      "default" : "off",
+      "description" : "editor.cursorSmoothCaretAnimation",
+      "enum" : [
+        "off",
+        "explicit",
+        "on"
+      ],
+      "title" : "Animate Cursor Movement",
+      "type" : "string"
+    },
+    "editor.cursorStyle" : {
+      "default" : "line",
+      "description" : "editor.cursorStyle",
+      "enum" : [
+        "line",
+        "block",
+        "underline",
+        "line-thin",
+        "block-outline",
+        "underline-thin"
+      ],
+      "title" : "Cursor Style",
+      "type" : "string"
+    },
+    "editor.cursorSurroundingLines" : {
+      "default" : 0,
+      "description" : "editor.cursorSurroundingLines",
+      "maximum" : 50,
+      "minimum" : 0,
+      "title" : "Lines Kept Around the Cursor",
+      "type" : "number"
+    },
+    "editor.detectIndentation" : {
+      "default" : true,
+      "description" : "Tab size and spaces follow the file's own indentation.",
+      "title" : "Detect Indentation",
+      "type" : "boolean"
+    },
+    "editor.emptySelectionClipboard" : {
+      "default" : true,
+      "description" : "editor.emptySelectionClipboard",
+      "title" : "Copy the Line When Nothing Is Selected",
+      "type" : "boolean"
+    },
+    "editor.find.seedSearchStringFromSelection" : {
+      "default" : "always",
+      "description" : "editor.find.seedSearchStringFromSelection",
+      "enum" : [
+        "always",
+        "selection",
+        "never"
+      ],
+      "title" : "Find Starts With",
+      "type" : "string"
+    },
+    "editor.folding" : {
+      "default" : true,
+      "description" : "editor.folding",
+      "title" : "Code Folding",
+      "type" : "boolean"
+    },
+    "editor.fontFamily" : {
+      "description" : "Empty uses the terminal font.",
+      "title" : "Font Family",
+      "type" : "string"
+    },
+    "editor.fontLigatures" : {
+      "default" : false,
+      "description" : "editor.fontLigatures",
+      "title" : "Font Ligatures",
+      "type" : "boolean"
+    },
+    "editor.fontSize" : {
+      "description" : "Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor.",
+      "maximum" : 72,
+      "minimum" : 6,
+      "title" : "Font Size",
+      "type" : "number"
+    },
+    "editor.fontWeight" : {
+      "default" : "normal",
+      "description" : "editor.fontWeight",
+      "enum" : [
+        "normal",
+        "bold",
+        "300",
+        "500",
+        "600"
+      ],
+      "title" : "Font Weight",
+      "type" : "string"
+    },
+    "editor.formatOnSave" : {
+      "default" : false,
+      "description" : "Runs the language's formatter when one is installed.",
+      "title" : "Format on Save",
+      "type" : "boolean"
+    },
+    "editor.guides.bracketPairs" : {
+      "default" : false,
+      "description" : "editor.guides.bracketPairs",
+      "title" : "Bracket Pair Guides",
+      "type" : "boolean"
+    },
+    "editor.guides.indentation" : {
+      "default" : true,
+      "description" : "editor.guides.indentation",
+      "title" : "Indentation Guides",
+      "type" : "boolean"
+    },
+    "editor.importFrom" : {
+      "default" : "auto",
+      "description" : "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins.",
+      "enum" : [
+        "auto",
+        "vscode",
+        "cursor",
+        "windsurf",
+        "vscodium",
+        "zed",
+        "none"
+      ],
+      "title" : "Take Defaults From",
+      "type" : "string"
+    },
+    "editor.insertFinalNewline" : {
+      "default" : false,
+      "description" : "editor.insertFinalNewline",
+      "title" : "End Files with a Newline on Save",
+      "type" : "boolean"
+    },
+    "editor.insertSpaces" : {
+      "default" : true,
+      "description" : "Tab inserts spaces. Off inserts a tab character.",
+      "title" : "Insert Spaces",
+      "type" : "boolean"
+    },
+    "editor.letterSpacing" : {
+      "default" : 0,
+      "description" : "editor.letterSpacing",
+      "maximum" : 20,
+      "minimum" : -5,
+      "title" : "Letter Spacing",
+      "type" : "number"
+    },
+    "editor.lineHeight" : {
+      "default" : 0,
+      "description" : "0 computes it from the font size. A value under 8 multiplies the font size.",
+      "maximum" : 150,
+      "minimum" : 0,
+      "title" : "Line Height",
+      "type" : "number"
+    },
+    "editor.lineNumbers" : {
+      "default" : "on",
+      "description" : "editor.lineNumbers",
+      "enum" : [
+        "on",
+        "off",
+        "relative",
+        "interval"
+      ],
+      "title" : "Line Numbers",
+      "type" : "string"
+    },
+    "editor.linkedEditing" : {
+      "default" : false,
+      "description" : "editor.linkedEditing",
+      "title" : "Rename Matching Tags Together",
+      "type" : "boolean"
+    },
+    "editor.matchBrackets" : {
+      "default" : "always",
+      "description" : "editor.matchBrackets",
+      "enum" : [
+        "always",
+        "near",
+        "never"
+      ],
+      "title" : "Highlight Matching Brackets",
+      "type" : "string"
+    },
+    "editor.minimap.enabled" : {
+      "default" : false,
+      "description" : "editor.minimap.enabled",
+      "title" : "Minimap",
+      "type" : "boolean"
+    },
+    "editor.mouseWheelZoom" : {
+      "default" : false,
+      "description" : "editor.mouseWheelZoom",
+      "title" : "Zoom with Command and the Scroll Wheel",
+      "type" : "boolean"
+    },
+    "editor.multiCursorModifier" : {
+      "default" : "alt",
+      "description" : "The key you hold while you click to add a cursor.",
+      "enum" : [
+        "alt",
+        "ctrlCmd"
+      ],
+      "title" : "Add a Cursor With",
+      "type" : "string"
+    },
+    "editor.quickSuggestions" : {
+      "default" : false,
+      "description" : "editor.quickSuggestions",
+      "title" : "Suggest While Typing",
+      "type" : "boolean"
+    },
+    "editor.renderControlCharacters" : {
+      "default" : true,
+      "description" : "editor.renderControlCharacters",
+      "title" : "Show Control Characters",
+      "type" : "boolean"
+    },
+    "editor.renderLineHighlight" : {
+      "default" : "line",
+      "description" : "editor.renderLineHighlight",
+      "enum" : [
+        "none",
+        "gutter",
+        "line",
+        "all"
+      ],
+      "title" : "Current Line Highlight",
+      "type" : "string"
+    },
+    "editor.renderWhitespace" : {
+      "default" : "selection",
+      "description" : "editor.renderWhitespace",
+      "enum" : [
+        "none",
+        "boundary",
+        "selection",
+        "trailing",
+        "all"
+      ],
+      "title" : "Show Whitespace",
+      "type" : "string"
+    },
+    "editor.rulers" : {
+      "default" : [
+
+      ],
+      "description" : "Columns where a vertical line shows.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Rulers",
+      "type" : "array"
+    },
+    "editor.scrollBeyondLastLine" : {
+      "default" : false,
+      "description" : "editor.scrollBeyondLastLine",
+      "title" : "Scroll Past the Last Line",
+      "type" : "boolean"
+    },
+    "editor.smoothScrolling" : {
+      "default" : false,
+      "description" : "editor.smoothScrolling",
+      "title" : "Smooth Scrolling",
+      "type" : "boolean"
+    },
+    "editor.stickyScroll.enabled" : {
+      "default" : true,
+      "description" : "The lines that open the scopes around the top line stay at the top while you scroll.",
+      "title" : "Sticky Scroll",
+      "type" : "boolean"
+    },
+    "editor.tabSize" : {
+      "default" : 4,
+      "description" : "editor.tabSize",
+      "maximum" : 16,
+      "minimum" : 1,
+      "title" : "Tab Size",
+      "type" : "number"
+    },
+    "editor.trimTrailingWhitespace" : {
+      "default" : false,
+      "description" : "editor.trimTrailingWhitespace",
+      "title" : "Remove Trailing Spaces on Save",
+      "type" : "boolean"
+    },
+    "editor.wordBasedSuggestions" : {
+      "default" : true,
+      "description" : "editor.wordBasedSuggestions",
+      "title" : "Suggest Words from the File",
+      "type" : "boolean"
+    },
+    "editor.wordWrap" : {
+      "default" : "off",
+      "description" : "Opt-Z turns it on and off.",
+      "enum" : [
+        "off",
+        "on",
+        "wordWrapColumn",
+        "bounded"
+      ],
+      "title" : "Word Wrap",
+      "type" : "string"
+    },
+    "editor.wordWrapColumn" : {
+      "default" : 80,
+      "description" : "editor.wordWrapColumn",
+      "maximum" : 1000,
+      "minimum" : 10,
+      "title" : "Wrap Column",
+      "type" : "number"
     },
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
@@ -1840,6 +2239,84 @@
     "ManagedTeam" : {
       "description" : "Team id (team_...) that manages this device.",
       "title" : "ManagedTeam",
+      "type" : "string"
+    },
+    "markdown.code.blockSize" : {
+      "default" : 14,
+      "description" : "markdown.code.blockSize",
+      "maximum" : 32,
+      "minimum" : 8,
+      "title" : "Code Font Size",
+      "type" : "number"
+    },
+    "markdown.font.lineHeight" : {
+      "default" : 1.6,
+      "description" : "markdown.font.lineHeight",
+      "maximum" : 2.4,
+      "minimum" : 1,
+      "title" : "Line Height",
+      "type" : "number"
+    },
+    "markdown.font.preset" : {
+      "default" : "system",
+      "description" : "markdown.font.preset",
+      "enum" : [
+        "system",
+        "serif",
+        "mono"
+      ],
+      "title" : "Font",
+      "type" : "string"
+    },
+    "markdown.font.size" : {
+      "default" : 16,
+      "description" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.",
+      "maximum" : 40,
+      "minimum" : 8,
+      "title" : "Default Font Size",
+      "type" : "number"
+    },
+    "markdown.layout.fullWidth" : {
+      "default" : false,
+      "description" : "Text fills the whole pane instead of the text width.",
+      "title" : "Full Width",
+      "type" : "boolean"
+    },
+    "markdown.layout.width" : {
+      "default" : 72,
+      "description" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.",
+      "maximum" : 160,
+      "minimum" : 40,
+      "title" : "Text Width",
+      "type" : "number"
+    },
+    "markdown.spacing.paragraph" : {
+      "default" : 1,
+      "description" : "The gap after each paragraph, as a share of the text size.",
+      "maximum" : 3,
+      "minimum" : 0,
+      "title" : "Paragraph Spacing",
+      "type" : "number"
+    },
+    "markdown.tables" : {
+      "default" : "scroll",
+      "description" : "markdown.tables",
+      "enum" : [
+        "scroll",
+        "wrap"
+      ],
+      "title" : "Wide Tables",
+      "type" : "string"
+    },
+    "markdown.theme" : {
+      "default" : "app",
+      "description" : "markdown.theme",
+      "enum" : [
+        "app",
+        "light",
+        "dark"
+      ],
+      "title" : "Page Theme",
       "type" : "string"
     },
     "MinimumVersion" : {
@@ -2330,6 +2807,12 @@
       "title" : "Sidebar Density",
       "type" : "string"
     },
+    "sidebar.detailedStatusIcons" : {
+      "default" : false,
+      "description" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
+      "title" : "Detailed Status Icons",
+      "type" : "boolean"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",
@@ -2347,7 +2830,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 1300,
+      "default" : 250,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -2377,6 +2860,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.nowPlaying.enabled" : {
+      "default" : true,
+      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "title" : "Show Now Playing",
+      "type" : "boolean"
     },
     "sidebar.numbering" : {
       "default" : "allItems",
@@ -3174,7 +3663,7 @@
     },
     "updates.showWhatsNew" : {
       "default" : true,
-      "description" : "After an update, a What's New item shows at the top of the sidebar until you open it.",
+      "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
       "title" : "Show What's New After Updates",
       "type" : "boolean"
     },

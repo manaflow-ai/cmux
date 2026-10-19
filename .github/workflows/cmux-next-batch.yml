@@ -171,6 +171,9 @@ jobs:
           STICKY_TOKEN: ${{ steps.sticky-token.outputs.token }}
           CMUX_NEXT_BATCH_STICKY: ${{ vars.CMUX_NEXT_BATCH_STICKY }}
           CMUX_NEXT_BATCH_AUTHORS: ${{ vars.CMUX_NEXT_BATCH_AUTHORS }}
+          # The review gate and override labels (docs/ci/cmux-next-batch.md): logins no lane runs as.
+          CMUX_NEXT_BATCH_REVIEWERS: ${{ vars.CMUX_NEXT_BATCH_REVIEWERS }}
+          CMUX_NEXT_BATCH_OVERRIDERS: ${{ vars.CMUX_NEXT_BATCH_OVERRIDERS }}
           PRS: ${{ inputs.prs }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
           NO_LAND: ${{ inputs.no_land && '--no-land' || '' }}

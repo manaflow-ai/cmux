@@ -104,6 +104,7 @@ import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
+import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useSessionRail } from "./summary/SessionRail";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
@@ -135,6 +136,7 @@ import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
+import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -149,6 +151,7 @@ import {
   clearFindHighlights,
   FindReveal,
   findRowIndex,
+  isFindRow,
   paintFindHighlights,
   type ChatFind,
 } from "./conversation/chatFind";
@@ -199,13 +202,20 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
-import { WorkingFor } from "./conversation/WorkingFor";
+import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
+import {
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  type SubagentRows,
+  childView,
+  subagentRowsFrom,
+  subagentsIn,
+} from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
@@ -215,6 +225,7 @@ import {
   SubagentOfRow,
   SubagentPaneContext,
   SubagentStopContext,
+  running,
 } from "./subagents/SubagentGroup";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
@@ -247,6 +258,7 @@ import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/Sugge
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
+import { setSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -293,6 +305,9 @@ declare global {
       applyPreview?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
+      /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
+      /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
+      applySessionStatus?(on: boolean): void;
       /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
@@ -636,6 +651,8 @@ const WorkingRow = memo(
 
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
+/// How long a running line count's reveal holds a run open while its row draws (WorkingFor.tsx).
+const REVEAL_HOLD_MS = 2_000;
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
 /// panel) refuses, and the card's address still opens outside the pane.
 const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
@@ -671,6 +688,18 @@ const PlanRow = memo(
 const BackgroundTaskRow = memo(
   function BackgroundTaskRow({ row }: RowProps) {
     return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const CompactionRow = memo(
+  function CompactionRow({ row }: RowProps) {
+    return row.compaction ? <CompactionNote compaction={row.compaction} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const FailoverRow = memo(
+  function FailoverRow({ row }: RowProps) {
+    return row.failover ? <FailoverNote failover={row.failover} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -767,6 +796,8 @@ const defaultRegistry: NativeRegistry = {
   notice: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
+  compaction: CompactionRow,
+  failover: FailoverRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
@@ -826,10 +857,21 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
   return false;
 }
 
+/// RowFrame redraws only when a prop it or its row's renderer reads changed. `children` is left out:
+/// it is a new element every render, built from `row` and the content props passed beside it
+/// (`contentType` and the rest), so comparing every other prop is enough. The callbacks are stable
+/// across snapshots (VirtualTranscript and the pane hold them), so a streaming snapshot that changes
+/// only the latest row leaves every other mounted row alone.
+function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
+  const keys = Object.keys(next);
+  if (keys.length !== Object.keys(previous).length) return false;
+  return keys.every((key) => key === "children" || Object.is(previous[key], next[key]));
+}
+
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-function RowFrame({
+const RowFrame = React.memo(function RowFrame({
   row,
   kind,
   joinsPrevious,
@@ -848,7 +890,7 @@ function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  onCopy,
+  onCopyRow,
   copyable,
   children,
 }: {
@@ -871,10 +913,16 @@ function RowFrame({
   active: boolean;
   selected: boolean;
   tabStop: boolean;
-  onFocus: () => void;
-  onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopy?: () => Promise<void>;
+  onFocus: (id: string) => void;
+  onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+  onCopyRow: (id: string) => Promise<void>;
   copyable: boolean;
+  /// What the child row draws from, compared instead of `children` (a new element every render).
+  contentType: unknown;
+  controls?: string;
+  onToggleActivity: (id: string) => void;
+  onOpenDiff?: OpenDiff;
+  githubRepository?: string;
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
@@ -882,8 +930,12 @@ function RowFrame({
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [copied, setCopied] = useState(false);
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
+    [index, onRowKeyDown],
+  );
+  const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
+  const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -919,7 +971,7 @@ function RowFrame({
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
-      onFocus={onFocus}
+      onFocus={() => onFocus(row.id)}
     >
       {copyable && (
         <button
@@ -930,7 +982,7 @@ function RowFrame({
           title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
-              await onCopy?.();
+              await onCopyRow(row.id);
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1200);
             } catch {
@@ -944,15 +996,20 @@ function RowFrame({
       {children}
     </article>
   );
-}
+}, sameRowFrame);
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-/// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
+/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction or a
+/// failover note.
 const isStepRow = (row: AcpmuxRow | undefined) =>
-  row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
+  row !== undefined &&
+  (row.kind === "backgroundTask" ||
+    row.kind === "compaction" ||
+    row.kind === "failover" ||
+    (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -1103,6 +1160,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
   githubRepository,
   find,
+  reveal,
   working = false,
   jumpButton = false,
   focusComposer,
@@ -1136,6 +1194,9 @@ export function VirtualTranscript({
   githubRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
+  /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
+  /// The run that holds call `toolId` opens, as for a Find match.
+  reveal?: { rowId: string; key: number; toolId: string };
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -1381,6 +1442,12 @@ export function VirtualTranscript({
   }, []);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
+  /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
+  /// does not scan for its turn's footer again.
+  const pointedRow = useRef<string | undefined>(undefined);
+  // The rows the cached footer was found in: a footer can appear, or stop being the last turn's,
+  // while the pointer rests on the same row.
+  const pointedRows = useRef<AcpmuxRow[] | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -1610,6 +1677,22 @@ export function VirtualTranscript({
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
+  // Rows get stable callbacks that read the latest rows and selection, so a snapshot does not hand
+  // every memoized RowFrame a new function.
+  const copyRowsRef = useRef(copyRows);
+  copyRowsRef.current = copyRows;
+  const selectedRowIdsRef = useRef(selectedRowIds);
+  selectedRowIdsRef.current = selectedRowIds;
+  const copyRow = useCallback(async (rowId: string) => {
+    const selected = selectedRowIdsRef.current;
+    await copyRowsRef.current(selected.includes(rowId) ? selected : [rowId]);
+  }, []);
+  const rowKeyDownRef = useRef(rowKeyDown);
+  rowKeyDownRef.current = rowKeyDown;
+  const handleRowKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
+    [],
+  );
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
@@ -1811,6 +1894,31 @@ export function VirtualTranscript({
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
   }, [targetKey]);
+  // A row the running line's count names scrolls in once the transcript draws it (its fold may
+  // open first), as a Find match does.
+  const revealIndex = reveal ? findRowIndex(rows, reveal.rowId) : -1;
+  const countReveal = useMemo(
+    () =>
+      reveal && revealIndex >= 0
+        ? { rowId: rows[revealIndex]!.id, card: false, needle: "", toolId: reveal.toolId, repaint: () => {} }
+        : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one reveal per key, once its row is drawn
+    [reveal?.key, revealIndex >= 0],
+  );
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || revealIndex < 0) return;
+    const top = layout.tops[revealIndex];
+    const bottom = top + layout.heights[revealIndex];
+    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
+    // The reader asked for this row: the view stops following the reply, or the run opening below
+    // would pull it back to the latest line.
+    const next = Math.max(0, top - node.clientHeight / 3);
+    scrolledTo.current = { top: next, atLatest: false };
+    follow(false);
+    node.scrollTop = next;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new reveal scrolls, not a layout change
+  }, [reveal?.key, revealIndex >= 0]);
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -2035,6 +2143,10 @@ export function VirtualTranscript({
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
+    const rowId = row?.dataset.rowId;
+    if (rowId === pointedRow.current && rows === pointedRows.current) return;
+    pointedRow.current = rowId;
+    pointedRows.current = rows;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
     let footer: string | undefined;
     for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
@@ -2072,7 +2184,7 @@ export function VirtualTranscript({
           width={width}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <FindReveal.Provider value={findReveal}>
+        <FindReveal.Provider value={countReveal ?? findReveal}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div
               ref={thread}
@@ -2107,14 +2219,15 @@ export function VirtualTranscript({
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
-                      onFocus={() => rowFocus(row.id)}
-                      onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                      onFocus={rowFocus}
+                      onRowKeyDown={handleRowKeyDown}
                       copyable={transcriptHasFloatingCopy(row)}
-                      onCopy={() =>
-                        copyRows(
-                          selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
-                        )
-                      }
+                      onCopyRow={copyRow}
+                      contentType={Component}
+                      controls={controls}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      githubRepository={githubRepository}
                     >
                       <Component
                         row={row}
@@ -2231,6 +2344,12 @@ function DefaultComposerChips({
   return (
     <ComposerPickers
       snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
+      // A New Tab pick is held once acpmux's actions are connected and the chat has a harness to
+      // start (start() sends chat.new first); before that a pick would reach nothing.
+      holdsModePick={
+        snapshot.switching !== undefined ||
+        (startsChat && !!snapshot.summary?.harness && window.cmuxAcpmuxActions?.["chat.new"] !== undefined)
+      }
       permissionAccess={permissionAccess}
       onModel={(modelId) => {
         start();
@@ -3237,6 +3356,54 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
+  // The running line's counts (conversation/WorkingFor.tsx): the subagents still running and the
+  // background shells that have not ended. A count of one opens its subagent or the shell's row;
+  // of several, the summary card, which lists them all.
+  const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
+  const runningAgents = useMemo(
+    () => (snapshot.isWorking ? [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()].filter(running) : []),
+    [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
+  );
+  const runningCommands = useMemo(
+    () => (snapshot.isWorking ? runningBackgroundTasks(snapshot.rows) : []),
+    [snapshot.isWorking, snapshot.rows],
+  );
+  const counted = useRef({ runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard });
+  counted.current = { runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard };
+  const workingCounts = useMemo<WorkingCounts>(() => {
+    // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
+    // holds the call. The reveal lets go after a moment, so the run closes again like any other.
+    const showToolRow = (toolId: string) => {
+      const { sourceRows: rows, transcriptRows: shown } = counted.current;
+      const index = rows.findIndex((row) => row.items?.some((item) => item.tool?.id === toolId));
+      const row = rows[index];
+      if (!row) return;
+      if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
+        const user = rows
+          .slice(0, index)
+          .reverse()
+          .find((earlier) => earlier.kind === "user");
+        if (user) openFold(`${WORKED}-${user.id}`);
+      }
+      const key = Date.now();
+      setRevealRow({ rowId: row.id, key, toolId });
+      setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+    };
+    return {
+      agents: runningAgents.length,
+      commands: runningCommands.length,
+      openAgents: () => {
+        const { runningAgents: agents, summaryCard: card } = counted.current;
+        if (agents.length === 1) showSubagent(agents[0]!.id);
+        else card.show();
+      },
+      openCommands: () => {
+        const { runningCommands: commands, summaryCard: card } = counted.current;
+        if (commands.length === 1) showToolRow(commands[0]!.id);
+        else card.show();
+      },
+    };
+  }, [runningAgents.length, runningCommands.length, showSubagent, openFold]);
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
@@ -3343,7 +3510,15 @@ function AcpmuxPane() {
   }).current;
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
-    attach: (audio) => composerHandle.current?.attach(audioAttachment(audio, translate("dictation.recording"))),
+    attach: (audio) => {
+      const recording = audioAttachment(audio, translate("dictation.recording"));
+      if (recording) composerHandle.current?.attach(recording);
+      else directClient.current?.notice(translate("dictation.recordingTooLong"));
+    },
+    omitted: (reason) =>
+      directClient.current?.notice(
+        translate(reason === "tooLong" ? "dictation.recordingTooLong" : "dictation.recordingNarrowband"),
+      ),
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -3563,6 +3738,9 @@ function AcpmuxPane() {
       },
       applySidebarPreviewVariant(variant) {
         configureNativeSidebarPreviewVariant(variant);
+      },
+      applySessionStatus(on) {
+        setSessionStatus(on === true);
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
@@ -4771,13 +4949,17 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
-  const toggleActivity = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // Stable: memoized transcript rows compare it.
+  const toggleActivity = useCallback(
+    (id: string) =>
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
@@ -4794,49 +4976,52 @@ function AcpmuxPane() {
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
                     <SubagentPaneContext.Provider value={showSubagent}>
-                      <SubagentStopContext.Provider value={stopSubagent}>
-                        <SubagentHarnessContext.Provider
-                          value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                        >
-                          <ChatFindScope
-                            rows={childRows ?? sourceRows}
-                            shown={childRows ? undefined : transcriptRows}
-                            openFold={openFold}
-                            findRef={findRef}
+                      <WorkingCountsContext.Provider value={workingCounts}>
+                        <SubagentStopContext.Provider value={stopSubagent}>
+                          <SubagentHarnessContext.Provider
+                            value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                           >
-                            {(find) => (
-                              <VirtualTranscript
-                                rows={transcriptRows}
-                                working={snapshot.isWorking}
-                                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                jumpButton={!quick}
-                                focusComposer={() => composerHandle.current?.focus()}
-                                find={quick ? undefined : find}
-                                sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                                canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                openAt={
-                                  !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                    ? scrollAnchor
-                                    : undefined
-                                }
-                                anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                onAnchor={
-                                  quick || childRows || !shownSessionId
-                                    ? undefined
-                                    : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                }
-                                expanded={expanded}
-                                registry={registry}
-                                githubRepository={githubRepository}
-                                // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                onOpenDiff={quick ? undefined : openDiff}
-                                onToggleActivity={toggleActivity}
-                              />
-                            )}
-                          </ChatFindScope>
-                        </SubagentHarnessContext.Provider>
-                      </SubagentStopContext.Provider>
+                            <ChatFindScope
+                              rows={childRows ?? sourceRows}
+                              shown={childRows ? undefined : transcriptRows}
+                              openFold={openFold}
+                              findRef={findRef}
+                            >
+                              {(find) => (
+                                <VirtualTranscript
+                                  rows={transcriptRows}
+                                  working={snapshot.isWorking}
+                                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                  jumpButton={!quick}
+                                  focusComposer={() => composerHandle.current?.focus()}
+                                  find={quick ? undefined : find}
+                                  sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                                  canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                  onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                  openAt={
+                                    !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                      ? scrollAnchor
+                                      : undefined
+                                  }
+                                  anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                  onAnchor={
+                                    quick || childRows || !shownSessionId
+                                      ? undefined
+                                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                  }
+                                  expanded={expanded}
+                                  reveal={childRows ? undefined : revealRow}
+                                  registry={registry}
+                                  githubRepository={githubRepository}
+                                  // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                  onOpenDiff={quick ? undefined : openDiff}
+                                  onToggleActivity={toggleActivity}
+                                />
+                              )}
+                            </ChatFindScope>
+                          </SubagentHarnessContext.Provider>
+                        </SubagentStopContext.Provider>
+                      </WorkingCountsContext.Provider>
                     </SubagentPaneContext.Provider>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
@@ -5097,6 +5282,7 @@ function AcpmuxPane() {
         <Composer
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+          switching={Boolean(switchView.intent)}
           chips={ComposerChips}
           permissionAccess={permissionAccess}
           draft={draft}
@@ -5386,6 +5572,7 @@ function AcpmuxPane() {
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
+              {...(newTab.widgets ? { widgets: true } : {})}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
