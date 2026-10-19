@@ -624,7 +624,11 @@ mod unix {
     mod pty_custody;
     mod pty_lock;
     pub(crate) mod session_cleanup;
+    pub(crate) mod shared_client;
+    pub(crate) mod shared_exec;
     pub(crate) mod shared_host;
+    pub(crate) mod shared_runtime;
+    pub(crate) mod shared_serve;
     mod standby;
     use super::shared::attachment::*;
     use super::shared::clipboard_read::OwnerIntent;

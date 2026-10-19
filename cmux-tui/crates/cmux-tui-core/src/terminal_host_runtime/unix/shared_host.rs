@@ -51,6 +51,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError, Weak};
 use std::time::Instant;
 
+use super::super::shared::host_serve::serve_shared_terminal;
 use super::super::shared::host_shared::HostShared;
 use super::pty_custody::{receive_with_descriptor, send_with_descriptor};
 use super::*;
@@ -74,8 +75,11 @@ const OP_KILL: u8 = b'K';
 const REPLY_ACCEPTED: u8 = b'A';
 const REPLY_FULL: u8 = b'F';
 /// How long the daemon waits for a control reply before it treats the
-/// host as gone for new terminals.
-const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
+/// host as gone for new terminals. A new host answers its first request
+/// only after its start, and the first start of a fresh host copy on macOS
+/// took 1.7 s on a loaded mini, so this is not the 2 s of a host protocol
+/// round trip.
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Whether this daemon starts terminals on shared hosts.
 pub(crate) fn enabled() -> bool {
@@ -176,6 +180,8 @@ pub(crate) fn serve(args: &[String]) -> anyhow::Result<()> {
         .and_then(|value| value.parse::<u32>().ok())
         .unwrap_or(DEFAULT_CAPACITY)
         .clamp(1, MAX_CAPACITY);
+    let workers = thread::available_parallelism().map_or(2, |count| count.get()).min(4);
+    shared_exec::start(workers).context("start the shared host's event loop")?;
     // Many terminals need many descriptors; every shell still starts with
     // the limit cmux started with (`cmux_pty` restores it in the child).
     let _ = cmux_pty::raise_open_file_limit(cmux_pty::OPEN_FILE_LIMIT_CEILING);
@@ -265,18 +271,24 @@ fn start_slot(socket: OwnedFd, live: &Arc<(Mutex<u32>, Condvar)>, capacity: u32)
     slots().push(SlotState { id, host: None, killed: false });
     let guard = SlotGuard { id, live: live.clone() };
     let stream = UnixStream::from(socket);
-    let started = thread::Builder::new().name("terminal-host-slot".into()).spawn(move || {
-        let _guard = guard;
+    let executor = shared_exec::executor()?;
+    let fd = stream.as_raw_fd();
+    // The slot waits for its Bootstrap on the event loop, not a thread: a
+    // standby slot may wait for a long time.
+    let started = executor.on_readable(fd, move || {
         CURRENT_SLOT.with(|current| current.set(id));
-        if let Ok(mut reader) = stream.try_clone() {
+        if let (Ok(mut reader), Ok(keep)) = (stream.try_clone(), stream.try_clone()) {
             let mut writer = stream;
-            let args = ["--bootstrap-stdio".to_string()];
-            if let Err(error) = serve_terminal_host_stdio(&args, &mut reader, &mut writer) {
+            // The slot's guard and a copy of its socket live as long as its
+            // terminal: the daemon sees the socket close when it ends.
+            let keepalive: Box<dyn Send> = Box::new((guard, keep));
+            if let Err(error) = serve_shared_terminal(&mut reader, &mut writer, keepalive) {
                 eprintln!("terminal-host: a shared terminal ended with an error: {error}");
             }
         }
+        CURRENT_SLOT.with(|current| current.set(0));
     });
-    // A thread that did not start dropped its guard with the closure.
+    // A handler that was not registered dropped its guard with it.
     started.ok().map(|_| id)
 }
 

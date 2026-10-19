@@ -216,3 +216,56 @@ fn a_shared_host_shell_inherits_no_descriptor_of_its_host() {
     let screen = wait_for_screen(&harness.socket, surface, "END");
     assert!(screen.contains("FDS:END"), "the shell inherited descriptors: {screen}");
 }
+
+/// Threads of process `pid`.
+fn thread_count(pid: u32) -> usize {
+    #[cfg(target_os = "linux")]
+    {
+        fs::read_to_string(format!("/proc/{pid}/status"))
+            .unwrap()
+            .lines()
+            .find_map(|line| line.strip_prefix("Threads:"))
+            .and_then(|count| count.trim().parse().ok())
+            .unwrap()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = Command::new("ps").args(["-M", "-p", &pid.to_string()]).output().unwrap();
+        // A header line, then one line per thread.
+        String::from_utf8_lossy(&output.stdout).lines().count().saturating_sub(1)
+    }
+}
+
+/// The host's thread count once it is at most `bound`: workers started
+/// for a burst end after two idle seconds. The last count when it is not.
+fn threads_settle_to(pid: u32, bound: usize) -> usize {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let count = thread_count(pid);
+        if count <= bound || Instant::now() >= deadline {
+            return count;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn a_shared_host_runs_the_same_threads_for_two_terminals_and_for_twenty() {
+    let _exclusive = exclusive_process_test();
+    let harness = harness("shared-host-threads", true, None);
+    let first = ["t0", "t1"].map(|name| start_shell(&harness, name));
+    let host = host_pid_of(&harness, &first[0]);
+    // The control thread, the signal writer, the poller and at most four
+    // parse workers.
+    let few = threads_settle_to(host, 7);
+    assert!(few <= 7, "an idle shared host with 2 terminals runs {few} threads");
+    let more: Vec<Shell> =
+        (2..20).map(|index| start_shell(&harness, &format!("t{index}"))).collect();
+    assert!(more.iter().all(|shell| host_pid_of(&harness, shell) == host), "one shared host");
+    let many = threads_settle_to(host, few);
+    assert!(many <= few, "threads grew with terminals: {few} for 2, {many} for 20");
+    // Every terminal still answers.
+    for shell in first.iter().chain(&more) {
+        assert_same_shell(&harness, shell, "threads");
+    }
+}

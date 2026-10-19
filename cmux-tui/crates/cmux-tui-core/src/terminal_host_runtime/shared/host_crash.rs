@@ -99,6 +99,37 @@ pub(crate) fn spawn<T: Send + 'static>(
     })
 }
 
+/// `body` running with the calling thread's terminal attribution, on
+/// whichever thread runs it (a shared host's pool worker).
+pub(crate) fn attribute<R>(
+    mut body: impl FnMut() -> R + Send + 'static,
+) -> impl FnMut() -> R + Send + 'static {
+    let target = THREAD_TERMINAL.with(|current| current.borrow().clone());
+    move || {
+        let previous = THREAD_TERMINAL.with(|current| current.replace(target.clone()));
+        let result = body();
+        THREAD_TERMINAL.with(|current| *current.borrow_mut() = previous);
+        result
+    }
+}
+
+/// Run `body` once, off the calling thread: a job of a shared host's pool,
+/// else a named thread of its own.
+pub(crate) fn run_task(name: &str, body: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(executor) = super::super::unix::shared_exec::executor() {
+        let mut body = Some(body);
+        let task = attribute(move || {
+            if let Some(body) = body.take() {
+                body();
+            }
+        });
+        executor.submit(task);
+        return Ok(());
+    }
+    spawn(name, body).map(drop)
+}
+
 fn write_sidecar(target: &CrashTarget, info: &std::panic::PanicHookInfo<'_>) {
     let message = info
         .payload()

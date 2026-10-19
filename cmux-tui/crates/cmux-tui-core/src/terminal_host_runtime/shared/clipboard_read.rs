@@ -538,8 +538,9 @@ impl ClipboardReadsShared {
         let Some(host) = armed.take() else { return true };
         let shared = self.clone();
         let worker = host.clone();
-        let started =
-            super::host_crash::spawn("terminal-host-clipboard", move || shared.run_timer(&worker));
+        let started = super::host_crash::run_task("terminal-host-clipboard", move || {
+            shared.run_timer(&worker);
+        });
         if started.is_err() {
             *armed = Some(host);
         }
@@ -553,6 +554,13 @@ impl ClipboardReadsShared {
                 return;
             }
             let Some(deadline) = state.open.as_ref().map(|open| open.deadline) else {
+                if super::host_state::shared_host_process() {
+                    // A shared host keeps no idle worker per terminal: the
+                    // next open read starts the timer again (`ensure_timer`
+                    // takes this under the same state lock).
+                    *lock(&self.timer_host) = Some(host.clone());
+                    return;
+                }
                 state = self.clock.wait(&self.changed, state);
                 continue;
             };

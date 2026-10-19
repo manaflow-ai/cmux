@@ -38,6 +38,27 @@ pub fn serve_terminal_host_stdio(
     reader: &mut impl Read,
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
+    serve_terminal(args, reader, writer, None)
+}
+
+/// A shared host's terminal (unix/shared_host.rs): after `Ready` its accept
+/// loop runs on the host's event loop, and `keepalive` (the slot's guard and
+/// bootstrap socket) lives until the terminal ends.
+#[cfg(unix)]
+pub(crate) fn serve_shared_terminal(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    keepalive: Box<dyn Send>,
+) -> anyhow::Result<()> {
+    serve_terminal(&["--bootstrap-stdio".to_string()], reader, writer, Some(keepalive))
+}
+
+fn serve_terminal(
+    args: &[String],
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    keepalive: Option<Box<dyn Send>>,
+) -> anyhow::Result<()> {
     let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
     let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
     let Some(launch_frame) = read_frame(reader, adopt_launch::max_payload(adopt_fd))? else {
@@ -182,6 +203,25 @@ pub fn serve_terminal_host_stdio(
     // record and connects through the already-listening Unix socket.
     let _ = write_frame(writer, &response);
 
+    #[cfg(unix)]
+    if let (Some(executor), Some(keepalive)) = (unix::shared_exec::executor(), keepalive) {
+        unix::shared_serve::serve(
+            executor,
+            unix::shared_serve::ServingParts {
+                shared,
+                listener,
+                guard,
+                publication_lock: Box::new(_publication_lock),
+                signals,
+                pty_lock: Box::new(_pty_lock),
+                keepalive,
+            },
+        );
+        return Ok(());
+    }
+    #[cfg(not(unix))]
+    drop(keepalive);
+
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
     // No client stream since this instant: the owner daemon is gone. In a
@@ -308,7 +348,7 @@ pub fn serve_terminal_host_stdio(
 /// host waiting 30 s at most. Only explicitly configured test daemons set
 /// the variable.
 #[cfg(debug_assertions)]
-fn wait_at_test_gate(variable: &str) {
+pub(crate) fn wait_at_test_gate(variable: &str) {
     let Some(gate) = std::env::var_os(variable).filter(|gate| Path::new(gate).exists()) else {
         return;
     };
