@@ -50,7 +50,7 @@
             "step": 100,
             "unit": "milliseconds"
           },
-          "default": 300,
+          "default": 250,
           "keywords": [
             "hover",
             "card",
