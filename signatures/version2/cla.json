@@ -1287,6 +1287,14 @@
       "created_at": "2026-10-19T00:34:14Z",
       "repoId": 1144115288,
       "pullRequestNo": 21846
+    },
+    {
+      "name": "gih2yun",
+      "id": 13617902,
+      "comment_id": 6257739860,
+      "created_at": "2026-10-19T01:30:56Z",
+      "repoId": 1144115288,
+      "pullRequestNo": 20839
     }
   ]
 }
