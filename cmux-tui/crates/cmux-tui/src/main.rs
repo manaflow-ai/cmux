@@ -89,6 +89,7 @@ mod remote_cli {
     }
 }
 mod owner_start;
+mod remote_host;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -1721,6 +1722,13 @@ fn run_main() {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run_scope(head, args));
+    }
+    // `cmux host enable|serve|dial|…`: remote hosting, on every platform
+    // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
+    // machine supervisor's (`early_unix_scope`).
+    if cli::remote_host_requested(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(remote_host::run(&raw_args[1..]));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {

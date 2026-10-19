@@ -130,6 +130,8 @@ final class AppServices {
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     let newTabTypeAhead = NewTabTypeAhead()
+    /// Home's first-run Switching card: Hide memory and the Mission Control check.
+    let homeSwitchKeys = HomeSwitchKeysSource()
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// The spare React page hosts for Settings, History and Cloud.
