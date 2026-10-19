@@ -195,6 +195,13 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
+    /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
+    /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
+    public static let sessionStatus = Tunable<Bool>.toggle(
+        "agent.sessionStatus", PageTunables.section, "In-session status (plan card, recap card)",
+        help: "Agent chats show the live plan card and the recap card.",
+        default: false, code: "AgentPaneTunables.sessionStatus")
+
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
     /// beside it.
     /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
@@ -324,6 +331,14 @@ public nonisolated struct AgentPaneTunables {
         help: "Place the answer footer's copy, retry and fork actions on the left or right.",
         default: .right, code: "AgentPaneTunables.turnActionsPlacement")
 
+    /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
+    /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
+    /// menu. It rides the `composer` page event (`plainFooter`, composerSettings.ts); no cmux.json key.
+    public static let composerPlainFooter = Tunable<Bool>.toggle(
+        "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
+        help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
+        default: false, code: "AgentPaneTunables.composerPlainFooter")
+
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
@@ -413,5 +428,47 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, chatViewer.descriptor, sourceIcons.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
+    /// Every agent-pane tunable, one per line in alphabetical order, so two pull requests that each
+    /// add one insert different lines and merge cleanly (#21946). Debug Settings lists them in this
+    /// order. Declare a new tunable in its feature's own file (`extension AgentPaneTunables`) when you
+    /// can, so the declarations above do not collide either.
+    public static var all: [TunableDescriptor] {
+        [
+            chatViewer.descriptor,
+            chatWidth.descriptor,
+            codeWrap.descriptor,
+            codexToolRuns.descriptor,
+            composerPlainFooter.descriptor,
+            contextMeter.descriptor,
+            dockBesideTabs.descriptor,
+            foldLongThoughts.descriptor,
+            liveRender.descriptor,
+            liveThoughtViewport.descriptor,
+            messageTimes.descriptor,
+            pageHost.descriptor,
+            panelTabs.descriptor,
+            planProgress.descriptor,
+            promptCollapse.descriptor,
+            reasoningSlider.descriptor,
+            reasoningSliderStyle.descriptor,
+            renderExpand.descriptor,
+            renderGuide.descriptor,
+            renderKit.descriptor,
+            renderPreview.descriptor,
+            sessionStatus.descriptor,
+            shortcutsHelp.descriptor,
+            sidebarPreviewVariant.descriptor,
+            sideColumn.descriptor,
+            sideSessions.descriptor,
+            sourceIcons.descriptor,
+            suggestedTasks.descriptor,
+            tableScroll.descriptor,
+            terminalButtonAdds.descriptor,
+            thoughtFoldThreshold.descriptor,
+            thoughtHeader.descriptor,
+            thoughtStyle.descriptor,
+            topStripStyle.descriptor,
+            turnActionsPlacement.descriptor,
+        ]
+    }
 }

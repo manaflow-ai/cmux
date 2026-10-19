@@ -5,7 +5,8 @@ public import CmuxNextDesign
 /// Every choice reuses Motion tokens and the same fixed-size content hosts.
 /// The standard choice preserves the shipping motion until dogfood selects a preset.
 public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, TunableChoice {
-    /// The existing close reflow and pane zoom springs.
+    /// The close spring (`exit`) and the zoom spring (`zoom`), both critically damped (DESIGN.md
+    /// 2026-10-18 "Spring").
     case standard
     /// Short, critically damped movement with no overshoot.
     case crisp
@@ -22,7 +23,7 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
 
     var closeSpring: MotionSpring {
         switch self {
-        case .standard: .move
+        case .standard: .exit
         case .crisp: .disappear
         case .softLanding: .settle
         }

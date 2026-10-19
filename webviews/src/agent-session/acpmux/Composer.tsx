@@ -69,6 +69,7 @@ import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
+import { useComposerSettings } from "./composerSettings";
 import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
@@ -84,6 +85,8 @@ export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
+  placeholderSteer: "composer.placeholderSteer",
+  placeholderInterrupt: "composer.placeholderInterrupt",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -346,6 +349,8 @@ export function Composer({
   useRowFit(bar);
   // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
+  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
+  const { plainFooter } = useComposerSettings();
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -929,6 +934,16 @@ export function Composer({
   const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
   const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
+  // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
+  // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
+  // typed text, so with only attachments staged it says just that Return queues.
+  const placeholder = !queues
+    ? COMPOSER_LABELS.placeholder
+    : onOpenInWindow || attachments.length > 0
+      ? COMPOSER_LABELS.placeholderQueued
+      : steerKind === "steer"
+        ? COMPOSER_LABELS.placeholderSteer
+        : COMPOSER_LABELS.placeholderInterrupt;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1139,7 +1154,7 @@ export function Composer({
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
             value={text}
-            placeholder={t(queues ? COMPOSER_LABELS.placeholderQueued : COMPOSER_LABELS.placeholder)}
+            placeholder={t(placeholder)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
@@ -1191,7 +1206,7 @@ export function Composer({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <div ref={bar} className="acpmux-composer-bar">
+          <div ref={bar} className="acpmux-composer-bar" data-footer-look={plainFooter ? "plain" : undefined}>
             <input
               ref={chooser}
               className="acpmux-attach-input"

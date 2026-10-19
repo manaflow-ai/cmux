@@ -153,6 +153,9 @@ export type FindRevealTarget = {
   needle: string;
   occurrence?: number;
   repaint: () => void;
+  /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
+   * the running line, WorkingFor.tsx). */
+  toolId?: string;
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
@@ -190,7 +193,14 @@ export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
   const reveal = useContext(FindReveal);
-  const hit = Boolean(reveal && items.some((item) => searchableActivityText(item).includes(reveal.needle)));
+  const hit = Boolean(
+    reveal &&
+    items.some((item) =>
+      reveal.toolId !== undefined
+        ? item.tool?.id === reveal.toolId
+        : searchableActivityText(item).includes(reveal.needle),
+    ),
+  );
   useLayoutEffect(() => {
     if (!hit) return;
     open();

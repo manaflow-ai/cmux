@@ -34,9 +34,7 @@ struct AgentPaneLabsTests {
     @Test func listedInDebugSettings() {
         let keys = AgentPaneTunables.all.map(\.key).filter { $0.hasPrefix("agentPane.labs.") }
         #expect(keys == [
-            "agentPane.labs.liveRender", "agentPane.labs.renderGuide", "agentPane.labs.renderKit", "agentPane.labs.renderPreview", "agentPane.labs.renderExpand", "agentPane.labs.tableScroll", "agentPane.labs.contextMeter", "agentPane.labs.promptCollapse",
-            "agentPane.labs.messageTimes", "agentPane.labs.codeWrap", "agentPane.labs.planProgress",
-            "agentPane.labs.shortcutsHelp", "agentPane.labs.chatViewer", "agentPane.labs.sourceIcons"
+            "agentPane.labs.chatViewer", "agentPane.labs.codeWrap", "agentPane.labs.contextMeter", "agentPane.labs.liveRender", "agentPane.labs.messageTimes", "agentPane.labs.planProgress", "agentPane.labs.promptCollapse", "agentPane.labs.renderExpand", "agentPane.labs.renderGuide", "agentPane.labs.renderKit", "agentPane.labs.renderPreview", "agentPane.labs.shortcutsHelp", "agentPane.labs.sourceIcons", "agentPane.labs.tableScroll"
         ])
     }
 }

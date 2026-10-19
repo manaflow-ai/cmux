@@ -57,7 +57,7 @@ const eventStream = (text: string): Uint8Array => {
   return out
 }
 
-interface Seen { readonly url: string; readonly stackAuth: { accessToken?: string; refreshToken?: string } | null; readonly apiKey: string | null; readonly beta: string | null; readonly body: any }
+interface Seen { readonly url: string; readonly stackAuth: { accessToken?: string; refreshToken?: string } | null; readonly apiKey: string | null; readonly beta: string | null; readonly cacheHeader: string | null; readonly body: any }
 /** The route and the refresh at their HTTP boundary; everything else goes to the real fetch. */
 const fakeRoute = (refresh: "ok" | "fail") => {
   const real = globalThis.fetch
@@ -76,7 +76,7 @@ const fakeRoute = (refresh: "ok" | "fail") => {
     if (req.url.startsWith("https://claude.test/")) {
       const raw = req.headers.get("x-stack-auth")
       const body = await req.json()
-      seen.push({ url: req.url, stackAuth: raw ? JSON.parse(raw) : null, apiKey: req.headers.get("x-api-key"), beta: req.headers.get("anthropic-beta"), body })
+      seen.push({ url: req.url, stackAuth: raw ? JSON.parse(raw) : null, apiKey: req.headers.get("x-api-key"), beta: req.headers.get("anthropic-beta"), cacheHeader: req.headers.get("x-cmux-cache-blocks"), body })
       return new Response(eventStream(`Opus answers turn ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream" } })
     }
     return real(input, init)
@@ -147,21 +147,26 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
       expect(s.beta).toBeNull()
       expect(JSON.stringify(s.body)).not.toContain(REFRESH)
     }
-    // Cache-stable input (OptChat 5a): the second turn's prompt starts with every block of the first
-    // turn's, byte for byte (frozen view, then the delta only grows at the end); the frozen view's
-    // "</chat>" block carries a 1 h cache mark, and the new message is a delta line, not in the view.
+    // The view is rendered for each turn (the reference client's Memory.view(mem, from)): every message
+    // before the turn's new ones is a view line, and after "</chat>" come only the new messages. Bedrock
+    // reads only at a mark, so each turn marks the view's last whole block (the header while there is
+    // none): turn 1 writes it, turn 2 starts with the same block and marks it again (reads it).
     const blocksOf = (s: Seen) => (s.body.messages.find((m: { role: string }) => m.role === "user").content as Array<{ text: string; cache_control?: { ttl?: string } }>)
     const [b1, b2] = [blocksOf(route.seen[0]!), blocksOf(route.seen[1]!)]
-    expect(b2.length).toBeGreaterThan(b1.length)
-    expect(b2.slice(0, b1.length - 1).map((b) => b.text)).toEqual(b1.slice(0, b1.length - 1).map((b) => b.text))
-    expect(b2[b1.length - 1]!.text).toBe(b1[b1.length - 1]!.text)
-    const viewEnd = b2.find((b) => b.text.endsWith("</chat>"))!
-    // Turn 1 marks the view's end; turn 2 marks where turn 1 ended (its user block), so it reads all of turn 1's input.
-    expect(b1.find((b) => b.text.endsWith("</chat>"))!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
-    const turn1End = b2.find((b) => b.text === b1.at(-1)!.text)!
-    expect(turn1End.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
-    expect(viewEnd.text).not.toContain("second question")
-    expect(b2.at(-1)!.text).toMatch(/\|user: .*second question/)
+    const end1 = b1.findIndex((x) => x.text.endsWith("</chat>"))
+    const end2 = b2.findIndex((x) => x.text.endsWith("</chat>"))
+    expect(end1).toBeGreaterThan(0)
+    expect(b1.slice(end1 + 1).map((b) => b.text)).toEqual([expect.stringMatching(/\|user: .*first question/)])
+    expect(b2.slice(end2 + 1).map((b) => b.text)).toEqual([expect.stringMatching(/\|user: .*second question/)])
+    const view2 = b2.slice(0, end2 + 1).map((b) => b.text).join("")
+    expect(view2).toContain("first question")
+    expect(view2).toContain("Opus answers turn 1")
+    expect(view2).not.toContain("second question")
+    expect(b2[0]!.text).toBe(b1[0]!.text)
+    expect(b1[end1 - 1]!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    expect(b2[end2 - 1]!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    // The mark indices travel to the body conversion only: the route never sees their header.
+    for (const s of route.seen) expect(s.cacheHeader).toBeNull()
     // The expired configured token was refreshed once; the second turn used the stored one.
     expect(route.refreshes()).toBe(1)
     expect(route.refreshHeaders).toEqual([REFRESH])

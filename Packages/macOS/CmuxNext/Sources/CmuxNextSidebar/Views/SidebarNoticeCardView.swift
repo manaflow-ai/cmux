@@ -39,10 +39,19 @@ final class SidebarNoticeCardView: NSView {
     /// `hiddenAction` (sent when that notice leaves the card).
     private var reportedShown: (id: String, hiddenAction: String?)?
     private var occlusionObserver: NSObjectProtocol?
+    /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
+    private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
+    private let motionPolicy: @MainActor () -> MotionPolicy
+    /// The card plays its exit: the slot keeps it in place until it has gone.
+    var isLeaving: Bool { presence.isLeaving }
 
-    init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared) {
+    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.policy`).
+    init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
+         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
         surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+        self.motionPolicy = motionPolicy
         super.init(frame: frame)
+        wantsLayer = true
         addSubview(surface)
         addSubview(content)
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
@@ -84,10 +93,16 @@ final class SidebarNoticeCardView: NSView {
             reportedShown = nil
             if let hidden = shown.hiddenAction { onAction?(shown.id, hidden) }
         }
-        isHidden = notice == nil
+        let wasShowing = !isHidden && !isLeaving
+        presence.setShown(notice != nil)
         guard let notice else {
+            // The exit shows the last notice as it was; only its spinner stops.
             spinner.spin(false)
             return
+        }
+        // A new message in a card already on screen (Checking… to Up to Date) crossfades.
+        if let previous, wasShowing, Self.changesMessage(from: previous, to: notice) {
+            presence.transition.crossfade(content.layer)
         }
         eyebrowLabel.stringValue = notice.eyebrow ?? ""
         eyebrowLabel.isHidden = notice.eyebrow == nil
@@ -200,6 +215,13 @@ final class SidebarNoticeCardView: NSView {
         }
     }
 
+    /// Whether `old` to `new` changes what the card says (not only its progress).
+    static func changesMessage(from old: SidebarNoticeCard, to new: SidebarNoticeCard) -> Bool {
+        old.id != new.id || old.title != new.title || old.detail != new.detail || old.symbol != new.symbol
+            || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions
+            || (old.progress == nil) != (new.progress == nil)
+    }
+
     // MARK: Geometry
 
     private static var padding: CGFloat { Metrics.space3 }
@@ -292,6 +314,7 @@ final class SidebarNoticeCardView: NSView {
                                      width: max(0, b.width - pad - x), height: line.caption)
         // A window that shows after the card was filled lays it out: the hint is on screen now.
         reportShownIfOnScreen()
+        presence.didLayout()
     }
 
     private func applyColors() {

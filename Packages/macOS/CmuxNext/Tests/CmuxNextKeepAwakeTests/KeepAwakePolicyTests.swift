@@ -32,4 +32,16 @@ struct KeepAwakePolicyTests {
     @Test func theActionHoldsEvenWithTheSettingOffOnBattery() {
         #expect(KeepAwakePolicy(manual: true, agents: .off, onBattery: true).holds)
     }
+
+    @Test(arguments: [
+        (PhoneKeepAwakeSetting.off, false, false), (.pluggedIn, false, true), (.pluggedIn, true, false),
+        (.always, true, true),
+    ])
+    func phoneAccessHoldsAsItsOwnChoiceAllows(choice: PhoneKeepAwakeSetting, onBattery: Bool, holds: Bool) {
+        #expect(KeepAwakePolicy(phoneServing: true, phone: choice, onBattery: onBattery).holds == holds)
+    }
+
+    @Test func phoneAccessOffNeverHolds() {
+        #expect(!KeepAwakePolicy(phoneServing: false, phone: .always).holds)
+    }
 }
