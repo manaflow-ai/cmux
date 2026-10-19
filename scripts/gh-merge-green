@@ -138,7 +138,7 @@ started_at=$(date +%s)
 tmp_files=()
 print_summary() {
   local took=$(( $(date +%s) - started_at ))
-  [ "${#tmp_files[@]}" -eq 0 ] || rm -f -- "${tmp_files[@]}"
+  [ "${#tmp_files[@]}" -eq 0 ] || rm -rf -- "${tmp_files[@]}"
   printf 'gh-merge-green: %s %s (%s gate: %s; waited %dm%02ds, %ds in all)\n' "$outcome" "$ref" "$gate_mode" \
     "${gate_checked:-nothing reported}" $((waited_seconds / 60)) $((waited_seconds % 60)) "$took" >&2
 }
@@ -833,16 +833,31 @@ fast_gate() {
     fi
     echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
   fi
-  # Fail closed: an unreadable filter counts as covered, so the gate waits for routing.
-  if workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$sha" \
-      -H 'Accept: application/vnd.github.raw' 2>/dev/null) && [ -n "$workflow" ]; then
-    covered=$(next_paths_covered "$workflow" "$files" 2>/dev/null) || covered=x
-  fi
+  # The gate keys on job names, so it reads the workflows that name them on the exact
+  # head and refuses when one is gone. An unreadable one refuses (fail closed).
+  local workflow_dir workflow_file
+  workflow_dir=$(mktemp -d)
+  tmp_files+=("$workflow_dir")
+  for workflow_file in cmux-next.yml ci.yml ci-web.yml; do
+    if ! workflow=$(gh api "repos/$repo/contents/.github/workflows/$workflow_file?ref=$sha" \
+        -H 'Accept: application/vnd.github.raw' 2>/dev/null) || [ -z "$workflow" ]; then
+      rm -rf "$workflow_dir"
+      refuse \
+        "not green: cannot read .github/workflows/$workflow_file on $sha, which names the fast gate's lanes" \
+        'restore GitHub contents API access, then retry (or merge with --full)'
+    fi
+    printf '%s\n' "$workflow" >"$workflow_dir/$workflow_file"
+  done
+  # An unparsable paths filter counts as covered, so the gate waits for routing.
+  covered=$(next_paths_covered "$(cat "$workflow_dir/cmux-next.yml")" "$files" 2>/dev/null) || covered=x
   [ -n "$covered" ] && covered_flag=(--next-covered)
   gate_err=$(mktemp)
   tmp_files+=("$gate_err")
-  if ! gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" \
+  if ! gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
+      --next-workflow "$workflow_dir/cmux-next.yml" --ci-workflow "$workflow_dir/ci.yml" \
+      --web-workflow "$workflow_dir/ci-web.yml" \
       "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err"); then
+    rm -rf "$workflow_dir"
     local why
     why=$(cat "$gate_err")
     rm -f "$gate_err"
@@ -851,6 +866,7 @@ fast_gate() {
       'wait for the named lane on the exact head (or pass --wait with more seconds), then retry'
   fi
   rm -f "$gate_err"
+  rm -rf "$workflow_dir"
   waited_seconds=$(sed -n 's/^waited=//p' <<<"$gate_out")
   waited_seconds=${waited_seconds:-0}
   gate_checked="$(sed -n 's/^checked=//p' <<<"$gate_out")"
@@ -1086,31 +1102,47 @@ if [ -n "$override_reason" ]; then
       "not green: could not post the --override reason on $ref" \
       'restore GitHub comment permission or network access, then retry without changing the head'
   fi
-  graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
-  if ! posted=$(gh pr view "$num" --repo "$repo" --json headRefOid,state 2>"$graphql_error_file"); then
-    if graphql_quota_error "$graphql_error_file"; then
-      if ! posted_raw=$(gh api "repos/$repo/pulls/$num" 2>"$graphql_error_file") || \
-         ! posted=$(jq -c '{headRefOid:(.head.sha // ""),state:(.state // "")}' <<<"$posted_raw"); then
-        rm -f "$graphql_error_file"
-        refuse \
-          "not green: GraphQL verification was rate-limited and REST verification failed for $ref" \
-          'restore GitHub API access, then retry the same exact head'
-      fi
-    else
+fi
+
+# Re-read the pull request right before merging, on both gates. --match-head-commit
+# pins the head but not the base, and the gate, the merged-head checks and the
+# freeze check were all chosen for $base: a PR retargeted since then (for example
+# from feat-cmux-next to main during the fast gate's wait) must not merge on them.
+graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
+if ! current=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,state 2>"$graphql_error_file"); then
+  if graphql_quota_error "$graphql_error_file"; then
+    if ! current_raw=$(gh api "repos/$repo/pulls/$num" 2>"$graphql_error_file") || \
+       ! current=$(jq -c '{headRefOid:(.head.sha // ""),baseRefName:(.base.ref // ""),state:(.state // "")}' <<<"$current_raw"); then
       rm -f "$graphql_error_file"
       refuse \
-        "not green: could not verify $ref after posting --override" \
-        'check the pull request is still open at the same head, then retry'
+        "not merged: GraphQL verification was rate-limited and REST verification failed for $ref" \
+        'restore GitHub API access, then retry the same exact head'
     fi
-  fi
-  rm -f "$graphql_error_file"
-  posted_sha=$(jq -r '.headRefOid // ""' <<<"$posted")
-  posted_state=$(jq -r '.state // ""' <<<"$posted" | tr '[:upper:]' '[:lower:]')
-  if [ "$posted_sha" != "$sha" ] || [ "$posted_state" != open ]; then
+  else
+    rm -f "$graphql_error_file"
     refuse \
-      "not green: pull request head moved while posting --override on $ref" \
-      'retry the exact current head with a fresh reason'
+      "not merged: could not re-read $ref before merging" \
+      'check the pull request is still open at the same head and base, then retry'
   fi
+fi
+rm -f "$graphql_error_file"
+current_sha=$(jq -r '.headRefOid // ""' <<<"$current")
+current_base=$(jq -r '.baseRefName // ""' <<<"$current")
+current_state=$(jq -r '.state // ""' <<<"$current" | tr '[:upper:]' '[:lower:]')
+if [ "$current_sha" != "$sha" ]; then
+  refuse \
+    "not merged: $ref head moved from $sha to ${current_sha:-unknown} before the merge" \
+    'retry the exact current head'
+fi
+if [ "$current_base" != "$base" ]; then
+  refuse \
+    "not merged: $ref base moved from $base to ${current_base:-unknown} before the merge" \
+    'retry, so the gate for the current base runs'
+fi
+if [ -n "$current_state" ] && [ "$current_state" != open ]; then
+  refuse \
+    "not merged: $ref is $current_state, not open" \
+    'reopen the pull request, then retry'
 fi
 
 rest_merge_method() {

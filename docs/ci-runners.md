@@ -23,10 +23,19 @@ touched compiles on the exact head, then merges. It also waits for god-file,
 l10n and concurrency lint and `risk evidence`, and refuses a red one with no
 override or base excuse, as the full gate does. It refuses a completed red in
 the fast lanes, in the web, app size and crash families, or in `ci-status`,
-the Release compile or the swift test, unless the base has the same red. It
-refuses conflict markers and frozen paths. It skips the merged-head god-file
-and `vp check` run. The full suites run after the merge. It prints one
-`gh-merge-green:` line saying what it checked and how long it waited.
+the Release compile or the swift test, unless the base has the same red. A
+cancelled or timed-out fast lane refuses even with `--override`. It refuses
+conflict markers and frozen paths. React-apps-check is waited for when
+`detect_ci_change_areas.py` routes a changed file to ci.yml's `web` job, or
+when that job is running. The gate keys on job names, so it refuses when one
+it waits for is no longer a job in the head's `cmux-next.yml`, `ci.yml` or
+`ci-web.yml`. It skips the merged-head god-file and `vp check` run. The full
+suites run after the merge. It prints one `gh-merge-green:` line saying what
+it checked and how long it waited.
+
+On both gates the helper re-reads the pull request just before merging and
+refuses if its head or base changed, since `--match-head-commit` pins only the
+head.
 
 `--full` keeps the wait for every check, as below; every base other than
 `feat-cmux-next` (main and classic) always gets it.

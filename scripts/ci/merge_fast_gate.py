@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """The fast gate gh-merge-green applies to pull requests into feat-cmux-next.
 
-    merge_fast_gate.py OWNER/REPO NUMBER SHA [--next-covered] [--timeout SECONDS] [--interval SECONDS]
+    merge_fast_gate.py OWNER/REPO NUMBER SHA [--base BRANCH] [--next-covered]
+        [--next-workflow FILE --ci-workflow FILE --web-workflow FILE]
+        [--timeout SECONDS] [--interval SECONDS]
 
 It waits only for the PR's fast lanes on the exact head, not the full suites:
 path routing, the cmux-next fast tier, and the compile of each touched area that
@@ -10,11 +12,16 @@ react-apps-check). The full suites run after the merge, and the culprit bot and
 the base sheriff revert or fix forward. A check that already finished red in a
 gating family (web, app size, crash) or in a full-gate lane (ci-status, the
 Release compile, the swift test) still blocks unless the base has it; one still
-running does not. God-file, l10n and concurrency lint and risk evidence are
-waited for, and a red one refuses outright, as in the full gate.
+running does not. A fast lane that was cancelled, timed out or never started has
+no verdict to waive and refuses. God-file, l10n and concurrency lint and risk
+evidence are waited for, and a red one refuses outright, as in the full gate.
 gh-merge-green --full keeps the old wait for every check.
 
-Each poll is one GraphQL read (`gh pr view --json`), never a REST loop.
+The gate keys on check names, so with the workflow files of the exact head it
+first refuses when a name it waits for is no longer a job name there.
+
+Each poll is one GraphQL read (`gh pr view --json`), never a REST loop. It
+refuses when the head or the base branch changed while it waited.
 Prints `waited=<seconds>` and `checked=<names>`, then `red=<name>` for each
 completed red that gh-merge-green may still excuse when the base has it.
 Exit 0: pass (maybe with reds to excuse); 1: refused (the reason on stderr).
@@ -22,28 +29,59 @@ Exit 0: pass (maybe with reds to excuse); 1: refused (the reason on stderr).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Callable
 
 ROUTING = "cmux-next path routing"
+FAST_TIER = "cmux-next fast tier"
+DEBUG_COMPILE = "cmux app scheme compile (Debug)"
+REACT = "react-apps-check"
+# cmux-next.yml jobs the gate waits for by name.
+NEXT_LANES = (ROUTING, FAST_TIER, "cmux-next Swift canary", DEBUG_COMPILE)
 FAST = re.compile(r"^(cmux-next fast tier|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
 GATING = re.compile(r"react-apps-check|web status|app[- ]?size|size[- ]cap|crash", re.I)
 # The full gate's own lanes on feat-cmux-next. The fast gate does not wait for them,
 # but one that already finished red is judged as the full gate judges it.
 FULL_LANES = {"ci-status", "cmux-next Release compile (Xcode 26)", "cmux-next swift test"}
+KNOWN = {*NEXT_LANES, *FULL_LANES}
+LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.I)
+LINT_JOB = "a god-file, l10n or concurrency lint job"
 # Waited for and never waived or base-excused, as in the full gate (#21692): lint fails
 # only on the change itself; risk evidence reads only the description, and the
 # risk:waived label is its waiver (docs/ci/risk-tiers.md on feat-cmux-next).
-NEVER_WAIVED = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency|^risk evidence$", re.I)
+NEVER_WAIVED = re.compile(LINT.pattern + r"|^risk evidence$", re.I)
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+# Like the full gate's cancelled cmux-next run: nothing ran, so --override has nothing to waive.
+NO_VERDICT = {"CANCELLED", "TIMED_OUT", "STARTUP_FAILURE", "STALE"}
+WEB_FALLBACK_PREFIXES = ("web/", "webviews/", "config/", "Resources/markdown-viewer/", "workers/")
 
 
 class Refused(Exception):
     pass
+
+
+def _load_web_change() -> Callable[[str], bool]:
+    """ci.yml's web job runs when detect_ci_change_areas.py routes a file to web; use that
+    router (this checkout's copy, not the PR's). If it cannot load, every file counts as
+    web, and the wait ends when the web caller finishes or skips."""
+    path = Path(__file__).with_name("detect_ci_change_areas.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_merge_fast_gate_change_areas", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.is_web_change
+    except Exception:
+        return lambda _path: True
+
+
+is_web_change = _load_web_change()
 
 
 def gh_json(*args: str) -> dict:
@@ -51,6 +89,18 @@ def gh_json(*args: str) -> dict:
     if out.returncode != 0:
         raise Refused(f"cannot read the pull request ({out.stderr.strip()[:200]})")
     return json.loads(out.stdout)
+
+
+def canonical(name: str) -> str:
+    """A job whose name is an expression can report under its raw text, as
+    `inputs.dev_daily == true && '...' || 'cmux app scheme compile (Debug)'` did on #21981.
+    Such a check is the lane it names."""
+    if name in KNOWN:
+        return name
+    for quoted in re.findall(r"'([^']+)'", name):
+        if quoted in KNOWN:
+            return quoted
+    return name
 
 
 def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
@@ -65,9 +115,9 @@ def latest(rollup: list[dict]) -> dict[str, tuple[str, str]]:
             checks[item.get("context", "")] = ("COMPLETED" if state not in ("PENDING", "EXPECTED") else "IN_PROGRESS",
                                                {"ERROR": "FAILURE"}.get(state, state))
             continue
-        name = item.get("name", "")
+        name = canonical(item.get("name", ""))
         status = (item.get("status") or "").upper()
-        started = item.get("startedAt") or ("\uffff" if status != "COMPLETED" else "")
+        started = item.get("startedAt") or ("￿" if status != "COMPLETED" else "")
         key = (started, item.get("completedAt") or "", index)
         if name in newest and newest[name] > key:
             continue
@@ -98,31 +148,87 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
             seen.append(name)
             if status != "COMPLETED":
                 waiting.append(name)
+            elif conclusion in NO_VERDICT:
+                raise Refused(f"'{name}' is {conclusion.lower()} on the exact head: no verdict to waive, "
+                              "and --override cannot bypass that; rerun it")
             elif conclusion not in PASSING:
                 reds.append(name)
         elif status == "COMPLETED" and conclusion not in PASSING and (GATING.search(name) or name in FULL_LANES):
             reds.append(name)
     routed = checks.get(ROUTING, ("", ""))[0] == "COMPLETED"
-    if touches_next and routed and "cmux-next fast tier" not in checks:
-        waiting.append("cmux-next fast tier")
-    if any(f.startswith("webviews/") for f in files) and not any(n.endswith("react-apps-check") for n in checks):
-        # The caller job "web" finishing without one means none is coming: a red caller is a red.
-        status, conclusion = checks.get("web", ("", ""))
+    if touches_next and routed and FAST_TIER not in checks:
+        waiting.append(FAST_TIER)
+    # react-apps-check runs behind ci.yml's web caller job: wait for it when the change
+    # routes to web, or when the caller is already running. The caller finishing without
+    # one means none is coming: a red caller is a red.
+    status, conclusion = checks.get("web", ("", ""))
+    if not any(n.endswith(REACT) for n in checks) and (
+            (status and status != "COMPLETED") or any(is_web_change(f) for f in files)):
         if status != "COMPLETED":
-            waiting.append("react-apps-check")
+            waiting.append(REACT)
         elif conclusion not in PASSING:
             reds.append("web")
     return waiting, seen, reds
 
 
+def job_names(text: str) -> list[tuple[str, list[str], str]]:
+    """(job id, names it can report under, uses) for each job of a workflow, by
+    indentation (the workflows are ours). An expression name yields its quoted strings."""
+    jobs: list[tuple[str, list[str], str]] = []
+    in_jobs = False
+    current = None
+    for line in (text or "").splitlines():
+        if re.match(r"^jobs:\s*$", line):
+            in_jobs = True
+            continue
+        if not in_jobs or not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith(" "):
+            break
+        job = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if job:
+            current = [job.group(1), [job.group(1)], ""]
+            jobs.append(current)
+            continue
+        if current is None:
+            continue
+        field = re.match(r"^    (name|uses):\s*(.+?)\s*$", line)
+        if not field:
+            continue
+        value = field.group(2)
+        if field.group(1) == "uses":
+            current[2] = value
+        elif "${{" in value:
+            current[1] = re.findall(r"'([^']+)'", value)
+        else:
+            current[1] = [value.strip("\"'")]
+    return [tuple(job) for job in jobs]
+
+
+def missing_job_names(next_workflow: str, ci_workflow: str | None, web_workflow: str | None) -> list[str]:
+    """The names the gate waits for that no job reports under on this head."""
+    names = {name for _, job, _ in job_names(next_workflow) for name in job}
+    missing = [lane for lane in NEXT_LANES if lane not in names]
+    if not any(LINT.search(name) for name in names):
+        missing.append(LINT_JOB)
+    if ci_workflow is not None or web_workflow is not None:
+        caller = any("web" in job and uses.endswith("ci-web.yml") for _, job, uses in job_names(ci_workflow or ""))
+        react = any(REACT in job for _, job, _ in job_names(web_workflow or ""))
+        if not (caller and react):
+            missing.append(f"web / {REACT}")
+    return missing
+
+
 def run(repo: str, number: str, sha: str, timeout: float, interval: float, touches_next: bool,
         read: Callable[..., dict] = gh_json, clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep) -> tuple[float, list[str], list[str]]:
+        sleep: Callable[[float], None] = time.sleep, base: str | None = None) -> tuple[float, list[str], list[str]]:
     start = clock()
     while True:
-        pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,statusCheckRollup,files")
+        pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
         if pr.get("headRefOid") != sha:
             raise Refused(f"the head moved to {pr.get('headRefOid')} while waiting on {sha}")
+        if base is not None and pr.get("baseRefName") != base:
+            raise Refused(f"the base changed to {pr.get('baseRefName')} (from {base}) while waiting on {sha}")
         files = [f.get("path", "") for f in pr.get("files") or []]
         waiting, seen, reds = evaluate(latest(pr.get("statusCheckRollup") or []), files, touches_next)
         if not waiting:
@@ -137,13 +243,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("repo")
     parser.add_argument("number")
     parser.add_argument("sha")
+    parser.add_argument("--base", help="the base branch the gate was chosen for; a change refuses")
     parser.add_argument("--timeout", type=float, default=2400)
     parser.add_argument("--interval", type=float, default=30)
     parser.add_argument("--next-covered", action="store_true",
                         help="the change is inside cmux-next.yml's pull_request paths")
+    parser.add_argument("--next-workflow", help="cmux-next.yml of the exact head")
+    parser.add_argument("--ci-workflow", help="ci.yml of the exact head")
+    parser.add_argument("--web-workflow", help="ci-web.yml of the exact head")
     args = parser.parse_args(argv)
     try:
-        waited, seen, reds = run(args.repo, args.number, args.sha, args.timeout, args.interval, args.next_covered)
+        if args.next_workflow is not None:
+            read_text = lambda path: Path(path).read_text() if path else None  # noqa: E731
+            missing = missing_job_names(read_text(args.next_workflow), read_text(args.ci_workflow),
+                                        read_text(args.web_workflow))
+            if missing:
+                raise Refused(f"the fast gate keys on {', '.join(missing)}, which no job in the head's "
+                              "cmux-next.yml, ci.yml or ci-web.yml reports as; update merge_fast_gate.py or merge with --full")
+        waited, seen, reds = run(args.repo, args.number, args.sha, args.timeout, args.interval, args.next_covered,
+                                 base=args.base)
     except Refused as error:
         print(error, file=sys.stderr)
         return 1
