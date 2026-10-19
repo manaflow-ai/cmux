@@ -277,6 +277,10 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_next_macos_cascade.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 

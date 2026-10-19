@@ -676,6 +676,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
 
+      - name: Validate the cmux-next macOS cascade onto free Blacksmith slots
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_next_macos_cascade.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
