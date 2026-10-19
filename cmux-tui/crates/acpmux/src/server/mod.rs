@@ -992,6 +992,7 @@ mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+pub mod peer_text;
 mod pending;
 mod processes;
 pub use pending::event_value;
