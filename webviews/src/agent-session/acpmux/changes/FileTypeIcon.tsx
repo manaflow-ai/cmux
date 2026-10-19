@@ -1,7 +1,10 @@
-// The file-type icon a diff header shows, from @pierre/trees's icon set. Kept out of changeIcons, which
-// the transcript imports, so the page's first script does not carry the tree package (bd cx-z9kz0).
+// The file-type icon a diff header shows, from @pierre/trees's icon set (Apache-2.0), and the same
+// set's language icons for a project badge with no favicon (ProjectBadge.tsx). Kept out of
+// changeIcons, which the transcript imports, so the page's first script does not carry the tree
+// package (bd cx-z9kz0); the pickers load it lazily (LazyFileIcons.tsx).
 import React, { useLayoutEffect } from "react";
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from "@pierre/trees";
+import { LANGUAGE_ICONS } from "./languageIcons";
 
 const SPRITE_ID = "acpmux-file-icon-sprite";
 /// The tree draws its sprite inside its own shadow root; headers in the page need a copy.
@@ -20,9 +23,17 @@ const icons = createFileTreeIconResolver({ set: "complete", colored: true });
 
 /// The file-type icon @pierre/trees shows for `path`, so diff headers and tree rows match.
 export function FileTypeIcon({ path }: { path: string }) {
-  useLayoutEffect(ensureSprite, []);
   const resolved = icons.resolveIcon("file-tree-icon-file", path).name;
-  const id = resolved.startsWith("file-tree-builtin-") ? resolved : "file-tree-builtin-default";
+  return <BuiltInIcon id={resolved.startsWith("file-tree-builtin-") ? resolved : "file-tree-builtin-default"} />;
+}
+
+/// The icon of `language` (one of LANGUAGE_ICONS).
+export function LanguageIcon({ language }: { language: string }) {
+  return <BuiltInIcon id={`file-tree-builtin-${LANGUAGE_ICONS.has(language) ? language : "default"}`} />;
+}
+
+function BuiltInIcon({ id }: { id: string }) {
+  useLayoutEffect(ensureSprite, []);
   return (
     <svg
       className="acpmux-file-icon"

@@ -5,6 +5,7 @@ import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/change
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
+import { projectLanguageIcons } from "../agent-session/acpmux/projectLanguage.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -13,6 +14,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sessionReplay,
   chiefDock,
   hoverActions,
+  projectLanguageIcons,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

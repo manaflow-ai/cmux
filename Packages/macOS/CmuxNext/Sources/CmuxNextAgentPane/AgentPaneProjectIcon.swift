@@ -2,7 +2,8 @@ import Foundation
 import CmuxNextSettings
 
 /// A project's own favicon for its picker badge (`project.icon {cwd}`): the New Tab page's folder
-/// strip and the composer's folder menu draw it in place of the letter tile. The page reads no
+/// strip and the composer's folder menu draw it in place of the letter tile. A project with none
+/// answers the language its marker files name (`Package.swift`: swift), whose icon the page draws. The page reads no
 /// file (CSP `img-src data:`), so the host looks for a few well-known icon files in the folder and
 /// answers a small data URL.
 ///
@@ -86,6 +87,32 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         return "data:\(type);base64,\(data.base64EncodedString())"
     }
 
+    /// Files at a project's top level that say what it is built with, best first: a framework's
+    /// config before its language's manifest (a Next.js app has a package.json too). The page draws
+    /// the language's icon when the project has no favicon of its own.
+    static let markers: [(name: String, language: String)] = [
+        ("next.config.ts", "nextjs"), ("next.config.mjs", "nextjs"), ("next.config.js", "nextjs"),
+        ("svelte.config.js", "svelte"), ("astro.config.mjs", "astro"), ("vite.config.ts", "vite"),
+        ("Package.swift", "swift"), ("Cargo.toml", "rust"), ("go.mod", "go"), ("build.zig", "zig"),
+        ("pyproject.toml", "python"), ("setup.py", "python"), ("requirements.txt", "python"),
+        ("Gemfile", "ruby"), ("tsconfig.json", "typescript"), ("package.json", "javascript"),
+        ("Dockerfile", "docker"),
+    ]
+
+    /// The language of the project at `folder` from the first marker file it has, under the same
+    /// rules as its icon: a marker linked into a protected folder is never stat'ed.
+    func language(in folder: String) -> String? {
+        guard folder.hasPrefix("/"), allows(folder) else { return nil }
+        let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
+        for marker in Self.markers {
+            let candidate = "\(base)/\(marker.name)"
+            guard allows(candidate), let resolved = Self.realPath(candidate), resolved == candidate || allows(resolved),
+                  stat(resolved) != nil else { continue }
+            return marker.language
+        }
+        return nil
+    }
+
     /// The icon of the project at `folder`, uncached: the first candidate that is an image.
     func icon(in folder: String) -> String? {
         files(in: folder).lazy.compactMap { dataURL($0.path) }.first
@@ -114,6 +141,12 @@ actor AgentPaneProjectIcons {
 
     init(reader: AgentPaneProjectIcon) {
         self.reader = reader
+    }
+
+    /// The project's language from its marker files, for a badge with no favicon; not cached, a
+    /// few stats of the project's top level.
+    func language(for folder: String) -> String? {
+        reader.language(in: folder)
     }
 
     /// The first candidate that is an image; a cached answer stands until its file changes.

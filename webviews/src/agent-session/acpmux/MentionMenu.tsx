@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
+import { LazyFileTypeIcon } from "./changes/LazyFileIcons";
 import type { MentionItem } from "./mentionItems";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
@@ -142,7 +143,12 @@ export function MentionMenu({
           }}
         >
           <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
-            <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
+            {item.kind === "file" ? (
+              // The file's type (Swift, YAML, ...) once the icon set loads; a plain file until then.
+              <LazyFileTypeIcon path={item.path} fallback={<Icon name="file" size={14} />} />
+            ) : (
+              <Icon name={item.kind === "session" ? "agent.chat" : "folder"} size={14} />
+            )}
           </span>
           <span className="acpmux-slash-name">{runs(item.name)}</span>
           {item.kind === "session"

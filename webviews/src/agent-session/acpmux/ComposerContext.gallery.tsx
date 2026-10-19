@@ -54,6 +54,25 @@ const projectIcons = {
     "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iI2Y5NzMxNiIvPjxwYXRoIGQ9Ik04IDIwbDgtOSA4IDkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==",
 };
 
+// Projects with no favicon of their own, by the language their marker files name (Package.swift,
+// Cargo.toml, ...), beside one that has a favicon and one the host knows nothing about.
+const languageProjects: Project[] = [
+  { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
+  { cwd: "/Users/you/src/cmux", label: "cmux" },
+  { cwd: "/Users/you/src/cmux-tui", label: "cmux-tui" },
+  { cwd: "/Users/you/src/backlog", label: "backlog" },
+  { cwd: "/Users/you/src/dashboard", label: "dashboard" },
+  { cwd: "/Users/you/src/relay", label: "relay" },
+  { cwd: "/Users/you/notes", label: "notes" },
+];
+const projectLanguages = {
+  "/Users/you/src/cmux": "swift",
+  "/Users/you/src/cmux-tui": "rust",
+  "/Users/you/src/backlog": "python",
+  "/Users/you/src/dashboard": "nextjs",
+  "/Users/you/src/relay": "go",
+};
+
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
@@ -121,6 +140,15 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and keeps its letters.",
       props: baseProps,
       chipHost: { projectIcons },
+      play: openFolder,
+    },
+    "folder-languages": {
+      note: "A project with no favicon shows its language's icon from its marker files (Swift, Rust, Python, Next.js, Go); one with a favicon keeps it, one with neither keeps its letters.",
+      props: { ...baseProps, projectChoices: languageProjects },
+      chipHost: {
+        projectIcons: { "/Users/you/src/atlas-web": projectIcons["/Users/you/src/atlas-web"] },
+        projectLanguages,
+      },
       play: openFolder,
     },
     "duplicate-worktrees": {

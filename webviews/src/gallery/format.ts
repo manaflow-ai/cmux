@@ -77,6 +77,8 @@ export type ChipHostFixture = {
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
+  /** `project.icon` answers for a folder with no favicon: the language its marker files name. */
+  projectLanguages?: Record<string, string>;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */

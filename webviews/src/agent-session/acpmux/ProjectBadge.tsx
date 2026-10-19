@@ -1,6 +1,10 @@
 import { useState, type CSSProperties } from "react";
 import type { Project } from "./ProjectChooser";
-import { useProjectIcon } from "./projectIcon";
+import { experimentArm } from "../../experiments/experiment";
+import { LazyLanguageIcon } from "./changes/LazyFileIcons";
+import { LANGUAGE_ICONS } from "./changes/languageIcons";
+import { projectLanguageIcons } from "./projectLanguage.experiment";
+import { useProjectArt } from "./projectIcon";
 
 const BADGE_COLORS = [
   "var(--agent-ansi-4, #58a6ff)",
@@ -32,22 +36,34 @@ function projectBadge(project: Project): { label: string; color: string } {
 }
 
 /// The project's own favicon when the host finds one on this Mac (projectIcon.ts), else its
-/// letters; an icon WebKit cannot draw falls back to the letters too.
+/// language's icon from its marker files, else its letters; an icon WebKit cannot draw falls back
+/// to the letters too.
 export function ProjectBadge({ project }: { project: Project }) {
   const badge = projectBadge(project);
   const kind = projectKind(project);
-  const icon = useProjectIcon(kind === "local" ? project.cwd : undefined);
+  const art = useProjectArt(kind === "local" ? project.cwd : undefined);
   const [broken, setBroken] = useState<string | undefined>();
-  const shown = icon && icon !== broken ? icon : undefined;
+  const shown = art.src && art.src !== broken ? art.src : undefined;
+  const language =
+    !shown && art.language && LANGUAGE_ICONS.has(art.language) && experimentArm(projectLanguageIcons) === "on"
+      ? art.language
+      : undefined;
   return (
     <span
       className="acpmux-project-badge"
       style={{ "--acpmux-project-badge": badge.color } as CSSProperties}
       data-project-kind={kind}
-      data-project-icon={shown ? "" : undefined}
+      data-project-icon={shown || language ? "" : undefined}
+      data-project-language={language}
       aria-hidden="true"
     >
-      {shown ? <img src={shown} alt="" draggable={false} onError={() => setBroken(shown)} /> : badge.label}
+      {shown ? (
+        <img src={shown} alt="" draggable={false} onError={() => setBroken(shown)} />
+      ) : language ? (
+        <LazyLanguageIcon language={language} fallback={badge.label} />
+      ) : (
+        badge.label
+      )}
     </span>
   );
 }
