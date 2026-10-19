@@ -78,7 +78,8 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
     if (running.get(node) === end) running.delete(node);
   };
   const step = () => {
-    const by = offset();
+    // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
+    const by = node.clientHeight > 0 ? offset() : undefined;
     if (by !== undefined) {
       const max = Math.max(0, node.scrollHeight - node.clientHeight);
       const to = Math.max(0, Math.min(max, node.scrollTop + by));

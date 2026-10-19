@@ -70,7 +70,9 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 
-test("the minimap's turn preview waits the hover delay, then follows the pointer at once until the rail cools", async () => {
+// The minimap's turn preview waits Codex's 250 ms rather than the app's 450 (Leo, 2026-10-19: the
+// rail should feel like Codex's); under 200 ms is still a pass-over.
+test("the minimap's turn preview waits its delay, then follows the pointer at once until the rail cools", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
     await act(async () =>

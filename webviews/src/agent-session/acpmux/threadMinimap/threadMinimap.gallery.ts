@@ -64,10 +64,20 @@ const all: Array<[string, string]> = [
     `Checked again: the rows keep a 10 px pitch and the card stays flush right of row ${index + 10}.`,
   ]),
 ];
-const rows = all.flatMap(([prompt, reply], index) => [
-  user(prompt, 60 - index * 2),
-  assistant(reply, 59.8 - index * 2),
-  summary(59.6 - index * 2, { status: "completed" }),
+const rowsOf = (list: Array<[string, string]>) =>
+  list.flatMap(([prompt, reply], index) => [
+    user(prompt, 200 - index * 2),
+    assistant(reply, 199.8 - index * 2),
+    summary(199.6 - index * 2, { status: "completed" }),
+  ]);
+const rows = rowsOf(all);
+/// Seventy prompts: past the rail's room (64 rows or 70% of the window), so its rows scroll.
+const long = rowsOf([
+  ...all,
+  ...Array.from({ length: 52 }, (_, index): [string, string] => [
+    `Later prompt ${index + 19}: check the next part of the plan`,
+    `Part ${index + 19} checked.\n\nThe reply has a second paragraph so each turn has some height in the transcript.`,
+  ]),
 ]);
 
 export default agentPaneEntry({
@@ -83,6 +93,34 @@ export default agentPaneEntry({
     "agent-session/acpmux/threadMinimap/BookmarkIcon.tsx#BookmarkIcon",
   ],
   variants: {
+    rest: {
+      note: "At rest mid-thread: every tick the same 6 px, the prompts on screen brighter (the text at 60%, the rest the muted text at 40%). Scrolling moves that band with the transcript on the scroll's own frame.",
+      snapshot: chat(rows, { title: "Thread minimap at rest" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 700);
+        await ctx.waitFor(() => ctx.document.querySelector('[data-tick="4"][aria-current="true"]'));
+      },
+    },
+    scrubbing: {
+      note: "Pressing row 3 and dragging to row 12 scrubs: the transcript jumps to each row crossed, the rows switch with no transition, and the card follows the row under the pointer.",
+      snapshot: chat(rows, { title: "Thread minimap scrub" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="12"]')) return;
+        await ctx.pointer.down({ selector: '[data-tick="3"]' });
+        await ctx.pointer.move({ selector: '[data-tick="12"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail[data-scrubbing]"));
+      },
+    },
+    "seventy-prompts": {
+      note: "Seventy prompts: the rail holds 57 rows in this window and scrolls the rest, with 2.5rem fades at an edge with more rows past it. It keeps the band on screen in view as the transcript scrolls.",
+      snapshot: chat(long, { title: "Thread minimap, a long chat" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__tick[aria-current="true"]'));
+      },
+    },
     "long-chat": {
       note: "Eighteen prompts as the Codex rail: 10 px rows 16 px from the left edge, the prompts on screen brighter. Hovering row 8 magnifies it and its neighbors (26, 20, 14, 10 px) and opens the preview card 250 ms later, flush right of the row.",
       snapshot: chat(rows, { title: "Thread minimap review" }),

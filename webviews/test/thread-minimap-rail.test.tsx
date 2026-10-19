@@ -201,14 +201,14 @@ test("rows are 10 px tab stops; every prompt on screen is current; hover magnifi
   }
 });
 
-test("the card follows the app's hover intent: it waits the hover delay, follows the pointer at once while warm, and goes as the pointer leaves", async () => {
+test("the card waits Codex's 250 ms, follows the pointer at once while warm, and goes as the pointer leaves", async () => {
   const view = await mount(8);
   jest.useFakeTimers();
   try {
     await enter(3);
-    await advance(400);
+    await advance(230);
     expect(card()).toBeNull();
-    await advance(60);
+    await advance(30);
     expect(card()).not.toBeNull();
     expect(card()!.textContent).toContain("Question 3");
     // Moving to another row moves the card with it, on the same frame.
@@ -229,10 +229,10 @@ test("the card follows the app's hover intent: it waits the hover delay, follows
     await pointer("pointerout", card()!, { relatedTarget: document.body });
     expect(card()).toBeNull();
     await advance(600);
-    // Cooled: the hover delay again.
+    // Cooled: the 250 ms again.
     await enter(6);
     expect(card()).toBeNull();
-    await advance(460);
+    await advance(260);
     expect(card()).not.toBeNull();
   } finally {
     await view.unmount();
