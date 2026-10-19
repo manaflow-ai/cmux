@@ -290,12 +290,102 @@ class BaseOwnedCrash(unittest.TestCase):
         self.gh.logs[2] = crashed(SWIFT, 5, ["a()"], "g", OTHER)
         self.assertTrue(self.judge())
 
+CHECKS = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+L10N = "String tables (21 languages)"
+XCSTRINGS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
+
+
+def l10n_log(wait_ms, *findings):
+    """The step echoes its script and environment in a group, then prints its findings."""
+    return log(CHECKS, L10N, "##[group]Run set -o pipefail",
+               "\x1b[36;1mscripts/cmux-next/check-l10n.sh \"$GITHUB_WORKSPACE\"\x1b[0m",
+               f"  BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: {wait_ms}", "##[endgroup]",
+               *findings, f"107 tables, 6180 keys, 21 languages: {len(findings)} errors",
+               "##[error]Process completed with exit code 1.")
+
+
+class LintFindings(unittest.TestCase):
+    """A red god-file, l10n or concurrency check is the base's only when every finding is."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=CHECKS, step=L10N),
+                        2: failed_job(2, 20, BASE_SHA, name=CHECKS, step=L10N)}
+        self.gh.logs = {1: l10n_log(103765, f"{XCSTRINGS}:sidebar.doc.move: missing uk"),
+                        2: l10n_log(611, f"{XCSTRINGS}:sidebar.doc.move: missing uk",
+                                    f"{XCSTRINGS}:sidebar.doc.move: missing vi")}
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_findings_all_on_the_base_are_excused(self):
+        text = "\n".join(self.judge())
+        self.assertIn(CHECKS, text)
+        self.assertIn("sidebar.doc.move: missing uk", text)
+
+    def test_temp_names_and_hashes_that_differ_between_runs_do_not_block(self):
+        self.gh.logs[1] = self.gh.logs[1].replace(
+            "##[error]Process", "stripping release binary: /tmp/tmp.QIOv8hOe3B/cmux\nSubmodule path 'g': "
+            "checked out '738f29bd11cc'\n##[error]Process")
+        self.gh.logs[2] = self.gh.logs[2].replace(
+            "##[error]Process", "stripping release binary: /tmp/tmp.Zk2pWq9xYa/cmux\nSubmodule path 'g': "
+            "checked out 'fcdb3662c651'\n##[error]Process")
+        self.gh.logs = {job: "\n".join(line if "\t" in line else f"{CHECKS}\t{L10N}\t{line}"
+                                       for line in text.splitlines()) for job, text in self.gh.logs.items()}
+        self.assertTrue(self.judge())
+
+    def test_a_finding_the_base_does_not_have_blocks(self):
+        # One more missing translation prints no error line; it is still the head's own.
+        self.gh.logs[1] = l10n_log(103765, f"{XCSTRINGS}:sidebar.doc.move: missing uk",
+                                   f"{XCSTRINGS}:sidebar.doc.rename: missing uk")
+        with self.assertRaisesRegex(excuse.Refused, "findings not on feat-cmux-next.*sidebar.doc.rename"):
+            self.judge()
+
+    def test_digits_inside_a_name_are_not_masked(self):
+        self.gh.logs[1] = l10n_log(103765, f"{XCSTRINGS}:onboarding.step2.title: missing uk")
+        self.gh.logs[2] = l10n_log(611, f"{XCSTRINGS}:onboarding.step1.title: missing uk")
+        with self.assertRaisesRegex(excuse.Refused, "onboarding.step2.title"):
+            self.judge()
+        # Every digit after a letter, not just the first: item11 is not the base's item10.
+        self.gh.logs[1] = l10n_log(103765, f"{XCSTRINGS}:foo.item11: missing uk")
+        self.gh.logs[2] = l10n_log(611, f"{XCSTRINGS}:foo.item10: missing uk")
+        with self.assertRaisesRegex(excuse.Refused, "foo.item11"):
+            self.judge()
+
+    def test_one_more_copy_of_a_base_finding_blocks(self):
+        # A second blocking call in the same file prints the same line once more.
+        call = "concurrency: Sources/Home/HomeHostView.swift:159: synchronous NSWorkspace open"
+        self.gh.logs[1] = l10n_log(1, call, call.replace("159", "201"))
+        self.gh.logs[2] = l10n_log(1, call)
+        with self.assertRaisesRegex(excuse.Refused, "HomeHostView"):
+            self.judge()
+
+    def test_output_cut_short_blocks(self):
+        # check-l10n.sh prints 200 errors and then "... N more": what it hid can't be compared.
+        self.gh.logs[1] = l10n_log(1, f"{XCSTRINGS}:sidebar.doc.move: missing uk", "... 12 more")
+        self.gh.logs[2] = l10n_log(1, f"{XCSTRINGS}:sidebar.doc.move: missing uk", "... 40 more")
+        with self.assertRaisesRegex(excuse.Refused, "cut short"):
+            self.judge()
+
+    def test_a_red_step_that_printed_no_finding_blocks(self):
+        self.gh.logs[1] = log(CHECKS, L10N, "##[group]Run x", "##[endgroup]",
+                              "##[error]Process completed with exit code 1.")
+        with self.assertRaisesRegex(excuse.Refused, "printed nothing"):
+            self.judge()
+
+    def test_a_lint_check_green_on_the_base_blocks(self):
+        self.gh.jobs[2]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next"):
+            self.judge()
+
+
 class Script(unittest.TestCase):
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)
-        # Lint stays unwaivable, and --override still skips the base comparison.
+        # Lint stays unwaivable by --override, but a red one the base has too is asked about.
         self.assertIn("--override cannot bypass god-file, l10n or concurrency lint", text)
+        self.assertIn('"${lint_reds[@]+"${lint_reds[@]}"}"', text)
 
 
 if __name__ == "__main__":

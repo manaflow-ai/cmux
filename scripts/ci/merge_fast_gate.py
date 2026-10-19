@@ -14,7 +14,8 @@ gating family (web, app size, crash) or in a full-gate lane (ci-status, the
 Release compile, the swift test) still blocks unless the base has it; one still
 running does not. A fast lane that was cancelled, timed out or never started has
 no verdict to waive and refuses. God-file, l10n and concurrency lint and risk
-evidence are waited for, and a red one refuses outright, as in the full gate.
+evidence are waited for, as in the full gate: a red risk evidence refuses, and a
+red lint check is printed as a red that only the base can excuse, never --override.
 gh-merge-green --full keeps the old wait for every check.
 
 The gate keys on check names, so with the workflow files of the exact head it
@@ -52,9 +53,10 @@ FULL_LANES = {"ci-status", "cmux-next Release compile (Xcode 26)", "cmux-next sw
 KNOWN = {*NEXT_LANES, *FULL_LANES}
 LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.I)
 LINT_JOB = "a god-file, l10n or concurrency lint job"
-# Waited for and never waived or base-excused, as in the full gate (#21692): lint fails
-# only on the change itself; risk evidence reads only the description, and the
-# risk:waived label is its waiver (docs/ci/risk-tiers.md on feat-cmux-next).
+# Waited for and never waived by --override, as in the full gate (#21692). A red lint
+# check goes to the base comparison like other reds, which excuses it only when the
+# base prints every finding too (#22128); risk evidence reads only the description, so
+# a red one refuses and the risk:waived label is its waiver (docs/ci/risk-tiers.md).
 NEVER_WAIVED = re.compile(LINT.pattern + r"|^risk evidence$", re.I)
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 # Like the full gate's cancelled cmux-next run: nothing ran, so --override has nothing to waive.
@@ -137,9 +139,14 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
             seen.append(name)
             if status != "COMPLETED":
                 waiting.append(name)
+            elif conclusion in NO_VERDICT:
+                raise Refused(f"'{name}' is {conclusion.lower()} on the exact head: no verdict to compare "
+                              "with the base, and --override cannot bypass lint; rerun it")
+            elif conclusion not in PASSING and not LINT.search(name):
+                raise Refused(f"'{name}' is {conclusion.lower()} on the exact head; risk evidence is "
+                              "never waived or base-excused")
             elif conclusion not in PASSING:
-                raise Refused(f"'{name}' is {conclusion.lower()} on the exact head; god-file, l10n and "
-                              "concurrency lint and risk evidence are never waived or base-excused")
+                reds.append(name)
             continue
         fast = name == ROUTING or bool(FAST.match(name))
         if fast:

@@ -719,17 +719,25 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(events.read_text().splitlines(), ["merge"])
             self.assertIn("note: cmux-next fast tier: red on the base too", result.stderr)
 
-    def test_a_red_lint_check_the_base_shares_still_refuses_on_the_fast_gate(self):
-        """Like the full gate: lint fails only on the change itself, so a base red is no excuse."""
+    def test_a_red_lint_check_the_base_prints_too_merges_on_the_fast_gate(self):
+        """Like the full gate (#22128): the base comparison excuses a lint red only when the
+        base prints every finding, and --override never waives one."""
         rollup = list(self.FAST_GREEN) + [(self.LINT, "completed", "failure")]
         with tempfile.TemporaryDirectory() as directory:
             marker, events = Path(directory) / "merged", Path(directory) / "events"
             result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
                                      event_log=events, excuse=(0, f"{self.LINT}: red on the base too"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("red on the base too", result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     excuse=(0, f"{self.LINT}: red on the base too"),
+                                     extra_args=("--override", "the lint red is a known base failure unrelated to this"))
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
-            self.assertIn(self.LINT, result.stderr)
-            self.assertNotIn("red on the base too", result.stderr)
+            self.assertIn("--override cannot bypass god-file, l10n or concurrency lint", result.stderr)
 
     def test_the_fast_gate_waits_for_a_pending_lint_check(self):
         """main's full gate never lets a pending god-file, l10n or concurrency check
@@ -994,6 +1002,8 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn(name, result.stderr)
+            # The base is asked whether it fails the same way before refusing.
+            self.assertIn(f"'{name}' on {HEAD}, not excused by feat-cmux-next", result.stderr)
 
     def test_override_still_merges_when_lint_checks_are_green(self):
         name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
