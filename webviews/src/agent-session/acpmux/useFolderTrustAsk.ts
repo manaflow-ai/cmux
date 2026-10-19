@@ -113,8 +113,9 @@ export function useFolderTrustAsk(
   const decidedAt = useRef<number | undefined>(undefined);
   // One answer at a time: a second click while the first saves is ignored.
   const saving = useRef(false);
-  /// Bumped by each answer: a read that started before it is older than the answer and is dropped.
-  const answers = useRef(0);
+  /// Answers saved per folder: a read of that folder that started before one is older than the
+  /// answer and is dropped. An answer for another folder leaves the read standing.
+  const answers = useRef(new Map<string, number>());
   // A chat that can't answer here (a peer's or remote one) is another machine's folder: no record.
   const remembers = canAnswer;
 
@@ -138,12 +139,12 @@ export function useFolderTrustAsk(
   useEffect(() => {
     if (!cwd) return;
     let live = true;
-    const answered = answers.current;
+    const answered = answers.current.get(cwd) ?? 0;
     void readFolderTrust(source, cwd).then((trust) => {
       if (!live) return;
       setReading(false);
       // An answer saved since this read began is newer than it: the answer stands.
-      if (answers.current !== answered) return;
+      if ((answers.current.get(cwd) ?? 0) !== answered) return;
       // A folder the pane can't read is not asked about (a known answer stays); acpmux still
       // refuses its prompts.
       if (!trust) return;
@@ -176,7 +177,7 @@ export function useFolderTrustAsk(
       const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === asked.cwd;
       try {
         await source.set(asked.cwd, level);
-        answers.current += 1;
+        answers.current.set(asked.cwd, (answers.current.get(asked.cwd) ?? 0) + 1);
         // Undo leaves each agent's own level to answer: the next read says which.
         if (remembers)
           rememberTrust(asked.cwd, level === "unknown" ? undefined : { cwd: asked.cwd, level, decided: true });
