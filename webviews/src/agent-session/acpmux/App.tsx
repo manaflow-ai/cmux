@@ -5627,7 +5627,9 @@ function AcpmuxPane() {
       onOpenOutput={quick ? undefined : openOutput}
       onOpenImage={quick ? undefined : openImage}
       subagents={cardSubagents}
-      onAttach={remoteChat ? undefined : () => void attachLinks().catch(() => undefined)}
+      // The picks are this computer's files: only a chat whose folder is here (not a peer's or another
+      // host's) and not Quick Chat.
+      onAttach={localCwd && !quick ? () => void attachLinks().catch(() => undefined) : undefined}
     />
   );
   const pane = (
