@@ -203,7 +203,8 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   field (and `newTab.submit --arg search=true`). The mode memory, the Tab toggle and the `mode`
   argument are removed; only the last agent is remembered.
 - R86 reversed (Leo, 2026-10-18): Search | Ask comes back on the default screen as a small glass
-  switch at the field's right with "Tab to switch". Tab and Shift-Tab flip it in place; the mode
+  switch at the field's right with "Tab to switch". Tab flips it in place (Shift-Tab still moves
+  focus out of the field, and a polite live region says the new mode); the mode
   only decides which row leads and takes Return for a prompt (Ask: the agent; Search: the web
   search). An address still opens first, `!` is still a terminal, and the mode is not remembered.
   The thumb moves by transform on its own layer before the rows render, so it stays smooth under
