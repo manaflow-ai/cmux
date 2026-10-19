@@ -135,7 +135,13 @@ export default markdownPageEntry({
   title: "Markdown editor",
   area: "Pages",
   height: 640,
-  covers: ["page:cmux.markdown", "pages/markdown/MarkdownPage.tsx", "viewer-empty/MarkdownEmptyState.tsx"],
+  covers: [
+    "page:cmux.markdown",
+    "pages/markdown/MarkdownPage.tsx",
+    // The toolbar's Aa button opens it on every variant.
+    "pages/markdown/ReadingSettings.tsx",
+    "viewer-empty/MarkdownEmptyState.tsx",
+  ],
   variants: {
     showcase: {
       note: "The full markdown showcase (every feature the agent replies must render).",
