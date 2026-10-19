@@ -45,6 +45,7 @@ it.each([false, true])("attaches the actual Cloud VM before binding and preserve
       if (lostReply) {
         expect(reply.frames).toContainEqual(expect.objectContaining({ t: "reject", code: "mutation.indeterminate" }))
         owner = new CloudDO(state, e)
+        expect((await owner.readOp(t.team, p, "cloud.machine.list", {})).ok).toBe(true)
         await owner.fakeControl({ advance_ms: 60_000 })
         await owner.alarm()
       }
