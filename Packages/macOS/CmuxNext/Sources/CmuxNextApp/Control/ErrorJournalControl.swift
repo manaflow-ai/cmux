@@ -47,7 +47,11 @@ struct ErrorJournalControl: Sendable {
     func clear(_ params: [String: JSONValue]) async -> JSONValue {
         let fingerprints = params["fingerprints"]?.arrayValue?.compactMap(\.stringValue)
         let removed = await journal.clear(fingerprints: fingerprints)
-        return .object(["removed": .number(Double(removed))])
+        let writeError = await journal.writeError
+        return .object([
+            "removed": .number(Double(removed)),
+            "write_error": writeError.map(JSONValue.string) ?? .null,
+        ])
     }
 
     static func query(_ params: [String: JSONValue], now: Date) throws -> ErrorQuery {

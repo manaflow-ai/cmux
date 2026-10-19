@@ -146,18 +146,29 @@ public actor ErrorJournal {
     /// - Returns: How many entries were removed.
     @discardableResult
     public func clear(fingerprints: [String]? = nil) -> Int {
+        var candidate = table
         let removed: Int
         if let fingerprints {
-            removed = fingerprints.reduce(0) { $0 + (table.removeValue(forKey: $1) == nil ? 0 : 1) }
+            removed = fingerprints.reduce(0) { $0 + (candidate.removeValue(forKey: $1) == nil ? 0 : 1) }
         } else {
-            removed = table.count
-            table.removeAll()
+            removed = candidate.count
+            candidate.removeAll()
         }
-        dirty.removeAll()
-        do { try store.compact(table.values.sorted { $0.lastMs < $1.lastMs }) } catch {
-            lastWriteError = String(describing: error)
+        do {
+            try store.compact(candidate.values.sorted { $0.lastMs < $1.lastMs })
+            table = candidate
+            dirty.removeAll()
+            lastWriteError = nil
+            return removed
+        } catch {
+            let clearError = String(describing: error)
+            // A failed compaction can already have removed some old segments.
+            // Rewrite the authoritative pre-clear table so a relaunch cannot
+            // observe a partially cleared history while cleanup is retried.
+            try? store.compact(table.values.sorted { $0.lastMs < $1.lastMs })
+            lastWriteError = clearError
+            return 0
         }
-        return removed
     }
 
     /// Reads every source after its saved cursor, folds what it found, saves the cursors and
