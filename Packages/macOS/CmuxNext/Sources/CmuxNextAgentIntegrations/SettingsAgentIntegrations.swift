@@ -1,7 +1,7 @@
-import CmuxNextPages
-import CmuxNextSettings
-import Foundation
-import Observation
+public import CmuxNextPages
+public import CmuxNextSettings
+public import Foundation
+public import Observation
 
 /// Settings > Agents > Agent integrations: optional help for the coding-agent hooks that report an
 /// agent's state to cmux. The rows are the bundled CLI's `cmux --json agent hook status`; Install

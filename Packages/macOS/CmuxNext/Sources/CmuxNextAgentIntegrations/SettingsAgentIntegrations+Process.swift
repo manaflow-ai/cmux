@@ -1,5 +1,5 @@
 import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 // Apart from SettingsAgentIntegrations.swift: CmuxNextDaemon and CmuxNextSettings both name a
 // `JSONValue`, and this file needs only the process runner.
