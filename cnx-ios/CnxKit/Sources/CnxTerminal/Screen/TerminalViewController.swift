@@ -100,6 +100,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
     private var viewportTop = -1
+    /// Ghostty's viewport for reading the cursor's row (termqa N3).
+    private var viewportTracker = TerminalViewportTop()
     /// The viewport top row of the frame on screen.
     private var presentedTop = 0
     private var documentTotal = 0
@@ -170,16 +172,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return log
     }()
 
-    /// `-CnxFrameLog`: the last row's bottom edge against the composer card's
-    /// top (page points) whenever it changes while following.
+    /// `-CnxFrameLog`: the drawn cursor cell's and the document's last row's
+    /// bottom edges against the composer card's top (page points) whenever
+    /// they change while following. "drawn" is Ghostty's cursor cell in the
+    /// presented surface, converted to the page (what the person sees); the
+    /// document's row is the layout's own claim (round 11 N3: it said gap 0
+    /// while the last row was under the card).
     private var lastPinLog = ""
     private func logPin() {
         guard TerminalFrameLog.isEnabled, following, let document, cell.height > 0 else { return }
         let lastRowBottom = document.contentY(ofRow: document.endRow, cellHeight: cell.height) - scrollView.contentOffset.y
         let composerTop = bottomStack.frame.minY
-        let line = String(format: "pin: last row bottom %.1f, composer top %.1f, gap %.1f pt (keyboard %@, composer %.0f pt, rows %d)",
-                          lastRowBottom, composerTop, composerTop - lastRowBottom, model.keyboardVisible ? "up" : "down",
-                          composerHost?.view.bounds.height ?? 0, document.rowCount)
+        // What is drawn: the cursor's cell in the frame on screen (termqa N3:
+        // the document's end said gap 0 while the cursor row was drawn under
+        // the card).
+        let cursorBottom = surface.visibleCursorCell.map { surface.convert($0, to: view).maxY }
+        let gap = TerminalDocumentLayout.drawnGap(composerTop: composerTop, lastRowBottom: lastRowBottom, cursorRowBottom: cursorBottom)
+        let line = String(format: "pin: last row bottom %.1f, cursor row bottom %@, composer top %.1f, gap %.1f pt (keyboard %@, composer %.0f pt, rows %d)",
+                          lastRowBottom, cursorBottom.map { String(format: "%.1f", $0) } ?? "-", composerTop, gap,
+                          model.keyboardVisible ? "up" : "down", composerHost?.view.bounds.height ?? 0, document.rowCount)
         guard line != lastPinLog else { return }
         lastPinLog = line
         sizingLog.notice("\(line, privacy: .public)")
@@ -235,6 +246,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     isolated deinit {
         outputLink?.invalidate()
+        followFallback?.invalidate()
         if outputPaused { model.session.setOutputPaused(false) }
     }
 
@@ -784,6 +796,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         frameLog.stop()
         #endif
         stopBlankWatch()
+        stopFollowFallback()
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
     }
 
@@ -909,11 +922,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pumpOutput()
         }
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
-        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
+        let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
             self?.nextFeedAllowed = 0
             self?.pumpOutput()
-        }, selector: #selector(DisplayLinkProxy.step))
+        }, selector: #selector(DisplayLinkProxy.step(_:)))
         link.add(to: .main, forMode: .common)
         outputLink = link
     }
@@ -973,6 +986,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scroll.shiftRows(by: -rows)
         presentedTop -= rows
         viewportTop = max(0, viewportTop - rows)
+        viewportTracker.shiftRows(by: -rows)
         recentTops = recentTops.map { max(0, $0 - rows) }
         steadyViewport = nil
         restoredMark = nil
@@ -1087,7 +1101,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.updateDocument()
             }
             self.applyScroll()
-            if self.freezeView != nil, self.readingMark == nil { self.unfreeze() }
+            if let held = self.freezeView, self.readingMark == nil { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
         }
     }
 
@@ -1151,6 +1165,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // numbering (in the old one, a followed end looked far below the
         // rows on screen and was asked to move into the scrollback).
         scrollbar = (total, offset, visible)
+        viewportTracker.report()
         if !model.isTUI, !replayGate.isReplaying,
            let pruned = TerminalHistoryPrune.prunedRows(previousTotal: previous.total, previousOffset: previous.offset,
                                                          total: total, offset: offset, requestedTop: viewportTop,
@@ -1210,7 +1225,36 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.updateDocument()
                 self.applyScroll()
             }
-            self.unfreeze()
+            self.releaseHeldFrameAtCap(held, recover: true)
+        }
+    }
+
+    /// The held frame at its cap (termqa N1): it goes only once the frame
+    /// placed covers the rows the page shows, else the frame is placed again
+    /// (by the report, or asked for) and the held frame stays until a
+    /// present releases it (`heldFrameMayGo`) or `coverCap` passes.
+    private func releaseHeldFrameAtCap(_ held: ObjectIdentifier, recover: Bool) {
+        guard let view = freezeView, ObjectIdentifier(view) == held else { return }
+        let elapsed = CACurrentMediaTime() - freezeStarted
+        guard !model.isTUI, cell.height > 0, surfaceRows > 0, let document else {
+            unfreeze()
+            return
+        }
+        let visible = visibleRowRange
+        if TerminalHeldFrame.releasesAtCap(isAlternate: false, cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
+                                           visibleTop: visible.lowerBound, visibleBottom: visible.upperBound,
+                                           documentRows: document.originRow..<document.endRow, elapsed: elapsed) {
+            unfreeze()
+            return
+        }
+        if recover {
+            sizingLog.notice("held frame kept at the cap: rows \(visible.lowerBound, privacy: .public)..<\(visible.upperBound, privacy: .public) not in the frame at \(self.presentedTop, privacy: .public) (report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public))")
+            placeFrameAgain(visible: visible)
+        }
+        // The next present releases it once its frame covers the page; this
+        // is the bound.
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, TerminalHeldFrame.coverCap - elapsed)) { [weak self] in
+            self?.releaseHeldFrameAtCap(held, recover: false)
         }
     }
 
@@ -1353,7 +1397,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The cursor's row: read when it is in the viewport; while the page
         // shows older rows, its last distance from the end (an inline TUI
         // keeps its input box at the same place from the bottom).
-        var cursor = surface.cursorAbsoluteRow(totalRows: scrollbar.total)
+        // Against Ghostty's viewport as last reported, or as last asked for
+        // when the request is newer: a request inside the active area
+        // follows it, so an older request put the cursor rows above where
+        // it is drawn (termqa N3).
+        var cursor = surface.cursorViewportRow.map {
+            viewportTracker.cursorRow(viewportRow: $0, reportedOffset: scrollbar.offset, totalRows: scrollbar.total,
+                                      gridRows: surface.grid.rows)
+        }
         if let cursor {
             cursorRowsFromEnd = max(0, scrollbar.total - 1 - cursor)
         } else if let distance = cursorRowsFromEnd {
@@ -1459,6 +1510,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm request %d (current %d visibleTop %d)", top, current, visibleTop) }
         #endif
+        viewportTracker.request(top)
         measured("viewport-request") { surface.scroll(toRow: top) }
     }
 
@@ -1483,7 +1535,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         presentDebug = ""
         #endif
         let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
-                                         recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
+                                         recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows),
+                                         requestIsNewer: viewportTop >= 0 && !viewportTracker.reportedSinceRequest)
         let epoch = surface.viewportEpoch
         if !placesFromReport, let known = match.knownTop(steady: steadyViewport, epoch: epoch) {
             // Reading scrollback while output streams: the viewport has not
@@ -1498,6 +1551,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if let previous = presentedRows {
                 let result = match.match(previous: previous, current: rows)
                 top = result.top
+                #if DEBUG
+                if !result.matched, top != presentedTop, TerminalFrameLog.isEnabled {
+                    sizingLog.notice("present: no match, placed at \(top, privacy: .public) (was \(self.presentedTop, privacy: .public), report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public)\(match.requestIsNewer ? ", newer" : "", privacy: .public))")
+                }
+                #endif
                 steadyViewport = placesFromReport ? nil : match.confirmed(result, epoch: epoch)
                 #if DEBUG
                 if CommandLine.arguments.contains("-CnxPresentLog") {
@@ -1582,12 +1640,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                                            visibleTop: top, visibleBottom: bottom, documentRows: document.originRow..<document.endRow)
     }
 
+    /// An offscreen page waits for no frame: the next output or appearance
+    /// asks again (round 11 A3: the wait never ended for a page that left).
+    private func stopFollowFallback() {
+        followFallback?.invalidate()
+        followFallback = nil
+        followAwaitsPresent = false
+        awaitStarted = nil
+    }
+
     private func armFollowFallback(ticks: Int = 2) {
         followFallbackLimit = max(ticks, followFallback == nil ? 0 : followFallbackLimit)
         guard followFallback == nil else { return }
         followFallbackTicks = 0
-        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
+        let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             guard let self else { return }
+            guard self.view.window != nil else { return self.stopFollowFallback() }
             self.followFallbackTicks += 1
             guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
             let waited = CACurrentMediaTime() - (self.awaitStarted ?? CACurrentMediaTime())
@@ -1623,7 +1691,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.applyScroll()
                 self.forceScroll = false
             }
-        }, selector: #selector(DisplayLinkProxy.step))
+        }, selector: #selector(DisplayLinkProxy.step(_:)))
         link.add(to: .main, forMode: .common)
         followFallback = link
     }
@@ -1697,6 +1765,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let reportCovers = TerminalBlankWatch.covers(presentedTop: scrollbar.offset, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
                                                      visibleBottom: visible.upperBound, documentRows: originRow..<(document?.endRow ?? Int.max))
         sizingLog.notice("blank page: rows \(visible.lowerBound, privacy: .public)..<\(visible.upperBound, privacy: .public) not in the frame at \(self.presentedTop, privacy: .public) (report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public)) for \(Int((self.blankWatch.uncoveredSince.map { CACurrentMediaTime() - $0 } ?? 0) * 1000), privacy: .public) ms: \(reportCovers ? "placed by the report" : "asked again", privacy: .public) (event \(self.blankWatch.events, privacy: .public))")
+        placeFrameAgain(visible: visible)
+    }
+
+    /// Places the frame by Ghostty's report when that covers `visible`, forgets
+    /// the frame used for matching, and asks Ghostty for a viewport and a frame.
+    private func placeFrameAgain(visible: Range<Int>) {
+        let reportCovers = TerminalBlankWatch.covers(presentedTop: scrollbar.offset, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
+                                                     visibleBottom: visible.upperBound, documentRows: originRow..<(document?.endRow ?? Int.max))
         steadyViewport = nil
         presentedRows = nil
         if reportCovers {
@@ -1741,6 +1817,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiClip.isHidden = false
             tuiHost.addSubview(surface)
             surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width - 2 * Self.sidePadding, height: CGFloat(surfaceRows) * cell.height)
+            viewportTracker.request(0)
             surface.scroll(toRow: 0)
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
@@ -1923,6 +2000,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
         // The composer shows its Jump to bottom row (`TerminalComposer`).
+        // A hide is laid out now, in this transaction, so the frame that
+        // shows the moved rows never still draws the row (round 11 N4: 4 of
+        // 250 jumps drew it on the first moved frame; SwiftUI's own pass
+        // came one frame later).
+        guard !visible, let host = composerHost?.view else { return }
+        UIView.performWithoutAnimation {
+            host.setNeedsLayout()
+            host.layoutIfNeeded()
+        }
     }
 
     /// Jump to bottom: one tap lands at the live bottom and follows, whatever
@@ -2195,7 +2281,8 @@ struct TerminalPageCapture: @unchecked Sendable {
                 TerminalCursorErase.erase(pixels: data.assumingMemoryBound(to: UInt8.self), bytesPerRow: context.bytesPerRow,
                                           rect: .init(x: Int(pixels.minX), y: Int(pixels.minY), width: Int(pixels.width), height: Int(pixels.height)),
                                           background: (UInt8(max(0, min(255, red * 255)).rounded()), UInt8(max(0, min(255, green * 255)).rounded()),
-                                                       UInt8(max(0, min(255, blue * 255)).rounded())))
+                                                       UInt8(max(0, min(255, blue * 255)).rounded())),
+                                          bounds: (width, height))
             }
         }
         guard let image = context.makeImage() else { return nil }
@@ -2211,16 +2298,21 @@ final class RowShiftBox: @unchecked Sendable {
     }
 }
 
-/// A display link target that does not retain the controller.
+/// A display link target that does not retain the controller. Once its
+/// owner is gone the link stops itself (round 11 A3: a controller freed
+/// while its follow fallback waited left that link firing forever).
 @MainActor
 final class DisplayLinkProxy: NSObject {
+    private weak var owner: AnyObject?
     private let action: @MainActor () -> Void
 
-    init(_ action: @escaping @MainActor () -> Void) {
+    init(owner: AnyObject, _ action: @escaping @MainActor () -> Void) {
+        self.owner = owner
         self.action = action
     }
 
-    @objc func step() {
+    @objc func step(_ link: CADisplayLink) {
+        guard owner != nil else { return link.invalidate() }
         action()
     }
 }

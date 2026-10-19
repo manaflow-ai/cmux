@@ -119,8 +119,10 @@ public final class TerminalModel {
     }
     @ObservationIgnored private var lastDrawnOutput: CFTimeInterval = 0
 
-    /// Saves the page's frame (for the next cold launch) at most every few seconds.
-    public var frameSaver: (@MainActor (UIImage) -> Void)?
+    /// Saves the page's frame (for the next cold launch) at most every few
+    /// seconds: called when the frame is captured, it returns the writer for
+    /// that frame once rendered (ordered against later saves and a close, A5).
+    public var frameSaver: (@MainActor () -> @Sendable (UIImage) -> Void)?
     @ObservationIgnored private var lastFrameSave: CFTimeInterval = 0
     @ObservationIgnored private var frameSavePending = false
 
@@ -146,9 +148,10 @@ public final class TerminalModel {
             frameSavePending = false
             lastFrameSave = CACurrentMediaTime()
             // Taken here, rendered off the main thread (V8 claim 7).
-            guard let capture = controller?.captureForSaving() else { return }
-            let image = await Task.detached(priority: .utility) { capture.render() }.value
-            if let image { frameSaver?(image) }
+            guard let capture = controller?.captureForSaving(), let write = frameSaver?() else { return }
+            Task.detached(priority: .utility) {
+                if let image = capture.render() { write(image) }
+            }
         }
     }
 

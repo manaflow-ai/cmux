@@ -38,6 +38,22 @@ public struct TerminalHeldFrame: Sendable {
                                          visibleBottom: visibleBottom, documentRows: documentRows)
     }
 
+    /// The longest a frame is held while the frame placed does not cover the
+    /// page's rows (termqa N1): past it the page shows what there is.
+    public static let coverCap: TimeInterval = 5
+
+    /// At `cap` after the reset (termqa N1): let the held frame go only when
+    /// the frame placed covers the rows the page shows (a TUI's screen: at
+    /// once), or `coverCap` has passed. Released at the cap regardless, a
+    /// restore whose frame was not placed yet left the page black for
+    /// 250 ms until the blank watch placed it.
+    static func releasesAtCap(isAlternate: Bool, cover: TerminalFrameCover, visibleTop: Int, visibleBottom: Int,
+                              documentRows: Range<Int>, elapsed: TimeInterval) -> Bool {
+        if isAlternate || elapsed >= coverCap { return true }
+        return TerminalBlankWatch.covers(presentedTop: cover.presentedTop, surfaceRows: cover.surfaceRows, visibleTop: visibleTop,
+                                         visibleBottom: visibleBottom, documentRows: documentRows)
+    }
+
     /// Rows with text in Ghostty's plain text of a screen (one line per row;
     /// soft-wrapped rows joined count once, which only errs toward holding).
     public static func nonBlankRows(in text: String, limit: Int) -> Int {

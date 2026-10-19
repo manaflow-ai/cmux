@@ -69,4 +69,33 @@ import Testing
         erase(&pixels)
         #expect(pixels == before)
     }
+
+    /// Round 11 N5: the cell Ghostty reported was half a cell off the block
+    /// it drew, so the block stayed in the saved frame (a grey cell behind
+    /// the X). The erase finds the block within a cell of the reported rect.
+    @Test func aBlockHalfACellFromTheReportedCellIsStillErased() {
+        let wide = 30
+        var pixels = [UInt8](repeating: 255, count: wide * height * 4)
+        func put(_ x: Int, _ y: Int, _ c: (UInt8, UInt8, UInt8)) {
+            let i = (y * wide + x) * 4
+            pixels[i] = c.0; pixels[i + 1] = c.1; pixels[i + 2] = c.2
+        }
+        func read(_ x: Int, _ y: Int) -> (UInt8, UInt8, UInt8) {
+            let i = (y * wide + x) * 4
+            return (pixels[i], pixels[i + 1], pixels[i + 2])
+        }
+        for y in 0..<height { for x in 0..<wide { put(x, y, background) } }
+        // The block in cells 10..<20, an X-like stroke of background inside.
+        for y in 0..<height { for x in 10..<20 { put(x, y, cursor) } }
+        for y in 4..<16 { put(14, y, background) }
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            TerminalCursorErase.erase(pixels: buffer.baseAddress!, bytesPerRow: wide * 4,
+                                      rect: .init(x: 5, y: 0, width: width, height: height), background: background,
+                                      bounds: (wide, height))
+        }
+        #expect(read(10, 0) == background)
+        #expect(read(19, 19) == background)
+        #expect(read(17, 2) == background)
+        #expect(read(14, 8) == cursor)
+    }
 }

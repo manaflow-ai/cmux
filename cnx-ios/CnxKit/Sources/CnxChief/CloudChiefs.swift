@@ -151,6 +151,14 @@ enum ChiefCloudError: Error, CustomStringConvertible {
         }
     }
 
+    /// The service's own words (no code), for the user.
+    var message: String {
+        switch self {
+        case let .refused(_, _, message): message
+        case let .badReply(what): what
+        }
+    }
+
     var status: Int? {
         if case let .refused(status, _, _) = self { return status }
         return nil

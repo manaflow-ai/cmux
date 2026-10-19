@@ -89,6 +89,13 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         Task { await core.close() }
     }
 
+    /// The app came back to the foreground or the network changed: a live
+    /// socket is pinged now (a dead one is closed and dialed again), and a
+    /// wait between dials ends at once.
+    public func reconnectNow() {
+        Task { await core.nudge() }
+    }
+
     actor Core {
         let http: ChiefCloudHTTP
         nonisolated let conversationID: String
@@ -110,6 +117,12 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private var runner: Task<Void, Never>?
         private var socket: URLSessionWebSocketTask?
         private var closed = false
+        /// The wait between dials (``nudge()`` cancels it).
+        private var backoff: Task<Void, Never>?
+        /// A nudge came: the next dial starts the backoff from the start.
+        private var nudged = false
+        /// The ping ``nudge()`` sent and nothing answered yet.
+        private var nudgePing: UUID?
         private var info: ConversationInfo?
         /// The last stream seq applied (snapshot or event); a resume starts after it.
         private var streamSeq: Int?
@@ -268,6 +281,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             runner = nil
             socket?.cancel(with: .goingAway, reason: nil)
             socket = nil
+            backoff?.cancel()
+            backoff = nil
             liveFeed.update(nil)
             continuation?.finish()
             continuation = nil
@@ -305,9 +320,58 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                     forceRefresh = unauthorized
                     continuation?.yield(.disconnected(reason: reason))
                 }
-                do { try await clock.sleep(for: Self.retryDelay(attempt: attempt)) } catch { return }
-                attempt += 1
+                if nudged {
+                    // The nudge closed a dead socket: dial again now.
+                    nudged = false
+                    attempt = 0
+                    continue
+                }
+                let delay = Self.retryDelay(attempt: attempt)
+                let clock = clock
+                let wait = Task { _ = try? await clock.sleep(for: delay) }
+                backoff = wait
+                await wait.value
+                backoff = nil
+                guard !Task.isCancelled else { return }
+                if nudged {
+                    // Dial now, and wait from the start after a failure.
+                    nudged = false
+                    attempt = 0
+                } else {
+                    attempt += 1
+                }
             }
+        }
+
+        /// Foreground or a network change: ping the socket now (no answer
+        /// closes it, and the loop dials again), or end the wait between dials.
+        func nudge() async {
+            guard !closed else { return }
+            if let backoff {
+                nudged = true
+                backoff.cancel()
+                return
+            }
+            guard let socket else { return }
+            // A socket the network dropped may never answer: 5 s is the limit.
+            let token = UUID()
+            nudgePing = token
+            let clock = clock
+            let timer = Task { [weak self] in
+                guard (try? await clock.sleep(for: .seconds(5))) != nil else { return }
+                await self?.nudgePingEnded(token, socket, answered: false)
+            }
+            let answered = await Self.ping(socket)
+            timer.cancel()
+            nudgePingEnded(token, socket, answered: answered)
+        }
+
+        private func nudgePingEnded(_ token: UUID, _ socket: URLSessionWebSocketTask, answered: Bool) {
+            guard nudgePing == token else { return }
+            nudgePing = nil
+            guard !answered else { return }
+            nudged = true
+            socket.cancel(with: .goingAway, reason: nil)
         }
 
         private func socketURL() -> URL? {
@@ -358,7 +422,9 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 if !welcomed, status == 403 || status == 404 {
                     return .refused("the service refused the conversation (HTTP \(status ?? 0))")
                 }
-                return .ended(welcomed: welcomed, unauthorized: status == 401, reason: "socket ended: \(error.localizedDescription)")
+                // 4401: the owner closed the socket because the token expired.
+                let expired = task.closeCode.rawValue == 4401
+                return .ended(welcomed: welcomed, unauthorized: status == 401 || expired, reason: "socket ended: \(error.localizedDescription)")
             }
         }
 
@@ -432,11 +498,15 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 try await applyLive(live.activity(object), on: task)
             case "run.live":
                 liveResyncPending = false
+                // The owner sends one after a subscribe: the subscribe was taken.
+                subscribeOutstanding = false
                 try await applyLive(live.snapshot(object), on: task)
             case "error":
                 // Only a refused subscribe ends the socket for good; an error
                 // that answers a typing or `run.live.get` frame is dropped.
                 let code = object["code"] as? String ?? ""
+                // A refused `run.live.get` must not stop later gaps from resyncing.
+                liveResyncPending = false
                 if subscribeOutstanding, code == "auth.forbidden" || code == "auth.unauthenticated" {
                     throw Refused(reason: object["message"] as? String ?? code)
                 }
