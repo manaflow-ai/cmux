@@ -1,0 +1,601 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "cookieImport.consent.afterAllow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After Allow, macOS asks for your password to unlock the browser’s cookies. Nothing leaves this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可すると、ブラウザのCookieのロックを解除するためにmacOSがパスワードを求めます。データはこのMacの外に出ません。"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.afterAllowSafari": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari’s cookies need Full Disk Access for cmux in System Settings. Nothing leaves this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SafariのCookieを読むには、システム設定でcmuxにフルディスクアクセスが必要です。データはこのMacの外に出ません。"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.allSites": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All sites (every cookie in this profile)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのサイト（このプロファイルのすべてのCookie）"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.countdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denied automatically in %lld s"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 秒後に自動的に拒否します"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.from": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み元"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.into": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Into"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み先"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What the agent said last"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの最新のメッセージ"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.lead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It asks to copy your %@ cookies into the cmux browser, so its tabs are signed in like that browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のCookieをcmuxブラウザにコピーし、そのブラウザと同じようにタブでサインインできるようにすることを求めています。"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.reason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent’s reason"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの理由"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.requestedBy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requested by"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼元"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.showChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのチャットを表示"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.showTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのターミナルを表示"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.sites": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sites"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイト"
+          }
+        }
+      }
+    },
+    "cookieImport.consent.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent wants to import your cookies"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがCookieの読み込みを求めています"
+          }
+        }
+      }
+    },
+    "cookieImport.error.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another cookie import request is waiting for the person. Try again after it is answered."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のCookie読み込み依頼がユーザーの応答を待っています。応答後にもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The person denied the cookie import. Nothing was read."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーがCookieの読み込みを拒否しました。何も読み込んでいません。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cookie import failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookieの読み込みに失敗しました: %@"
+          }
+        }
+      }
+    },
+    "cookieImport.error.keyNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the Keychain has no item “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーチェーンに項目「%@」がありません"
+          }
+        }
+      }
+    },
+    "cookieImport.error.keychainDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the macOS password prompt was denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOSのパスワード確認が拒否されました"
+          }
+        }
+      }
+    },
+    "cookieImport.error.missingSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the browser: --from <browser>[:<profile>], for example --from chrome:Work."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを指定してください: --from <browser>[:<profile>]（例: --from chrome:Work）。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.needsFullDiskAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux needs Full Disk Access (System Settings › Privacy & Security) to read Safari’s cookies"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SafariのCookieを読むには、cmuxにフルディスクアクセス（システム設定 › プライバシーとセキュリティ）が必要です"
+          }
+        }
+      }
+    },
+    "cookieImport.error.noWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux has no window to ask the person in. Nothing was read."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxにユーザーに確認するためのウインドウがありません。何も読み込んでいません。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.nothingMatched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cookie in that profile matches those sites. Nothing was imported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのプロファイルにはこれらのサイトに一致するCookieがありません。何も読み込んでいません。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.reasonRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent must say why it needs the cookies: pass --reason \"<what you will do with them>\". The person sees it before anything is read."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはCookieが必要な理由を示す必要があります。--reason \"<Cookieで何をするか>\" を指定してください。何かを読む前にユーザーに表示されます。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No answer to the cookie import request within the time limit. Nothing was read."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制限時間内にCookieの読み込み依頼への応答がありませんでした。何も読み込んでいません。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.unknownBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No browser named “%1$@” is on this Mac. Found: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacに「%1$@」というブラウザはありません。見つかったもの: %2$@。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.unknownProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no profile named “%2$@”. Profiles: %3$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ に「%2$@」というプロファイルはありません。プロファイル: %3$@。"
+          }
+        }
+      }
+    },
+    "cookieImport.error.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot read %@’s cookies."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxは %@ のCookieを読めません。"
+          }
+        }
+      }
+    },
+    "cookieImport.requester.agentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent chat “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット「%@」"
+          }
+        }
+      }
+    },
+    "cookieImport.requester.inWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in workspace %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース %@"
+          }
+        }
+      }
+    },
+    "cookieImport.requester.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル「%@」"
+          }
+        }
+      }
+    },
+    "cookieImport.requester.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program outside cmux (no agent chat or terminal named itself)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux外のプログラム（エージェントチャットやターミナルを名乗っていません）"
+          }
+        }
+      }
+    },
+    "cookieImport.toast.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported %1$lld cookies from %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ から %1$lld 個のCookieを読み込みました。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -94,6 +94,14 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public var isGlobalHotKey: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
+    /// The run waits for a person's answer (a consent panel, then a macOS
+    /// prompt): the control socket gives it ``ActionDescriptor/personDeadline``
+    /// instead of ``ActionDescriptor/resultDeadline``.
+    public var waitsForPerson: Bool = false
+    /// How long `action.run` with `wait` may take for an action that waits
+    /// for a person: the consent panel's own limit plus time for the
+    /// Keychain prompt and the import. The cmux CLI waits a little longer.
+    public static let personDeadline: Duration = .seconds(200)
 
     public init(
         id: ActionID,
