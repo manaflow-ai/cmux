@@ -361,6 +361,15 @@ fn strong_name(whole: &[u8]) -> bool {
     [&b"secret"[..], b"passw"].iter().any(|w| lower.windows(w.len()).any(|win| win == *w))
 }
 
+/// Whether a generic match's name says only "key": no secret, password,
+/// token, API, auth, credential or access word.
+fn names_only_a_key(name: &[u8]) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let words: [&[u8]; 8] =
+        [b"secret", b"passw", b"token", b"api", b"auth", b"cred", b"access", b"private"];
+    !words.iter().any(|w| lower.windows(w.len()).any(|win| win == *w))
+}
+
 /// The line of `text` around `range`.
 fn line_of(text: &[u8], range: &Range<usize>) -> Range<usize> {
     let start = text[..range.start].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
@@ -418,8 +427,12 @@ pub fn find(text: &str) -> Vec<Found> {
             if rule.allow.iter().chain(&rules.global).any(|a| a.allows(s, whole.as_bytes(), line)) {
                 continue;
             }
-            // Only a bare `NAME=value` drops an id: a header's or a key's hex is its secret.
-            if assignment && !strong && rules.ids.allows(s, whole.as_bytes(), line) {
+            // Only a bare `NAME=value`, or a generic match behind a name that says
+            // no more than "key" (a cache key), drops an id: a header's, a
+            // token's or an API key's hex is its secret.
+            let generic = rule.id.starts_with("generic");
+            let id_name = (assignment && !strong) || (generic && names_only_a_key(name));
+            if id_name && rules.ids.allows(s, whole.as_bytes(), line) {
                 continue;
             }
             let range = on_chars(text, secret.range());
