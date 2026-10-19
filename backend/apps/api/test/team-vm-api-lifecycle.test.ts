@@ -36,6 +36,21 @@ it("routes an API VM's retirement, saved files and deletion through its recorded
   })
 })
 
+it("settles a delete whose 204 was lost when the retry confirms the caller's own deleted VM", async () => {
+  await withTeamVmApi(async (t) => {
+    await t.wake()
+    const old = (await t.status()).vm!
+    await t.restart({ TEAM_VM_TRANSPORT: "direct" })
+    expect((await t.owner.adminAction(t.team, { action: "rebuild", epoch: 1, by: t.user, key: crypto.randomUUID() })).ok).toBe(true)
+    t.service.control.loseNextDelete = true
+    await expect(t.owner.adminAction(t.team, { action: "delete", vm: old, by: t.user, key: crypto.randomUUID() })).rejects.toThrow("no readable answer")
+    expect(t.service.vms.has(old)).toBe(false)
+    expect((await t.owner.ledger(t.team)).rows.find((r) => r.provider_id === old)?.state).toBe("confirmed")
+    expect((await t.owner.adminAction(t.team, { action: "delete", vm: old, by: t.user, key: crypto.randomUUID() })).ok).toBe(true)
+    expect((await t.owner.ledger(t.team)).rows.find((r) => r.provider_id === old)).toMatchObject({ state: "deleted", transport: "vm-api" })
+  })
+})
+
 it("keeps a legacy VM on direct while a later epoch uses the tenant API", async () => {
   await withTeamVmApi(async (t) => {
     await t.wake()
