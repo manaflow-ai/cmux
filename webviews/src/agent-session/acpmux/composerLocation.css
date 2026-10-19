@@ -641,6 +641,21 @@
     pointer-events: none;
   }
 }
+/* The New Tab card's model shrinks with its row (#20548) until the row cannot hold a readable name
+   (COMPOSER_FIT_STEPS.newTabModelMark); then it is its mark and chevron, its name in its tooltip, as
+   the chat bar's is at its modelMark step. Shrinking further left a 56 px chip with a few px of name,
+   and the permission mode was pushed over the mic (narrow-layouts at 280 px, Linux fonts). */
+@container composer (max-width: 297px) {
+  .nt-pickers .acpmux-chips > .acpmux-model { flex: none; min-width: 0; }
+  .nt-pickers .acpmux-model .acpmux-picker-button { position: relative; overflow: clip; }
+  .nt-pickers .acpmux-model :is([data-fit-part="model"], .acpmux-model-name) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
 @container composer (max-width: 420px) {
   .acpmux-composer-bar [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
     position: absolute;
