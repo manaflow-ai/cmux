@@ -24,7 +24,6 @@ import Testing
         func setPreference(key: String, value: JSONValue, by writer: SettingWriter) async throws {}
         func opened(_ url: URL) {}
         func openExternal(_ url: URL) {}
-        func openAppLink(_ url: URL) -> Bool { false }
         func openFile(_ url: URL) {}
         func openAppLink(_ url: URL) -> Bool { false }
         func isRecent(_ path: String) -> Bool { false }
