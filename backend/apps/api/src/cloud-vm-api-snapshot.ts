@@ -16,7 +16,8 @@ export class VmApiSnapshotOutcome extends DriverError {
 
 /** The VM service owns capture durability; Cloud resumes its stable key instead of duplicating that journal. */
 export class VmApiSnapshotCaptures {
-  constructor(private readonly client: Client, private readonly team: string) {}
+  constructor(private readonly client: Client, private readonly team: string,
+    private readonly lookupOwned: (name: string, expected: { machine?: string; source?: string }) => Promise<{ id: string } | null>) {}
 
   private async request<R>(work: () => Promise<R>): Promise<R> {
     try { return await work() } catch { throw new VmApiSnapshotOutcome("pending") }
@@ -42,7 +43,16 @@ export class VmApiSnapshotCaptures {
 
   async resume(name: string, expected: { machine?: string; source?: string }, allowSend: boolean): Promise<{ id: string } | null> {
     const found = await this.request(() => this.client.GET("/v1/snapshot-creations/by-key", { params: { header: { "idempotency-key": `cloud-snapshot:${name}` } } }))
-    if (found.response.status === 404) return null
+    if (found.response.status === 404) {
+      // A legacy key may have expired while its canonical snapshot still exists.
+      const owned = await this.request(() => this.lookupOwned(name, expected))
+      if (owned) return owned
+      // Refuse fresh captures against a Worker predating durable capture support.
+      const support = await this.request(() => this.client.GET("/v1/snapshot-creations", { params: { query: { limit: "1" } } }))
+      if (support.response.status !== 200 || !Array.isArray(support.data?.items) || !(support.data?.nextCursor === null || typeof support.data?.nextCursor === "string"))
+        throw new VmApiSnapshotOutcome("pending", "durable snapshot capture support is unavailable")
+      return null
+    }
     if (found.response.status !== 200) throw new VmApiSnapshotOutcome("pending")
     const original = this.validate(found.data, name, expected)
     const done = this.completed(original)

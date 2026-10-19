@@ -39,8 +39,9 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
       expect(url.searchParams.get("createdBy")).toBe("caller")
       return Response.json({ items: url.pathname === "/v1/vms" ? [...vms.values()].filter((v) => selected(v.labels, url.searchParams.getAll("label"))) : [...snapshots.values()].filter((s) => selected(s.labels, (url.searchParams.get("labels") ?? "").split(","))), nextCursor: null })
     }
+    if (url.pathname === "/v1/snapshot-creations") return Response.json({ items: [], nextCursor: null });
     if (url.pathname === "/v1/snapshot-creations/by-key") {
-      return captured ? Response.json({ id: captured.id, state: captureReady ? "committed" : "pending", receipt: captured }) : new Response(null, { status: 404 });
+      return captured ? Response.json({ id: captured.id, state: snapshots.has(captured.id) ? "committed" : "pending", receipt: captured }) : new Response(null, { status: 404 });
     }
     if (url.pathname === `/v1/snapshot-creations/${captured?.id}/reconcile`) {
       if (!captured) throw new Error("missing capture");
@@ -120,6 +121,7 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
         captureReady = true;
         // A fresh owner must reconcile retained work even after the plan and creation default change.
         owner = new CloudDO(state, { ...e, CLOUD_ALLOWED_TEAMS: "", CLOUD_VM_TRANSPORT: "direct" });
+        await owner.readOp(t.team, principal, "cloud.snapshot.list", { machine: apiMachine });
         await owner.fakeControl({ advance_ms: 4_000_000 }); await owner.alarm();
         expect(await owner.readOp(t.team, principal, "cloud.snapshot.list", { machine: apiMachine })).toMatchObject({ ok: true, value: { snapshots: [{ id: snapshotId, status: "ready" }] } });
         expect(calls.filter((c) => c.endsWith("/snapshots") && c.startsWith("POST"))).toHaveLength(1);

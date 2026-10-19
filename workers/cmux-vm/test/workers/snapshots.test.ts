@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_SCOPES, allScopesExcept, SNAPSHOT_ENDPOINTS } from "../support/endpoints.ts";
-import { memoryLedgerStorage, type LedgerStorage } from "../../src/limits/ledger.ts";
+import { memoryLedgerStorage, TenantLedger, type LedgerStorage } from "../../src/limits/ledger.ts";
 import { memoryLimitsLayer } from "../../src/limits/service.ts";
 import { makeHarness } from "../support/harness.ts";
 
@@ -383,6 +383,27 @@ describe("capture controls", () => {
     expect(pendingSnapshotId).toMatch(SNAPSHOT_ID);
     return { vmId, token, headers, id: pendingSnapshotId };
   };
+  it("reads a legacy completed key from canonical ownership and keeps uncertain legacy keys fenced", async () => {
+    const storage = memoryLedgerStorage(), ledger = new TenantLedger(storage);
+    const local = await makeHarness({ limits: memoryLimitsLayer(() => storage) });
+    const digest = async (key: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(["key", key])))), (b) => b.toString(16).padStart(2, "0")).join("");
+    try {
+      const { snapshotId } = local.s3a.addSnapshot(TENANT_A);
+      const token = await local.addKey(TENANT_A, ["snapshot:read", "snapshot:write"]);
+      const key = await digest("legacy-completed");
+      await ledger.begin(key, "legacy-request", 0);
+      await ledger.advance(key, { phase: "snapshotDone", snapshotId }, 1);
+      const headers = { ...bearer(token), "idempotency-key": "legacy-completed" };
+      expect(await (await local.request("/v1/snapshot-creations/by-key", headers)).json()).toMatchObject({ state: "committed", id: snapshotId, retryCreate: false });
+      expect(local.upstream.calls).toHaveLength(0);
+      expect((await local.request(`/v1/snapshots/${snapshotId}`, bearer(token), { method: "DELETE" })).status).toBe(204);
+      expect(await (await local.request("/v1/snapshot-creations/by-key", headers)).json()).toMatchObject({ state: "deleted", id: snapshotId });
+      await ledger.begin(await digest("legacy-uncertain"), "unknown", 0);
+      expect((await local.request("/v1/snapshot-creations/by-key", { ...bearer(token), "idempotency-key": "legacy-uncertain" })).status).toBe(409);
+      expect(local.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(0);
+    } finally { await local.dispose(); }
+  });
+
   it("distinguishes resumable admission from an uncertain provider send", async () => {
     const { vmId } = h.addVm(TENANT_A);
     const token = await h.addKey(TENANT_A, ["snapshot:read", "snapshot:write"]);

@@ -97,6 +97,7 @@ describe("generated VM API Cloud transport", () => {
       const url = new URL(r.url)
       if (r.method === "DELETE") return new Response(null, { status: 204 })
       if (url.pathname === "/v1/snapshot-creations/by-key") return new Response(null, { status: 404 })
+      if (url.pathname === "/v1/snapshot-creations") return json({ items: [], nextCursor: null })
       if (url.pathname === "/v1/snapshots") {
         expect(url.searchParams.get("createdBy")).toBe("caller")
         expect(url.searchParams.get("labels")).toContain(`cmux/name=${slug}`)
@@ -134,6 +135,7 @@ describe("generated VM API Cloud transport", () => {
     let captured = false, sourceGone = false, sends = 0;
     const handler = async (r: Request) => {
       const path = new URL(r.url).pathname;
+      if (path === "/v1/snapshot-creations") return json({ items: [], nextCursor: null });
       if (path === "/v1/snapshot-creations/by-key") return captured ? json({ id: SNAPSHOT, state: "pending", receipt: snapshot() }) : new Response(null, { status: 404 });
       if (path === `/v1/snapshot-creations/${SNAPSHOT}/reconcile`) return json({ id: SNAPSHOT, state: "committed", receipt: snapshot() });
       if (path === "/v1/vms") return json({ items: sourceGone ? [] : [vm()], nextCursor: null });
@@ -186,6 +188,23 @@ describe("generated VM API Cloud transport", () => {
     const changed = fake((r) => json({ id: SNAPSHOT, state: new URL(r.url).pathname.endsWith("reconcile") ? "committed" : "pending",
       receipt: { ...snapshot(), sourceVmId: new URL(r.url).pathname.endsWith("reconcile") ? `vm_${"2".repeat(26)}` : ID } }));
     await expect(changed.guarded.snapshot(name, { team, machine }, slug)).rejects.toMatchObject({ final: false, outcome: "pending" });
+  });
+
+  it("recovers a canonical legacy snapshot after its old key expires, without source lookup", async () => {
+    const x = fake((r) => {
+      const path = new URL(r.url).pathname;
+      if (path === "/v1/snapshot-creations/by-key") return new Response(null, { status: 404 });
+      expect(path).toBe("/v1/snapshots");
+      expect(new URL(r.url).searchParams.get("labels")).toContain(`cmux_next_machine=${machine}`);
+      return json({ items: [snapshot()], nextCursor: null });
+    });
+    expect(await x.guarded.snapshot(name, { team, machine }, slug)).toEqual({ id: SNAPSHOT });
+    expect(x.calls.some((r) => r.method !== "GET")).toBe(false);
+  });
+  it("refuses fresh snapshot work on a Worker without durable capture support", async () => {
+    const x = fake((r) => new URL(r.url).pathname === "/v1/snapshots" ? json({ items: [], nextCursor: null }) : new Response(null, { status: 404 }));
+    await expect(x.guarded.snapshot(name, { team, machine }, slug)).rejects.toThrow("durable snapshot capture support is unavailable");
+    expect(x.calls.some((r) => r.method !== "GET")).toBe(false);
   });
 
   it("writes UTF-8 bytes and root exec stdin without putting content in query strings", async () => {

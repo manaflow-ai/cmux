@@ -134,7 +134,19 @@ const withCapture = <A, E, R>(rawId: string, f: <C, S>(caller: Named<C, Principa
 
 export const inspectSnapshotCaptureByKey = (key: string) => withCaller("snapshot:read", "read", (caller) => Effect.gen(function* () {
   const found = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "inspect", key: yield* digest(["key", key]) }).pipe(Effect.mapError(() => unavailable()));
-  if (found.state === "legacy" || found.state === "legacyDone") return yield* Effect.fail(new Conflict({ message: "This legacy capture has no recoverable operation record" }));
+  if (found.state === "legacyDone") {
+    const id = parseSnapshotId(found.id);
+    if (Option.isNone(id)) return yield* Effect.fail(unavailable());
+    const stored = yield* (yield* SnapshotStore).inspect(caller.value.tenantId, id.value).pipe(Effect.mapError(() => unavailable()));
+    if (Option.isNone(stored)) return yield* Effect.fail(snapshotNotFound());
+    const row = stored.value, principal = caller.value, originalActor = actorRef(principal.actor) === row.createdBy;
+    const selected = principal.resourceAllowlist === null || principal.resourceAllowlist.has(row.id)
+      || (originalActor && row.sourceVmId !== null && principal.resourceAllowlist.has(row.sourceVmId));
+    if (!selected || !carriesRequiredLabels(principal, row.labels) || (principal.actor.kind === "service" && !originalActor)) return yield* Effect.fail(snapshotNotFound());
+    return new SnapshotCreationStatus({ id: row.id, state: row.deleted ? "deleted" : "committed", retryCreate: false,
+      receipt: new SnapshotSummary({ id: row.id, sourceVmId: row.sourceVmId, displayName: row.displayName, labels: row.labels, createdAt: row.createdAt.toISOString() }) });
+  }
+  if (found.state === "legacy") return yield* Effect.fail(new Conflict({ message: "This legacy capture has no recoverable operation record" }));
   if (found.state !== "record") return yield* Effect.fail(snapshotNotFound());
   return yield* name(found.record.intent.id, (snapshot) => authorizedSnapshotCapture(caller, snapshot).pipe(Effect.flatMap((proof) => status(caller, snapshot, proof))));
 }));

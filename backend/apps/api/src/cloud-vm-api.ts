@@ -19,7 +19,7 @@ export class VmApiCloudDriver implements RawCloudDriver {
   constructor(private readonly settings: VmApiSettings, tenant: string, private readonly team: string, fetchFn: typeof fetch = fetch) {
     this.client = createCmuxVmClient({ token: settings.key, teamId: tenant, baseUrl: settings.origin, fetch: (request) =>
       fetchFn(new Request(request, { redirect: "manual", signal: AbortSignal.any([request.signal, AbortSignal.timeout(request.url.endsWith("/exec") ? 310_000 : 30_000)]) })) })
-    this.captures = new VmApiSnapshotCaptures(this.client, team)
+    this.captures = new VmApiSnapshotCaptures(this.client, team, (name, expected) => this.findSnapshot(name, expected))
   }
 
   /** JSON decode, network and abort exceptions must not carry response bodies, stdin or credentials. */
@@ -104,15 +104,15 @@ export class VmApiCloudDriver implements RawCloudDriver {
     const r = this.value(await this.request(() => this.client.POST("/v1/vms/{vmId}/start", { params: { path: { vmId: id } } })))
     if (r.id !== id) throw unavailable("wrong start answer")
   }
-  async findSnapshot(name: string): Promise<{ id: string; sourceVmId: string | null } | null> {
+  async findSnapshot(name: string, expected?: { machine?: string; source?: string }): Promise<{ id: string; sourceVmId: string | null } | null> {
     const found: Snapshot[] = [], seen = new Set<string>()
     let cursor: string | undefined
-    const labels = this.labels(name)
+    const labels = this.labels(name, expected?.machine)
     for (let page = 0; page < 512; page++) {
       const r = this.value(await this.request(() => this.client.GET("/v1/snapshots", { params: { query: { createdBy: "caller", limit: "100", labels: Object.entries(labels).map(([k, v]) => `${k}=${v}`).join(","), ...(cursor ? { cursor } : {}) } } })))
       if (!Array.isArray(r.items)) throw unavailable("invalid snapshot list")
       for (const snapshot of r.items) {
-        if (!SNAPSHOT_ID.test(snapshot.id) || !Object.entries(labels).every(([k, v]) => snapshot.labels?.[k] === v)) throw unavailable("unconfirmed snapshot selector", true)
+        if (!SNAPSHOT_ID.test(snapshot.id) || (expected?.source !== undefined && snapshot.sourceVmId !== expected.source) || !Object.entries(labels).every(([k, v]) => snapshot.labels?.[k] === v)) throw unavailable("unconfirmed snapshot selector", true)
         found.push(snapshot)
       }
       if (found.length > 1) throw unavailable("ambiguous snapshot name", true)

@@ -3,7 +3,7 @@ import { MemoryRows, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { cloudConfig } from "../src/cloud-driver.ts"
 import type { Env } from "../src/env.ts"
-import { cloudDomain, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, type CloudState, type MachineRow } from "../src/domains/cloud.ts"
+import { cloudDomain, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, type CloudState, type LedgerRow, type MachineRow } from "../src/domains/cloud.ts"
 import { publicSnapshot, type SnapshotRow } from "../src/domains/cloud-snapshot.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 
@@ -72,6 +72,31 @@ describe("Cloud transport ownership", () => {
     expect(deleted.ok).toBe(true)
     if (deleted.ok) expect(deleted.writes?.find((w) => w.table === TABLE_LEDGER)).toMatchObject({ row: { transport: "vm-api" } })
   })
+
+  it("retains uncertain capture quota beyond the retry limit until a verified terminal receipt", () => {
+    const { rows, state } = created(), domain = cloudDomain(config);
+    const admitted = domain.reduce(state, "cloud.snapshot.create", { machine }, context(rows, "capture"));
+    if (!admitted.ok) throw new Error(admitted.code);
+    rows.apply(admitted.writes ?? []);
+    let current = admitted.state as CloudState;
+    const key = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 10 }).find((r) => r.row.op === "snapshot")?.key;
+    if (!key) throw new Error("capture ledger missing");
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const result = domain.reduce(current, "cloud.driver_result", { key, ok: false, final: true,
+        error: { code: "cloud.provider.unavailable", message: "no authoritative answer" } }, context(rows, `result-${attempt}`));
+      if (!result.ok) throw new Error(result.code);
+      rows.apply(result.writes ?? []); current = result.state as CloudState;
+      expect(current.saved).toBe(1);
+      expect(current.pending[key]).toBeDefined();
+      expect(rows.get<SnapshotRow>(TABLE_SNAPSHOT, snapshot)?.row.status).toBe("creating");
+    }
+    const closed = domain.reduce(current, "cloud.driver_result", { key, ok: false, final: true, snapshot_outcome: "deleted" }, context(rows, "verified-deleted"));
+    if (!closed.ok) throw new Error(closed.code);
+    rows.apply(closed.writes ?? []);
+    expect((closed.state as CloudState).saved).toBe(0);
+    expect((closed.state as CloudState).pending[key]).toBeUndefined();
+    expect(rows.get<SnapshotRow>(TABLE_SNAPSHOT, snapshot)?.row.status).toBe("failed");
+  });
 
   it("keeps private transport fields out of public machine and snapshot projections", () => {
     const { rows } = created()
