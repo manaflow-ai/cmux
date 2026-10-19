@@ -22,3 +22,6 @@ uuid.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
+
+[dev-dependencies]
+jsonschema.workspace = true

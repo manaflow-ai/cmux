@@ -341,6 +341,20 @@ impl Client {
         }
     }
 
+    /// The next event with this exact name (buffered first).
+    pub(super) fn named_event(&mut self, name: &str, timeout: Duration) -> Option<Value> {
+        if let Some(index) = self.events.iter().position(|e| e["event"] == name) {
+            return self.events.remove(index);
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            let line = self.read_line(deadline)?;
+            if line["event"] == name {
+                return Some(line);
+            }
+        }
+    }
+
     /// The next `agent-session-*` event (buffered first).
     fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {
