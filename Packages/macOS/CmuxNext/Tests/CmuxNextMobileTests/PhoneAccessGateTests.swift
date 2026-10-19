@@ -82,7 +82,7 @@ struct PhoneAccessGateTests {
         let respawn: [String: Any] = ["kind": "terminal", "cwd": "/tmp", "env": ["DYLD_INSERT_LIBRARIES": "/tmp/x.dylib"],
                                       "shell_args": ["-c", "id"]]
         for command in ["move-tab-to-split", "move-tab-to-column"] {
-            let line = try Self.line(["id": 1, "cmd": command, "tab": "t", "respawn": respawn])
+            let line = try Self.line(["id": 1, "cmd": command, "surface": "s", "respawn": respawn])
             guard case .refuse(let data) = policy.evaluate(line) else {
                 Issue.record("\(command) with respawn was forwarded")
                 continue
@@ -94,6 +94,29 @@ struct PhoneAccessGateTests {
             let line = try Self.line(["id": 1, "cmd": "send", field: ["x"]])
             #expect(policy.evaluate(line) != .forward, "\(field)")
         }
-        #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "move-tab-to-split", "tab": "t"])) == .forward)
+        #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "move-tab-to-split", "surface": "s", "edge": "right"])) == .forward)
+    }
+
+    /// Fields are an allowlist per command too (the daemon's schema minus program fields), so a field
+    /// the daemon adds later is refused until it is reviewed.
+    @Test func aFieldOffTheCommandsListIsRefused() throws {
+        let policy = DaemonLanePolicy(deviceID: "p")
+        #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "send", "surface": "s", "text": "ls"])) == .forward)
+        #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "send", "surface": "s", "future_field": true])) != .forward)
+    }
+
+    @Test(arguments: ["file:///etc/passwd", "FILE:///tmp/x", "javascript:alert(1)", "cmux://settings", "not a url"])
+    func aPhoneOpensOnlyWebPages(url: String) throws {
+        let policy = DaemonLanePolicy(deviceID: "p")
+        #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "browser-navigate", "surface": "s", "url": url])) != .forward)
+    }
+
+    @Test func webPagesStillOpen() throws {
+        let policy = DaemonLanePolicy(deviceID: "p")
+        #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "browser-navigate", "surface": "s", "url": "https://example.com"])) == .forward)
+    }
+
+    @Test func everyAllowedCommandHasAFieldList() {
+        #expect(Set(DaemonLanePolicy.commandFields.keys) == DaemonLanePolicy.allowedCommands)
     }
 }
