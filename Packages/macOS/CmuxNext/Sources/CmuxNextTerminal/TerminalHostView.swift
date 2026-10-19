@@ -28,6 +28,8 @@ public final class TerminalHostView: NSView {
     private let restartButton = TerminalRestartButton()
     /// "Retry" above the banner once the view stopped retrying its attach.
     private let retryButton = TerminalRetryButton()
+    /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
+    private let sizedForChip = TerminalSizedForChip()
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
@@ -73,6 +75,8 @@ public final class TerminalHostView: NSView {
         addSubview(retryButton, positioned: .above, relativeTo: banner)
         // The same re-attach a click in the disconnected terminal starts.
         retryButton.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
+        addSubview(sizedForChip, positioned: .above, relativeTo: banner)
+        sizedForChip.onTakeOver = { [weak self] in self?.current?.session?.takeOverSize() }
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
@@ -121,6 +125,17 @@ public final class TerminalHostView: NSView {
         banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
         restartButton.show(status)
         retryButton.show(status)
+        needsLayout = true
+    }
+
+    /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
+    var sizedForText: String? {
+        sizedForChip.shown.map { TerminalSizedForChip.text(for: $0) }
+    }
+
+    func showSizedFor(_ sizedFor: TerminalSizedFor?) {
+        guard sizedFor != sizedForChip.shown else { return }
+        sizedForChip.show(sizedFor)
         needsLayout = true
     }
 
@@ -206,6 +221,13 @@ public final class TerminalHostView: NSView {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
+        if !sizedForChip.isHidden {
+            // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
+            let trailing = bounds.width - scroller.reservedWidth - inset
+            _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: max(inset, trailing - size.width), y: inset)
+            }
+        }
         // Framed hidden too: the bar shows itself when find opens.
         for case let bar as TerminalFindBarView in subviews {
             _ = place(bar, maxWidth: bounds.width - inset * 2, evenHidden: true) { size in

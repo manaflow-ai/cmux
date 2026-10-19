@@ -68,6 +68,12 @@ public actor TerminalAttachment: TerminalByteChannel {
         var detached = false
         /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
         var hidesInPlace = false
+        /// This view's sizing participant (the attach reply's `participant`); nil until then.
+        var participant: String?
+        /// The newest size state this view passed on, and one that came before the reply named
+        /// the participant (held: without it the view cannot tell whether it owns the grid).
+        var sizeGeneration: UInt64?
+        var heldSizeState: TerminalSizeState?
     }
 
     private nonisolated let control = Mutex(Control())
@@ -92,7 +98,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         snapshotVersion: UInt16? = nil,
         localHistory: Bool = false,
         images: Bool = false,
-        clientName: String = "cmux-next-terminal"
+        clientName: String = "cmux-next-terminal",
+        device: TerminalSizingDevice? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         #if DEBUG
@@ -103,7 +110,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      images: images, clientName: clientName)
+                                      images: images, clientName: clientName, device: device)
         } catch {
             transport.close()
             throw error
@@ -123,8 +130,10 @@ public actor TerminalAttachment: TerminalByteChannel {
     public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
-                      localHistory: Bool, images: Bool, clientName: String) async throws {
+                      localHistory: Bool, images: Bool, clientName: String,
+                      device: TerminalSizingDevice?) async throws {
         let queue = queue
+        let control = control
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
         transport.start(
@@ -135,8 +144,12 @@ public actor TerminalAttachment: TerminalByteChannel {
                     surface = named
                 }
                 guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
-                      let event = sequencer.value.withLock({ $0.admit(decoded) })
+                      var event = sequencer.value.withLock({ $0.admit(decoded) })
                 else { return }
+                if case .sizeState(let state, _) = event {
+                    guard let named = Self.admitSizeState(state, control: control) else { return }
+                    event = named
+                }
                 if case .closed = event {
                     queue.finish(event)
                 } else {
@@ -155,7 +168,12 @@ public actor TerminalAttachment: TerminalByteChannel {
         // Both in one round trip; the attach below needs the identity.
         let replies = await transport.pipeline([
             PipelinedLine(IdentifyRequest()),
-            PipelinedLine(SetClientInfoRequest(name: clientName, kind: "frontend", capabilities: DaemonCapabilities.shared.advertised)),
+            PipelinedLine(SetClientInfoRequest(
+                name: clientName, kind: "frontend",
+                // A view that names its device joins shared sizing: `size-state` events, and its
+                // device in the size state ("Sized for <device>" on every other view).
+                capabilities: DaemonCapabilities.shared.advertised + (device == nil ? [] : [DaemonCapabilities.shared.sharedSizing]),
+                deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
         _ = try replies[1].get()
@@ -179,11 +197,20 @@ public actor TerminalAttachment: TerminalByteChannel {
         #if DEBUG
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
         #endif
-        control.withLock {
-            $0.lease = response.lease
-            $0.lastReported = size
-            $0.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
+        let firstSizeState = control.withLock { control -> TerminalChannelEvent? in
+            control.lease = response.lease
+            control.lastReported = size
+            control.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
+            control.participant = response.participant
+            // The reply's state, or a newer one that arrived before it, now with the participant.
+            let held = control.heldSizeState
+            control.heldSizeState = nil
+            let newest = [response.sizeState, held].compactMap { $0 }.max { $0.generation < $1.generation }
+            guard let newest, control.sizeGeneration.map({ newest.generation > $0 }) ?? true else { return nil }
+            control.sizeGeneration = newest.generation
+            return .sizeState(newest, participant: response.participant)
         }
+        if let firstSizeState { queue.push(firstSizeState) }
         if claimGeometry {
             _ = try await DaemonConnection.perform(
                 SetClientSizingRequest(surface: self.surface, enabled: true, exclusive: true), on: transport)
@@ -193,6 +220,20 @@ public actor TerminalAttachment: TerminalByteChannel {
         #if DEBUG
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
         #endif
+    }
+
+    /// Passes `state` on with this view's participant, newest generation only. Before the attach
+    /// reply names the participant it is held, and the reply passes on the newer of the two.
+    private nonisolated static func admitSizeState(_ state: TerminalSizeState, control: Mutex<Control>) -> TerminalChannelEvent? {
+        control.withLock { control in
+            guard let participant = control.participant else {
+                if control.heldSizeState.map({ state.generation > $0.generation }) ?? true { control.heldSizeState = state }
+                return nil
+            }
+            guard control.sizeGeneration.map({ state.generation > $0 }) ?? true else { return nil }
+            control.sizeGeneration = state.generation
+            return .sizeState(state, participant: participant)
+        }
     }
 
     // MARK: TerminalByteChannel

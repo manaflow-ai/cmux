@@ -326,7 +326,14 @@ public final class TerminalSession {
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
+        case .sizedFor(let sizedFor):
+            view.showSizedFor(sizedFor)
         }
+    }
+
+    /// Take over: this view sets the grid again (the same claim focus makes).
+    func takeOverSize() {
+        input.focusGained()
     }
 
     /// A click in the surface: a disconnected terminal re-attaches.

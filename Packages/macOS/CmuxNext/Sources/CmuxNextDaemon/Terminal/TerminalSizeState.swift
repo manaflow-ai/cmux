@@ -1,0 +1,121 @@
+public import Foundation
+
+/// The daemon's shared-sizing state of one terminal (`size-state`, docs/shared-terminal-sizing.md
+/// "Size state"): its grid, who sets it, and every view of it. A view reads it only to tell its
+/// user who the grid is sized for (plans/cmux-next/sync-ux/DESIGN.md 2.6).
+public struct TerminalSizeState: Decodable, Sendable, Hashable {
+    public struct Grid: Decodable, Sendable, Hashable {
+        public var cols: Int
+        public var rows: Int
+        public init(cols: Int, rows: Int) {
+            self.cols = cols
+            self.rows = rows
+        }
+    }
+
+    public struct Policy: Decodable, Sendable, Hashable {
+        /// `latest`, `smallest`, `largest`, `priority` or `fixed`.
+        public var mode: String?
+    }
+
+    public struct Participant: Decodable, Sendable, Hashable {
+        public var id: String
+        public var displayName: String?
+        /// `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows` or `unknown`.
+        public var deviceKind: String?
+        public var deviceName: String?
+        public var viewport: Grid?
+        public var counts: Bool?
+
+        public init(id: String, displayName: String? = nil, deviceKind: String? = nil, deviceName: String? = nil,
+                    viewport: Grid? = nil, counts: Bool? = nil) {
+            self.id = id
+            self.displayName = displayName
+            self.deviceKind = deviceKind
+            self.deviceName = deviceName
+            self.viewport = viewport
+            self.counts = counts
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, viewport, counts
+            case displayName = "display_name", deviceKind = "device_kind", deviceName = "device_name"
+        }
+    }
+
+    public var generation: UInt64
+    public var cols: Int
+    public var rows: Int
+    public var owners: [String]
+    public var policy: Policy?
+    public var participants: [Participant]
+
+    public init(generation: UInt64, cols: Int, rows: Int, owners: [String], policy: Policy? = nil,
+                participants: [Participant]) {
+        self.generation = generation
+        self.cols = cols
+        self.rows = rows
+        self.owners = owners
+        self.policy = policy
+        self.participants = participants
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case generation, cols, rows, owners, policy, participants
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generation = try container.decode(UInt64.self, forKey: .generation)
+        cols = try container.decode(Int.self, forKey: .cols)
+        rows = try container.decode(Int.self, forKey: .rows)
+        owners = try container.decodeIfPresent([String].self, forKey: .owners) ?? []
+        policy = try container.decodeIfPresent(Policy.self, forKey: .policy)
+        participants = try container.decodeIfPresent([Participant].self, forKey: .participants) ?? []
+    }
+
+    /// What view `me` shows about the grid: nil while it sets the grid itself, when nobody does,
+    /// or when the grid already fits it (nothing is padded or cropped, so nothing needs saying).
+    public func notice(for me: String?) -> TerminalSizeNotice? {
+        guard let me, let mine = participants.first(where: { $0.id == me }), !owners.contains(me),
+              let ownerID = owners.first, let owner = participants.first(where: { $0.id == ownerID })
+        else { return nil }
+        if let viewport = mine.viewport, viewport.cols == cols, viewport.rows == rows { return nil }
+        let sameDevice = owner.deviceKind == mine.deviceKind && owner.deviceName != nil
+            && owner.deviceName == mine.deviceName
+        return TerminalSizeNotice(ownerName: owner.deviceName ?? owner.displayName, ownerKind: owner.deviceKind,
+                                  sameDevice: sameDevice, cols: cols, rows: rows, mode: policy?.mode)
+    }
+}
+
+/// "Sized for <device> · cols×rows": another view sets this terminal's grid and it does not fit
+/// this view. `sameDevice`: the owner is another view on this device (another window of this Mac).
+public struct TerminalSizeNotice: Sendable, Hashable {
+    public var ownerName: String?
+    public var ownerKind: String?
+    public var sameDevice: Bool
+    public var cols: Int
+    public var rows: Int
+    /// The policy that chose the owner; Take over needs `latest` (or `priority`) to win by activity.
+    public var mode: String?
+
+    public init(ownerName: String?, ownerKind: String?, sameDevice: Bool, cols: Int, rows: Int, mode: String?) {
+        self.ownerName = ownerName
+        self.ownerKind = ownerKind
+        self.sameDevice = sameDevice
+        self.cols = cols
+        self.rows = rows
+        self.mode = mode
+    }
+}
+
+/// This client's device as the shared-sizing engine sees it (`set-client-info`).
+public struct TerminalSizingDevice: Sendable, Hashable {
+    public var kind: String
+    public var name: String?
+
+    public init(kind: String, name: String?) {
+        self.kind = kind
+        self.name = name
+    }
+}

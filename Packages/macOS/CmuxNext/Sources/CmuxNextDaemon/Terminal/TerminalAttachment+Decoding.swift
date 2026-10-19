@@ -81,6 +81,11 @@ extension TerminalAttachment {
         }
     }
 
+    private struct SizeStateEvent: Decodable {
+        var surface: SurfaceID?
+        var state: TerminalSizeState
+    }
+
     private struct SurfaceScoped: Decodable {
         var surface: SurfaceID?
         var scope: String?
@@ -155,6 +160,10 @@ extension TerminalAttachment {
                 let scope = try decoder.decode(SurfaceScoped.self, from: line)
                 guard scope.surface == surface, let offset = scope.offset else { return nil }
                 return DecodedAttachLine(event: .scrollChanged(offset: offset, atBottom: scope.atBottom ?? true))
+            case "size-state":
+                let event = try decoder.decode(SizeStateEvent.self, from: line)
+                guard scoped(event.surface) else { return nil }
+                return DecodedAttachLine(event: .sizeState(event.state, participant: nil))
             case "detached":
                 let scope = try decoder.decode(SurfaceScoped.self, from: line)
                 guard scoped(scope.surface) else { return nil }

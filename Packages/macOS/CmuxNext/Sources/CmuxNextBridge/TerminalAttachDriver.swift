@@ -224,7 +224,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
                 case .replay: owner.value?.send(.replayDelivered(ref))
                 // A link's first READY is its replay; later ones are no-ops there.
                 case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
-                case .grid, .output, .snapshot, .exited, .status: break
+                case .grid, .output, .snapshot, .exited, .status, .sizing: break
                 }
             }
             if case .closed(let reason) = event {

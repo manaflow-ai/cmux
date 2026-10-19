@@ -74,7 +74,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
-                                                    images: Self.attachImages)
+                                                    images: Self.attachImages,
+                                                    device: await Self.sizingDevice.value)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -227,7 +228,19 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .output(let data): .output(data)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
+        case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))
         }
+    }
+
+    /// This Mac in the terminal's shared sizing: views name it, and their attach joins
+    /// `shared-sizing-v1` (size states for "Sized for", and the Mac's name on other devices).
+    /// Read once, off the main actor (MacName).
+    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName.computerName()) }
+
+    static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
+        TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,
+                         grid: TerminalGridSize(columns: notice.cols, rows: notice.rows),
+                         canTakeOver: notice.mode.map { ["latest", "priority"].contains($0) } ?? true)
     }
 
     static func connection(_ status: TerminalLinkStatus) -> TerminalConnectionStatus {

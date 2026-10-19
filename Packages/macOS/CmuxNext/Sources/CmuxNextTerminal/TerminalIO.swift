@@ -93,6 +93,33 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     case exited
     /// The view's link to its terminal changed; the last screen stays.
     case status(TerminalConnectionStatus)
+    /// Another view sets the terminal's grid and it does not fit this one: the view says for whom
+    /// and offers Take over. Nil clears it.
+    case sizedFor(TerminalSizedFor?)
+}
+
+/// "Sized for <device> · cols×rows" over a terminal whose grid another view sets
+/// (plans/cmux-next/sync-ux/DESIGN.md 2.6).
+public nonisolated struct TerminalSizedFor: Sendable, Equatable {
+    /// The owner's device name (or its user's name); nil names it by `deviceKind`.
+    public var deviceName: String?
+    /// `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows` or `unknown`.
+    public var deviceKind: String?
+    /// The owner is another view on this device (another window of this Mac).
+    public var sameDevice: Bool
+    public var grid: TerminalGridSize
+    /// A claim gives this view the grid: the policy picks by activity (`latest`, `priority`).
+    /// Under `smallest`, `largest` or `fixed` no claim can, so the chip offers no Take over.
+    public var canTakeOver: Bool
+
+    public init(deviceName: String?, deviceKind: String?, sameDevice: Bool, grid: TerminalGridSize,
+                canTakeOver: Bool = true) {
+        self.deviceName = deviceName
+        self.deviceKind = deviceKind
+        self.sameDevice = sameDevice
+        self.grid = grid
+        self.canTakeOver = canTakeOver
+    }
 }
 
 /// Kitty graphics state that accompanies a replay (daemon `vt-state` /
