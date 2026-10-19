@@ -248,6 +248,9 @@ const bunStore = (db: Database): SqlStore => ({
   transaction: <T>(fn: () => T): T => db.transaction(fn)()
 })
 
+/** The engine's decided list comes from an IN (...) query with no ORDER BY: sort it so the file never depends on SQLite's plan. */
+const sortedSnapshot = <T,>(s: SnapshotFrame<T>): SnapshotFrame<T> => ({ ...s, decided: [...s.decided].sort((a, b) => (a.idempotency_key < b.idempotency_key ? -1 : a.idempotency_key > b.idempotency_key ? 1 : 0)) })
+
 const simulate = (seed: number, steps: number): Array<Case> => {
   const r = rng(seed)
   const db = new Database(":memory:")
@@ -300,7 +303,7 @@ const simulate = (seed: number, steps: number): Array<Case> => {
       const id = ids[m.from]!
       const msg = m.msg as { t: string; pending?: Array<string> }
       if (msg.t === "snapshot.request") {
-        if (recs[m.from]!.client.connected) toClient[m.from]!.push(engine.snapshot(id, msg.pending))
+        if (recs[m.from]!.client.connected) toClient[m.from]!.push(sortedSnapshot(engine.snapshot(id, msg.pending)))
       } else engine.submit({ identity: id, install: id }, msg as never, deliver)
     } else if (toClient[i]!.length > 0 && rec.client.connected) {
       const ch = toClient[i]!
@@ -319,7 +322,7 @@ const simulate = (seed: number, steps: number): Array<Case> => {
       const m = toOwner.shift()!
       const id = ids[m.from]!
       const msg = m.msg as { t: string; pending?: Array<string> }
-      if (msg.t === "snapshot.request") toClient[m.from]!.push(engine.snapshot(id, msg.pending))
+      if (msg.t === "snapshot.request") toClient[m.from]!.push(sortedSnapshot(engine.snapshot(id, msg.pending)))
       else engine.submit({ identity: id, install: id }, msg as never, deliver)
       continue
     }

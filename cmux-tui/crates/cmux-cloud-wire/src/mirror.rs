@@ -114,6 +114,8 @@ impl Rows {
                     // The TypeScript mirror keeps an emptied table; so does this one.
                     self.tables.entry(table.clone()).or_default().remove(key);
                 }
+                // Callers check `known_writes` first; an unknown write never applies.
+                RowWrite::Unknown => {}
             }
         }
     }
@@ -131,7 +133,10 @@ impl Rows {
 }
 
 /// Replays an op that came without effects (JSON-mode owners). The default
-/// answers nothing, which makes the mirror resync from a snapshot.
+/// answers nothing, which makes the mirror resync from a snapshot. A real
+/// reducer must build the owner's context from the event exactly as the
+/// owner did: `now = at`, `principal = actor`, ids from the TypeScript
+/// `idFactory(tx)`; new owners use effects mode so mirrors need none.
 pub trait Reducer {
     fn apply(
         &self,
@@ -219,8 +224,14 @@ impl<R: Reducer> StreamMirror<R> {
     pub fn held_keys(&self) -> impl Iterator<Item = &str> {
         self.held.iter().map(|h| h.idempotency_key.as_str())
     }
+    /// Keys settled ok since the last [`StreamMirror::take_settled_ok`].
     pub fn settled_ok(&self) -> &BTreeSet<String> {
         &self.settled_ok
+    }
+    /// Hands the settled keys to the caller and forgets them, so a long-lived
+    /// mirror does not grow (the TypeScript client keeps them for invariant checks).
+    pub fn take_settled_ok(&mut self) -> BTreeSet<String> {
+        std::mem::take(&mut self.settled_ok)
     }
     pub fn is_connected(&self) -> bool {
         self.connected
@@ -262,6 +273,8 @@ impl<R: Reducer> StreamMirror<R> {
         }
     }
 
+    /// Applies one owner frame. The caller routes frames by `stream`: one
+    /// mirror per stream, and only that stream's frames reach it.
     pub fn receive(&mut self, frame: OwnerFrame) -> Vec<ClientOut> {
         let mut out = Vec::new();
         if !self.connected {
@@ -338,6 +351,12 @@ impl<R: Reducer> StreamMirror<R> {
 
     fn apply_event(&mut self, e: EventFrame, out: &mut Vec<ClientOut>) {
         if let Some(effects) = &e.effects {
+            // A write kind from a newer owner: never apply part of an op; resync instead.
+            if effects.writes.iter().any(|w| matches!(w, RowWrite::Unknown)) {
+                self.desyncs += 1;
+                self.request_snapshot(out);
+                return;
+            }
             self.rows.apply(&effects.writes);
             self.state = effects.state.clone();
             self.seq = e.seq;

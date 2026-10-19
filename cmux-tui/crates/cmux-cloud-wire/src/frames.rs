@@ -17,6 +17,7 @@ pub struct StoredRow {
     pub key: String,
     /// Order within the table (for example the message seq); null when unordered.
     pub n: Option<i64>,
+    #[serde(default)]
     pub row: Value,
 }
 
@@ -35,11 +36,15 @@ pub enum RowWrite {
         table: String,
         key: String,
     },
+    /// A write kind this build does not know: the mirror resyncs from a snapshot.
+    #[serde(other)]
+    Unknown,
 }
 
 /// What a row-mode event changed: the new head state and the row writes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Effects {
+    #[serde(default)]
     pub state: Value,
     pub writes: Vec<RowWrite>,
 }
@@ -55,8 +60,9 @@ pub struct EventFrame {
     pub params: Value,
     #[serde(default)]
     pub actor: Value,
+    /// Kept verbatim: a newer owner's origin value must not fail the frame.
     #[serde(default)]
-    pub origin: Option<Origin>,
+    pub origin: Value,
     #[serde(default)]
     pub at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
