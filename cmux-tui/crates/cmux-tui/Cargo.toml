@@ -91,7 +91,10 @@ wait-timeout.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
 # `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md).
-acpmux = { path = "../acpmux" }
+# Without its `build-id` feature: this crate installs acpmux's build id at
+# start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
+acpmux = { path = "../acpmux", default-features = false }
+acpmux-build-id = { path = "../acpmux-build-id" }
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
 # The build identity (daemon skew, SSH re-bootstrap). Only this crate reads

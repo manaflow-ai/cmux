@@ -114,7 +114,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         owner_token: random_hex(32),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        host_build: crate::hub::BUILD.to_owned(),
+        host_build: crate::hub::build().to_owned(),
         socket: spec.socket.clone(),
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
