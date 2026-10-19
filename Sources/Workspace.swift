@@ -1202,6 +1202,36 @@ extension Workspace {
         return restorableAgent
     }
 
+    /// Returns a process-detected binding only when the restore policy still
+    /// admits that binding for startup. Process-detected commands own the
+    /// terminal's shell, but must not bypass hibernation, ownership, trust, or
+    /// auto-resume policy by reading the raw persisted snapshot.
+    nonisolated static func processDetectedStartupBinding(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        isAllowedByPolicy: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard isAllowedByPolicy, binding?.isProcessDetected == true else { return nil }
+        return binding
+    }
+
+    /// Whether a legacy Subrouter resume binding is eligible for automatic
+    /// startup. Remote and hibernated terminals must keep the binding for a
+    /// later explicit continuation; typing a local `sr ... resume` command
+    /// into them launches in the wrong shell or wakes a hibernated agent.
+    nonisolated static func legacySubrouterBindingIsEligible(
+        autoResume: Bool?,
+        compatibilityBindingOwnsStartup: Bool,
+        isRemoteWorkspaceTerminal: Bool,
+        hasRemotePTYSession: Bool,
+        isHibernated: Bool
+    ) -> Bool {
+        autoResume == true &&
+            !compatibilityBindingOwnsStartup &&
+            !isRemoteWorkspaceTerminal &&
+            !hasRemotePTYSession &&
+            !isHibernated
+    }
+
     /// Builds the legacy Subrouter resume input only when the persisted launch
     /// record carries provider evidence that can be checked without executing
     /// the captured shell command. Older snapshots may have only a hook
@@ -1783,8 +1813,13 @@ extension Workspace {
             // explicitly resumable and must not degrade to an empty shell.
             let legacySubrouterBinding = {
                 let binding = persistedManagedResumeBinding ?? persistedResumeBinding ?? resumeBinding
-                guard !compatibilityBindingOwnsStartup else { return false }
-                guard binding?.autoResume == true else { return false }
+                guard Self.legacySubrouterBindingIsEligible(
+                    autoResume: binding?.autoResume,
+                    compatibilityBindingOwnsStartup: compatibilityBindingOwnsStartup,
+                    isRemoteWorkspaceTerminal: restoresRemoteWorkspaceTerminalSnapshot,
+                    hasRemotePTYSession: restoredRemotePTYSessionID != nil,
+                    isHibernated: restoredHibernation != nil
+                ) else { return false }
                 if let bindingKind = binding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                    let agentKind = restorableAgent?.kind.rawValue.lowercased(),
                    bindingKind != agentKind {
@@ -1901,12 +1936,14 @@ extension Workspace {
                 } else {
                     nil
                 }
+            let processDetectedStartupBinding = Self.processDetectedStartupBinding(
+                persistedResumeBinding,
+                isAllowedByPolicy: resumeBindingForStartup != nil
+            )
             let compatibilityBindingStartupLaunch: SurfaceResumeStartupLaunch? =
-                compatibilityBindingOwnsStartup
-                    ? persistedResumeBinding.map { binding in
-                        .input(TerminalStartupTypedShellCommand().typedInput(posixCommand: binding.command) + "\n")
-                    }
-                    : nil
+                processDetectedStartupBinding.map { binding in
+                    .input(TerminalStartupTypedShellCommand().typedInput(posixCommand: binding.command) + "\n")
+                }
             let unresolvedBindingLaunch = compatibilityBindingStartupLaunch ?? policyBindingLaunch
             let effectiveResumeBinding = unresolvedBindingLaunch != nil ? resumeBinding : nil
             let savedWorkingDirectory = effectiveResumeBinding?.cwd

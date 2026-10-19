@@ -71,6 +71,78 @@ struct WorkspaceIsStaleAgentHookBindingTests {
     }
 
     @Test
+    func processDetectedStartupRequiresPostPolicyAdmission() {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "ssh tinybox",
+            source: "process-detected",
+            autoResume: true
+        )
+
+        #expect(
+            Workspace.processDetectedStartupBinding(
+                binding,
+                isAllowedByPolicy: false
+            ) == nil
+        )
+        #expect(
+            Workspace.processDetectedStartupBinding(
+                binding,
+                isAllowedByPolicy: true
+            ) == binding
+        )
+    }
+
+    @Test
+    func processDetectedStartupRejectsNonProcessBinding() {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume session-1",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(
+            Workspace.processDetectedStartupBinding(
+                binding,
+                isAllowedByPolicy: true
+            ) == nil
+        )
+    }
+
+    @Test
+    func legacySubrouterAutomaticResumeRequiresLocalNonHibernatedPanel() {
+        let eligible = Workspace.legacySubrouterBindingIsEligible(
+            autoResume: true,
+            compatibilityBindingOwnsStartup: false,
+            isRemoteWorkspaceTerminal: false,
+            hasRemotePTYSession: false,
+            isHibernated: false
+        )
+        #expect(eligible)
+
+        let deniedCases: [(String, Bool?, Bool, Bool, Bool, Bool)] = [
+            ("auto-resume disabled", false, false, false, false, false),
+            ("compatibility process owns startup", true, true, false, false, false),
+            ("remote workspace terminal", true, false, true, false, false),
+            ("remote PTY", true, false, false, true, false),
+            ("hibernated agent", true, false, false, false, true),
+        ]
+        for (name, autoResume, ownsStartup, remote, remotePTY, hibernated) in deniedCases {
+            #expect(
+                !Workspace.legacySubrouterBindingIsEligible(
+                    autoResume: autoResume,
+                    compatibilityBindingOwnsStartup: ownsStartup,
+                    isRemoteWorkspaceTerminal: remote,
+                    hasRemotePTYSession: remotePTY,
+                    isHibernated: hibernated
+                ),
+                "legacy Subrouter eligibility denied for \(name)"
+            )
+        }
+    }
+
+    @Test
     func localAgentHookBindingWithNoLiveProcessIsStale() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

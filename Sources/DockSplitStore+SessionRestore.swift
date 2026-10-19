@@ -351,8 +351,13 @@ extension DockSplitStore {
         // keep the existing conservative shell-only restore behavior.
         let legacySubrouterBinding = {
             let binding = routingResumeBinding
-            guard !compatibilityBindingOwnsStartup else { return false }
-            guard binding?.autoResume == true else { return false }
+            guard Workspace.legacySubrouterBindingIsEligible(
+                autoResume: binding?.autoResume,
+                compatibilityBindingOwnsStartup: compatibilityBindingOwnsStartup,
+                isRemoteWorkspaceTerminal: terminalSnapshot.isRemoteTerminal == true,
+                hasRemotePTYSession: false,
+                isHibernated: hibernation != nil
+            ) else { return false }
             if let bindingKind = binding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                let agentKind = restorableAgent?.kind.rawValue.lowercased(),
                bindingKind != agentKind {
@@ -458,12 +463,14 @@ extension DockSplitStore {
                     forApprovedBinding: $0
                 )
             }
+        let processDetectedStartupBinding = Workspace.processDetectedStartupBinding(
+            terminalSnapshot.resumeBinding,
+            isAllowedByPolicy: resumeBindingForStartup != nil
+        )
         let compatibilityBindingStartupLaunch: WorkspaceSurfaceResumeStartupLaunch? =
-            compatibilityBindingOwnsStartup
-                ? terminalSnapshot.resumeBinding.map { binding in
-                    .input(TerminalStartupTypedShellCommand().typedInput(posixCommand: binding.command) + "\n")
-                }
-                : nil
+            processDetectedStartupBinding.map { binding in
+                .input(TerminalStartupTypedShellCommand().typedInput(posixCommand: binding.command) + "\n")
+            }
         let unresolvedBindingLaunch = compatibilityBindingStartupLaunch ?? policyBindingLaunch
         let resumeSessionWorkingDirectory: String? = {
             let candidate: String? = {
@@ -523,9 +530,9 @@ extension DockSplitStore {
         // owns this terminal (for example, `tmux attach-session`). Re-entering
         // through `cmux restore` would rediscover the same binding and can
         // recurse during Dock restore, so preserve the direct startup input.
-        let processDetectedStartupInput = compatibilityBindingOwnsStartup
-            ? terminalSnapshot.resumeBinding?.inlineStartupInput(repairPortableAgentExecutable: false)
-            : nil
+        let processDetectedStartupInput = processDetectedStartupBinding?.inlineStartupInput(
+            repairPortableAgentExecutable: false
+        )
         let tmuxStartCommand = localTmuxStartCommand
             ?? (!restoreStartupBlocked &&
                 liveSessionOwner == nil &&
