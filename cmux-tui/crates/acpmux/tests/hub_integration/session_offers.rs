@@ -90,6 +90,14 @@ async fn an_offered_chat_is_a_chip_only_the_person_starts_and_it_reports_its_par
     let summary = hub.session_summary(&started);
     assert_eq!(summary["parentId"], id.as_str(), "{summary}");
     assert!(summary["forkSeq"].is_null(), "an offered chat is not a fork: {summary}");
+    // It is this chat's sub-session too: the agent that offered it lists,
+    // reads, waits on and messages it with its cmux-subsessions tools.
+    assert_eq!(summary["startedBy"], id.as_str(), "{summary}");
+    assert_eq!(summary["depth"], 1, "{summary}");
+    assert_eq!(summary["shortName"], "fix-the-flaky-upload-test", "{summary}");
+    assert_eq!(hub.session_summary(&session)["children"], 1);
+    let family = hub.subsession_list(&session, false);
+    assert_eq!(family["sessions"][0]["sessionId"], child.as_str(), "{family}");
     let events = hub.events(&id, 0, 10_000).unwrap();
     assert!(
         events.iter().any(|e| e.kind == "session_offer_decision" && e.msg["outcome"] == "accepted")
