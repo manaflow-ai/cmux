@@ -140,16 +140,19 @@ enum LabelText {
         return Metrics(size: size, firstBaseline: baselines.first ?? 0, lastBaselineFromBottom: size.height - (baselines.last ?? 0))
     }
 
-    /// `usedRect` of the laid-out line `glyphs`, ending where its trailing white space starts.
+    /// `usedRect` of the laid-out line `glyphs` without its trailing spaces and tabs: its right
+    /// edge at the right edge of the glyphs before them. A line that ends in a line break keeps
+    /// its rect, and so does a line whose kept glyphs reach as far right (right-to-left text,
+    /// where the trailing spaces sit on the left).
     private static func withoutTrailingSpaces(_ usedRect: CGRect, glyphs: NSRange) -> CGRect {
         let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
         let string = storage.string as NSString
         var end = NSMaxRange(characters)
-        while end > characters.location, let scalar = Unicode.Scalar(string.character(at: end - 1)),
-              CharacterSet.whitespacesAndNewlines.contains(scalar) { end -= 1 }
-        guard end < NSMaxRange(characters) else { return usedRect }
-        // Where the first trailing space starts in the line, plus the right padding.
-        let right = manager.location(forGlyphAt: manager.glyphIndexForCharacter(at: end)).x + padding
+        while end > characters.location, string.character(at: end - 1) == 0x20 || string.character(at: end - 1) == 0x09 { end -= 1 }
+        guard end < NSMaxRange(characters), end > characters.location else { return usedRect }
+        let kept = manager.glyphRange(forCharacterRange: NSRange(location: characters.location, length: end - characters.location),
+                                      actualCharacterRange: nil)
+        let right = manager.boundingRect(forGlyphRange: kept, in: container).maxX + padding
         guard right > usedRect.minX, right < usedRect.maxX else { return usedRect }
         return CGRect(x: usedRect.minX, y: usedRect.minY, width: right - usedRect.minX, height: usedRect.height)
     }
