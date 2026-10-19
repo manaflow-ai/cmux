@@ -91,6 +91,47 @@ struct WorkstreamStoreStartTests {
         #expect(store.lastPersistenceDiagnostic == nil)
         #expect(store.lastPersistenceError != nil)
     }
+
+    @Test("Paging advances past a malformed page to recover older history")
+    func pagingSkipsMalformedPage() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-start-malformed-page-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let writer = try FileHandle(forWritingTo: tmp)
+        try writer.seekToEnd()
+        try writer.write(contentsOf: Data("not-json-1\nnot-json-2\n".utf8))
+        try writer.close()
+
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "new",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            initialLoadLimit: 1,
+            historyPageSize: 2
+        )
+        await store.start()
+        #expect(store.items.map(\.workstreamId) == ["new"])
+        #expect(store.hasMorePersistedItems)
+
+        await store.loadOlderItems()
+
+        #expect(store.items.map(\.workstreamId) == ["old", "new"])
+        #expect(!store.hasMorePersistedItems)
+    }
 }
 
 private actor CountingWorkstreamTransport: WorkstreamTransport {

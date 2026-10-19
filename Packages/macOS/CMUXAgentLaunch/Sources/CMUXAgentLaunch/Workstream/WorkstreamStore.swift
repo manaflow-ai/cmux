@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -11,6 +12,11 @@ public let WorkstreamDefaultRingCapacity = 2_000
 public let WorkstreamDefaultInitialLoadLimit = 300
 public let WorkstreamDefaultHistoryPageSize = 300
 public let WorkstreamDefaultStartupBudgetNanoseconds: UInt64 = 2_000_000_000
+
+nonisolated private let workstreamPersistenceLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "WorkstreamPersistence"
+)
 
 /// Main-actor `@Observable` store that holds the Feed state.
 ///
@@ -77,13 +83,13 @@ public final class WorkstreamStore {
     ///   - initialLoadLimit: Maximum persisted item count loaded at startup.
     ///   - historyPageSize: Page size for older persisted history.
     ///   - clock: Clock used for timestamps and expiry checks.
-    ///   - startupBudgetNanoseconds: Optional wall-clock diagnostic threshold
-    ///     for the bounded startup persistence pass.
     ///   - workstreamIDNormalizer: Optional migration for legacy ids loaded
     ///     from persistence or received from a producer. The second argument
     ///     is the raw producer identity, including registered agents not yet
     ///     represented by ``WorkstreamSource``.
     ///   - titleProvider: App boundary hook for localized display titles.
+    ///   - startupBudgetNanoseconds: Optional wall-clock diagnostic threshold
+    ///     for the bounded startup persistence pass.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
@@ -135,6 +141,11 @@ public final class WorkstreamStore {
                     budgetNanoseconds: startupBudgetNanoseconds
                 )
                 lastPersistenceDiagnostic = snapshot.diagnostics
+                if snapshot.diagnostics.exceededBudget {
+                    workstreamPersistenceLogger.warning(
+                        "startup persistence exceeded diagnostic threshold elapsed_ns=\(snapshot.diagnostics.elapsedNanoseconds) file_bytes=\(snapshot.diagnostics.fileBytes)"
+                    )
+                }
                 revision = max(revision, snapshot.revision)
                 let restored = snapshot.items.map(normalizedWorkstreamItem)
                 let liveIDs = Set(items.map(\.id))
@@ -146,6 +157,12 @@ public final class WorkstreamStore {
                 bumpRevision()
             } catch {
                 lastPersistenceError = String(describing: error)
+                if let persistedRevision = try? await persistence.loadRevision() {
+                    revision = max(revision, persistedRevision)
+                }
+                workstreamPersistenceLogger.error(
+                    "startup persistence failed error=\(String(describing: error), privacy: .private(mask: .hash)) revision=\(self.revision)"
+                )
             }
         }
         do {
@@ -171,26 +188,42 @@ public final class WorkstreamStore {
         isLoadingOlderItems = true
         defer { isLoadingOlderItems = false }
 
-        guard let page = try? await persistence.loadPage(
-            endingBefore: oldestLoadedPersistenceOffset,
-            limit: historyPageSize
-        ), !page.items.isEmpty else {
-            hasMorePersistedItems = false
-            return
-        }
+        var cursor = oldestLoadedPersistenceOffset
+        while true {
+            guard let page = try? await persistence.loadPage(
+                endingBefore: cursor,
+                limit: historyPageSize
+            ) else {
+                hasMorePersistedItems = false
+                return
+            }
 
-        let existingIds = Set(items.map(\.id))
-        let olderItems = page.items.map(normalizedWorkstreamItem).filter {
-            !existingIds.contains($0.id)
-        }
-        if !olderItems.isEmpty {
-            items.insert(contentsOf: olderItems, at: 0)
-        }
-        self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
-        hasMorePersistedItems = page.hasMoreBefore
-        rebuildContextIndex()
-        if !olderItems.isEmpty {
-            bumpRevision()
+            let existingIds = Set(items.map(\.id))
+            let olderItems = page.items.map(normalizedWorkstreamItem).filter {
+                !existingIds.contains($0.id)
+            }
+            if !olderItems.isEmpty {
+                items.insert(contentsOf: olderItems, at: 0)
+                self.oldestLoadedPersistenceOffset = page.startOffset ?? cursor
+                hasMorePersistedItems = page.hasMoreBefore
+                rebuildContextIndex()
+                bumpRevision()
+                return
+            }
+
+            guard page.hasMoreBefore,
+                  let nextCursor = page.startOffset,
+                  nextCursor < cursor else {
+                self.oldestLoadedPersistenceOffset = page.startOffset ?? cursor
+                hasMorePersistedItems = false
+                return
+            }
+
+            // A page containing only malformed or already-loaded rows still
+            // has a valid byte cursor. Walk past it so one bad page cannot
+            // permanently hide older recoverable history.
+            cursor = nextCursor
+            self.oldestLoadedPersistenceOffset = nextCursor
         }
     }
 

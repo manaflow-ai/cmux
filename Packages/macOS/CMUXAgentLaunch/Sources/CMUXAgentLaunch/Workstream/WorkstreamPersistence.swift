@@ -139,15 +139,17 @@ public actor WorkstreamPersistence {
         let started = DispatchTime.now().uptimeNanoseconds
         guard limit > 0 else {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
+            let fileExists = FileManager.default.fileExists(atPath: fileURL.path)
+            let fileBytes = (try? fileSize()) ?? 0
             return StartupSnapshot(
                 items: [],
-                revision: 0,
+                revision: Int(min(fileBytes, UInt64(Int.max))),
                 page: empty,
                 diagnostics: StartupDiagnostics(
                     elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - started,
-                    fileBytes: 0,
+                    fileBytes: fileBytes,
                     exceededBudget: false,
-                    missingFile: false
+                    missingFile: !fileExists
                 )
             )
         }
@@ -167,23 +169,6 @@ public actor WorkstreamPersistence {
         }
         let size = try fileSize()
         let items = try loadBoundedLatest(limit: limit)
-        let afterItems = DispatchTime.now().uptimeNanoseconds
-        if let budgetNanoseconds, afterItems - started >= budgetNanoseconds {
-            // There is no stable cursor until the page read completes. Do not
-            // advertise older history that cannot be loaded from this pass.
-            let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
-            return StartupSnapshot(
-                items: items,
-                revision: Int(min(size, UInt64(Int.max))),
-                page: empty,
-                diagnostics: StartupDiagnostics(
-                    elapsedNanoseconds: afterItems - started,
-                    fileBytes: size,
-                    exceededBudget: true,
-                    missingFile: false
-                )
-            )
-        }
         let page = try loadPage(limit: limit)
         let revision = Int(min(size, UInt64(Int.max)))
         let elapsed = DispatchTime.now().uptimeNanoseconds - started
