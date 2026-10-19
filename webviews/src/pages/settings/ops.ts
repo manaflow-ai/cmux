@@ -282,6 +282,8 @@ export type HarnessesState = {
     state: "created" | "pending" | "exited" | "unknown";
     exit_code?: number;
     signal?: number;
+    /** With `exited`: the owner saw the end but no process result; settled, never a success. */
+    outcome?: "unknown";
   }>;
 };
 

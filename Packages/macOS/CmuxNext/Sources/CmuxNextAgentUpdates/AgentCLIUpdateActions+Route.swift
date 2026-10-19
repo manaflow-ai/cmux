@@ -15,7 +15,9 @@ extension AgentCLIUpdateActions {
     }
 
     /// The palette's target machine, else the active daemon, while the app still routes to it.
-    public convenience init(daemons: Daemons, unsupported: @escaping @MainActor () -> String, localMachine: String) {
+    public convenience init(daemons: Daemons, unsupported: @escaping @MainActor () -> String,
+                            nothingToUpdate: @escaping @MainActor () -> String,
+                            stillUpdating: @escaping @MainActor (String) -> String, localMachine: String) {
         self.init(capture: { invocation in
             let registered: @MainActor (DaemonService) -> Bool = { daemons.machine($0.machineID) === $0 }
             if let target = invocation.target {
@@ -24,7 +26,7 @@ extension AgentCLIUpdateActions {
             }
             guard let daemon = daemons.active() else { throw DaemonError.notConnected }
             return try Route.capture(daemon, registered: registered)
-        }, unsupported: unsupported, localMachine: localMachine)
+        }, unsupported: unsupported, nothingToUpdate: nothingToUpdate, stillUpdating: stillUpdating, localMachine: localMachine)
     }
 }
 
@@ -46,18 +48,23 @@ extension AgentCLIUpdateActions.Route {
                 && daemon.identity?.machineResourceID == machine && daemon.identity?.sessionResourceID == session
         }
         var carrier: AgentCLIJobCarrier?
-        return Self(machine: machine, session: session, isCurrent: current, inventory: {
+        // The owner-checked carrier; a route re-captured after a reconnect opens it to observe receipts.
+        let opened: @MainActor () async throws -> AgentCLIJobCarrier = {
             guard current() else { throw DaemonError.notConnected }
+            if let carrier { return carrier }
             let captured = try await connection.agentCLIJobs(expectedMachineID: machine, expectedSessionID: session)
             guard current() else { throw DaemonError.notConnected }
             carrier = captured
-            return try await captured.inventory()
+            return captured
+        }
+        return Self(machine: machine, session: session, isCurrent: current, inventory: {
+            try await opened().inventory()
         }, start: { cli, key in
+            // A start always follows this route's inventory read, which opened the carrier.
             guard current(), let carrier else { throw DaemonError.notConnected }
             return try await carrier.startUpdate(cli: cli, idempotencyKey: key)
         }, observe: { receipt in
-            guard current(), let carrier else { throw DaemonError.notConnected }
-            return try await carrier.observe(receipt)
+            try await opened().observe(receipt)
         })
     }
 }

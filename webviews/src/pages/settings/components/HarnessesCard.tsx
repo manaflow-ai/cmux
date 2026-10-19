@@ -25,6 +25,7 @@ function jobText(job: NonNullable<HarnessesState["jobs"]>[number]): string {
   if (job.state === "pending") return t("settingsWindow.harnesses.jobPending");
   if (job.state === "exited" && job.exit_code !== undefined) return t("settingsWindow.harnesses.jobExit", job.exit_code);
   if (job.state === "exited" && job.signal !== undefined) return t("settingsWindow.harnesses.jobSignal", job.signal);
+  // A lost creation reply (`unknown`) and an end without a process result (`outcome: "unknown"`).
   return t("settingsWindow.harnesses.jobUnknown");
 }
 

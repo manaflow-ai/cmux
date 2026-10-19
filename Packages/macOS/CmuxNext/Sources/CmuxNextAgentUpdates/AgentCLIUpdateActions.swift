@@ -38,30 +38,40 @@ public final class AgentCLIUpdateActions {
     private let capture: @MainActor (ActionInvocation) throws -> Route
     /// The app's localized refusal; the module holds no app string table.
     let unsupported: @MainActor () -> String
+    /// The app's refusal when no listed CLI is one the owner can update.
+    let nothingToUpdate: @MainActor () -> String
+    /// The app's refusal while an earlier update of the same CLI has not ended.
+    let stillUpdating: @MainActor (String) -> String
     /// The target Settings updates name (the app's local machine id).
     let localMachine: String
     private var intents: [String: Intent] = [:]
 
     @Observable final class Intent {
-        let route: Route
-        let profile: String?
-        let target: ActionTargetRef?
+        /// The captured owner; a reconnect to the same machine and session replaces it.
+        @ObservationIgnored var route: Route
+        let invocation: ActionInvocation
         @ObservationIgnored var work: Task<JSONValue, any Error>?
         var jobs: [JSONValue] = []
         var receipts: [AgentCLIJobReceipt] = []
 
-        init(route: Route, profile: String?, target: ActionTargetRef?) {
+        var profile: String? { invocation["id"]?.stringValue }
+
+        init(route: Route, invocation: ActionInvocation) {
             self.route = route
-            self.profile = profile
-            self.target = target
+            self.invocation = invocation
         }
     }
 
     public init(capture: @escaping @MainActor (ActionInvocation) throws -> Route,
                 unsupported: (@MainActor () -> String)? = nil,
+                nothingToUpdate: (@MainActor () -> String)? = nil,
+                stillUpdating: (@MainActor (String) -> String)? = nil,
                 localMachine: String = "local") {
         self.capture = capture
-        self.unsupported = unsupported ?? { RefusalStrings.needsAppCapability("agent-cli-update") }
+        let unsupported = unsupported ?? { RefusalStrings.needsAppCapability("agent-cli-update") }
+        self.unsupported = unsupported
+        self.nothingToUpdate = nothingToUpdate ?? unsupported
+        self.stillUpdating = stillUpdating ?? { "\($0): \(unsupported())" }
         self.localMachine = localMachine
     }
 
@@ -74,12 +84,12 @@ public final class AgentCLIUpdateActions {
             let key = DaemonCommandScope.current?.idempotencyKey ?? UUID().uuidString.lowercased()
             let intent: Intent
             if let existing = intents[key] {
-                guard existing.profile == invocation["id"]?.stringValue, existing.target == invocation.target else {
+                guard existing.profile == invocation["id"]?.stringValue, existing.invocation.target == invocation.target else {
                     throw ActionFailure(message: unsupported())
                 }
                 intent = existing
             } else {
-                intent = Intent(route: try capture(invocation), profile: invocation["id"]?.stringValue, target: invocation.target)
+                intent = Intent(route: try capture(invocation), invocation: invocation)
                 intents[key] = intent
             }
             if intent.work == nil {
@@ -87,8 +97,16 @@ public final class AgentCLIUpdateActions {
                 // observation and page cancellation never cancel the owner's process.
                 intent.work = Task { try await self.start(intent, key: key) }
             }
-            guard let work = intent.work else { return }
-            registry?.track(Task {
+            guard let work = intent.work, let registry else { return }
+            guard registry.isCapturingWork else {
+                // task-owner: a run no caller waits for (the palette) shows its failure
+                // once the owner answers; it never cancels the update itself.
+                Task { [weak registry] in
+                    do { _ = try await work.value } catch { registry?.refuse(Self.text(error)) }
+                }
+                return
+            }
+            registry.track(Task {
                 do { _ = try await work.value; return nil }
                 catch { return ActionWorkFailure(Self.text(error), mayHaveApplied: !intent.jobs.isEmpty,
                                                 terminalMayAppear: !intent.jobs.isEmpty) }
@@ -127,18 +145,22 @@ public final class AgentCLIUpdateActions {
 
     /// Explicit refresh observes retained terminals, never starts a new update.
     public func refresh() async {
-        for intent in intents.values where intent.route.isCurrent() {
+        for intent in intents.values {
             for receipt in intent.receipts {
-                guard intent.route.isCurrent() else { break }
+                guard let route = owner(of: intent) else { break }
                 do {
-                    let status = try await intent.route.observe(receipt)
-                    guard intent.route.isCurrent(), status.terminalID == receipt.path.terminalID,
+                    let status = try await route.observe(receipt)
+                    guard route.isCurrent(), status.terminalID == receipt.path.terminalID,
                           let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == status.terminalID.rawValue }),
                           var job = intent.jobs[index].objectValue else { continue }
+                    // An end observation settles the job even when it has no process result.
                     job["state"] = .string(status.state.rawValue)
-                    if case .exit(let code) = status.outcome { job["exit_code"] = .number(Double(code)) }
-                    if case .signal(let number) = status.outcome { job["signal"] = .number(Double(number)) }
-                    if case .unknown = status.outcome { job["state"] = "unknown" }
+                    switch status.outcome {
+                    case .exit(let code): job["exit_code"] = .number(Double(code))
+                    case .signal(let number): job["signal"] = .number(Double(number))
+                    case .unknown: job["outcome"] = "unknown"
+                    case nil: break
+                    }
                     intent.jobs[index] = .object(job)
                 } catch {
                     // Keep the receipt and original route; a failed observation is no completion.
@@ -149,9 +171,21 @@ public final class AgentCLIUpdateActions {
 
     public var state: JSONValue {
         .array(intents.keys.sorted().flatMap { key in
-            guard let intent = intents[key], intent.route.isCurrent() else { return [JSONValue]() }
+            guard let intent = intents[key], owner(of: intent) != nil else { return [JSONValue]() }
             return intent.jobs
         })
+    }
+
+    /// The intent's owner while the app still routes to it: the captured route, or after a
+    /// reconnect to the same machine and session a fresh capture, so its receipts stay
+    /// observable. Nil once that owner is gone; its jobs then neither show nor block.
+    /// Showing, refreshing and blocking all use this one rule.
+    private func owner(of intent: Intent) -> Route? {
+        if intent.route.isCurrent() { return intent.route }
+        guard let route = try? capture(intent.invocation), route.isCurrent(),
+              route.machine == intent.route.machine, route.session == intent.route.session else { return nil }
+        intent.route = route
+        return route
     }
 
     private func start(_ intent: Intent, key: String) async throws -> JSONValue {
@@ -165,7 +199,7 @@ public final class AgentCLIUpdateActions {
             return family.rawValue
         }).sorted()
         guard !families.isEmpty, intent.profile == nil || families.count == 1 else {
-            throw ActionFailure(message: unsupported())
+            throw ActionFailure(message: families.isEmpty ? nothingToUpdate() : unsupported())
         }
         // One family's refusal never stops the others; the batch reports every failure.
         var failures: [String] = []
@@ -175,9 +209,9 @@ public final class AgentCLIUpdateActions {
                 other !== intent && other.jobs.contains { job in
                     job["machine"]?.stringValue == intent.route.machine.rawValue && job["cli"]?.stringValue == family
                         && ["unknown", "created", "pending"].contains(job["state"]?.stringValue ?? "")
-                }
+                } && owner(of: other) != nil
             }) else {
-                failures.append("\(family): \(unsupported())")
+                failures.append(stillUpdating(family))
                 continue
             }
             // Batch children derive from the original intent and family, not row order.
@@ -200,6 +234,8 @@ public final class AgentCLIUpdateActions {
                 continue
             }
             guard receipt.machine == intent.route.machine, receipt.session == intent.route.session, receipt.cli == cli else {
+                // Another owner's terminal is not this update's, and this route cannot observe it.
+                intent.jobs.remove(at: index)
                 throw DaemonError.malformedResponse("Agent update receipt owner mismatch")
             }
             intent.receipts.append(receipt)

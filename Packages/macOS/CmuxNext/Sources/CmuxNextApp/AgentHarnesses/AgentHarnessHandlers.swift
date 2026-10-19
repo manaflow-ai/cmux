@@ -98,6 +98,14 @@ nonisolated enum AgentHarnessStrings {
     }
     static var nothingRemoved: String { text("handlers.agent.harness.nothingRemoved", "No removed agent to restore. Name its backup file with --arg backup=<file>.") }
 
+    static var nothingToUpdate: String {
+        text("handlers.agent.harness.nothingToUpdate", "No agent CLI here has an update the app can run. Settings > Agents shows each one's update command.")
+    }
+
+    static func stillUpdating(_ cli: String) -> String {
+        String(format: text("handlers.agent.harness.stillUpdating", "%@ is still updating. Wait for that update to finish, then try again."), cli)
+    }
+
     static func doctorFailed(_ id: String, step: String, detail: String) -> String {
         String(format: text("handlers.agent.harness.doctorFailed", "%@ failed its check at %@: %@"), id, step, detail)
     }
