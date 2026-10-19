@@ -12,6 +12,7 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { STARTED_SESSIONS } from "../started/startedSessions";
 import type { Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -390,7 +391,9 @@ const staysOut = (row: AcpmuxRow) =>
   (row.kind === "plan" && row.plan !== undefined) ||
   row.kind === "backgroundTask" ||
   // A session offer waits for the person's Start or Dismiss.
-  row.kind === "sessionOffer";
+  row.kind === "sessionOffer" ||
+  // A chat the turn started keeps its card in sight (started/startedSessions.ts).
+  row.kind === STARTED_SESSIONS;
 
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any

@@ -35,6 +35,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
@@ -1554,7 +1555,8 @@ export class AcpmuxDirectClient {
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue);
     }
-    if (this.offerChildIds().includes(session.sessionId)) this.childChanged(session.sessionId);
+    if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
+      this.childChanged(session.sessionId);
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
   }
@@ -2090,6 +2092,7 @@ export class AcpmuxDirectClient {
         return entry;
       }),
       peers: this.peers,
+      ...this.withChildActivity(),
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -2584,14 +2587,35 @@ export class AcpmuxDirectClient {
       (id) => this.rows.get(id)?.offers?.flatMap((offer) => (offer.childSessionId ? [offer.childSessionId] : [])) ?? [],
     );
   }
+  /// A chat the shown chat's agent started, while started session cards draw (started/startedSessions.ts).
+  private isStartedChild(session: Session): boolean {
+    return !!this.selectedSessionId && session.spawnedBy === this.selectedSessionId && startedCardsShown();
+  }
+  /// The chats the shown chat's agent started, for their cards' activity lines.
+  private startedChildIds(): string[] {
+    return this.sessions.filter((session) => this.isStartedChild(session)).map((session) => session.sessionId);
+  }
+  /// The latest tool call of each started chat the pane watches (``AcpmuxSnapshot.childActivity``).
+  private childActivity(): Record<string, string> | undefined {
+    let activity: Record<string, string> | undefined;
+    for (const child of this.startedChildIds()) {
+      const title = this.offerChildren.activity(child);
+      if (title) (activity ??= {})[child] = title;
+    }
+    return activity;
+  }
   /// Attaches to the started chats that run, for their rows' subtitles (offer/offerChildren.ts).
   private watchOfferChildren(): void {
     this.offerChildren.want(
-      this.offerChildIds().map((child) => ({
+      [...new Set([...this.offerChildIds(), ...this.startedChildIds()])].map((child) => ({
         child,
         status: this.sessions.find((session) => session.sessionId === child)?.status,
       })),
     );
+  }
+  private withChildActivity(): { childActivity?: Record<string, string> } {
+    const activity = this.childActivity();
+    return activity ? { childActivity: activity } : {};
   }
   /// Chat `child`, started from an offer here, changed: its row redraws.
   private childChanged(child: string): void {

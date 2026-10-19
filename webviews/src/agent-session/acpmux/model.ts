@@ -10,6 +10,7 @@ import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
+import { STARTED_SESSIONS, type StartedSession } from "./started/startedSessions";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -47,6 +48,8 @@ export type AcpmuxRow = {
   offers?: AcpmuxSessionOffer[];
   /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
   received?: AcpmuxOfferResult;
+  /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
+  started?: StartedSession[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -212,6 +215,9 @@ export type AcpmuxSnapshot = {
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
+  /// The latest tool call's title of each chat the open chat started that runs and the pane
+  /// watches, by session (offer/offerChildren.ts); only with started session cards on.
+  childActivity?: Record<string, string>;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
@@ -475,6 +481,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // Started session cards (started/StartedSessionCard.tsx): 40px a card, 52px with its activity
+  // line, 6px apart, in 8px of margins.
+  if (row.kind === STARTED_SESSIONS && row.started)
+    return 8 + row.started.reduce((sum, child) => sum + (child.activity ? 52 : 40), 0) + (row.started.length - 1) * 6;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (

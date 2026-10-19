@@ -1,0 +1,142 @@
+/* The chats a chat started (StartedSessionCard.tsx): quiet one line cards with a thin edge, the
+   title over what the chat does now, then its pull requests, a status dot and a chevron. */
+.acpmux-started {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 4px 0;
+}
+.acpmux-started-card {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 10px 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+  border-radius: 10px;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-control);
+  line-height: 18px;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-started-card:hover {
+  background: var(--acpmux-pill-fill);
+  border-color: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.acpmux-started-card:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-started-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-started-title,
+.acpmux-started-line {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-started-line {
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.acpmux-started-card[data-state="waiting"] .acpmux-started-line {
+  color: var(--acpmux-warning);
+}
+.acpmux-started-card[data-state="failed"] .acpmux-started-line {
+  color: var(--agent-danger);
+}
+.acpmux-started-prs {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-started-prs[data-tone="ready"] {
+  color: var(--agent-success, var(--acpmux-add, #3fb950));
+}
+.acpmux-started-prs[data-tone="failing"],
+.acpmux-started-prs[data-tone="closed"] {
+  color: var(--agent-danger);
+}
+.acpmux-started-prs[data-tone="merged"] {
+  color: var(--agent-ansi-5, #a371f7);
+}
+.acpmux-started-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 40%, transparent);
+}
+.acpmux-started-card[data-state="running"] .acpmux-started-dot {
+  background: var(--agent-accent);
+}
+.acpmux-started-card[data-state="waiting"] .acpmux-started-dot {
+  background: var(--acpmux-warning);
+}
+.acpmux-started-card[data-state="failed"] .acpmux-started-dot {
+  background: var(--agent-danger);
+}
+.acpmux-started-card[data-unread] .acpmux-started-dot {
+  background: var(--agent-text);
+}
+.acpmux-started-chevron {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+}
+
+/* A started chat's name in a reply: a tinted chip that opens it. */
+.acpmux-started-chip {
+  display: inline;
+  margin: 0;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--cv-link, var(--agent-accent)) 14%, transparent);
+  color: var(--cv-link, var(--agent-accent));
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.acpmux-started-chip:hover {
+  background: color-mix(in srgb, var(--cv-link, var(--agent-accent)) 22%, transparent);
+}
+.acpmux-started-chip:focus-visible {
+  outline: 1px solid var(--cv-link, var(--agent-accent));
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-started-card,
+  .acpmux-started-chip {
+    transition:
+      background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),
+      border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
+  }
+  .acpmux-started-card[data-state="running"] .acpmux-started-dot {
+    animation: acpmux-started-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes acpmux-started-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
