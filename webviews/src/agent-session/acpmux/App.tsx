@@ -136,6 +136,7 @@ import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
+import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -535,6 +536,12 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
+    // Another agent's message as a card from it; a task notification as one quiet line; Claude
+    // Code's bookkeeping not at all (conversation/incomingMessage.ts).
+    if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
+    if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    if (row.kind === "user" && row.incoming?.kind === "message")
+      return <IncomingMessageCard message={row.incoming.message} onOpen={openOfferChat} />;
     if (row.kind === "user") {
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).

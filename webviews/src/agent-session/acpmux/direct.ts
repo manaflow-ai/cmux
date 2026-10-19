@@ -35,6 +35,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { incomingPrompt } from "./conversation/incomingMessage";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
@@ -1789,6 +1790,7 @@ export class AcpmuxDirectClient {
         }
         this.streamingActivity = undefined;
         const received = offersShown() ? offerResult(msg) : undefined;
+        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg._meta);
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -1803,6 +1805,7 @@ export class AcpmuxDirectClient {
           kind: "user",
           text: String(msg.text ?? ""),
           ...(received ? { received } : {}),
+          ...(incoming ? { incoming } : {}),
           ...(steer ? { steer } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length

@@ -28,7 +28,9 @@ test("a person's prompt and other provenance kinds are not messages", () => {
   expect(incomingPrompt("Fix the grid", { provenance: { kind: "offer_result" } })).toBeUndefined();
   expect(incomingPrompt("Fix the grid", { provenance: { kind: "agent_message" } })).toBeUndefined();
   // An envelope quoted inside a person's prompt is the person's text.
-  expect(incomingPrompt('See this: <cross-session-message from="x">hi</cross-session-message>', undefined)).toBeUndefined();
+  expect(
+    incomingPrompt('See this: <cross-session-message from="x">hi</cross-session-message>', undefined),
+  ).toBeUndefined();
 });
 
 test("a Claude Code cross-session message: sender, body, and the harness's note dropped", () => {

@@ -1409,6 +1409,19 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
+/* Another agent's message (IncomingMessageCard.tsx): Show more and Open on one line, and the
+   prompt as the agent got it once opened. */
+.cv-message__foot {
+  display: flex;
+  gap: 12px;
+  margin: -6px 0 7px 32.5px;
+}
+.cv-message__foot .cv-message__more {
+  margin: 0;
+}
+.cv-message.is-incoming > .cv-tool-output {
+  margin: 0 10px 8px 32.5px;
+}
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
 }
