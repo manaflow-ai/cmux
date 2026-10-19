@@ -255,7 +255,7 @@ enum ControlTopologyMapper {
             gitBranch: model.gitBranch,
             isPinned: model.pinned,
             isDead: model.dead,
-            hasUnread: model.hasUnread,
+            hasUnread: model.showsUnread,
             tabGroupID: model.tabGroup?.rawValue,
             agentState: model.agent?.state.rawValue
         ).withTerminalResource(model.terminalResourceID?.rawValue)
