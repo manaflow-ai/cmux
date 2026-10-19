@@ -58,7 +58,7 @@ export const HOST = "cloud-chief"
  */
 export const SETTLE_MS = 5_000
 /** A millisecond setting (CHIEF_BRAIN_SETTLE_MS, CHIEF_BRAIN_PREFIX_WAIT_MS), else `d`. */
-export const msOr = (v: string | undefined, d: number): number => (v !== undefined && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d)
+export const msOr = (v: string | undefined, d: number): number => (v !== undefined && /^\d{1,9}$/.test(v.trim()) ? Number(v.trim()) : d)
 /** A turn that runs longer is stopped and recorded failed. */
 export const TURN_MS = 10 * 60_000
 const DEFAULT_DAILY_TURNS = 300
