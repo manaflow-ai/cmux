@@ -941,7 +941,8 @@ class LandingRetry(unittest.TestCase):
         controller.args = Namespace(repo="o/r")
         controller.run_url = "https://example.test/run/1"
         controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test"])
         calls = []
 
         def fake_run(command, **_):
@@ -954,6 +955,19 @@ class LandingRetry(unittest.TestCase):
             outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
         self.assertTrue(outcome.startswith("landed"))
         self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
+
+    def test_no_override_for_a_heavy_check_the_stack_did_not_pass(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r")
+        controller.run_url = "u"
+        controller.writer = nb.GitHub("o/r")
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test"])
+        red = subprocess.CompletedProcess([], 1, "", "not green: 'cmux app scheme compile (Debug)' is not successful on abc\n")
+        with mock.patch.object(nb.subprocess, "run", return_value=red) as run:
+            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertTrue(all("--override" not in call.args[0] for call in run.call_args_list))
 
     def test_github_refusal_is_reported_not_retried(self):
         controller = nb.Controller.__new__(nb.Controller)
