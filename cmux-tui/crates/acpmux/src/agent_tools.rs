@@ -235,16 +235,44 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
         || args.iter().any(|a| a == "--strict-mcp-config")
 }
 
-/// `mcpServers` for acpmux session `session_id`'s ACP harness.
+/// The env Claude Code reads to defer MCP tools behind its tool search.
+/// It turns that off by itself when `ANTHROPIC_BASE_URL` is not
+/// Anthropic's (our routers), and then sends every schema in every turn.
+pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
+
+/// Whether a harness defers MCP tools behind its own tool search, so its
+/// cmux server lists every tool (`cmux mcp serve --all-tools`) and the
+/// harness loads the ones a turn needs. Every other harness gets cmux's
+/// code mode (two tools). Measured 2026-10-19, one-word turn with all 641
+/// cmux tools: Claude Code 34k prompt tokens with [`TOOL_SEARCH_ENV`]
+/// (315k without), Codex 20k (the same as with two tools). OpenCode 1.19
+/// and the others send every schema.
+/// `name` is the profile's name: its family comes from it when the profile
+/// declares none (`config::derive_family`).
+pub fn lists_all_tools(name: &str, profile: &crate::config::HarnessProfile) -> bool {
+    let family = crate::config::derive_family(name, profile);
+    family == "codex" || is_claude_code(name, profile)
+}
+
+/// Whether the harness is Claude Code (directly or through an ACP adapter):
+/// its process gets [`TOOL_SEARCH_ENV`].
+pub fn is_claude_code(name: &str, profile: &crate::config::HarnessProfile) -> bool {
+    profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || crate::config::derive_family(name, profile).starts_with("claude")
+}
+
+/// `mcpServers` for acpmux session `session_id`'s ACP harness; `all_tools`
+/// from [`lists_all_tools`].
 pub fn acp_servers_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     session_id: &str,
+    all_tools: bool,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
         json!([])
     } else {
-        current().scoped(env).for_session(session_id).acp_servers()
+        current().scoped(env).for_session(session_id).listing(all_tools).acp_servers()
     }
 }
 
@@ -262,6 +290,8 @@ pub fn claude_args_for(
         current()
             .scoped(env)
             .for_session(session_id)
+            // Claude Code has tool search (`TOOL_SEARCH_ENV`, spawn.rs).
+            .listing(true)
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
@@ -519,6 +549,17 @@ impl AgentTools {
                 })
                 .collect(),
         )
+    }
+
+    /// The cmux server lists every tool (`all`) or speaks code mode.
+    pub fn listing(mut self, all: bool) -> Self {
+        for server in self.servers.iter_mut().filter(|s| s.name == "cmux") {
+            server.args.retain(|a| a != "--all-tools");
+            if all {
+                server.args.push("--all-tools".into());
+            }
+        }
+        self
     }
 
     /// The servers as one Claude Code MCP config, or `None` without servers.

@@ -33,6 +33,7 @@ fn hub() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -166,8 +167,21 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let (refused, _) = local.call_text("session/new", params).await;
     assert_eq!(refused["error"]["data"]["reason"], "env.key_refused", "{refused}");
 
-    // Claude Code: the same servers in --mcp-config, the skills as a plugin.
+    // A harness with its own tool search (Codex; Claude Code below) gets
+    // every cmux tool and loads what a turn needs; the rest get code mode.
+    let cmux_args = |list: &Value| {
+        list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap()["args"].clone()
+    };
+    assert_eq!(cmux_args(&servers), json!(["mcp", "serve"]), "code mode: {servers}");
+    let codex = local.new_session("fakecodex").await;
+    let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
+
+    // Claude Code: the same servers in --mcp-config, the skills as a plugin,
+    // every cmux tool, and its tool search on (it turns it off behind a
+    // router by itself).
     let id = local.new_session("fakeclaude").await;
+    assert_eq!(local.ask(&id, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=true");
     let argv: Vec<String> = serde_json::from_str(&local.ask(&id, "hi").await).unwrap();
     let at = argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
     // The config is a 0600 file, so the socket token stays out of argv.
@@ -181,6 +195,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(config["mcpServers"]["cmux-cua"]["command"], json!(cua), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
+    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve", "--all-tools"]));
     assert_eq!(config["mcpServers"]["cmux-sessions"]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
