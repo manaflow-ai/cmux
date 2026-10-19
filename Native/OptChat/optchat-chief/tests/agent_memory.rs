@@ -349,3 +349,186 @@ fn an_edit_during_a_rebuild_is_not_missed() {
     assert!(index.stale());
     assert_eq!(index.search("mid-build", 5).unwrap().len(), 1);
 }
+
+/// `CMUX_AGENT_MEMORY_HOME` pointed at a folder that holds other files (a
+/// Chief home, `~/.cmux`): a rebuild refuses it instead of swapping it out
+/// and deleting it. An empty folder is fine.
+#[test]
+fn a_folder_that_is_not_an_index_is_never_replaced() {
+    let home = short_home();
+    seed(home.path());
+    let precious = home.path().join("precious");
+    write(&precious, "keep.txt", "not memory");
+    let mut index = index(home.path());
+    index.root = precious.clone();
+    let error = index.refresh(false).unwrap_err();
+    assert!(error.contains("not an agent memory index"), "{error}");
+    assert!(index.search("heavy", 10).is_err());
+    assert_eq!(
+        std::fs::read_to_string(precious.join("keep.txt")).unwrap(),
+        "not memory"
+    );
+    let empty = home.path().join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    index.root = empty;
+    assert!(index.refresh(false).unwrap().starts_with("indexed 4"));
+    // A rebuilt index is replaced again: it carries the manifest.
+    assert!(index.refresh(true).unwrap().starts_with("indexed 4"));
+}
+
+/// A notes log inside the index folder would be deleted by every rebuild.
+#[test]
+fn a_notes_log_inside_the_index_is_refused() {
+    let home = short_home();
+    seed(home.path());
+    let mut index = index(home.path());
+    index.sources.notes = index.root.join("notes.jsonl");
+    let error = index.refresh(false).unwrap_err();
+    assert!(error.contains("inside the index folder"), "{error}");
+    let error = index
+        .remember("a lesson", &Provenance::default())
+        .unwrap_err();
+    assert!(error.contains("inside the index folder"), "{error}");
+    assert!(!index.sources.notes.exists());
+}
+
+/// Orphans of a killed rebuild (`agent-memory.new-PID`) are cleared by the
+/// next one.
+#[test]
+fn a_killed_rebuilds_copy_is_cleared() {
+    let home = short_home();
+    seed(home.path());
+    let index = index(home.path());
+    let orphan = home.path().join(".cmux/agent-memory.new-999999");
+    write(&orphan, "chat.db", "half written");
+    index.refresh(true).unwrap();
+    assert!(!orphan.exists());
+}
+
+/// The same lesson saved twice (an agent that retried after a lost answer)
+/// is kept once.
+#[test]
+fn saving_the_same_note_twice_keeps_one() {
+    let home = short_home();
+    seed(home.path());
+    let index = index(home.path());
+    index.refresh(false).unwrap();
+    let from = Provenance::default();
+    index
+        .remember("Push protection blocks fake keys.", &from)
+        .unwrap();
+    let again = index
+        .remember("  Push protection blocks fake keys.\n", &from)
+        .unwrap();
+    assert!(again.contains("already saved"), "{again}");
+    let log = std::fs::read_to_string(&index.sources.notes).unwrap();
+    assert_eq!(log.lines().count(), 1, "{log}");
+    assert_eq!(index.search("protection", 10).unwrap().len(), 1);
+}
+
+/// A note on a stale index is saved at once and indexed by the next
+/// search: a rebuild inside remember could outlast the caller's timeout.
+#[test]
+fn remember_never_rebuilds_a_stale_index() {
+    let home = short_home();
+    seed(home.path());
+    let index = index(home.path());
+    index.refresh(false).unwrap();
+    write(home.path(), "decisions/new.md", "A new decision.");
+    assert!(index.stale());
+    let said = index
+        .remember("A note on a stale index.", &Provenance::default())
+        .unwrap();
+    assert!(said.contains("next search"), "{said}");
+    assert!(index.stale(), "remember rebuilt the index");
+    assert_eq!(index.search("stale", 10).unwrap()[0].source, "note 0");
+}
+
+/// A memory file holding a credential is left out of the index and named
+/// by `sync`, so it can be cleaned.
+#[test]
+fn memory_files_that_look_like_credentials_are_skipped() {
+    let home = short_home();
+    seed(home.path());
+    write(
+        home.path(),
+        ".claude/projects/-repo/memory/token.md",
+        "the bot token is ghp_0123456789abcdefABCDEF0123 for releases",
+    );
+    let index = index(home.path());
+    let said = index.refresh(false).unwrap();
+    assert!(said.starts_with("indexed 4 memory entries"), "{said}");
+    assert!(
+        said.contains("skipped 1") && said.contains("~/.claude/projects/-repo/memory/token.md"),
+        "{said}"
+    );
+    assert!(index.search("releases", 10).unwrap().is_empty());
+    assert!(
+        !index.stale(),
+        "a skipped file must not keep the index stale"
+    );
+}
+
+/// An owner that stopped answering after the note reached its server: the
+/// note may be saved, so the agent is told to search before saving again.
+struct Lost;
+
+impl Owner for Lost {
+    fn call(&mut self, _: &Value) -> Result<Value, String> {
+        Err("cmux remote rpc took longer than 40s".into())
+    }
+    fn name(&self) -> String {
+        "ssh://owner".into()
+    }
+    fn may_have_run(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn a_relayed_note_that_may_have_landed_says_so() {
+    let home = short_home();
+    seed(home.path());
+    let mut server = Server {
+        index: index(home.path()),
+        remember: true,
+        owner: Some(Box::new(Lost)),
+    };
+    let answer = call(&mut server, "memory_remember", json!({"text": "a lesson"}));
+    let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+    assert_eq!(answer["result"]["isError"], true);
+    assert!(!text.contains("nothing was saved"), "{text}");
+    assert!(
+        text.contains("may have been saved") && text.contains("memory_search"),
+        "{text}"
+    );
+}
+
+/// The binary keeps note text verbatim: `--append-after-live` is the
+/// Chief's flag, not something to strip from a note.
+#[test]
+fn the_cli_keeps_chief_flags_inside_note_text() {
+    let home = short_home();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
+        .args([
+            "agent-memory",
+            "remember",
+            "--local",
+            "start",
+            "the",
+            "Chief",
+            "with",
+            "--append-after-live",
+        ])
+        .env("HOME", home.path())
+        .env_remove("CMUX_AGENT_MEMORY_HOME")
+        .env_remove("CMUX_AGENT_MEMORY_NOTES")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let log = std::fs::read_to_string(home.path().join(".cmux/agent-memory-notes.jsonl")).unwrap();
+    assert!(
+        log.contains("start the Chief with --append-after-live"),
+        "{log}"
+    );
+}

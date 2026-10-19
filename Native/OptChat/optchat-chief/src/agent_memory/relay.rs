@@ -475,6 +475,48 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&count).unwrap(), "xx");
     }
 
+    /// An owner whose server never exits: the call gives up within the
+    /// relay's budget (Codex stops waiting for a tool after 60s, and ACP
+    /// cannot raise that), and says the call may have run there.
+    #[test]
+    fn a_hung_owner_is_given_up_within_the_call_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("cmux");
+        let script = FAKE_CMUX.replace(
+            "    elif t == \"wait-process\":\n",
+            "    elif t == \"wait-process\":\n        import time; time.sleep(30)\n",
+        );
+        assert_ne!(script, FAKE_CMUX);
+        std::fs::write(&fake, script).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut relay = Relay::new("ssh://owner".into(), vec![], vec!["owner".into()], fake);
+        relay.budget = Duration::from_secs(2);
+        let started = Instant::now();
+        let message = json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call"});
+        let error = relay.call(&message).unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(6),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(error.contains("2s"), "{error}");
+        assert!(relay.may_have_run());
+        // A failure before the server started never ran the call.
+        let error = relay.call(&message).unwrap_err();
+        assert!(error.contains("not retried"), "{error}");
+        assert!(!relay.may_have_run());
+    }
+
+    /// The budget covers every step: a CLI or tool caller waits at most
+    /// this long before the local fallback answers.
+    #[test]
+    fn the_call_budget_leaves_room_under_codexs_tool_timeout() {
+        const CODEX_TOOL_TIMEOUT: Duration = Duration::from_secs(60);
+        assert!(CALL_BUDGET + Duration::from_secs(15) <= CODEX_TOOL_TIMEOUT);
+        assert!(Duration::from_millis(PROCESS_TIMEOUT_MS) < CALL_BUDGET);
+    }
+
     /// Python stands in for `cmux remote rpc`: the owner's server is an echo
     /// that answers the JSON-RPC line on stdin with its method.
     const FAKE_CMUX: &str = r#"#!/usr/bin/env python3
