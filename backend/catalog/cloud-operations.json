@@ -23641,6 +23641,13 @@
               "name": "int64"
             }
           },
+          "fill": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "messages": {
             "required": true,
             "type": {
@@ -23718,7 +23725,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+      "docs": "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -23772,6 +23779,9 @@
           "after_seq": {
             "type": "integer",
             "minimum": 0
+          },
+          "fill": {
+            "type": "boolean"
           },
           "messages": {
             "type": "array",
@@ -36957,6 +36967,124 @@
         "group": "team"
       },
       "docs": "Remove a host from the team directory (its owner or a team admin).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      }
+    },
+    "host.replica.purge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "host replica purge",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

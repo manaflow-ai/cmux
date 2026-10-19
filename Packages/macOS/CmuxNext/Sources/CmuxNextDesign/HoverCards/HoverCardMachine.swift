@@ -279,7 +279,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     private mutating func arm(_ target: HoverTarget, moved: Bool) -> [HoverCardEffect] {
         // A target with no delay: a moving pointer's card shows on this
         // hit; content moving under a still pointer waits a moment. Targets
-        // with a delay (`sidebar.hoverCards.delay`, Chrome's by default) wait it.
+        // with a delay (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default) wait it.
         if target.delay <= .zero, moved {
             let hadTimer = armedToken != nil
             phase = .shown(target)

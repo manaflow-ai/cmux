@@ -29,6 +29,8 @@ extension SettingsSchema {
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         .union(MarkdownViewerSettingsSchema.keys) // the markdown viewer's text size (looks only)
+        // The code editor's looks and editing behavior (diff-host S7); `editor.importFrom` is the person's.
+        .union(EditorSettingsSchema.agentSettableKeys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
         .union(WorkspaceListSettingsSchema.agentSettableKeys) // new workspace position, computer headers (list shape)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
@@ -47,7 +49,7 @@ extension SettingsSchema {
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -210,11 +212,15 @@ extension SettingsSchema {
         "browser.remoteLocalhost": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
+        // Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.
+        "browser.showAgentCursor": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
+        // Which of the person's editor settings files cmux reads (VS Code, Zed...).
+        "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
@@ -245,10 +251,17 @@ extension SettingsSchema {
         "notifications.dockBounce": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // How many agent sessions an agent may start, and how deep, is the person's call: an agent
+        // must not raise its own limits.
+        "agents.subsessions.enabled": .userOnly,
+        "agents.subsessions.maxChildren": .userOnly,
+        "agents.subsessions.maxDepth": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
+        // Workspace names leave this Mac for the Cloud service: only the person turns it on.
+        "phone.cloudReplica": .privacy,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

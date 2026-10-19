@@ -1721,7 +1721,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same. */
   readonly "conversation.import": {
     readonly params: {
       readonly id?: ConversationId
@@ -1734,6 +1734,7 @@ export interface CloudOps {
       readonly title?: string
       readonly participants?: ReadonlyArray<HomeParticipantInput>
       readonly after_seq?: number
+      readonly fill?: boolean
       readonly messages: ReadonlyArray<unknown>
       readonly read_cursors?: unknown
     }
@@ -2227,6 +2228,15 @@ export interface CloudOps {
   }
   /** Remove a host from the team directory (its owner or a team admin). */
   readonly "host.remove": {
+    readonly params: {
+      readonly host: HostId
+    }
+    readonly result: {
+      readonly host: HostId
+    }
+  }
+  /** Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on. */
+  readonly "host.replica.purge": {
     readonly params: {
       readonly host: HostId
     }
@@ -3444,6 +3454,7 @@ export const cloudOpMeta = {
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "inbox.dm_peer": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "inbox.list": { class: "read", owner: "cloud:UserDO", risk: "read" },

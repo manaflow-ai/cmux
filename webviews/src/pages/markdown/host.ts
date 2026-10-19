@@ -40,6 +40,11 @@ export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
+/**
+ * Page to host: `{key, value}` stores one `markdown.*` settings key (the Reading Settings popover;
+ * value null resets it) through the settings write path; the host re-sends the look.
+ */
+export const MARKDOWN_SET_PREFERENCE_OP = "cmux.markdown.setPreference";
 export const MARKDOWN_CHANGES = "cmux.markdown.changes";
 export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
