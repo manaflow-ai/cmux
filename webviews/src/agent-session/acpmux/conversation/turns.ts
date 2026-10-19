@@ -12,6 +12,7 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { editedPaths, toolLabel } from "../toolPaths";
 import type { Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -25,6 +26,9 @@ export const THINKING = "thinking";
 /// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
 const LIVE_THINKING = `${THINKING}-live`;
 export const WORKING = "working";
+/// The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
+/// cx-ncc.102): what the agent is doing now and how long the turn has run.
+export const ACTIVITY_LINE = "activityLine";
 /// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
 /// preview card, with the page's address as its text.
 export const PREVIEW = "preview";
@@ -64,11 +68,13 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
 /// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts);
 /// `clockOffset` (the snapshot's `clockOffsetMs`) moves the running turn's start onto this
-/// computer's clock, so its "Working for" counts from the prompt.
+/// computer's clock, so its "Working for" counts from the prompt. `sessionStatus` (the Debug
+/// toggle `agent.sessionStatus`) puts a running turn's todo list under its work, with the
+/// activity line under it.
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
-  options: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean } = {},
+  options: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; sessionStatus?: boolean } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
 }
@@ -101,7 +107,8 @@ export function turnViewFrom(
     working = false,
     clockOffset = 0,
     liveRuns = false,
-  }: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean } = {},
+    sessionStatus = false,
+  }: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; sessionStatus?: boolean } = {},
   previous?: TurnView,
 ): TurnView {
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -172,7 +179,19 @@ export function turnViewFrom(
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
-    for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!, liveRuns))
+    const live = working && last;
+    for (const row of shapedTurn(
+      rows,
+      start,
+      end,
+      expanded,
+      live,
+      last,
+      clockOffset,
+      dated[at]!,
+      liveRuns,
+      sessionStatus,
+    ))
       out.push(row);
     ends.push(out.length);
   }
@@ -204,6 +223,7 @@ function shapedTurn(
   clockOffset: number,
   dated: boolean,
   liveRuns = false,
+  sessionStatus = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   const open = expanded.size > 0 && expanded.has(`${WORKED}-${user.id}`);
@@ -240,7 +260,7 @@ function shapedTurn(
     shaped = [
       ...date,
       user,
-      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns),
+      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns, sessionStatus),
       ...held,
     ];
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
@@ -277,6 +297,7 @@ function shapeTurn(
   retryable: boolean,
   clockOffset = 0,
   liveRuns = false,
+  sessionStatus = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status.
@@ -285,7 +306,7 @@ function shapeTurn(
   // summary, so it draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, liveRuns)
+      ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus)
       : last
         ? turn.map(endedPlan)
         : settledWithoutSummary(user, turn, expanded);
@@ -425,7 +446,15 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 /// fold). The line is timed from the prompt and draws its own clock; while text streams, the
 /// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
 /// The client's empty "typing" placeholder gives way to it.
-function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveRuns = false): AcpmuxRow[] {
+/// With `sessionStatus` and a todo list, the list sits under the work and the activity line under
+/// it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
+function liveTurn(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  clockOffset: number,
+  liveRuns = false,
+  sessionStatus = false,
+): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing");
   const rows = liveRuns ? codexRuns(drawn) : drawn;
   const last = rows.at(-1);
@@ -437,9 +466,40 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it.
-  if (last.kind === "activity")
-    return [status, ...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
-  return [status, ...rows];
+  const shown =
+    last.kind === "activity" ? [...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }] : rows;
+  const plan = sessionStatus ? [...shown].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+  if (!plan) return [status, ...shown];
+  const work = shown.filter((row) => row !== plan);
+  // The answer streams under the list; the line has nothing left to say.
+  if (answering) return [...work.slice(0, -1), plan, last];
+  return [...work, plan, activityLine(user, work, plan, clockOffset)];
+}
+
+/// The activity line of a running turn: its running tool call as its row names it (a command as
+/// itself, an edit by its file name), else the todo in progress. What it names is its text and
+/// moves its version, so the memoized row redraws when the call's path arrives; it carries no
+/// items, so Find never counts the call's output a second time. Its clock ticks from the prompt.
+function activityLine(user: AcpmuxRow, work: AcpmuxRow[], plan: AcpmuxRow, clockOffset: number): AcpmuxRow {
+  const running = work
+    .flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []))
+    .reverse()
+    .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
+  const label = running?.tool
+    ? runningLabel(running.tool, running.text)
+    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+  let version = 1;
+  for (let index = 0; index < label.length; index += 1) version = (version * 31 + label.charCodeAt(index)) % 1_000_003;
+  return { id: `${ACTIVITY_LINE}-${user.id}`, version, at: user.at + clockOffset, kind: ACTIVITY_LINE, text: label };
+}
+
+/// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
+/// file call by the file's name ("Edit ProductGrid.module.css").
+function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): string {
+  const label = toolLabel(tool, text, (command) => command);
+  const path = editedPaths(tool)[0];
+  if (!path || tool.kind === "execute") return label;
+  return `${label.split(/\s+/, 1)[0]} ${path.split("/").pop() || path}`;
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text

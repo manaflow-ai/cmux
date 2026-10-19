@@ -135,6 +135,7 @@ import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
+import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import {
   SessionCwdContext,
@@ -156,7 +157,17 @@ import {
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { ChatFindScope } from "./conversation/ChatFindScope";
-import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, type TurnView, turnViewFrom } from "./conversation/turns";
+import {
+  ACTIVITY_LINE,
+  DATE,
+  PREVIEW,
+  RENDER,
+  THINKING,
+  WORKED,
+  WORKING,
+  type TurnView,
+  turnViewFrom,
+} from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -257,7 +268,7 @@ import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/Sugge
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
-import { setSessionStatus } from "./sessionStatus";
+import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -647,6 +658,13 @@ const WorkingRow = memo(
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs,
 );
+/// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
+const ActivityLineRow = memo(
+  function ActivityLineRow({ row }: RowProps) {
+    return <ActivityLine row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.at === b.row.at,
+);
 
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
@@ -780,6 +798,7 @@ const defaultRegistry: NativeRegistry = {
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
+  [ACTIVITY_LINE]: ActivityLineRow,
   [PREVIEW]: PreviewRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
@@ -2754,6 +2773,8 @@ function AcpmuxPane() {
   const codexRuns = useCodexToolRuns();
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
+  /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
+  const sessionStatus = useSessionStatus();
   const transcriptRows = useMemo(() => {
     if (childRows) return withoutAskedCalls(childRows, panelAsks);
     const rows = sourceRows;
@@ -2762,7 +2783,7 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns },
+        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns, sessionStatus },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
@@ -2777,6 +2798,7 @@ function AcpmuxPane() {
     snapshot.isWorking,
     snapshot.clockOffsetMs,
     codexRuns,
+    sessionStatus,
     chatShellRuns,
     panelAsks,
   ]);
