@@ -77,6 +77,30 @@ final class SurfaceRenamedEventTests: XCTestCase {
         XCTAssertEqual(sent["title_source"] as? String, "user", "the socket rename is still a user-owned title")
     }
 
+    /// The tab context menu's Clear Name is a UI entry point like typing a name.
+    func testClearingANameFromTheTabContextMenuReportsTheUIOrigin() throws {
+        let workspace = Workspace()
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(workspace.setPanelCustomTitle(panelId: panelId, title: "Named", renameOrigin: "ui"))
+        _ = try XCTUnwrap(nextEvent())
+
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId))
+        let tab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: panelId))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .clearName,
+            for: tab,
+            inPane: paneId
+        )
+
+        let cleared = try payload(of: try XCTUnwrap(nextEvent(), "clearing a name must reach the events stream"))
+        XCTAssertEqual(cleared["previous_title"] as? String, "Named")
+        XCTAssertTrue(cleared["title"] is NSNull)
+        XCTAssertEqual(cleared["origin"] as? String, "ui")
+    }
+
     func testRepeatingTheSameTitlePublishesNothing() throws {
         let workspace = Workspace()
         defer { for panel in workspace.panels.values { panel.close() } }
