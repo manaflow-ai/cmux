@@ -24,11 +24,12 @@ public final class ToastUndoStep: NSObject {
     }
 
     /// Shares one step between the toast `handle` and `undoManager` (the window's undo stack); `run` is the inverse.
+    /// A nil `handle` puts the step on the undo stack only (Edit > Undo, Cmd-Z), with no toast.
     /// An inverse run from the undo stack fills the step the undo put at once on the other side (`filling`: its own
     /// step, passed through the daemon reply; or the step whose inverse is running now), so it is the redo (or, from
     /// a redo, the next undo), not a new undo that clears the redo. Any other change registers a new step.
     @discardableResult
-    public static func attach(title: String, filling: ToastUndoStep?, undoManager: UndoManager?, handle: CmuxToastHandle,
+    public static func attach(title: String, filling: ToastUndoStep?, undoManager: UndoManager?, handle: CmuxToastHandle?,
                               _ run: @escaping @MainActor () -> Void) -> ToastUndoStep {
         let step: ToastUndoStep
         if let target = filling ?? Self.filling, target.isEmpty, target.undoManager === undoManager {
@@ -41,23 +42,23 @@ public final class ToastUndoStep: NSObject {
         }
         step.handle = handle
         Self.newest = step
-        handle.onAction = { step.run(fromToast: true) }
-        handle.ownsUndoTop = { [weak step] manager in step?.isTop(of: manager) == true }
+        handle?.onAction = { step.run(fromToast: true) }
+        handle?.ownsUndoTop = { [weak step] manager in step?.isTop(of: manager) == true }
         return step
     }
 
     /// A step for a change sent and not answered yet (cx-kpicb): it is on the stack and its toast shows from the send, so
     /// the next Cmd-Z undoes this change, not the one before it. `fill` gives it the inverse when the reply comes; an
     /// undo that comes first runs the inverse then. `abandon` (refused, a no-op) takes it off the stack and the toast.
-    public static func pending(title: String, undoManager: UndoManager?, handle: CmuxToastHandle) -> ToastUndoStep {
+    public static func pending(title: String, undoManager: UndoManager?, handle: CmuxToastHandle?) -> ToastUndoStep {
         let step = ToastUndoStep(title: title, nil)
         step.undoManager = undoManager
         step.awaitsReply = true
         step.register()
         step.handle = handle
         Self.newest = step
-        handle.onAction = { step.run(fromToast: true) }
-        handle.ownsUndoTop = { [weak step] manager in step?.isTop(of: manager) == true }
+        handle?.onAction = { step.run(fromToast: true) }
+        handle?.ownsUndoTop = { [weak step] manager in step?.isTop(of: manager) == true }
         return step
     }
 
