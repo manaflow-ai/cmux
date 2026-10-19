@@ -42,9 +42,14 @@ afterAll(() => {
 
 /// A trust source whose reads and saves wait until the test answers them.
 function heldSource() {
+  let answered = 0;
   const reads: ((value: unknown) => void)[] = [];
   const saves: (() => void)[] = [];
   return {
+    /// Every read the pane asked for.
+    get asked() {
+      return reads.length + answered;
+    },
     source: {
       get: () => new Promise((resolve) => reads.push(resolve)),
       set: () => new Promise<void>((resolve) => saves.push(resolve)),
@@ -55,22 +60,29 @@ function heldSource() {
     },
     answer: async (level: string, cwd = "/Users/you/src/cmux") => {
       const read = reads.shift()!;
+      answered += 1;
       await act(async () => read({ cwd, level }));
     },
   };
 }
 
 let shown: TrustAsk | undefined;
+let renders: TrustAsk[] = [];
 function Probe({
   source,
   sessionId,
   cwd = "/Users/you/src/cmux",
+  family = "claude",
+  local = true,
 }: {
   source: ReturnType<typeof heldSource>["source"];
   sessionId: string;
   cwd?: string;
+  family?: string;
+  local?: boolean;
 }) {
-  shown = useFolderTrustAsk(source, { sessionId, cwd, family: "claude", prompts: 1 });
+  shown = useFolderTrustAsk(source, { sessionId, cwd, family, prompts: 1 }, true, local);
+  renders.push(shown);
   return null;
 }
 
@@ -118,4 +130,29 @@ test("an answer saved for another folder leaves this folder's read standing", as
   await trust.answer("unknown", second);
   expect(shown!.ask).toEqual({ cwd: second, state: "ask" });
   expect(shown!.blocked).toEqual({ reason: "trust.answerFirst" });
+});
+
+// Leo 2026-10-19: a switch to another chat in the very same folder checked the folder's trust
+// again. The folder is the same, so its answer is too: no read, and no frame that reads it.
+test("another chat in the same folder keeps the folder's answer without reading it again", async () => {
+  for (const local of [true, false]) {
+    const trust = heldSource();
+    const cwd = `/Users/you/src/same-${local}`;
+    await act(async () => root.render(<Probe source={trust.source} sessionId="chat-6" cwd={cwd} local={local} />));
+    await trust.answer("trusted", cwd);
+    expect(shown!.trusted).toBe(true);
+    const asked = trust.asked;
+
+    renders = [];
+    await act(async () => root.render(<Probe source={trust.source} sessionId="chat-7" cwd={cwd} local={local} />));
+    // The other agent in the same folder: still the same folder.
+    await act(async () =>
+      root.render(<Probe source={trust.source} sessionId="chat-7" cwd={cwd} family="codex" local={local} />),
+    );
+    expect(trust.asked).toBe(asked);
+    for (const render of renders) {
+      expect(render.blocked).toBeUndefined();
+      expect(render.trusted).toBe(true);
+    }
+  }
 });
