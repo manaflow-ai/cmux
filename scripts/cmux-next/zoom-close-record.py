@@ -21,7 +21,7 @@ timing.json, before.json and after.json (`debug.pane_chrome`), colors.json
 (pane id -> color name).
 
 Usage: zoom-close-record.py --socket SOCK --out DIR [--only NAME ...] [--seconds 1.2]
-       [--video --app-pid PID] (a display video through the capture daemon, with Chromium pages)
+       [--video --app-name 'cmux DEV TAG'] (a display video through the capture daemon, with Chromium pages)
        [--speed normal] [--reduce-motion]
 """
 import argparse, http.server, json, os, socket, sys, threading, time
@@ -35,7 +35,7 @@ parser.add_argument("--speed", default="normal", help="debug.motion speed for th
 parser.add_argument("--reduce-motion", action="store_true")
 parser.add_argument("--video", action="store_true", help="also record the display through the capture daemon (--cua-socket)")
 parser.add_argument("--cua-socket", default=os.path.expanduser("~/Library/Application Support/cmux/agent-capture/run/cua.sock"))
-parser.add_argument("--app-pid", type=int, default=0, help="the app's pid, to find its window in the display video")
+parser.add_argument("--app-name", default="", help="the app's name (cmux DEV <tag>), to find its window in the display video")
 opts = parser.parse_args()
 
 COLORS = {
@@ -144,6 +144,16 @@ def new_pane(before, color):
     return created[0]
 
 
+def await_pane(before, color):
+    """The pane a split, a new column or a new workspace made, once `debug.pane_chrome` lists it."""
+    for _ in range(20):
+        settle(0.4)
+        pane = new_pane(before, color)
+        if pane:
+            return pane
+    return None
+
+
 def fill(pane, color, engine=None):
     if engine:
         reply = rpc("action.run", {"action": f"openBrowser.{engine}", "target": f"pane:{pane}", "args": {"url": BASE + color}}, timeout=90)
@@ -155,6 +165,9 @@ def fill(pane, color, engine=None):
 
 
 def focus(color):
+    if color not in ids:
+        print("focus: no pane for", color, json.dumps(ids), flush=True)
+        return None
     reply = action("pane.focus", target=f"pane:{ids[color]}")
     settle(0.5)
     return reply
@@ -164,8 +177,7 @@ def split(of, direction, color, engine=None):
     focus(of)
     before = panes()
     action("splitRight" if direction == "right" else "splitDown")
-    settle(1.0)
-    pane = new_pane(before, color)
+    pane = await_pane(before, color)
     if pane:
         fill(pane, color, engine)
     else:
@@ -177,8 +189,7 @@ def first_terminal(color):
     ids.clear()
     before = panes()
     action("workspace.newAtBottom")
-    settle(1.2)
-    pane = new_pane(before, color)
+    pane = await_pane(before, color)
     if not pane:
         shown = panes()
         if len(shown) == 1:
@@ -190,9 +201,10 @@ def first_terminal(color):
 
 def window_on_screen():
     """The app's window in screen points (top-left origin) and the main display's size, from the capture daemon."""
-    listed = cua("list_windows", {"pid": opts.app_pid, "on_screen_only": True}) if opts.app_pid else {}
+    listed = cua("list_windows", {"on_screen_only": True})
     windows = (((listed.get("result") or {}).get("structuredContent") or {}).get("windows")) or []
-    windows = [w for w in windows if (w.get("bounds") or {}).get("width", 0) > 400]
+    windows = [w for w in windows if (w.get("bounds") or {}).get("width", 0) > 400
+               and (not opts.app_name or w.get("app_name") == opts.app_name)]
     size = cua("get_screen_size", {})
     return {"window": max(windows, key=lambda w: w["bounds"]["width"] * w["bounds"]["height"]) if windows else None,
             "screen": (size.get("result") or {}).get("structuredContent")}
@@ -295,8 +307,7 @@ def strip():
     for color in ("green", "blue", "yellow"):
         before = panes()
         action("newColumn")
-        settle(1.0)
-        pane = new_pane(before, color)
+        pane = await_pane(before, color)
         if pane:
             fill(pane, color)
     print("strip panes:", json.dumps(ids), flush=True)
