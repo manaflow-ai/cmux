@@ -434,7 +434,7 @@ const EVICTED_MAX_AGE_MS = 24 * 3_600_000;
 // The promotion requests on main that GitHub cancelled in the promote queue in
 // the last day (the newest page of cancelled dispatch runs): { runId, sha,
 // status: 'evicted' }. Reading the annotation needs `checks: read`.
-export async function evictedPromotions({ github, owner, repo, runId, now = () => Date.now() }) {
+export async function evictedPromotions({ github, owner, repo, runId, now = () => Date.now(), warn = () => {} }) {
   const { data } = await github.rest.actions.listWorkflowRuns({
     owner, repo, workflow_id: 'nightly.yml', event: 'workflow_dispatch', branch: 'main', status: 'cancelled', per_page: 30,
   });
@@ -448,7 +448,16 @@ export async function evictedPromotions({ github, owner, repo, runId, now = () =
     });
     const job = jobs.find((candidate) => candidate.name === PROMOTE_JOB);
     if (!job || job.conclusion !== 'cancelled') continue;
-    const { data: annotations } = await github.rest.checks.listAnnotations({ owner, repo, check_run_id: job.id, per_page: 100 });
+    // One run's unreadable annotations (a 403 or 404) skip that run only; the
+    // other evicted requests, the ones this scan exists to keep, still count.
+    let annotations;
+    try {
+      ({ data: annotations } = await github.rest.checks.listAnnotations({ owner, repo, check_run_id: job.id, per_page: 100 }));
+    } catch (error) {
+      if (error.status !== 403 && error.status !== 404) throw error;
+      warn(`Could not read whether promotion request run ${run.id} was cancelled in the promote queue (${error.status}); skipping it.`);
+      continue;
+    }
     if ((annotations || []).some((annotation) => annotation.message === QUEUE_EVICTED)) {
       evicted.push({ runId: run.id, sha, status: 'evicted' });
     }
@@ -485,7 +494,7 @@ async function scanWaiters({ github, core, owner, repo, sha, runId, now }) {
   const pending = await pendingPromotions({ github, owner, repo, runId });
   let evicted = [];
   try {
-    evicted = await evictedPromotions({ github, owner, repo, runId, now });
+    evicted = await evictedPromotions({ github, owner, repo, runId, now, warn: (message) => core?.warning?.(message) });
   } catch (error) {
     core?.warning?.(`Could not read the promotion requests cancelled in the promote queue (${error.status || error.message}); deciding without them.`);
   }
