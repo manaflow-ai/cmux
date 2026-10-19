@@ -198,7 +198,7 @@ windows (Chromium page windows, panels) are not included. Use
 | Debug Settings fallback | `DebugSettingsWindowController` | same | install(.debugSettings) |
 | App Store | `AppStoreWindowController` (becomes a page tab) | content before background | install(.appStore) until the page lands |
 | onboarding (Import from Browser, Computer Use setup) | `OnboardingWindowController` | hand-built | install(.onboarding) |
-| browser popup | `BrowserPopupPanel` | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup) (done); the key router's popup Cmd-W step is still in place, Close Tab from the menu and palette goes through the table (both tested) |
+| browser popup | `BrowserPopupWindow` (a top-level window like Chrome's popup, all three traffic lights) | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup) (done); the key router's popup Cmd-W step is still in place, Close Tab from the menu and palette goes through the table (both tested) |
 | DevTools | `CEFDevToolsWindow` | hand-built | install(.devTools) |
 | page info, terminal/browser debug | `PageInfoWindows`, `TerminalDebugWindow`, `BrowserDebugWindow` | hand-built | install(kind) |
 
