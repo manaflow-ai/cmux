@@ -33,4 +33,10 @@ fail() { echo "FAIL: $*"; exit 1; }
 PATH="$tmp/bin:/usr/bin:/bin:/usr/sbin" "$here/install.sh" --optchat-chief "$tmp/bin/optchat-chief" --cmux-tui "$tmp/bin/cmux-tui" \
   --cmux "$tmp/bin/cmux" --acpmux "$tmp/bin/acpmux" --harness codex --no-start > "$tmp/out.log" 2>&1 || { cat "$tmp/out.log"; exit 1; }
 [[ "$(env_of host MUX_HARNESS)" == "codex" ]] || fail "--harness codex is not the host's MUX_HARNESS (got '$(env_of host MUX_HARNESS)')"
+[[ -z "$(env_of acpmux ANTHROPIC_BASE_URL)" ]] || fail "acpmux agent has a Claude route without --claude-base-url"
+PATH="$tmp/bin:/usr/bin:/bin:/usr/sbin" "$here/install.sh" --optchat-chief "$tmp/bin/optchat-chief" --cmux-tui "$tmp/bin/cmux-tui" \
+  --cmux "$tmp/bin/cmux" --acpmux "$tmp/bin/acpmux" --claude-base-url http://router.test:31415 --no-start > "$tmp/out.log" 2>&1 || { cat "$tmp/out.log"; exit 1; }
+# The Claude route is in acpmux's own environment, so no login shell read decides the sign-in.
+[[ "$(env_of acpmux ANTHROPIC_BASE_URL)" == "http://router.test:31415" ]] || fail "--claude-base-url is not acpmux's ANTHROPIC_BASE_URL"
+[[ -n "$(env_of acpmux ANTHROPIC_AUTH_TOKEN)" ]] || fail "--claude-base-url sets no placeholder ANTHROPIC_AUTH_TOKEN"
 echo "install.test.sh: ok"
