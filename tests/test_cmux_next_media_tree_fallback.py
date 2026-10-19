@@ -31,6 +31,8 @@ FAKE_PIN = """#!/usr/bin/env bash
 case "$1" in
   key) cat "$(dirname "$0")/key" ;;
   resolve-newest-published)
+    printf 'same_paths=%s\nsummary=%s\ndispatch=%s\n' "${CMUX_TUI_TREE_SAME_PATHS-unset}" \
+      "${GITHUB_STEP_SUMMARY-unset}" "${CMUX_TUI_TREE_DISPATCH-unset}" > "$(dirname "$0")/resolve-env"
     [ -f "$(dirname "$0")/newest" ] || { echo "no published tree" >&2; exit 1; }
     cat "$(dirname "$0")/newest" ;;
   *) exit 2 ;;
@@ -62,10 +64,13 @@ class TreeFallbackTest(unittest.TestCase):
         self.base = self.tmp / "runner" / "cmux-next-base"
 
     def run_step(self) -> dict[str, str]:
+        self.outputs = self.tmp / "outputs"
+        self.outputs.write_text("")
         env_file = self.tmp / "env"
         env_file.write_text("")
         env = dict(os.environ, GITHUB_WORKSPACE=str(self.workspace), RUNNER_TEMP=str(self.tmp / "runner"),
-                   GITHUB_ENV=str(env_file), GITHUB_STEP_SUMMARY=str(self.tmp / "summary"))
+                   GITHUB_ENV=str(env_file), GITHUB_OUTPUT=str(self.outputs),
+                   GITHUB_STEP_SUMMARY=str(self.tmp / "summary"))
         result = subprocess.run(["bash", "-c", self.step["run"]], cwd=self.workspace, env=env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -77,13 +82,29 @@ class TreeFallbackTest(unittest.TestCase):
         env = self.run_step()
         self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "c" * 40)
         self.assertEqual(env.get("HEAD_TUI_TREE_KEY"), "c" * 40)
+        # The tour comment says so: the before and after apps run an older daemon.
+        self.assertIn("c" * 12, self.outputs.read_text())
+        self.assertIn("note=", self.outputs.read_text())
 
-    def test_a_head_that_changes_cmux_tui_keeps_its_own_tree(self) -> None:
+    def test_the_stand_in_serves_the_base_daemon_capabilities(self) -> None:
+        # bundle-cmux-tui.sh checks the daemon serves every capability in
+        # daemon-capabilities.json: a stand-in from before a capability was
+        # added would fail the build, so the search skips such commits. It
+        # neither writes the nightly's summary block nor dispatches a publisher.
+        checkout(self.base, "b" * 40, resolved("c" * 40, 2))
+        checkout(self.workspace, "b" * 40)
+        self.run_step()
+        recorded = (self.base / "scripts" / "cmux-next" / "resolve-env").read_text()
+        self.assertIn("same_paths=plans/cmux-next/daemon-capabilities.json", recorded)
+        self.assertIn("summary=\n", recorded)
+        self.assertIn("dispatch=\n", recorded)
+
+    def test_a_head_that_changes_cmux_tui_keeps_both_trees_exact(self) -> None:
+        # The head waits for its own tree anyway; a stand-in base would credit
+        # the daemon changes between it and the merge base to the pull request.
         checkout(self.base, "b" * 40, resolved("c" * 40, 2))
         checkout(self.workspace, "e" * 40)
-        env = self.run_step()
-        self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "c" * 40)
-        self.assertNotIn("HEAD_TUI_TREE_KEY", env)
+        self.assertEqual(self.run_step(), {})
 
     def test_a_published_base_tree_is_used_as_is(self) -> None:
         checkout(self.base, "b" * 40, resolved("b" * 40, 0))
@@ -99,10 +120,17 @@ class TreeFallbackTest(unittest.TestCase):
         checkout(self.workspace, "b" * 40)  # no base worktree: the app came from the cache
         self.assertEqual(self.run_step(), {})
 
-    def test_the_builds_take_the_keys(self) -> None:
-        steps = {s.get("name"): s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["tour"]["steps"]}
+    def test_the_builds_take_the_keys_and_the_comment_the_note(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        steps = {s.get("name"): s for s in workflow["jobs"]["tour"]["steps"]}
         self.assertIn("BASE_TUI_TREE_KEY", steps["Build the base app"]["run"])
         self.assertIn("HEAD_TUI_TREE_KEY", steps["Build the head app"]["run"])
+        self.assertEqual(steps[STEP].get("id"), "tree")
+        self.assertIn("steps.tree.outputs.note", workflow["jobs"]["tour"]["outputs"]["tree_note"])
+        publish = {s.get("name"): s for s in workflow["jobs"]["publish"]["steps"]}
+        step = publish["Upload the media and update the comment"]
+        self.assertIn("needs.tour.outputs.tree_note", step["env"]["TREE_NOTE"])
+        self.assertIn("$TREE_NOTE", step["run"])
 
 
 if __name__ == "__main__":
