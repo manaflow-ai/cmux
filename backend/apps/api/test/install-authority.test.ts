@@ -87,7 +87,10 @@ describe("install.authority", { timeout: 60_000 }, () => {
       proto.membership = async function (entity: string, user: string) {
         const answer = await proto.authorityRealMembership.call(this, entity, user)
         if (entity === c.team && user === c.user) {
-          await c.stub.submit(c.user, c.principal, { op: "install.sign_out", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+          // Construct the RPC stub in this owner's I/O context, as production TeamDO does.
+          const owner = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+          const signedOut = await owner.submit(user, c.principal, { op: "install.sign_out", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+          if (!signedOut.frames.some((f: { t: string }) => f.t === "result")) throw new Error("fixture did not revoke the install")
         }
         return answer
       }
