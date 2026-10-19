@@ -20,8 +20,9 @@ interface HomeGoal {
 }
 ```
 
-There is no owner-side goal record. `projectGoal(entries, now)` derives the
-goal from the run book:
+There is no owner-side goal record. The goal is derived from the run book:
+`GoalStrip` hands the entry `RunBook.goalEntry` picks to `projectGoal(entries,
+now)`, which projects the first running or failed entry it is given.
 
 - `RunBook.goalEntry(conversation)` picks the newest run (by `updatedAt`) in
   the conversation whose status is `running` or `failed`.
@@ -29,8 +30,10 @@ goal from the run book:
   (no update for `STALE_RUN_MS`, 30 minutes). Runs with `updatedAt` 0 never
   go stale.
 - A `failed` run is `failed`, and `detail` carries `run.error`.
-- `done` and other ended runs produce no goal, so the strip disappears when
-  the work completes.
+- `done` and other ended runs never project a goal and never replace one.
+  The strip disappears only once no running or failed run is left in the
+  conversation, so an older failed or stalled run stays on the strip even
+  after later work completes.
 - `title` is `run.title` only. `answers` holds message IDs, not display text,
   so it is never used as a title (#21277). An empty title falls back to the
   localized `run.title` label in the view.
@@ -70,7 +73,8 @@ These are not built. Each should land as its own PR.
 2. **More states.** `waiting` (blocked on the user) and `completed` (briefly
    shown, then moved to history) need an owner signal; the run status alone
    cannot tell them apart.
-3. **Dismiss and retry.** A failed goal stays until a newer run replaces it.
+3. **Dismiss and retry.** A failed goal stays until a newer running or failed
+   run replaces it; a later completed run does not clear it.
    There is no dismiss or retry action on the strip yet.
 4. **Disclosure.** The strip is a single line. A collapsed disclosure for
    progress and recent blockers, using the agent-chat disclosure motion, is
