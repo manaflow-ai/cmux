@@ -26,7 +26,9 @@ export const RANGE = 10;
 /** Items the update card and popup get (UpdateHighlights.shownItems). */
 const CARD_ITEMS = 3;
 const BEAD = /\bcx-[a-z0-9]{3,}(?:\.\d+)*\b/i;
-const CUT = /(?:…|\.\.\.)$/u;
+/** A sentence cut with "…" or "..."; a menu command keeps its ellipsis ("Rename Workspace…"), as
+    release-notes.py writes it. */
+const CUT = /(?<![A-Z][\w-]*)(?:…|\.\.\.)$/u;
 
 interface Row {
   title: string;

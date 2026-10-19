@@ -61,17 +61,23 @@ const INTERNAL_WORDS = new RegExp(
     String.raw`frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|` +
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
-    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|squash(?:ed|es)?)\b`,
+    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?)\b`,
   "i",
 );
 /** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */
 const BRANDS =
   /\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
 /** Code-looking text: backticks, dotted names, snake_case, versioned ids, bead ids, camelCase,
-    {placeholders}, a PR number ("#21369", "#N") and a tool name of three or more hyphenated parts
-    ("export-backdrop-art"; "up-to-date" and "drag-and-drop" join with a short word and stay). */
+    {placeholders}. */
 const CODE_LIKE =
-  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}|(?:^|\s)#(?:\d+|N)\b|\b(?![\w-]*-(?:to|by|of|and|in|the|a|an|on|for|or|at|with)(?:-|\b))[A-Za-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b/;
+  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}/;
+/** Work no user sees by its shape (review of #22099, ASCII like release-notes.py): a tool name of
+    three or more hyphenated parts ("export-backdrop-art"; not "two-finger-swipe", "cmd-shift-t",
+    "up-to-date" or "per-tab-zoom"), a pull request number ("#21369", "#N"; not "#1") and a repair
+    after a squash ("lost in the Chief Dock squash"; not "squash commits from the review pane"). */
+const TOOL_NAME = /(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)/i;
+const PR_NUMBER = /(?<!\S)#(?:N|\d{3,})(?![\w-])/;
+const SQUASH_REPAIR = /\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$/i;
 const CONVENTIONAL = /^(?<type>[A-Za-z-]+)(?:\((?<scope>[^)]*)\))?!?:\s*(?<rest>.+)$/;
 /** "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …". */
 const LABEL = /^(?<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?<scope>[^)]*)\))?!?:\s+(?<rest>\S.*)$/;
@@ -149,7 +155,15 @@ export function readableChange(subject: string): ReadableChange {
     text = label.rest!;
   }
   text = strip(text.replace(AREA_PREFIX, ""));
-  if (!text || INTERNAL_WORDS.test(text) || CODE_LIKE.test(text.replace(BRANDS, ""))) return internal(text);
+  if (
+    !text ||
+    INTERNAL_WORDS.test(text) ||
+    CODE_LIKE.test(text.replace(BRANDS, "")) ||
+    TOOL_NAME.test(text) ||
+    PR_NUMBER.test(text) ||
+    SQUASH_REPAIR.test(text)
+  )
+    return internal(text);
   if (group === "changed" && /^(add|adds|new|introduce|support|show)\b/i.test(text)) group = "new";
   else if (group === "changed" && /^(fix|fixes|repair|stop|keep)\b/i.test(text)) group = "fixed";
   return { title: capitalized(text), internal: false, group };

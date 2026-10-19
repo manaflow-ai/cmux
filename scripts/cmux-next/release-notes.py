@@ -63,12 +63,17 @@ INTERNAL_WORDS = re.compile(
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
-    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|squash(?:ed|es)?)\b", re.I)
+    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?)\b", re.I | re.A)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
-# Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks, a PR number,
-# a tool name of three or more hyphenated parts) are internal.
-CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}|(?:^|\s)#(?:\d+|N)\b|\b(?![\w-]*-(?:to|by|of|and|in|the|a|an|on|for|or|at|with)(?:-|\b))[A-Za-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b")
+# Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
+# ASCII classes, as JavaScript reads them in readableChange.ts.
+CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}", re.A)
+# Work no user sees by its shape (readableChange.ts TOOL_NAME, PR_NUMBER, SQUASH_REPAIR): a tool name
+# of three or more hyphenated parts, a pull request number, a repair after a squash.
+TOOL_NAME = re.compile(r"(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)", re.I | re.A)
+PR_NUMBER = re.compile(r"(?<!\S)#(?:N|\d{3,})(?![\w-])", re.A)
+SQUASH_REPAIR = re.compile(r"\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$", re.I | re.A)
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
@@ -114,7 +119,8 @@ def summary_entry(subject):
         text = label["rest"]
     text = AREA_PREFIX.sub("", text)
     text = REFS.sub("", text).strip(" .")
-    if not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text)):
+    if (not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text))
+            or TOOL_NAME.search(text) or PR_NUMBER.search(text) or SQUASH_REPAIR.search(text)):
         return None
     if group == "changed" and re.match(r"^(add|adds|new|introduce|support|show)\b", text, re.I):
         group = "new"
@@ -256,11 +262,13 @@ def summary_whats_new_digest(args, lines):
     document = {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
                 "headline": {"en": "Fixes and improvements"}, "entries": []}
     categories = {"new": "new", "fixed": "fixed", "changed": "improved"}
+    titles = set()
     for index, line in enumerate(lines):
         # A line with no clause short enough stays out of the digest; the page shows it whole
         # from the summary lines.
         title = short_title(line.get("title", ""), validate.LIMITS["title"])
-        if not title or line.get("group") not in categories:
+        # Two long lines can share a first clause; the digest shows each title once.
+        if not title or line.get("group") not in categories or title.lower() in titles:
             continue
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
@@ -272,6 +280,7 @@ def summary_whats_new_digest(args, lines):
             print(f"whats-new summary: dropped {entry['id']}:\n" + "\n".join(problems), file=sys.stderr)
             continue
         document["entries"].append(entry)
+        titles.add(title.lower())
     if not document["entries"]:
         return None
     document["headline"] = {"en": document["entries"][0]["title"]["en"]}
