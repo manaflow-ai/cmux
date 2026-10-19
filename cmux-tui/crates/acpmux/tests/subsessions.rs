@@ -174,6 +174,33 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     assert!(reply.starts_with("echo: echo use [") && !reply.contains(&key), "{got}");
     let list = p.ok("_acpmux/subsession/list", json!({})).await;
     assert!(!list.to_string().contains(&key), "{list}");
+    // A reply cut at its length cap is masked before the cut: a key that
+    // straddles the cap leaves no unmasked head behind.
+    let pad = "a".repeat(3983);
+    p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": format!("{pad} {key}")}))
+        .await;
+    p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
+    let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
+    let reply = got["lastReply"].as_str().unwrap_or_default();
+    assert!(reply.ends_with('…') && !reply.contains(&key[..10]), "{reply}");
+    // The prompt of the child's running turn is masked too.
+    #[cfg(unix)]
+    {
+        let gate = root.join(key.clone());
+        let c = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let text = format!("gate: {}", gate.display());
+        p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": text})).await;
+        let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
+        assert!(got["turn"]["prompt"].is_string(), "{got}");
+        assert!(!got.to_string().contains(&key), "{got}");
+        let list = p.ok("_acpmux/subsession/list", json!({})).await;
+        assert!(!list.to_string().contains(&key), "{list}");
+        std::fs::write(&gate, b"go").unwrap();
+        p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000}))
+            .await;
+    }
 
     // Depth: the child starts a grandchild (depth 2); the grandchild may not go deeper.
     let mut pa = Client::as_session(&hub, &a).await;
