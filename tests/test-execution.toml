@@ -1940,3 +1940,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_published_in_comments.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_linux_tests_lane.py"
+lane = "linux-guard"
