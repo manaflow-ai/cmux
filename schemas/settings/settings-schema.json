@@ -10298,7 +10298,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "both",
+      "default" : "tabs",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -15742,7 +15742,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1300,
+      "default" : 250,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -25702,7 +25702,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "44ea403350073e656593c071fe9cd4a6dfcc28f020341b285f5d641d25f990ee",
+  "schema_hash" : "5f0fcb94b41f38aa969688085a417717cd4f812f07924194a05be2ca125210c0",
   "sections" : [
     {
       "id" : "general",

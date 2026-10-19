@@ -45,6 +45,9 @@ pub(super) const CLOUD_RUNS_CAPABILITY: &str = "cloud-conversation-runs-v1";
 /// `cloud-conversation-live`, which asks the owner for its `run.live`
 /// snapshot (advertised with `cloud-conversations-v1`).
 pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
+/// `cloud-conversation-typing`: the owner's ephemeral `typing` frame
+/// through the daemon (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_TYPING_CAPABILITY: &str = "cloud-conversation-typing-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -200,6 +203,13 @@ pub(super) struct AvatarParams {
 #[derive(Deserialize)]
 pub(super) struct TargetParams {
     conversation: String,
+}
+
+/// `cloud-conversation-typing`.
+#[derive(Deserialize)]
+pub(super) struct TypingParams {
+    conversation: String,
+    on: bool,
 }
 
 /// `cloud-mux-subscribe` / `cloud-mux-unsubscribe`: no fields at all, so a
@@ -409,6 +419,12 @@ pub(super) fn subscribe(
 /// `run.live` snapshot; it arrives as a `cloud-conversation-live` event.
 pub(super) fn live(mux: &Mux, client: u64, params: TargetParams) -> anyhow::Result<Value> {
     Ok(lease_user(mux, client)?.request_live(client, &params.conversation)?)
+}
+
+/// `cloud-conversation-typing`: the lease's participant is typing or
+/// stopped, as the owner's `typing` frame on the shared socket.
+pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.typing(client, &params.conversation, params.on)?)
 }
 
 pub(super) fn unsubscribe(

@@ -2549,6 +2549,13 @@ class CloudConversationThreadRequest:
 
 
 @dataclass(frozen=True)
+class CloudConversationTypingRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-typing/request'
+    conversation: str
+    on: bool
+
+
+@dataclass(frozen=True)
 class CloudConversationUnsubscribeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-unsubscribe/request'
     conversation: str
@@ -6027,6 +6034,7 @@ __all__ = [
     'CloudConversationSnapshotRequest',
     'CloudConversationSubscribeRequest',
     'CloudConversationThreadRequest',
+    'CloudConversationTypingRequest',
     'CloudConversationUnsubscribeRequest',
     'CloudInboxListRequest',
     'CloudInboxOpRequest',
