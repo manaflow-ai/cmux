@@ -120,13 +120,13 @@ extension AgentTabStore {
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
     /// shows and is selected now (unless `select` is false); the store's tab keeps the selection
     /// when it replaces it, then `then` gets its id. A refusal is reported through the registry.
-    /// Returns false when the pane cannot hold an agent tab.
+    /// Returns false when the pane cannot hold an agent tab; a later refusal or cancellation calls `failed`.
     /// `hidden`: the tab never shows in `pane`'s strip (a chat bound for a new chat dock).
     @discardableResult
     func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
                  linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil,
-                 then: (@MainActor (String) -> Void)? = nil) -> Bool {
+                 then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
@@ -160,6 +160,7 @@ extension AgentTabStore {
             } catch {
                 // A chat bound for a dock that never came: the pane stops waiting for it (cx-ihyx2).
                 if hidden { pane.dockFinished(pending.key) }
+                failed?() // what waited on the tab (a split's held keys) goes now, not at its own limit
                 guard !(error is CancellationError) else { return nil } // the person closed it first
                 daemon.logger.error("new-conversation-tab (agent) failed: \(String(describing: error), privacy: .public)")
                 return "\(RefusalStrings.agentTabCreateFailed)"

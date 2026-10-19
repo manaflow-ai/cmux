@@ -30,8 +30,7 @@ extension NewTabPage {
         let opened = SplitPageKey()
         // Keys typed after the split wait for the new page's field, in order (cx-kql5h): the page
         // is made, moved to the new pane and shown before it can take them.
-        let input = services.keyRouter.newTabInputCoordinator
-        let keys = input.beginIncoming(in: source.view.window)
+        let input = services.keyRouter.newTabInputCoordinator, keys = input.beginIncoming(in: source.view.window)
         page.inputToken = keys
         if let keys { input.attachIncoming(keys) }
         // The page moves to the new pane: its choices act in the pane that shows it now.
@@ -55,7 +54,7 @@ extension NewTabPage {
             guard split != nil else { return Self.moveToSplit(key, from: source, edge: edge, keys: keys) }
             source.workspace?.layoutModel.applySplitSizing(sizing)
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
-        }
+        } failed: { [weak input] in input?.endIncoming(keys, pageMade: false) }
         if !started { input.endIncoming(keys, pageMade: false) }
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
