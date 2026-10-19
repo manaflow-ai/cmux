@@ -51,6 +51,59 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
     }
 
+    @Test("A hidden restore starts its native surface only after portal reveal")
+    func hiddenRestoreWaitsForPortalReveal() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            policy: .pacedSessionRestore,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.agentCommandShimInstallCompleted = true
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.setRendererWindowVisible(false)
+        surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "hidden-restore")
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+
+        surface.closeHeadlessStartupWindowIfNeeded()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        nativeView.frame = paneHost.bounds
+        window.contentView?.addSubview(paneHost)
+
+        surface.setRendererWindowVisible(true)
+        surface.setRendererPortalVisible(true)
+        surface.setRendererPortalVisible(true)
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+
+        scheduler.runScheduledOperation()
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+    }
+
     @Test("Explicit input cancels a deferred agent resume before admission")
     func explicitInputCancelsDeferredAgentResumeBeforeAdmission() {
         let nativeView = FakeTerminalSurfaceNativeView(
