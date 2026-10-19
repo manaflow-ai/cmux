@@ -4,9 +4,10 @@
 //! Ungroup and Delete Group keep every workspace, so the record has no
 //! member: it keeps the group's own row (a plain column map, written back
 //! with the columns this build has), its place in the group order and its
-//! members `{session_id, workspace_key}`. A restore gives the group its old
-//! id and place, and puts back every member whose personal row still exists
-//! and that no later change put in another group.
+//! members `{session_id, workspace_key}`, and the groups nested in it. A
+//! restore gives the group its old id, parent and place, and puts back every
+//! member and nested group that no later change put elsewhere (the delete
+//! moved them up to the group's parent).
 
 use rusqlite::{Connection, Transaction, params};
 use serde_json::{Value, json};
@@ -30,9 +31,17 @@ pub(crate) fn snapshot_group(connection: &Connection, group: &str) -> anyhow::Re
     .into_iter()
     .map(|row| json!({"session_id": row["session_id"], "workspace_key": row["workspace_key"]}))
     .collect::<Vec<_>>();
+    // `workspace-group-nest-v1`: the groups nested in it, which a delete
+    // moves up to its parent and a restore puts back.
+    let child_groups: Vec<String> = read_groups(connection)?
+        .into_iter()
+        .filter(|candidate| candidate.parent.as_deref() == Some(group))
+        .map(|candidate| candidate.id)
+        .collect();
     Ok(json!({
         "id": group,
         "index": index,
+        "child_groups": child_groups,
         "row": rows(connection, "personal_groups", "group_id = ?1", &[&group])?,
         "members": members,
     }))
@@ -71,6 +80,19 @@ pub(crate) fn restore_group(
             params![group, DEFAULT_PROFILE_ID],
         )?;
     }
+    // A parent deleted since then, or a nest that no longer fits: the
+    // group comes back at the top level.
+    let parent = row[0]["parent_id"].as_str().map(str::to_string);
+    if let Some(parent) = &parent {
+        let room = read_group(transaction, group)?.map(|group| group.profile).unwrap_or_default();
+        if super::group_parent::require_parent(transaction, Some(group), &room, parent).is_err() {
+            transaction.execute(
+                "UPDATE personal_groups SET parent_id = NULL WHERE group_id = ?1",
+                [group],
+            )?;
+        }
+    }
+    let parent = read_group(transaction, group)?.and_then(|group| group.parent);
     let order = read_groups(transaction)?.into_iter().map(|group| group.id).collect();
     let order = reinsert(order, &[(group.to_string(), archive["index"].as_u64())]);
     write_order(transaction, "personal_groups", "group_id", &order)?;
@@ -84,10 +106,19 @@ pub(crate) fn restore_group(
             .iter()
             .find(|(closed, _)| member_session == session && closed == key)
             .map_or(key, |(_, reopened)| reopened.as_str());
+        // The delete moved it up to the group's parent: no later change
+        // put it elsewhere when it is still there.
         transaction.execute(
             "UPDATE personal_workspaces SET group_id = ?3
-             WHERE session_id = ?1 AND workspace_key = ?2 AND group_id IS NULL",
-            params![member_session, key, group],
+             WHERE session_id = ?1 AND workspace_key = ?2 AND group_id IS ?4",
+            params![member_session, key, group, parent],
+        )?;
+    }
+    for child in archive["child_groups"].as_array().unwrap_or(&empty) {
+        let Some(child) = child.as_str() else { continue };
+        transaction.execute(
+            "UPDATE personal_groups SET parent_id = ?2 WHERE group_id = ?1 AND parent_id IS ?3",
+            params![child, group, parent],
         )?;
     }
     commit_personal(

@@ -95,6 +95,9 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
     add_group_top_position(transaction)?;
     add_group_column(transaction, "icon", "TEXT")?;
     add_group_column(transaction, "pinned", "INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))")?;
+    // `workspace-group-nest-v1`: the group this group sits in (NULL: top
+    // level). Older binaries do not read it and see every group flat.
+    add_group_column(transaction, "parent_id", "TEXT")?;
     add_workspace_remote_localhost(transaction)?;
     // `session-icon-v1`: a session's (machine's) icon, the shared icon
     // string. Added before the open-time blob sweep reads it.
@@ -271,6 +274,11 @@ pub struct PersonalGroup {
     /// Pinned (saved) group (`workspace-group-pin-v1`): it stays when its
     /// workspaces close; clients keep it as an empty saved group.
     pub pinned: bool,
+    /// The group this group sits in (`workspace-group-nest-v1`); None at
+    /// the top level. Omitted when absent, so older readers of the raw
+    /// `list-personal` result see the same shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -587,7 +595,7 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
         "SELECT group_id, profile_id, name, color, collapsed,
                 CASE WHEN top_position IS NULL THEN NULL ELSE
                   (SELECT COUNT(*) FROM personal_workspaces AS w WHERE w.position < g.top_position) END,
-                icon, pinned
+                icon, pinned, parent_id
          FROM personal_groups AS g
          ORDER BY position ASC, group_id ASC",
     )?;
@@ -601,11 +609,12 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
             row.get::<_, Option<i64>>(5)?,
             row.get::<_, Option<String>>(6)?,
             row.get::<_, i64>(7)?,
+            row.get::<_, Option<String>>(8)?,
         ))
     })?;
     let mut groups = Vec::new();
     for (index, row) in rows.enumerate() {
-        let (id, profile, name, color, collapsed, top, icon, pinned) = row?;
+        let (id, profile, name, color, collapsed, top, icon, pinned, parent) = row?;
         let top_index = top.map(usize::try_from).transpose()?;
         groups.push(PersonalGroup {
             id,
@@ -617,6 +626,7 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
             top_index,
             icon,
             pinned: pinned != 0,
+            parent,
         });
     }
     Ok(groups)

@@ -20,6 +20,9 @@ use super::presentation_store::validate_workspace_group_id;
 use super::{WorkspaceRegistry, new_uuid_v4, unix_epoch_ms};
 pub(crate) mod group_archive;
 mod group_marks;
+pub(crate) mod group_parent;
+#[cfg(test)]
+mod group_parent_tests;
 mod inputs;
 mod mixed_order;
 #[cfg(test)]
@@ -634,16 +637,26 @@ impl WorkspaceRegistry {
         let mut pinned = 0;
         if let Some(profile) = profile.filter(|profile| *profile != before.profile) {
             anyhow::ensure!(read_profile(tx, profile)?.is_some(), "unknown room {profile}");
-            tx.execute(
-                "UPDATE personal_groups SET profile_id = ?2 WHERE group_id = ?1",
-                params![id, profile],
-            )?;
-            pinned = tx.execute(
-                "INSERT INTO profile_pins(session_id, workspace_key, profile_id)
-                 SELECT session_id, workspace_key, ?2 FROM personal_workspaces WHERE group_id = ?1
-                 ON CONFLICT(session_id, workspace_key) DO UPDATE SET profile_id = excluded.profile_id",
-                params![id, profile],
-            )?;
+            // A nested group is in its parent's room; it moves with its
+            // top-level group.
+            anyhow::ensure!(
+                before.parent.is_none(),
+                "bad request: cross_room: group {id} is nested; move its top-level group to another room"
+            );
+            let parents =
+                read_groups(tx)?.into_iter().map(|group| (group.id, group.parent)).collect();
+            for group in group_parent::subtree_in(&parents, id) {
+                tx.execute(
+                    "UPDATE personal_groups SET profile_id = ?2 WHERE group_id = ?1",
+                    params![group, profile],
+                )?;
+                pinned += tx.execute(
+                    "INSERT INTO profile_pins(session_id, workspace_key, profile_id)
+                     SELECT session_id, workspace_key, ?2 FROM personal_workspaces WHERE group_id = ?1
+                     ON CONFLICT(session_id, workspace_key) DO UPDATE SET profile_id = excluded.profile_id",
+                    params![group, profile],
+                )?;
+            }
         }
         let after =
             read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
@@ -659,7 +672,8 @@ impl WorkspaceRegistry {
         Ok((after, changed))
     }
 
-    /// Delete a group; its workspaces become ungrouped. Returns them.
+    /// Delete a group; its workspaces and nested groups move up into its
+    /// parent (the top level for a top-level group). Returns its workspaces.
     pub(crate) fn delete_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -675,7 +689,17 @@ impl WorkspaceRegistry {
                 .query_map([id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
                 .collect::<Result<Vec<_>, _>>()?
         };
-        tx.execute("UPDATE personal_workspaces SET group_id = NULL WHERE group_id = ?1", [id])?;
+        // Its workspaces and nested groups move up into its own parent
+        // (none: the top level); nothing closes.
+        let parent = read_group(tx, id)?.and_then(|group| group.parent);
+        tx.execute(
+            "UPDATE personal_workspaces SET group_id = ?2 WHERE group_id = ?1",
+            params![id, parent],
+        )?;
+        tx.execute(
+            "UPDATE personal_groups SET parent_id = ?2 WHERE parent_id = ?1",
+            params![id, parent],
+        )?;
         tx.execute("DELETE FROM personal_groups WHERE group_id = ?1", [id])?;
         let order = read_groups(tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
         write_order(tx, "personal_groups", "group_id", &order)?;
@@ -694,16 +718,25 @@ impl WorkspaceRegistry {
         index: usize,
     ) -> anyhow::Result<(PersonalGroup, bool)> {
         validate_workspace_group_id(id)?;
-        let mut order = read_groups(tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
-        let old = order
+        let groups = read_groups(tx)?;
+        let order = groups.iter().map(|group| group.id.clone()).collect::<Vec<_>>();
+        let moving = groups
             .iter()
-            .position(|candidate| candidate == id)
+            .find(|group| group.id == id)
             .ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
-        let new = insertion_final_index(old, index, order.len());
+        // `index` counts among the groups with the same parent
+        // (`workspace-group-nest-v1`); with no nested group these are all
+        // groups, as before.
+        let siblings: Vec<&str> = groups
+            .iter()
+            .filter(|group| group.parent == moving.parent)
+            .map(|group| group.id.as_str())
+            .collect();
+        let old = siblings.iter().position(|candidate| *candidate == id).unwrap_or(0);
+        let new = insertion_final_index(old, index, siblings.len());
         let changed = new != old;
         if changed {
-            let moved = order.remove(old);
-            order.insert(new, moved);
+            let order = group_parent::sibling_move(&groups, id, new).unwrap_or(order);
             write_order(tx, "personal_groups", "group_id", &order)?;
             commit_personal(
                 tx,
