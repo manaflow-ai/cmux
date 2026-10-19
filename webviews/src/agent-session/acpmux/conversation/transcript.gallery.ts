@@ -390,6 +390,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
+    "agent-session/acpmux/conversation/WorkingMark.tsx#WorkingMark",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
@@ -711,7 +712,7 @@ export default agentPaneEntry({
       },
     },
     "working-tools": {
-      note: "Tool calls running in a live turn.",
+      note: "Tool calls running in a live turn; the status line names the call in flight.",
       snapshot: chat(
         [
           user(prompt, 2),
