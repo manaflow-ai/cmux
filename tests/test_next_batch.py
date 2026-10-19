@@ -542,6 +542,17 @@ class BaseReds(unittest.TestCase):
         self.assertEqual(controller.base_probe_result["url"], "https://probe")
 
 
+class TreeInputs(unittest.TestCase):
+    def test_a_tree_input_outside_cmux_tui_counts_and_other_files_do_not(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "scripts/cmux-next").mkdir(parents=True)
+        (root / nb.TREE_INPUTS).write_text("# inputs\ntree first-party-apps/cloud/server\nfile schemas/x/vectors.json\n")
+        self.assertTrue(nb.touches_tree(["schemas/x/vectors.json"], root))
+        self.assertTrue(nb.touches_tree(["first-party-apps/cloud/server/main.rs"], root))
+        self.assertTrue(nb.touches_tree(["cmux-tui/crates/a.rs"], root))
+        self.assertFalse(nb.touches_tree(["webviews/src/a.tsx", "schemas/x/other.json"], root))
+
+
 class RemoteRegeneration(unittest.TestCase):
     """Generators run the stack's code, so they run in a dispatched job and
     send back a patch; the controller never runs them on its own host."""
