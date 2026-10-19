@@ -1,15 +1,17 @@
-// Started session cards (startedSessions.ts, StartedSessionCard.tsx): the chats a chat's agent
-// started draw as cards where each was started, with a pull request badge, and their names in a
-// reply draw as chips that open them.
+// Started session cards (startedSessions.ts, StartedSessionCard.tsx): the chats a turn's agent
+// started draw as one card of rows at the end of that turn, after its reply, each row the chat's
+// title over its status (Claude Code's Changes card), and their names in a reply draw as chips
+// that open them.
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { sessionEntry } from "../sessionList";
 import { renderInline } from "../conversation/Markdown";
 import { turnView } from "../conversation/turns";
-import { StartedSessionCard } from "./StartedSessionCard";
+import { StartedSessionCards } from "./StartedSessionCard";
 import {
   STARTED_SESSIONS,
+  type StartedSession,
   type StartedCache,
   offerChildren,
   sessionMentions,
@@ -42,12 +44,12 @@ describe("startedSessions", () => {
     expect(startedSessions(sessions, undefined)).toEqual([]);
   });
 
-  test("a running chat shows its latest tool call; an idle one does not", () => {
+  test("a running chat is running and an unread one unread; no tool call stands in for what it does", () => {
     const sessions = [child("run", { indicator: "working" }), child("idle", { indicator: "done", unread: true })];
-    const started = startedSessions(sessions, PARENT, { activity: { run: "Running ls", idle: "Old call" } });
-    expect(started.find((s) => s.sessionId === "run")).toMatchObject({ state: "running", activity: "Running ls" });
+    const started = startedSessions(sessions, PARENT);
+    expect(started.find((s) => s.sessionId === "run")).toEqual(expect.objectContaining({ state: "running" }));
+    expect(started.find((s) => s.sessionId === "run")).not.toHaveProperty("activity");
     expect(started.find((s) => s.sessionId === "idle")).toMatchObject({ state: "idle", unread: true });
-    expect(started.find((s) => s.sessionId === "idle")?.activity).toBeUndefined();
   });
 });
 
@@ -91,21 +93,40 @@ describe("withStartedSessions", () => {
     ...(createdAt !== undefined ? { createdAt } : {}),
   });
 
-  test("places a card before the first row made after the chat, inside its turn", () => {
-    const rows = [row("u1", 10, "user"), row("a1", 20), row("s1", 40, "turnSummary"), row("u2", 50, "user")];
-    // Started at 30: after a1, stamped before the summary.
-    let out = withStartedSessions(rows, [started("x", 30)]);
-    expect(out.map((r) => r.id)).toEqual(["u1", "a1", `${STARTED_SESSIONS}-x`, "s1", "u2"]);
+  test("places a turn's card after its reply, before its summary, whenever in the turn a chat started", () => {
+    const rows = [
+      row("u1", 10, "user"),
+      row("a1", 20),
+      row("a1b", 30),
+      row("s1", 40, "turnSummary"),
+      row("u2", 50, "user"),
+      row("a2", 60),
+    ];
+    // Started at 15, before the reply was written: still drawn after it, in reading order.
+    let out = withStartedSessions(rows, [started("x", 15)]);
+    expect(out.map((r) => r.id)).toEqual(["u1", "a1", "a1b", `${STARTED_SESSIONS}-x`, "s1", "u2", "a2"]);
     // Started at 45, after the summary was written but before the next prompt: still that turn's.
     out = withStartedSessions(rows, [started("y", 45)]);
-    expect(out.map((r) => r.id)).toEqual(["u1", "a1", `${STARTED_SESSIONS}-y`, "s1", "u2"]);
+    expect(out.map((r) => r.id)).toEqual(["u1", "a1", "a1b", `${STARTED_SESSIONS}-y`, "s1", "u2", "a2"]);
+    // The second turn has no summary yet (it runs): its card goes last.
+    out = withStartedSessions(rows, [started("x", 15), started("z", 55)]);
+    expect(out.map((r) => r.id)).toEqual([
+      "u1",
+      "a1",
+      "a1b",
+      `${STARTED_SESSIONS}-x`,
+      "s1",
+      "u2",
+      "a2",
+      `${STARTED_SESSIONS}-z`,
+    ]);
   });
 
-  test("chats started together share one card row; one without createdAt goes last", () => {
+  test("a turn's chats share one card; one without createdAt goes in the last turn's", () => {
     const rows = [row("u1", 10, "user"), row("a1", 20)];
     const out = withStartedSessions(rows, [started("x", 15), started("y", 16), started("z")]);
-    expect(out.map((r) => r.id)).toEqual(["u1", `${STARTED_SESSIONS}-x`, "a1", `${STARTED_SESSIONS}-z`]);
-    expect(out[1]!.started!.map((s) => s.sessionId)).toEqual(["x", "y"]);
+    expect(out.map((r) => r.id)).toEqual(["u1", "a1", `${STARTED_SESSIONS}-x`]);
+    expect(out[2]!.started!.map((s) => s.sessionId)).toEqual(["x", "y", "z"]);
   });
 
   test("keeps an unchanged card row's object and bumps the version of a changed one", () => {
@@ -219,90 +240,65 @@ describe("name chips", () => {
   });
 });
 
-describe("StartedSessionCard", () => {
-  // Claude Code's pull request rows (its Changes panel and PR list): the title, then a dim line
-  // naming `repo #N` with the PR's status in its colour at the end.
-  test("draws the title over what the chat does now, its pull request and that PR's status", () => {
-    const html = renderToStaticMarkup(
-      <StartedSessionCard
-        child={{
-          sessionId: "s",
-          title: "Switch gh-merge-green to merge-freeze issues",
-          state: "running",
-          activity: "`ss -ltnp`",
-          pullRequests: { count: 2, tone: "ready", number: 22092, repo: "cmux" },
-        }}
-        onOpen={() => undefined}
-      />,
+describe("StartedSessionCards", () => {
+  const draw = (...started: StartedSession[]) =>
+    renderToStaticMarkup(<StartedSessionCards started={started} onOpen={() => undefined} />);
+
+  // Claude Code's Changes card: one container of compact rows, each the title over a status line
+  // that starts with the status (glyph and word in its colour), then `· repo #N`; one chevron.
+  test("one card of rows, each the title over `Status · repo #N`, with one trailing chevron", () => {
+    const html = draw(
+      { sessionId: "a", title: "Triage the failing tests", state: "idle" },
+      {
+        sessionId: "b",
+        title: "Switch gh-merge-green to merge-freeze issues",
+        state: "running",
+        pullRequests: { count: 2, tone: "failing", number: 22092, repo: "cmux" },
+      },
     );
-    expect(html).toContain("Switch gh-merge-green to merge-freeze issues");
-    expect(html).toContain(">ss -ltnp<");
-    expect(html).toContain('data-state="running"');
-    expect(html).toMatch(/class="acpmux-started-line"[^]*>cmux #22092<[^]*and 1 more/);
-    expect(html).toMatch(/class="acpmux-started-status" data-tone="ready"[^>]*>[^]*>Ready</);
+    expect(html.match(/class="acpmux-started"/g)?.length).toBe(1);
+    expect(html.match(/class="acpmux-started-row"/g)?.length).toBe(2);
+    expect(html.match(/acpmux-started-chevron/g)?.length).toBe(2);
+    expect(html).not.toContain("acpmux-started-dot");
+    expect(html).toMatch(
+      /class="acpmux-session-status" data-status="failing"[^]*>Checks failed<[^]*>cmux #22092<[^]*>and 1 more</,
+    );
   });
 
-  test("an idle chat has no second line; with a pull request the line names it", () => {
-    const html = renderToStaticMarkup(
-      <StartedSessionCard child={{ sessionId: "s", title: "Done task", state: "idle" }} onOpen={() => undefined} />,
-    );
-    expect(html).not.toContain("acpmux-started-line");
-    const merged = renderToStaticMarkup(
-      <StartedSessionCard
-        child={{
-          sessionId: "s",
-          title: "Done task",
-          state: "idle",
-          pullRequests: { count: 1, tone: "merged", number: 4 },
-        }}
-        onOpen={() => undefined}
-      />,
-    );
-    expect(merged).toContain(">#4<");
+  test("an idle chat with nothing to say is one line; a read one with a PR names it", () => {
+    expect(draw({ sessionId: "s", title: "Done task", state: "idle" })).not.toContain("acpmux-session-status-line");
+    const merged = draw({
+      sessionId: "s",
+      title: "Done task",
+      state: "idle",
+      pullRequests: { count: 1, tone: "merged", number: 4 },
+    });
+    expect(merged).toMatch(/data-status="merged"[^]*>Merged<[^]*>#4</);
     expect(merged).not.toContain("more");
-    expect(merged).toMatch(/data-tone="merged"[^]*>Merged</);
   });
 
-  test("a failed chat says so, with its failing checks; one waiting on the person says it needs input", () => {
-    const failed = renderToStaticMarkup(
-      <StartedSessionCard
-        child={{
-          sessionId: "s",
-          title: "Broken task",
-          state: "failed",
-          pullRequests: { count: 1, tone: "failing", number: 9, repo: "cmux" },
-        }}
-        onOpen={() => undefined}
-      />,
+  test("needs input and failed come before the PR; running and new activity say so without one", () => {
+    const failed = draw({
+      sessionId: "s",
+      title: "Broken task",
+      state: "failed",
+      pullRequests: { count: 1, tone: "failing", number: 9, repo: "cmux" },
+    });
+    expect(failed).toMatch(/data-status="failed"[^]*>Failed<[^]*>cmux #9</);
+    expect(failed).not.toContain("Checks failed");
+    expect(draw({ sessionId: "s", title: "Asking task", state: "waiting" })).toMatch(
+      /data-status="waiting"[^]*>Needs input</,
     );
-    expect(failed).toContain('data-state="failed"');
-    expect(failed).toContain(">Failed<");
-    expect(failed).toMatch(/data-tone="failing"[^]*>Checks failed</);
-    const waiting = renderToStaticMarkup(
-      <StartedSessionCard
-        child={{ sessionId: "s", title: "Asking task", state: "waiting" }}
-        onOpen={() => undefined}
-      />,
+    expect(draw({ sessionId: "s", title: "Busy task", state: "running" })).toMatch(/data-status="running"[^]*>Running</);
+    expect(draw({ sessionId: "s", title: "Fresh task", state: "idle", unread: true })).toMatch(
+      /data-status="unread"[^]*>New activity</,
     );
-    expect(waiting).toContain('data-state="waiting"');
-    expect(waiting).toContain(">Needs input<");
-    expect(waiting).not.toContain("acpmux-started-status");
   });
 
-  test("a pull request of unknown state names no status", () => {
-    const html = renderToStaticMarkup(
-      <StartedSessionCard
-        child={{
-          sessionId: "s",
-          title: "URL task",
-          state: "idle",
-          pullRequests: { count: 1, tone: "unknown", number: 3 },
-        }}
-        onOpen={() => undefined}
-      />,
-    );
+  test("a pull request of unknown state names no status, only `#N`", () => {
+    const html = draw({ sessionId: "s", title: "URL task", state: "idle", pullRequests: { count: 1, tone: "unknown", number: 3 } });
     expect(html).toContain(">#3<");
-    expect(html).not.toContain("acpmux-started-status");
+    expect(html).not.toContain("acpmux-session-status\"");
   });
 
   test("started session cards are off by default", () => {
