@@ -62,7 +62,7 @@ Until 2026-10-24 00:00 UTC (`ENFORCE_FROM` in `risk-tier.yml`) the check is advi
 item is a warning and the check passes, so pull requests already in flight have time to add their
 evidence. After that it blocks merge. A verdict from the advisory window doesn't count after the
 cutover: `gh-merge-green` reads `ENFORCE_FROM` from the base and refuses a `risk evidence` check
-that finished before it, or one that never ran. Edit the description (or push) to re-grade.
+whose job started before it, or one that never ran. Edit the description (or push) to re-grade.
 
 ## Ship risky behavior dark
 

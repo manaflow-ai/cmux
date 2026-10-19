@@ -68,7 +68,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     ("low", "test", (
         "*/Tests/*", "*/tests/*", "tests/*", "tests_v2/*", "*/test/*", "*_test.*", "*_tests.*",
-        "*/tests.rs", "*.test.*", "*Tests.swift",
+        "*/tests.rs", "*/test_*.py", "scripts/*/fixtures/*", "*.test.*", "*Tests.swift",
     )),
     # Scripts that only mention a release: notes, benchmarks, end-to-end probes, compile checks.
     ("low", "CI and tooling", (
