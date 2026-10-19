@@ -40,6 +40,8 @@ export type AcpmuxRow = {
   streaming?: boolean;
   /// This reply began on the live transport, never during attach or history replay.
   renderLive?: boolean;
+  /// The attachment on which this row began, so virtualization cannot renew live execution.
+  renderAttachment?: number;
   pending?: boolean;
   failed?: boolean;
   items?: AcpmuxActivity[];

@@ -42,6 +42,7 @@ import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { labOn } from "./labs";
+import { renderAttachment, resetRenderExecutions } from "./conversation/renderExecution";
 import { renderGuide } from "./conversation/renderGuide";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
@@ -1447,6 +1448,7 @@ export class AcpmuxDirectClient {
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    resetRenderExecutions(sessionId);
     const visible = pageShown();
     const attaching = this.request("_acpmux/attach", {
       sessionId,
@@ -1926,6 +1928,7 @@ export class AcpmuxDirectClient {
         text: `${existing?.text ?? ""}${text}`,
         streaming: true,
         renderLive: existing?.renderLive ?? live,
+        renderAttachment: existing?.renderAttachment ?? renderAttachment(this.selectedSessionId ?? ""),
       });
       this.streamingAssistant = id;
       this.streamingAssistantMessageId = messageId;
@@ -1945,6 +1948,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "activity",
         renderLive: existing?.renderLive ?? live,
+        renderAttachment: existing?.renderAttachment ?? renderAttachment(this.selectedSessionId ?? ""),
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
       });
@@ -1974,6 +1978,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "activity",
         renderLive: existing?.renderLive ?? live,
+        renderAttachment: existing?.renderAttachment ?? renderAttachment(this.selectedSessionId ?? ""),
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
       });

@@ -617,7 +617,7 @@ const MessageRow = memo(
         </div>
       );
     return (
-      <RenderLiveContext.Provider value={row.renderLive === true}>
+      <RenderLiveContext.Provider value={row.renderLive === true ? { attachment: row.renderAttachment ?? 0 } : false}>
         <RevealedMarkdown
           text={row.text ?? ""}
           streaming={row.streaming === true}
@@ -714,7 +714,7 @@ const RenderRow = memo(
     const live = useLab("liveRender");
     const call = tool && (canRender() || live) ? renderCall(tool) : undefined;
     return call ? (
-      <RenderLiveContext.Provider value={row.renderLive === true}>
+      <RenderLiveContext.Provider value={row.renderLive === true ? { attachment: row.renderAttachment ?? 0 } : false}>
         <RenderCard call={call} />
       </RenderLiveContext.Provider>
     ) : null;
