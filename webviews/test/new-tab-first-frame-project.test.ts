@@ -91,7 +91,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
   /// Opens a New Tab page in `context` with the host's context injected as the document commits
   /// (AgentPaneNavigation), and returns every distinct location text it painted, in order.
   async function newTab(context: BrowserContext, { cwd, handshakeDelay }: Host, settle: string) {
-    const page = await context.newPage({ viewport: { width: 900, height: 640 } });
+    const page = await context.newPage();
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.addInitScript(
       ({ endpoint, cwd, home, handshakeDelay }) => {
@@ -109,7 +109,8 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
                 token: "t",
                 newSession: true,
                 newTab,
-                ...(cwd ? { cwd } : {}),
+                // The host fills no start folder for the home folder (AgentPaneStartFolders).
+                ...(cwd && cwd !== home ? { cwd } : {}),
                 machineName: "cosmic-gray",
               });
             case "newTab.context":
@@ -131,13 +132,17 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
         const read = () => {
           const strip = document.querySelector(".nt-location");
           if (!strip) return;
-          const walker = document.createTreeWalker(strip, NodeFilter.SHOW_TEXT);
-          let text = "";
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            const parent = node.parentElement;
-            if (parent && getComputedStyle(parent).visibility === "visible") text += ` ${node.textContent ?? ""}`;
-          }
-          text = text.replace(/\s+/g, " ").trim();
+          // Each chip's visible text (a long name draws as a head and a tail), the chips apart.
+          const chips = [...strip.querySelectorAll(".acpmux-location-picker")].map((chip) => {
+            const walker = document.createTreeWalker(chip, NodeFilter.SHOW_TEXT);
+            let label = "";
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              const parent = node.parentElement;
+              if (parent && getComputedStyle(parent).visibility === "visible") label += node.textContent ?? "";
+            }
+            return label.trim();
+          });
+          const text = chips.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
           if (painted.at(-1) !== text) painted.push(text);
         };
         new MutationObserver(read).observe(document, {
@@ -161,6 +166,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
     await page.waitForTimeout(Math.max(handshakeDelay, listDelay) + 600);
     const painted = await page.evaluate(() => (window as unknown as { __painted: string[] }).__painted);
     await page.close();
+    console.info(`painted: ${JSON.stringify(painted)}`);
     // Empty text is the strip before React draws it, or a reserved place: never a wrong label.
     return painted.filter((text) => text !== "");
   }
@@ -169,7 +175,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
     "%s: a New Tab that inherits a project names it from its first frame",
     async (name) => {
       listDelay = 0;
-      const context = await browsers.get(name)!.newContext();
+      const context = await browsers.get(name)!.newContext({ viewport: { width: 900, height: 640 } });
       const painted = await newTab(context, { cwd: BILLING, handshakeDelay: 700 }, "billing");
       await context.close();
       expect(painted.every((text) => !text.includes("Choose folder"))).toBe(true);
@@ -182,7 +188,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: a New Tab after another page heard the chats names the recent project from its first frame",
     async (name) => {
-      const context = await browsers.get(name)!.newContext();
+      const context = await browsers.get(name)!.newContext({ viewport: { width: 900, height: 640 } });
       // An earlier page in this run (the app's pages share one store) heard the daemon's chats.
       listDelay = 0;
       await newTab(context, { cwd: HOME, handshakeDelay: 0 }, "atlas");
@@ -199,7 +205,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: a cold New Tab with nothing heard yet paints no default before the recent project",
     async (name) => {
-      const context = await browsers.get(name)!.newContext();
+      const context = await browsers.get(name)!.newContext({ viewport: { width: 900, height: 640 } });
       listDelay = 700;
       const painted = await newTab(context, { cwd: HOME, handshakeDelay: 300 }, "atlas");
       await context.close();

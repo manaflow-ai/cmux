@@ -91,6 +91,11 @@
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
+/* No page of this run knows the recent project yet (NewTabScreen projectPending): the folder chip
+   keeps its place and names nothing until the daemon lists the chats, never "Choose folder" first. */
+.nt-location[data-project-pending] .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
+  visibility: hidden;
+}
 .nt-composer { --acpmux-strip-radius: 20px; }
 /* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
    surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and

@@ -184,7 +184,7 @@ enum NewTabPage {
         var bar = omnibar(services, excluding: selectedID)
         // A page on another machine offers that machine's folders only (cx-k21v).
         if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
-        return AgentPaneNewTab(
+        var page = AgentPaneNewTab(
             kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
             // The source tab's folder is what the page's chat or terminal starts in; the field
             // itself always starts empty, with its placeholder (never `~` or a URL).
@@ -196,17 +196,22 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
+        // This Mac's name on the machine chip from the first frame; another machine's handshake names it.
+        if machine.remoteFolders == nil { page.host = AgentPaneModel.localMachineDisplayName }
+        return page
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
     /// (NewTabSparePool): the design and remembered choices; no tab context.
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
-        AgentPaneNewTab(
+        var page = AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
+        page.host = AgentPaneModel.localMachineDisplayName
+        return page
     }
 
     /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
