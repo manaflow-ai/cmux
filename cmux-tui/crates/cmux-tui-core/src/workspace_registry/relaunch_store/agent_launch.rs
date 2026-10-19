@@ -56,7 +56,8 @@ pub(crate) fn agent_launch_from_job(
     // variable is inherited by everything the CLI starts.
     let at = argv.iter().position(|argument| is_program(harness, argument))?;
     let value = |key: &str| env.iter().find(|(name, _)| name == key).map(|(_, value)| value);
-    let given = value(SHIM_ARGS_ENV).and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
+    let given =
+        value(SHIM_ARGS_ENV).and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
     let args = given.unwrap_or_else(|| argv[at + 1..].to_vec());
     let args = session_free(harness, &args)?;
     let args = stored_args(harness, args);
@@ -307,7 +308,9 @@ fn session_free(harness: &str, args: &[String]) -> Option<Vec<String>> {
                 }
             }
         }
-        if holds_secret(flag) || values.iter().any(|value| holds_secret(value) || inline_config(harness, flag, value)) {
+        if holds_secret(flag)
+            || values.iter().any(|value| holds_secret(value) || inline_config(harness, flag, value))
+        {
             continue;
         }
         match inline {
@@ -369,22 +372,41 @@ mod tests {
 
     #[test]
     fn node_installs_and_wrappers_find_the_program_word() {
-        let npm = strings(&["node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js", "--verbose"]);
-        assert_eq!(agent_launch_from_job("claude", &npm, &[]).unwrap().args, strings(&["--verbose"]));
+        let npm = strings(&[
+            "node",
+            "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            "--verbose",
+        ]);
+        assert_eq!(
+            agent_launch_from_job("claude", &npm, &[]).unwrap().args,
+            strings(&["--verbose"])
+        );
         let wrapped = strings(&["python3", "/tmp/fake.py", "codex", "-m", "gpt-5.5"]);
-        assert_eq!(agent_launch_from_job("codex", &wrapped, &[]).unwrap().args, strings(&["-m", "gpt-5.5"]));
+        assert_eq!(
+            agent_launch_from_job("codex", &wrapped, &[]).unwrap().args,
+            strings(&["-m", "gpt-5.5"])
+        );
         assert!(agent_launch_from_job("claude", &strings(&["zsh", "-l"]), &[]).is_none());
         assert!(agent_launch_from_job("opencode", &strings(&["opencode"]), &[]).is_none());
     }
 
     #[test]
     fn codex_resume_and_non_interactive_runs() {
-        let resumed = strings(&["codex", "resume", "abc", "--dangerously-bypass-approvals-and-sandbox", "-m", "gpt"]);
+        let resumed = strings(&[
+            "codex",
+            "resume",
+            "abc",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "-m",
+            "gpt",
+        ]);
         assert_eq!(
             agent_launch_from_job("codex", &resumed, &[]).unwrap().args,
             strings(&["--dangerously-bypass-approvals-and-sandbox", "-m", "gpt"])
         );
-        assert!(agent_launch_from_job("codex", &strings(&["codex", "exec", "do it"]), &[]).is_none());
+        assert!(
+            agent_launch_from_job("codex", &strings(&["codex", "exec", "do it"]), &[]).is_none()
+        );
         assert!(agent_launch_from_job("claude", &strings(&["claude", "-p", "hi"]), &[]).is_none());
     }
 
@@ -405,8 +427,18 @@ mod tests {
         let launch = agent_launch_from_job(
             "claude",
             &strings(&[
-                "claude", "--output-format", "stream-json", "--add-dir", "a", "b", "--verbose",
-                "--max-turns", "3", "--model", "opus", "--some-switch",
+                "claude",
+                "--output-format",
+                "stream-json",
+                "--add-dir",
+                "a",
+                "b",
+                "--verbose",
+                "--max-turns",
+                "3",
+                "--model",
+                "opus",
+                "--some-switch",
             ]),
             &[],
         )
@@ -438,7 +470,14 @@ mod tests {
         assert_eq!(claude.args, strings(&["--mcp-config", "/p/mcp.json", "--model", "opus"]));
         let codex = agent_launch_from_job(
             "codex",
-            &strings(&["codex", "-c", "mcp_servers.x.env={API=\"1\"}", "--config=a=b", "-m", "gpt"]),
+            &strings(&[
+                "codex",
+                "-c",
+                "mcp_servers.x.env={API=\"1\"}",
+                "--config=a=b",
+                "-m",
+                "gpt",
+            ]),
             &[],
         )
         .unwrap();
@@ -449,7 +488,9 @@ mod tests {
     fn codex_runs_only_without_a_subcommand_or_as_resume() {
         assert!(agent_launch_from_job("codex", &strings(&["codex", "cloud"]), &[]).is_none());
         assert!(agent_launch_from_job("codex", &strings(&["codex", "fix it"]), &[]).is_none());
-        assert!(agent_launch_from_job("claude", &strings(&["claude", "mcp", "list"]), &[]).is_none());
+        assert!(
+            agent_launch_from_job("claude", &strings(&["claude", "mcp", "list"]), &[]).is_none()
+        );
         let plain = agent_launch_from_job("codex", &strings(&["codex", "-m", "gpt"]), &[]).unwrap();
         assert_eq!(plain.args, strings(&["-m", "gpt"]));
     }

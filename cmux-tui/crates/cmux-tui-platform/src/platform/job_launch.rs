@@ -102,13 +102,18 @@ pub(crate) fn parse_procargs2(bytes: &[u8], env_keys: &[&str]) -> Option<JobLaun
     }
     let environment = bytes.get(cursor..).unwrap_or_default();
     let entries = environment.split(|byte| *byte == 0);
-    let entries = entries.filter(|entry| !entry.is_empty()).filter_map(|entry| std::str::from_utf8(entry).ok());
+    let entries = entries
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| std::str::from_utf8(entry).ok());
     Some(JobLaunch { argv, env: pick_env(entries, env_keys) })
 }
 
 #[cfg(any(target_os = "linux", test))]
 fn nul_strings(bytes: &[u8]) -> impl Iterator<Item = &str> {
-    bytes.split(|byte| *byte == 0).filter(|part| !part.is_empty()).filter_map(|part| std::str::from_utf8(part).ok())
+    bytes
+        .split(|byte| *byte == 0)
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| std::str::from_utf8(part).ok())
 }
 
 fn pick_env<'a>(entries: impl Iterator<Item = &'a str>, keys: &[&str]) -> Vec<(String, String)> {
@@ -147,11 +152,18 @@ mod tests {
         let bytes = procargs(
             "/usr/local/bin/claude",
             &["claude", "--model", "opus", "--dangerously-skip-permissions"],
-            &["HOME=/Users/a", "ANTHROPIC_API_KEY=sk-secret", "CLAUDE_CONFIG_DIR=/Users/a/.claude-work"],
+            &[
+                "HOME=/Users/a",
+                "ANTHROPIC_API_KEY=sk-secret",
+                "CLAUDE_CONFIG_DIR=/Users/a/.claude-work",
+            ],
         );
         let launch = parse_procargs2(&bytes, &["CLAUDE_CONFIG_DIR", "CODEX_HOME"]).unwrap();
         assert_eq!(launch.argv, ["claude", "--model", "opus", "--dangerously-skip-permissions"]);
-        assert_eq!(launch.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/a/.claude-work".to_string())]);
+        assert_eq!(
+            launch.env,
+            [("CLAUDE_CONFIG_DIR".to_string(), "/Users/a/.claude-work".to_string())]
+        );
     }
 
     #[test]
@@ -162,10 +174,15 @@ mod tests {
         bytes.extend_from_slice(b"/usr/local/bin/node\0\0\0");
         bytes.extend_from_slice(b"claude\0");
         bytes.extend_from_slice(&[0; 40]);
-        bytes.extend_from_slice(b"HOME=/Users/a\0CLAUDE_CONFIG_DIR=/Users/a/.claude-2\0\0\0ptr_munge=1\0");
+        bytes.extend_from_slice(
+            b"HOME=/Users/a\0CLAUDE_CONFIG_DIR=/Users/a/.claude-2\0\0\0ptr_munge=1\0",
+        );
         let launch = parse_procargs2(&bytes, &["CLAUDE_CONFIG_DIR"]).unwrap();
         assert_eq!(launch.argv.first().map(String::as_str), Some("claude"));
-        assert_eq!(launch.env, [("CLAUDE_CONFIG_DIR".to_string(), "/Users/a/.claude-2".to_string())]);
+        assert_eq!(
+            launch.env,
+            [("CLAUDE_CONFIG_DIR".to_string(), "/Users/a/.claude-2".to_string())]
+        );
     }
 
     #[test]
@@ -177,8 +194,12 @@ mod tests {
 
     #[test]
     fn linux_strings_split_on_nul() {
-        assert_eq!(nul_strings(b"codex\0resume\0abc\0").collect::<Vec<_>>(), ["codex", "resume", "abc"]);
-        let env = pick_env(nul_strings(b"CODEX_HOME=/h\0CODEX_HOME=/later\0X=1\0"), &["CODEX_HOME"]);
+        assert_eq!(
+            nul_strings(b"codex\0resume\0abc\0").collect::<Vec<_>>(),
+            ["codex", "resume", "abc"]
+        );
+        let env =
+            pick_env(nul_strings(b"CODEX_HOME=/h\0CODEX_HOME=/later\0X=1\0"), &["CODEX_HOME"]);
         assert_eq!(env, [("CODEX_HOME".to_string(), "/h".to_string())]);
     }
 

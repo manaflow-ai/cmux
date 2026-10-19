@@ -114,10 +114,15 @@ impl Mux {
         if let Some(text) = record.agent.as_ref().and_then(|(harness, session_id)| {
             resume_command(harness, session_id, record.agent_launch.as_ref())
         }) {
-            let configured =
-                self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).agent_resume_runs;
-            let bypass = record.agent_launch.as_ref().is_some_and(|launch| bypasses_approvals(&launch.args));
-            let run = configured && !bypass && posix_shell(&super::launch::respawn_shell(Some(record)));
+            let configured = self
+                .surface_options
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .agent_resume_runs;
+            let bypass =
+                record.agent_launch.as_ref().is_some_and(|launch| bypasses_approvals(&launch.args));
+            let run =
+                configured && !bypass && posix_shell(&super::launch::respawn_shell(Some(record)));
             return Some(Prefill { kind: Prefilled::Harness, text, run });
         }
         if record.kind != RelaunchKind::Command {
@@ -185,7 +190,10 @@ mod tests {
 
     #[test]
     fn known_harnesses_resume_valid_sessions_only() {
-        assert_eq!(resume_command("claude", "abc-123", None).as_deref(), Some("claude --resume abc-123"));
+        assert_eq!(
+            resume_command("claude", "abc-123", None).as_deref(),
+            Some("claude --resume abc-123")
+        );
         assert_eq!(resume_command("codex", "s.1_2", None).as_deref(), Some("codex resume s.1_2"));
         assert_eq!(resume_command("claude", "abc;rm -rf", None), None);
         assert_eq!(resume_command("claude", &"a".repeat(129), None), None);
@@ -218,7 +226,8 @@ mod tests {
 
     #[test]
     fn return_follows_only_a_marked_prompt_of_a_run() {
-        let prefill = |run| Prefill { kind: Prefilled::Harness, text: "claude --resume a".into(), run };
+        let prefill =
+            |run| Prefill { kind: Prefilled::Harness, text: "claude --resume a".into(), run };
         assert_eq!(prefill(true).input(true), "claude --resume a\r");
         assert_eq!(prefill(true).input(false), "claude --resume a");
         assert_eq!(prefill(false).input(true), "claude --resume a");
@@ -229,7 +238,9 @@ mod tests {
         for shell in ["/bin/zsh", "/opt/homebrew/bin/bash", "-zsh", "sh", "/bin/dash", "ksh"] {
             assert!(posix_shell(shell), "{shell}");
         }
-        for shell in ["/opt/homebrew/bin/fish", "/bin/tcsh", "/usr/local/bin/nu", "csh", "elvish", ""] {
+        for shell in
+            ["/opt/homebrew/bin/fish", "/bin/tcsh", "/usr/local/bin/nu", "csh", "elvish", ""]
+        {
             assert!(!posix_shell(shell), "{shell}");
         }
     }

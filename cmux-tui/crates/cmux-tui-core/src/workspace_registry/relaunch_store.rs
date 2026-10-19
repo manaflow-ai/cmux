@@ -84,7 +84,8 @@ pub(crate) const ARGV_CAP: usize = 64 * 1024;
 /// Prefixes of well-known tokens (OpenAI and Anthropic `sk-`, GitHub,
 /// Slack `xox?-`). An argument or `name=value` value starting with one is
 /// never stored.
-pub(crate) const TOKEN_PREFIXES: &[&str] = &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
+pub(crate) const TOKEN_PREFIXES: &[&str] =
+    &["sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xox"];
 
 /// Shells whose argv may still be "the user's shell" with integration flags.
 const SHELLS: &[&str] = &["bash", "zsh", "fish", "nu", "elvish", "sh", "dash", "ksh", "tcsh"];
@@ -495,7 +496,8 @@ impl WorkspaceRegistry {
 fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
     let harness = agent["harness"].as_str()?;
     let args = agent.get("args")?.as_array()?;
-    let args = args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
+    let args =
+        args.iter().map(|arg| arg.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()?;
     let args = kept_agent_args(harness, &args);
     let key = account_env_key(harness)?;
     let env = agent["env"][key]
