@@ -2,6 +2,7 @@
 """Labeled PR groups in the batch queue: assembly, check union, bisect and landing."""
 from __future__ import annotations
 
+import datetime as dt
 import subprocess
 import sys
 import threading
@@ -19,6 +20,7 @@ NEW_TAB = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabPageView.swi
 AGENT_PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"
 WEBVIEW = "webviews/src/pages/markdown/links.ts"
 DOCS = "docs/ci/cmux-next-batch.md"
+NOW = dt.datetime(2026, 10, 6, 5, 0, tzinfo=dt.timezone.utc)
 
 
 def pr(number: int, **fields) -> nb.PullRequest:
@@ -56,15 +58,15 @@ class Assembly(unittest.TestCase):
         self.assertFalse(groups.reviewed(sha, [{"state": "COMMENTED", "commit": {"oid": sha}}], ["no marker"]))
 
     def test_a_members_own_red_check_does_not_keep_it_out(self):
-        member = pr(1, labels=["batch:ui"], checks=[("web / react-apps-check", "completed", "failure")],
+        member = pr(1, labels=["batch:ui"], checks=[("ci-status", "completed", "failure")],
                     files=[WEBVIEW])
-        self.assertIsNotNone(nb.ineligible_reason(member, nb.now()))
-        self.assertIsNone(nb.ineligible_reason(member, nb.now(), own_checks=False))
-        self.assertEqual(nb.ineligible_reason(pr(2, labels=["batch:ui"], draft=True), nb.now(), own_checks=False),
+        self.assertIsNotNone(nb.ineligible_reason(member, NOW))
+        self.assertIsNone(nb.ineligible_reason(member, NOW, own_checks=False))
+        self.assertEqual(nb.ineligible_reason(pr(2, labels=["batch:ui"], draft=True), NOW, own_checks=False),
                          "draft")
 
     def test_group_members_stay_out_of_the_ordinary_batch(self):
-        eligible, skipped = nb.select([pr(1, labels=["batch:ui"]), pr(2)], nb.now())
+        eligible, skipped = nb.select([pr(1, labels=["batch:ui"]), pr(2)], NOW)
         self.assertEqual([item.number for item in eligible], [2])
         self.assertIn("group batch:ui", skipped[1])
 
