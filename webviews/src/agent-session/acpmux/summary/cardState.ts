@@ -1,87 +1,130 @@
-// The summary card's place per chat (summary/SummaryCard.tsx): shown or not, and folded to its
-// header or open. This is the pane's own UI state, kept in localStorage by session id, so a chat
-// comes back as the user left it, in this pane and in a pane opened on it later.
+// The summary card's place (summary/SummaryCard.tsx): shown or not, and folded to its header or
+// open. The panel visibility preference is shared by the current pane so a responsive resize does
+// not unexpectedly reopen it.
 //
-// A chat the user has not touched yet shows the card, open, once it has subagents: they are what
-// the card follows while a turn runs. Any choice the user makes (show, hide, fold) is stored and
-// wins from then on.
-import { useCallback, useState, useSyncExternalStore } from "react";
+// A chat with summary content shows the inline card when there is room; an empty chat stays quiet
+// until the user explicitly opens the summary button. Any hide choice is stored for this pane.
+import { useCallback, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { chatColumnOf, useChatWidth } from "../chatWidth";
 
-export type SummaryCardState = { shown: boolean; collapsed: boolean };
+/// The inline summary column is only useful when the chat keeps a readable width beside it.
+export const SUMMARY_COLUMN_WIDTH = 300;
+const CHAT_MIN_WIDTH = 660;
 
-const KEY = "cmux.acpmux.summaryCard";
-/// Chats remembered; the oldest choice goes first.
-const LIMIT = 200;
+/** Keep a wider mode wider than the preceding mode when the rail is inline. */
+const inlineChatFloor = (chatWidth: Parameters<typeof chatColumnOf>[0]) =>
+  chatWidth === "standard" ? CHAT_MIN_WIDTH : chatColumnOf(chatWidth === "wide" ? "standard" : "wide").max;
 
-let choices: Map<string, SummaryCardState> | undefined;
-const listeners = new Set<() => void>();
+const PANEL_KEY = "cmux.acpmux.summaryPanel";
+let panelHidden: boolean | undefined;
+const panelListeners = new Set<() => void>();
 
-function load(): Map<string, SummaryCardState> {
-  if (choices) return choices;
-  choices = new Map();
+function readPanelHidden() {
+  if (panelHidden !== undefined) return panelHidden;
   try {
-    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(KEY) ?? "null");
-    if (value && typeof value === "object")
-      for (const [id, state] of Object.entries(value as Record<string, unknown>)) {
-        const raw = state as Partial<SummaryCardState> | null;
-        if (raw && typeof raw.shown === "boolean" && typeof raw.collapsed === "boolean")
-          choices.set(id, { shown: raw.shown, collapsed: raw.collapsed });
-      }
+    panelHidden = globalThis.localStorage?.getItem(PANEL_KEY) === "hidden";
   } catch {
-    // An unreadable value is a chat with no choice yet.
+    panelHidden = false;
   }
-  return choices;
+  return panelHidden;
 }
 
-function save(sessionId: string, state: SummaryCardState) {
-  const map = load();
-  map.delete(sessionId);
-  map.set(sessionId, state);
-  while (map.size > LIMIT) map.delete(map.keys().next().value!);
+function setPanelHidden(hidden: boolean) {
+  panelHidden = hidden;
   try {
-    globalThis.localStorage?.setItem(KEY, JSON.stringify(Object.fromEntries(map)));
+    if (hidden) globalThis.localStorage?.setItem(PANEL_KEY, "hidden");
+    else globalThis.localStorage?.removeItem(PANEL_KEY);
   } catch {
-    // Storage may be full or absent (tests, private windows): the choice holds for this page.
+    // Storage may be absent (tests, private windows): keep the in-page choice.
   }
-  for (const listener of listeners) listener();
+  for (const listener of panelListeners) listener();
 }
 
 /// Forgets every chat's choice: the gallery mounts each variant on a clean slate, as all its chats
 /// share one session id.
 export function resetSummaryCards() {
-  choices = new Map();
   try {
-    globalThis.localStorage?.removeItem(KEY);
+    globalThis.localStorage?.removeItem(PANEL_KEY);
   } catch {
     // Nothing stored.
   }
-  for (const listener of listeners) listener();
+  setPanelHidden(false);
 }
 
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+const subscribePanel = (listener: () => void) => {
+  panelListeners.add(listener);
+  const storage = (event: StorageEvent) => {
+    if (event.key !== PANEL_KEY && event.key !== null) return;
+    panelHidden = undefined;
+    listener();
+  };
+  globalThis.addEventListener?.("storage", storage);
+  return () => {
+    panelListeners.delete(listener);
+    globalThis.removeEventListener?.("storage", storage);
+  };
 };
 
-/// The card of chat `sessionId`. `hasSubagents` shows it for a chat with no stored choice. A pane
-/// with no session id yet keeps its choice in memory until it has one.
-export function useSummaryCard(sessionId: string | undefined, hasSubagents: boolean) {
-  const stored = useSyncExternalStore(subscribe, () => (sessionId ? load().get(sessionId) : undefined));
-  const [local, setLocal] = useState<SummaryCardState>();
-  const state: SummaryCardState = (sessionId ? stored : local) ?? { shown: hasSubagents, collapsed: false };
-  const { shown, collapsed } = state;
-  const set = useCallback(
-    (next: SummaryCardState) => (sessionId ? save(sessionId, next) : setLocal(next)),
-    [sessionId],
-  );
-  const toggle = useCallback(
-    () => set({ shown: !shown, collapsed: shown ? collapsed : false }),
-    [set, shown, collapsed],
-  );
-  const show = useCallback(() => set({ shown: true, collapsed: false }), [set]);
-  const close = useCallback(() => set({ shown: false, collapsed }), [set, collapsed]);
-  const fold = useCallback((next: boolean) => set({ shown: true, collapsed: next }), [set]);
-  return { shown, collapsed, toggle, show, close, fold };
+/** Whether the pane can keep a readable chat column beside the inline summary. */
+export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): boolean {
+  const [room, setRoom] = useState(false);
+  const chatWidth = useChatWidth();
+  useLayoutEffect(() => {
+    if (!shell || blocked) {
+      setRoom(false);
+      return;
+    }
+    const measure = () => {
+      const sidebar = shell.querySelector<HTMLElement>(":scope>.acpmux-sidebar");
+      const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-rail");
+      const reserved = (sidebar?.offsetWidth ?? 0) + (rail?.offsetWidth ?? 0);
+      const available = shell.clientWidth - reserved;
+      // The summary takes 300px from the same flex row as the transcript. At a width where that
+      // would erase the active mode's extra measure, keep it as a popover. The preceding mode's
+      // cap is the floor for each wider mode.
+      setRoom(available >= inlineChatFloor(chatWidth) / chatColumnOf(chatWidth).share + SUMMARY_COLUMN_WIDTH);
+    };
+    measure();
+    const frame = requestAnimationFrame(measure);
+    const observer = new ResizeObserver(measure);
+    observer.observe(shell);
+    const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-rail");
+    if (rail) observer.observe(rail);
+    const children = new MutationObserver(measure);
+    children.observe(shell, { childList: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      children.disconnect();
+    };
+  }, [shell, blocked, chatWidth]);
+  return room;
+}
+
+/** Summary state for a pane with room for an inline column or a narrow popover. */
+export function useSummaryCard(column: boolean, hasContent: boolean) {
+  const hidden = useSyncExternalStore(subscribePanel, readPanelHidden, () => false);
+  const [popover, setPopover] = useState(false);
+  const [explicit, setExplicit] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const shown = column ? !hidden && (hasContent || explicit) : popover;
+  const reserve = column && !hidden && !hasContent && !explicit;
+  const show = useCallback(() => {
+    setCollapsed(false);
+    if (column) {
+      setExplicit(true);
+      setPanelHidden(false);
+    } else setPopover(true);
+  }, [column]);
+  const close = useCallback(() => {
+    if (column) {
+      setExplicit(false);
+      setPanelHidden(true);
+    } else setPopover(false);
+  }, [column]);
+  const toggle = useCallback(() => (shown ? close() : show()), [shown, close, show]);
+  const fold = useCallback((next: boolean) => setCollapsed(next), []);
+  return { shown, column, reserve, collapsed, toggle, show, close, fold };
 }
 
 export type SummaryCardControl = ReturnType<typeof useSummaryCard>;

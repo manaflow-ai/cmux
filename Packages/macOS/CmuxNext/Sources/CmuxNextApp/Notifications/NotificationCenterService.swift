@@ -3,10 +3,12 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
+import CmuxNextFocus
 
 /// Notifications in the app (plans/cmux-next/notifications.md). The daemon
 /// owns every notification and its unread marker; this service reacts to
@@ -28,6 +30,12 @@ final class NotificationCenterService {
     /// new session, so the dismissals apply only within this one.
     var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
+    /// Bumped when a window's settled focus changes: the viewed-tab rules
+    /// (`followViewedProgramStatus`) re-read which tabs are viewed.
+    private(set) var viewedRevision: UInt64 = 0
+    /// The tabs viewed at the last viewed-tab pass: a tab marked unread
+    /// (Mark Tab Unread) clears when it comes into view, not while it stays.
+    @ObservationIgnored var viewedTabIDs: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
@@ -43,6 +51,8 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
+    /// `notifications.dockBounce`: the running bounce, ended when nothing is unread.
+    @ObservationIgnored let dockAttention = DockAttention()
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
     @ObservationIgnored var feedDriver: FeedHandoffDriver?
     /// Agent permission prompts to the person's feed, while
@@ -57,6 +67,9 @@ final class NotificationCenterService {
     /// Showcase captures seed the real daemon ledger without showing banners
     /// or prompting for system authorization at launch.
     @ObservationIgnored var desktopPostingEnabled = true
+    /// When a banner shows an agent's last message (Show Previews, like macOS) and the screen lock it reads; tests pin both.
+    @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
+    @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
@@ -84,7 +97,8 @@ final class NotificationCenterService {
         // At activation (launch, sign-in, the first install token, a daemon
         // that starts serving the capability) one pass rebuilds the queue (B3).
         tasks.append(Task {
-            for await active in ObservationStream({ driver.isActive }) where active { driver.run() }
+            // A trigger: an input change while active (a daemon restart, a new install id) rebuilds the queue again.
+            for await active in ObservationStream({ ObservationTrigger(driver.isActive) }) where active.value { driver.run() }
         })
         tasks.append(followPermissionBridge(services, principal: principal))
         desktop.onOpen = { [weak self] id, surface in
@@ -153,11 +167,12 @@ final class NotificationCenterService {
         interacted(.click, tabID: tab)
     }
 
-    /// A window's focus settled: the viewed tab counts as focused while the
-    /// window is key and cmux is active.
-    func focusDidSettle(_ state: FocusState) {
-        guard state.windowKey, state.appActive, let tab = Self.contentTab(state.resolved) else { return }
-        interacted(.focus, tabID: tab)
+    /// A window's settled focus changed (window key, app active, workspace or
+    /// keyboard target): the viewed tab counts as focused while the window is
+    /// key and cmux is active. The viewed-tab rules read it (one path for a
+    /// focus and for an unread mark that lands on a viewed tab).
+    func focusDidSettle(_ state: FocusState, in controller: WindowController) {
+        viewedRevision &+= 1
     }
 
     /// Opens the tab of `surface` (banner click) and reads it per policy.
@@ -199,12 +214,16 @@ final class NotificationCenterService {
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
         guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
+        interacted(trigger, tab: tab)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, tab: TabModel) {
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
         guard tab.hasUnread else { return }
-        guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
-        note("\(trigger.rawValue) read \(tabID)")
+        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
+        note("\(trigger.rawValue) read \(tab.id)")
         acknowledge(tab)
     }
 
@@ -263,13 +282,14 @@ final class NotificationCenterService {
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        let decision = NotificationPolicy.decide(arrival, prefs: preferences)
+        let decision = NotificationPolicy(prefs: preferences).decide(arrival)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
+            if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
         }
         if decision.acknowledge {
@@ -323,7 +343,7 @@ final class NotificationCenterService {
             let digest = program == nil ? finishedBursts.join(notification, workspace: located.workspace.id, tab: located.tab.id, clock: clock) : nil
             desktop.withdraw(digest?.replacing ?? [])
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: digest == nil ? decision.sound : nil,
-                 subtitle: digest == nil ? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,
+                 subtitle: digest == nil ? notification.shownSubtitle ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,
                  program: program, title: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
                                                                     table: "NotificationsPanel", bundle: .module) })
         }
@@ -331,6 +351,7 @@ final class NotificationCenterService {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
         }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
+        if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
@@ -342,7 +363,7 @@ final class NotificationCenterService {
         // An agent chat's permission prompt: Allow once and Deny, and what it asks as the body.
         withApproval(of: notification, tab: tab) { [weak self] approval in
             guard let self else { return }
-            self.desktop.post(id: id, title: title, subtitle: subtitle, body: approval?.summary ?? notification.body,
+            self.desktop.post(id: id, title: title, subtitle: subtitle, body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
                               reply: notification.reply && tab?.kind == .pty, approval: approval != nil)

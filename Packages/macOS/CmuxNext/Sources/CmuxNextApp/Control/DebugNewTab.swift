@@ -50,6 +50,10 @@ enum DebugNewTab {
             case "bench_open": return await DebugNewTabBench.open(params, controller, services)
             default: return await DebugNewTabBench.bang(params, controller, services)
             }
+        case "bench_create":
+            // Cmd-N / Cmd-T / Cmd-D / Cmd-Shift-D: key to visible and to confirmed (instant-new-surfaces).
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return await DebugInstantCreateBench.run(params, controller, services)
         case "frame_strip":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
             return await DebugFrameStrip.run(params, controller, services)

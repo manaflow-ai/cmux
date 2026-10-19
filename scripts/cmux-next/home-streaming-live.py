@@ -321,7 +321,11 @@ def live_frames(conversation, session):
         brain.request("conversation-live-publish", conversation=conversation,
                       frame={**frame, "conversation": conversation, "run": run})
 
-    def talk(text, step="talk:0", final=False):
+    # Step ids as the Cloud brain makes them (`talk:<generation task id>`, cx-5ylym): no number in
+    # them, and their text order is not the segment order. Home orders by the rows' Step.seq.
+    s0, s1, s2 = "talk:gen_q7", "talk:gen_c2", "talk:gen_k5"
+
+    def talk(text, step=s0, final=False):
         seq = seqs.get(step, -1) + 1
         seqs[step] = seq
         frame = {"type": "step.delta", "step": step, "kind": "talk", "seq": seq, "text": text}
@@ -342,12 +346,29 @@ def live_frames(conversation, session):
     publish({"type": "run.activity", "line": line, "since": now - 12000, "at": now})
     check("activity-line", lambda: (drive("texts").get("statusLine") or "").startswith(line + " · "))
     check("activity-row", lambda: any(r.get("key") == "notice" for r in drive("rows").get("rows", [])))
-    text = ""
-    for piece in ("Live frames reach ", "the native ", "Messages view"):
-        talk(piece)
-        text += piece
-        check(f"stream-{len(text)}", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
-    # Mid-run join: a new app process opens the conversation while the run works.
+    # Two reply segments end before the join (final frame, then the step row with the whole text,
+    # which frees the owner's live text), as a Chief that called a tool between them (cx-kdm25).
+    segments = []
+    for step, pieces in ((s0, ("Live frames reach ", "the native ", "Messages view.")),
+                         (s1, ("Ended segments ", "come from ", "the run rows."))):
+        seg = ""
+        for i, piece in enumerate(pieces):
+            talk(piece, step=step, final=i == len(pieces) - 1)
+            seg += piece
+        segments.append(seg)
+        brain.request("conversation-run-append", conversation=conversation,
+                      run={"id": run}, steps=[{"id": step, "kind": "talk", "status": "done", "text": seg}])
+        shown = "\n\n".join(segments)
+        check(f"stream-{step}", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == shown)
+    # A third segment streams when the view joins.
+    seg = ""
+    for piece in ("The open segment ", "streams on"):
+        talk(piece, step=s2)
+        seg += piece
+    text = "\n\n".join(segments + [seg])
+    check("stream-open", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
+    # Mid-run join: a new app process opens the conversation while the run works. The ended
+    # segments come from the run rows, the open one from run.live: the whole text at once.
     restart_app()
     session = ((rpc("debug.home") or {}).get("chief_owner") or {}).get("session")
     check("join-snapshot", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text, seconds=60)
@@ -355,7 +376,7 @@ def live_frames(conversation, session):
     # The bubble as it stands with the line under it, before the step's final frame.
     before = chief_bubble()
     incoming_before = len([r for r in drive("rows").get("rows", []) if r.get("kind") == "text" and not r.get("outgoing")])
-    talk(" in place.", final=True)
+    talk(" in place.", step=s2, final=True)
     text += " in place."
     check("after-join", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
     # The producer's order (spec: final frame, run end, reply), with the gap a real turn can leave
@@ -372,11 +393,17 @@ def live_frames(conversation, session):
 
     while time.time() - t0 < 0.4:
         sample("after-final")
+    rebuilds_before = drive("texts").get("rebuilds")
+    # The running reply is MessagesLab's streaming bubble (ask 11), not a message.
+    check("streaming-bubble", lambda: drive("texts").get("streams") == 1, seconds=2)
     brain.request("conversation-run-append", conversation=conversation, run={"id": run, "status": "done"})
     brain.request("conversation-op", conversation=conversation, idempotency_key=run,
                   op={"kind": "message.send", "client_msg_id": run, "parts": [{"type": "text", "text": text}]})
     while time.time() - t0 < 2.0:
         sample("reply")
+    # The reply takes the bubble's place without a whole-window rebuild (MessagesLab ask 11 hand-off).
+    check("no-rebuild-at-handoff", lambda: rebuilds_before is not None and drive("texts").get("rebuilds") == rebuilds_before
+          and drive("texts").get("streams") == 0, seconds=3)
     landed = check("reply-in-place", lambda: (chief_row() or {}).get("live") is None
                    and any(m.get("text") == text and m.get("seq") is not None for m in (chief_row() or {}).get("shown_tail", [])))
     check("line-gone", lambda: drive("texts").get("statusLine") is None)
@@ -396,11 +423,13 @@ def live_frames(conversation, session):
     settled_ok = bool(before and after) and abs(before["balloon"]["height"] - after["balloon"]["height"]) <= 0.5 \
         and incoming_after == incoming_before
     tops = [edges(f["bubble"])[1] for f in frames if f["bubble"]]
-    in_place = bool(landed) and held and settled_ok
+    # cx-06vn1: the line closes after the frame that first shows the reply (the app's display link count).
+    line_close_after_handoff_fires = drive("texts").get("lineCloseAfterHandOffFires")
+    in_place = bool(landed) and held and settled_ok and (line_close_after_handoff_fires or 0) >= 2
     result = {"checks": [{"check": c["check"], "ok": c["ok"]} for c in checks], "bubble_before": before,
               "bubble_after": after, "incoming_rows": [incoming_before, incoming_after],
               "top_range_during_handoff": [min(tops), max(tops)] if tops else None, "held_before_reply": held,
-              "line_at_handoff": line_at_handoff, "settled_ok": settled_ok, "in_place": in_place}
+              "line_at_handoff": line_at_handoff, "line_close_after_handoff_fires": line_close_after_handoff_fires, "settled_ok": settled_ok, "in_place": in_place}
     json.dump({"result": result, "checks": checks, "handoff": frames}, open(os.path.join(opts.out, "live-frames.json"), "w"), indent=1)
     print(json.dumps(result, indent=1), flush=True)
     if not all(c["ok"] for c in checks) or not in_place:
@@ -588,10 +617,17 @@ def main():
             result["handoff"] = {"before": {k: pre[-1][k] for k in ("t", "bubble_top", "bubble_bottom", "status_line")},
                                  "after": {k: post[0][k] for k in ("t", "bubble_top", "bubble_bottom", "status_line")},
                                  "settled": {k: post[-1][k] for k in ("t", "bubble_top", "bubble_bottom")}}
+    # cx-06vn1: the activity line closes on a display frame after the one that first shows the reply in the
+    # bubble's place (lineCloseAfterHandOffFires >= 2: the frame that presents the hand-off commit still has the line).
+    # Sampling the socket cannot see one frame; the app counts its display link fires from the hand-off dispatch.
+    result["line_close_after_handoff_fires"] = drive("texts").get("lineCloseAfterHandOffFires")
     json.dump(owner_events, open(os.path.join(opts.out, "owner-events.json"), "w"), indent=1)
     shutil.copy(os.path.join(MUX_HOME, "host.log"), os.path.join(opts.out, "chief-host.log")) if os.path.exists(os.path.join(MUX_HOME, "host.log")) else None
     json.dump({"result": result, "samples": samples}, open(os.path.join(opts.out, "timeline.json"), "w"), indent=1)
     print(json.dumps(result, indent=1), flush=True)
+    if (result["line_close_after_handoff_fires"] or 0) < 2:
+        sys.exit(f"FAIL: the activity line closed {result['line_close_after_handoff_fires']} display frame(s) after the reply's hand-off was dispatched; "
+                 "it must stay through the frame that first shows the reply (cx-06vn1, timeline.json)")
 
 
 if __name__ == "__main__":

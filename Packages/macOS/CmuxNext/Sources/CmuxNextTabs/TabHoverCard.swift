@@ -31,13 +31,13 @@ final class TabHoverCardController: HoverCardSource {
     /// Samples CPU and memory of the hovered tab while its card shows (first
     /// sample when it shows: a sweep across tabs samples none), never otherwise.
     let resources = ResourceCardSampler(source: nil)
-    /// Pointer rest before a tab's card opens: Chrome's tab hover card delay
-    /// (`HoverCardTiming.chromeDelay`), or `sidebar.hoverCards.delay`; read on
+    /// Pointer rest before a tab's card opens: `HoverCardTiming.showDelay`,
+    /// or `sidebar.hoverCards.delay`; read on
     /// each hover so a Settings change applies at once. Every tab waits the
     /// same, as a sidebar row does (no width scaling, cx-23e1f).
     var delay: Duration { DesignSettings.shared.hoverCardDelay }
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
-    /// and another tab reached within Chrome's reshow window shows its card at once.
+    /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
@@ -104,7 +104,7 @@ final class TabHoverCardController: HoverCardSource {
 
     /// This strip's tab or chip whose card shows now.
     var shownID: TabID? {
-        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), strip?.hoverContent(for: tab) != nil else { return nil }
+        guard let id = coordinator.machine.shownTarget?.id, let tab = tabID(id), content(for: tab) != nil else { return nil }
         return tab
     }
     var isVisible: Bool { shownID != nil }
@@ -115,7 +115,7 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let strip, let window = strip.window,
-              let target = strip.hoverCardTarget(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
+              let target = self.target(at: strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
@@ -133,11 +133,11 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
         guard let tab = tabID(id) else { return nil }
-        return strip?.hoverCardAnchor(for: tab)
+        return anchor(forTab: tab)
     }
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
-        guard let strip, let tab = tabID(id), let content = strip.hoverContent(for: tab) else { return nil }
+        guard let strip, let tab = tabID(id), let content = self.content(for: tab) else { return nil }
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)

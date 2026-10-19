@@ -23,12 +23,14 @@ import CmuxNextWakeups
 /// Takes and returns `JSONSerialization` object graphs.
 public struct MotionDebug {
     public init() {}
+    /// Samplers other modules add for `trace_*` (the layout's pane hosts), after the caller's.
+    @MainActor public static var registeredSamplers: [@MainActor (NSView) -> [String: [Any]]?] = []
     /// `samplers` read the animated geometry of the views they know (DEBUG builds: ``MotionFrameTrace``).
     public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = []) -> [String: Any] {
         let action = params["action"] as? String ?? "read"
         #if DEBUG
         if action.hasPrefix("trace_") {
-            return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers)
+            return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers + registeredSamplers)
         }
         #endif
         switch action {

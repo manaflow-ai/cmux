@@ -40,6 +40,12 @@ struct HomeLiveBook {
         var isTalk: Bool
         var seq: UInt64
         var text: String
+        /// Seeded from the step's row (a join): its frames' numbering is unknown, so a later
+        /// frame other than seq 0 asks for the snapshot instead of appending.
+        var fromRow = false
+        /// Its place in the run: the owner's `Step.seq` from its row (set once, kept on change; local
+        /// and Cloud brains alike, TRAJECTORIES.md). Nil until a row came: after every placed step.
+        var place: UInt64?
     }
 
     struct Run: Equatable {
@@ -91,14 +97,16 @@ struct HomeLiveBook {
                 let old = runs[key]
                 var run = Run(activity: entry.activity, touched: touch())
                 run.done = old?.done ?? []
-                // Ended steps the owner freed keep the text this client holds, in their order.
-                for id in old?.order ?? [] where run.done.contains(id) {
+                // Ended steps the owner freed, and steps seeded from rows, keep the text this client holds.
+                let listed = Set(entry.steps.map(\.step))
+                for id in old?.order ?? [] where run.done.contains(id) || (old?.steps[id]?.fromRow == true && !listed.contains(id)) {
                     guard let kept = old?.steps[id] else { continue }
                     run.steps[id] = kept
                     run.order.append(id)
                 }
                 for step in entry.steps where !run.done.contains(step.step) {
-                    let fresh = Step(isTalk: step.isTalk, seq: step.seq, text: Self.capped(step.text))
+                    var fresh = Step(isTalk: step.isTalk, seq: step.seq, text: Self.capped(step.text))
+                    fresh.place = old?.steps[step.step]?.place ?? step.place
                     if let held = old?.steps[step.step], held.seq >= step.seq, held.text.hasPrefix(fresh.text) {
                         run.steps[step.step] = held // an older answer than the deltas this client applied
                     } else {
@@ -110,6 +118,28 @@ struct HomeLiveBook {
             }
             guard next != runs else { return .ignored }
             runs = next
+            return .changed
+        case .rows(let conversation, let author, let run, let rows):
+            // A talk step the run does not hold (not in run.live, no delta seen) with a row: it ended
+            // before this client joined (the owner freed it), or it streams but its first frame has
+            // not come yet (a Chief writes open rows too). Its row is its text so far; it stays open:
+            // a seq-0 frame replaces it, a later frame asks for the snapshot (cx-kdm25).
+            let key = Key(conversation: conversation, author: author, run: run)
+            guard !ended.contains(key), var live = runs[key] else { return .ignored }
+            var changed = false
+            for row in rows where row.isTalk {
+                // A step this client holds takes its place from its row (cx-5ylym).
+                if var held = live.steps[row.step] {
+                    if let place = row.place, held.place != place { held.place = place; live.steps[row.step] = held; changed = true }
+                    continue
+                }
+                guard !live.done.contains(row.step), !row.text.isEmpty else { continue }
+                live.steps[row.step] = Step(isTalk: true, seq: 0, text: Self.capped(row.text), fromRow: true, place: row.place)
+                live.order.append(row.step)
+                changed = true
+            }
+            guard changed else { return .ignored }
+            runs[key] = live
             return .changed
         case .run(let change):
             let key = Key(conversation: change.conversation, author: change.author, run: change.run)
@@ -141,9 +171,12 @@ struct HomeLiveBook {
         var run = runs[key] ?? Run()
         guard !run.done.contains(delta.step) else { return .ignored }
         if var step = run.steps[delta.step] {
+            if step.fromRow, delta.seq > 0 {
+                return .resync // a row's text has no frame number: the snapshot has this step
+            }
             if delta.seq == 0 {
                 // A retried model request restarts the step (the owner also sends run.live).
-                step = Step(isTalk: delta.isTalk, seq: 0, text: Self.capped(delta.text))
+                step = Step(isTalk: delta.isTalk, seq: 0, text: Self.capped(delta.text), place: step.place)
             } else if delta.seq <= step.seq {
                 return .ignored
             } else if delta.seq == step.seq + 1 {
@@ -214,7 +247,7 @@ struct HomeLiveBook {
         return best.mapValues { pair in
             let (key, run) = pair
             let talk = run.order.enumerated().filter { run.steps[$0.element]?.isTalk == true }
-                .sorted { (Self.segment($0.element), $0.offset) < (Self.segment($1.element), $1.offset) }
+                .sorted { (Self.place(run.steps[$0.element]), $0.offset) < (Self.place(run.steps[$1.element]), $1.offset) }
                 .compactMap { run.steps[$0.element]?.text }
                 .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             return HomeLiveRun(participant: key.author, run: key.run, turn: turn(of: key),
@@ -227,11 +260,9 @@ struct HomeLiveBook {
         return tick
     }
 
-    /// `talk:3` -> 3; other ids after every numbered one, in begin order (a stable sort).
-    private static func segment(_ step: String) -> Int {
-        guard step.hasPrefix("talk:"), let n = Int(step.dropFirst(5)) else { return Int.max }
-        return n
-    }
+    /// A step's sort key: its owner-set place (`Step.seq`); a step with no row yet after every placed
+    /// one, in begin order (cx-5ylym: never parse the id; Cloud ids are `talk:<generation task id>`).
+    private static func place(_ step: Step?) -> UInt64 { step?.place ?? .max }
 
     static func capped(_ text: String) -> String {
         let units = text.utf16

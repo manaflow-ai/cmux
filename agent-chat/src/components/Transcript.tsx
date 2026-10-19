@@ -1,5 +1,5 @@
 import { Popover } from "@base-ui-components/react/popover";
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
 import { agentChatText } from "../i18n";
@@ -10,7 +10,7 @@ import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
 import { useVirtualTurns } from "../hooks/useVirtualTurns";
 import { Check, Chevron, CopyIcon, EllipsisIcon, PinwheelSpinner } from "./icons";
 import { HintTooltip } from "./Tooltips";
-import { activityRowLabel, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
+import { activityRowLabel, compactTurnGroups, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
 
 export type ToolBlockVariant = "card" | "inline" | "rail" | "oneliner" | "terminal";
 export const TOOL_BLOCK_VARIANT: ToolBlockVariant = "inline";
@@ -936,6 +936,16 @@ function TurnGroupView({
   );
 }
 
+function PreviousMessagesDisclosure({ count, expanded, onToggle }: { count: number; expanded: boolean; onToggle: () => void }) {
+  const label = agentChatText("previousMessages").replace("{count}", String(count));
+  return (
+    <button type="button" className="turn-history-disclosure" aria-expanded={expanded} aria-label={label} onClick={onToggle}>
+      <span>{label}</span>
+      <span className="turn-history-chevron" aria-hidden="true"><Chevron /></span>
+    </button>
+  );
+}
+
 export function Blocks({
   blocks,
   status,
@@ -969,15 +979,30 @@ export function Blocks({
   const activityKey = `${status}:${activity.label}:${activityTailKey(blocks)}`;
   const activityStartedAt = useActivityStartedAt(activity.show, activityKey);
   const groups = useMemo(() => groupTurns(blocks, status), [blocks, status]);
-  const virtualized = groups.length > 24;
-  const virtual = useVirtualTurns(groups.length, virtualized);
+  const history = useMemo(() => compactTurnGroups(groups), [groups]);
+  const canFoldHistory = history.folded.length > 0;
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const displayGroups = canFoldHistory && !historyExpanded ? history.visible : groups;
+  const virtualized = historyExpanded && displayGroups.length > 24;
+  const virtual = useVirtualTurns(displayGroups.length, virtualized);
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>(() => initialExpandedTurns);
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>(() => initialExpandedItems);
+  useEffect(() => {
+    if (blocks.length !== 0) return;
+    setHistoryExpanded(false);
+    setExpandedTurns({});
+    setExpandedItems({});
+  }, [blocks.length]);
   const start = virtualized ? virtual.range.start : 0;
-  const end = virtualized ? virtual.range.end : groups.length - 1;
-  const visible = groups.slice(start, end + 1);
+  const end = virtualized ? virtual.range.end : displayGroups.length - 1;
+  const visible = displayGroups.slice(start, end + 1);
   return (
     <div className="turn-list" ref={virtual.rootRef} data-virtualized={virtualized ? "true" : undefined}>
+      {canFoldHistory ? (
+        <DisclosureMotion open={!historyExpanded} className="turn-history-disclosure-motion">
+          {() => <PreviousMessagesDisclosure count={history.folded.length} expanded={historyExpanded} onToggle={() => setHistoryExpanded(true)} />}
+        </DisclosureMotion>
+      ) : null}
       {virtualized ? <div style={{ height: virtual.range.top }} /> : null}
       {visible.map((group, offset) => {
         const index = start + offset;
@@ -1003,6 +1028,7 @@ export function Blocks({
         );
       })}
       {virtualized ? <div style={{ height: virtual.range.bottom }} /> : null}
+      {canFoldHistory && historyExpanded ? <button type="button" className="turn-history-collapse" onClick={() => setHistoryExpanded(false)}>{agentChatText("hideOlderMessages")}</button> : null}
       {activity.show ? <ActivityIndicatorBlock key={activityKey} label={activity.label} startedAt={activityStartedAt} /> : null}
     </div>
   );

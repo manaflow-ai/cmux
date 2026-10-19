@@ -15,7 +15,7 @@ use crate::server::*;
 const WAIT: Duration = Duration::from_secs(5);
 
 /// One connection served by the line loop on a private socket.
-pub(super) struct Client {
+pub(in crate::server) struct Client {
     writer: Box<dyn transport::Stream>,
     reader: BufReader<Box<dyn transport::Stream>>,
     events: VecDeque<Value>,
@@ -25,7 +25,7 @@ pub(super) struct Client {
 }
 
 impl Client {
-    pub(super) fn connect(mux: &Arc<Mux>, label: &str) -> Self {
+    pub(in crate::server) fn connect(mux: &Arc<Mux>, label: &str) -> Self {
         Self::connect_with(mux, label, ClientTransport::Unix)
     }
 
@@ -86,7 +86,7 @@ impl Client {
     }
 
     /// Sends `value` with a fresh numeric id and returns its reply.
-    pub(super) fn request(&mut self, mut value: Value) -> Value {
+    pub(in crate::server) fn request(&mut self, mut value: Value) -> Value {
         let id = self.next_id;
         self.next_id += 1;
         // cmux.protocol/2 ids are strings; raw command ids are numbers.
@@ -103,6 +103,29 @@ impl Client {
                 return line;
             }
         }
+    }
+
+    /// The next event `wanted` accepts within `wait`; the other events
+    /// stay queued in arrival order. None: none came.
+    pub(in crate::server) fn event_within(
+        &mut self,
+        wait: Duration,
+        wanted: impl Fn(&Value) -> bool,
+    ) -> Option<Value> {
+        if let Some(at) = self.events.iter().position(&wanted) {
+            return self.events.remove(at);
+        }
+        let deadline = Instant::now() + wait;
+        while let Some(line) = self.read_line(deadline) {
+            if line.get("event").is_none() {
+                continue;
+            }
+            if wanted(&line) {
+                return Some(line);
+            }
+            self.events.push_back(line);
+        }
+        None
     }
 
     pub(super) fn hello(&mut self, params: Value) -> Value {

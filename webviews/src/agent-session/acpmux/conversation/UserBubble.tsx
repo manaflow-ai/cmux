@@ -125,16 +125,42 @@ function SentImage({ image }: { image: PromptImage }) {
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
   const [src, setSrc] = useState<string>();
+  const [state, setState] = useState<"loading" | "ready" | "missing">(() => (promptImage ? "loading" : "missing"));
   useEffect(() => {
     let live = true;
-    void promptImage?.(image.id).then((url) => live && setSrc(url));
+    setSrc(undefined);
+    if (!promptImage) {
+      setState("missing");
+      return;
+    }
+    setState("loading");
+    void promptImage(image.id).then(
+      (url) => {
+        if (!live) return;
+        if (url) {
+          setSrc(url);
+          setState("ready");
+        } else setState("missing");
+      },
+      () => {
+        // Attachment reads can fail after a reconnect or session switch. Clear the reserved
+        // slot and treat it like a missing attachment; never leave an unhandled rejection or
+        // stale thumbnail from the previous image id on screen.
+        if (!live) return;
+        setSrc(undefined);
+        setState("missing");
+      },
+    );
     return () => {
       live = false;
     };
   }, [promptImage, image.id]);
-  if (!src) return null;
+  // Keep the thumbnail's 72px row slot while the host reads the attachment. Without this,
+  // the sent-image band appears after the transcript row has already been placed and pushes
+  // the prompt and everything below it down by a frame. A missing image keeps the old behavior.
+  if (!src) return state === "loading" ? <span className="cv-user__image-placeholder" aria-hidden="true" /> : null;
   const alt = image.name ?? "";
-  const thumbnail = <img src={src} alt={alt} decoding="async" />;
+  const thumbnail = <img className="cv-user__image cv-enter" src={src} alt={alt} decoding="async" />;
   if (!openImage) return thumbnail;
   return (
     <button type="button" aria-label={alt || t("image.view")} onClick={() => openImage(src, alt)}>

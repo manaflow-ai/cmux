@@ -96,6 +96,17 @@ per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` add
 a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
 mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
 
+A connection proven a peer (the peer token above) reads this daemon's session summaries with
+their text masked (`src/server/peer_text.rs`): a token pasted into a prompt shows as
+`[GitHub Personal Access Token]` in the title, the prompts (running and queued), the preview, the
+last message and the last turn's error, in an ACP `session/list` entry's title, and in a chat's
+title and preview; a field past 16384 characters is cut. Every peer is masked: the peer token is
+shared by all of them, so none can be told apart to trust. A peer may not rewrite a queued prompt
+that holds a secret (it may still move, send or remove it). The unix socket, the app and the dashboard keep the raw text, and so does a peer
+daemon served as Web (its peer token withheld over plain `ws://`). Only those summary fields are
+masked: a session's updates, events, history, chat transcripts and tool output still reach a peer
+raw.
+
 ## CLI
 
 Five everyday commands, three groups for the rest:
@@ -164,7 +175,13 @@ Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSIO
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
 session and siblings. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
-`turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A
+`turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
+connection error cut off ("stream disconnected", a refused or reset connection, a 502/503/504)
+goes on by itself: after `autoResumeDelaysMs` (default 10 s, 1 min, 5 min, 20 min; `[]` turns it
+off) the chat gets one prompt telling the agent to check what finished and continue, with prompt
+id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
+anything else run in it meanwhile cancels it, and a continuation that completes resumes the
+prompts the cut turn held (`hub/auto_resume.rs`). A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
@@ -898,6 +915,7 @@ Extensions:
 | `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv` and `listen`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
+| `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |

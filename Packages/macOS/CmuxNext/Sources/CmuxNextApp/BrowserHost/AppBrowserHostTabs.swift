@@ -72,7 +72,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
                 targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: entry.workspace.id,
                 profile: (page?.profileID ?? cache.browserProfile?(tab.id) ?? .default).rawValue.uuidString,
                 url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1)
+                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
         }
     }
 
@@ -209,6 +209,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
         guard !browserTabs.isIncognitoPane(pane) else { throw .noPane }
         return pane
+    }
+
+    /// A hibernated tab a WebKit session calls is restored in the background
+    /// and awaited (``AppBrowserPage/awakePage(_:page:cache:within:)``).
+    func wakeIfHibernated(_ targetID: String) async {
+        guard let services, isDrivable(targetID), let page = services.cache.existingBrowser(targetID)?.tab,
+              page.engineKind == .webkit else { return }
+        services.cache.hibernation?.noteAgentUse(targetID)
+        _ = await AppBrowserPage.awakePage(targetID, page: page, cache: services.cache, within: AppBrowserPage.actionWait)
     }
 
     /// A WebKit tab no pane shows moves its chrome into an off-screen render

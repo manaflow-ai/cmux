@@ -321,6 +321,21 @@ Whether the sidebar groups workspaces by computer.
 
 Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.groupByComputer true`.
 
+## `workspaces.autoName`
+
+Whether a workspace you have not named takes its name from its front tab (the selected tab of its most recently focused pane).
+
+```json
+{
+  "workspaces": { "autoName": true }
+}
+```
+
+- `true` (default): while a workspace keeps the name cmux gave it (`workspace-N`) and has no title, its sidebar row shows a name from its front tab. A browser tab gives its page's title, an agent chat gives its chat's title (a chat with no title yet gives nothing), and a terminal gives its title, or its folder's name while the title is only the shell's name (`zsh`, `bash`, `fish` and the like). A tab you renamed gives the name you gave it. The row follows the front tab as it changes.
+- `false`: the row shows the workspace's own name.
+
+A name you give the workspace always wins: once you rename it (from the sidebar, the palette, the menu or `cmux workspace rename`), it keeps your name. This is not the classic app's `automation.workspaceAutoNaming`, which asks an agent to summarize the conversation. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.autoName false`.
+
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 
 How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.
@@ -733,6 +748,28 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.
+
+## `agents.remoteChains.claudeKeychainLogin`
+
+A remote chain is an agent session that a paired device or a peer starts on this Mac. Its
+Claude Code runs in the remote chain sandbox, which cannot open the macOS keychain. When this
+setting is `true`, acpmux reads this Mac's Claude login (the keychain item
+`Claude Code-credentials`) for each remote chain spawn and gives its access token to that Claude
+Code by env. The default is `false`: a remote party never causes a keychain read. Then a remote
+chain's Claude Code signs in only with a credential in its harness profile env (for example a
+long-lived `claude setup-token` token as `CLAUDE_CODE_OAUTH_TOKEN`) or the login shell; without
+one, it reports that it is not logged in.
+
+```json
+{
+  "agents": {
+    "remoteChains": { "claudeKeychainLogin": true }
+  }
+}
+```
+
+acpmux reads the key at each spawn. Only the value `true` turns it on; a settings file that
+cannot be read keeps it off.
 
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
