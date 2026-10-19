@@ -32,6 +32,9 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
+    /// hooks `cmux agent hook` installs; nil in tests without an app.
+    var integrations: SettingsAgentIntegrations?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -122,6 +125,12 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.run":
             guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
             return try await harnessesRun(params)
+        case "cmux.settings.integrations.state":
+            guard let integrations else { throw PageError(code: "cmux.page.unavailable", message: "no agent integrations") }
+            return integrations.state
+        case "cmux.settings.integrations.run":
+            guard let integrations else { throw PageError(code: "cmux.page.unavailable", message: "no agent integrations") }
+            return try await integrations.run(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
