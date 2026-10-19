@@ -36731,6 +36731,7 @@ const createCMUXSessionRestore = async (ctx) => {
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":
+          markSessionParent(event, props);
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
             dropSession(sessionIdFor(event));
