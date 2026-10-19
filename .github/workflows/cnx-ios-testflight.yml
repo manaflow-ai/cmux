@@ -111,6 +111,22 @@ jobs:
           # The script picks the identity the profile authorizes by SHA-1.
           security find-identity -v -p codesigning "$keychain" | sed -E 's/[0-9A-F]{40}/<sha1>/'
 
+      - name: Pick the cmux INTERNAL profile that authorizes CI's certificate
+        env:
+          IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
+        run: |
+          set -euo pipefail
+          # The ios/ INTERNAL lane signs with this profile; "cmux Internal
+          # Distribution" does not list CI's distribution certificate. The
+          # script fetches the profile by name from App Store Connect.
+          [ -n "${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64:-}" ] || { echo "no internal profile secret; using the default profile"; exit 0; }
+          profile="$RUNNER_TEMP/internal.mobileprovision"
+          printf '%s' "$IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64" | base64 --decode > "$profile"
+          name="$(security cms -D -i "$profile" | plutil -extract Name raw -)"
+          rm -f "$profile"
+          echo "profile: $name"
+          echo "CNX_PROFILE_NAME=$name" >> "$GITHUB_ENV"
+
       - name: Archive, export, verify, validate
         env:
           CNX_CI_ASC: "1"
