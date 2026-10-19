@@ -279,6 +279,12 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
+        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+            drop(guard);
+            return Err(e);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -287,15 +293,6 @@ impl Hub {
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        *session.turn.lock().unwrap() = Some(TurnInfo {
-            started_at: now_ms(),
-            client: client.to_owned(),
-            prompt_preview: short_text(&text, 200),
-            turn_id: turn_id.clone(),
-            prompt_id: prompt_id.clone(),
-            turn_seq: 0,
-            control,
-        });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
