@@ -496,7 +496,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 // Chief's typing is the live status line (one indicator, not
                 // also the transcript's typing bubble); anyone else's is the store's.
                 if who == identity.chiefID {
-                    updateLive(live.typing(on))
+                    updateLive(live.typing(on, author: who))
                 } else {
                     continuation?.yield(.typing(participantID: who, isTyping: on))
                 }
@@ -657,6 +657,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             if outcome != .ignored { liveFeed.update(live.current) }
         }
 
+        /// A new socket starts empty: the owner's `run.live` brings back the
+        /// runs that are live, but not a wait for a run that has not begun.
         private func resetLive() {
             live = ChiefLiveState(conversation: conversationID)
             liveResyncPending = false

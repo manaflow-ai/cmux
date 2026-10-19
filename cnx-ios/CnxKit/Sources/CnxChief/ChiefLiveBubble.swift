@@ -19,6 +19,8 @@ import UIKit
 /// `ConversationStore`: the shared package has no ephemeral row.
 struct ChiefLiveBubble: View {
     let session: ChiefSession
+    /// Where the status line and details are, for the screen's hit test.
+    var hitArea: ChiefLiveHitArea?
     @State private var expanded = false
 
     var body: some View {
@@ -38,13 +40,17 @@ struct ChiefLiveBubble: View {
                         .transition(.opacity)
                         .accessibilityIdentifier("chief.live.reply")
                 }
-                ChiefLiveStatusLine(live: live, expanded: expanded, canExpand: !live.details.isEmpty) {
-                    expanded.toggle()
+                VStack(alignment: .leading, spacing: 6) {
+                    ChiefLiveStatusLine(live: live, expanded: expanded, canExpand: !live.details.isEmpty) {
+                        expanded.toggle()
+                    }
+                    if expanded, !live.details.isEmpty {
+                        ChiefLiveDetails(details: live.details)
+                            .transition(.opacity)
+                    }
                 }
-                if expanded, !live.details.isEmpty {
-                    ChiefLiveDetails(details: live.details)
-                        .transition(.opacity)
-                }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { hitArea?.rect = $0 }
+                .onDisappear { hitArea?.rect = .null }
             }
         }
         .frame(maxWidth: 328, alignment: .leading)
@@ -190,7 +196,8 @@ struct ChiefShimmerText: View {
             label
         } else {
             TimelineView(.animation) { context in
-                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+                // -0.25...1.25: the band enters and leaves fully off the text.
+                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6 * 1.5 - 0.25
                 label.overlay {
                     LinearGradient(
                         stops: [
@@ -229,6 +236,32 @@ struct ChiefTypingDots: View {
         }
         .accessibilityHidden(true)
         .accessibilityIdentifier("chief.live.typing")
+    }
+}
+/// The window frame of the live status line and its details (the only
+/// part of the overlay that takes touches).
+@MainActor
+final class ChiefLiveHitArea {
+    var rect: CGRect = .null
+}
+
+/// Holds the live overlay: touches inside ``ChiefLiveHitArea`` reach it,
+/// all others fall through to the transcript under it.
+final class ChiefLivePassthroughView: UIView {
+    let hitArea: ChiefLiveHitArea
+
+    init(hitArea: ChiefLiveHitArea) {
+        self.hitArea = hitArea
+        super.init(frame: .zero)
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard !hitArea.rect.isNull else { return false }
+        return hitArea.rect.insetBy(dx: -4, dy: -6).contains(convert(point, to: nil))
     }
 }
 #endif

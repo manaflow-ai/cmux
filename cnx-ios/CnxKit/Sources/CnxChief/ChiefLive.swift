@@ -264,20 +264,29 @@ struct ChiefLiveState {
     /// This phone's message (at `seq`) was committed: Chief's answer is on its way.
     mutating func sent(seq: Int?) -> Outcome {
         if let seq, chiefSeq > seq { return .ignored }
+        // A second send while waiting: only a Chief message after it ends the wait.
+        awaitingAfter = max(awaitingAfter, seq ?? chiefSeq)
         guard !awaiting else { return .ignored }
         awaiting = true
-        awaitingAfter = seq ?? chiefSeq
         return .changed
     }
 
-    /// `conversation-typing` from Chief.
-    mutating func typing(_ on: Bool) -> Outcome {
+    /// `conversation-typing` from Chief (`author`). The brain says typing
+    /// off only when a turn finishes, so off also ends that Chief's runs: a
+    /// lost terminal `conversation-run-changed` cannot leave the line on.
+    mutating func typing(_ on: Bool, author: String) -> Outcome {
         if on {
             return sent(seq: nil)
         }
-        // Off ends the wait only; a running run stays live.
-        guard awaiting else { return .ignored }
+        let prefix = "\(author)\u{0}"
+        let finished = runs.keys.filter { $0.hasPrefix(prefix) }
+        guard awaiting || !finished.isEmpty else { return .ignored }
         awaiting = false
+        for key in finished {
+            runs[key] = nil
+            ended.append(key)
+        }
+        if ended.count > 256 { ended.removeFirst(ended.count - 256) }
         return .changed
     }
 

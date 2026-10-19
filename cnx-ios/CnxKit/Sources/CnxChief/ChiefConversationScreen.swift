@@ -202,30 +202,39 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     // MARK: Chief's streaming reply
 
-    /// The streaming reply bubble and activity line (``ChiefLiveBubble``),
-    /// over the end of the transcript. It takes no touches, so the
-    /// transcript under it scrolls as usual.
+    /// The streaming reply bubble and status line (``ChiefLiveBubble``),
+    /// over the end of the transcript. Only the status line and its details
+    /// take touches (``ChiefLiveHitArea``); everywhere else the transcript
+    /// under it scrolls and takes long-presses as usual.
+    private let liveHitArea = ChiefLiveHitArea()
     private lazy var liveBubble: UIHostingController<ChiefLiveBubble> = {
-        let host = UIHostingController(rootView: ChiefLiveBubble(session: session))
+        let host = UIHostingController(rootView: ChiefLiveBubble(session: session, hitArea: liveHitArea))
         host.view.backgroundColor = .clear
-        // The status line takes a tap (details); the view is only as wide
-        // as what it draws, so the transcript beside it still scrolls.
         host.sizingOptions = .intrinsicContentSize
         host.view.translatesAutoresizingMaskIntoConstraints = false
         return host
+    }()
+    private lazy var liveBubbleContainer: ChiefLivePassthroughView = {
+        let container = ChiefLivePassthroughView(hitArea: liveHitArea)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        return container
     }()
     /// The bubble's bottom: on the composer once it is found, else the safe area.
     private var liveBubbleBottom: NSLayoutConstraint?
     private var liveBubbleOnComposer = false
 
     private func installLiveBubble() {
+        view.addSubview(liveBubbleContainer)
         addChild(liveBubble)
-        view.addSubview(liveBubble.view)
+        liveBubbleContainer.addSubview(liveBubble.view)
         liveBubble.didMove(toParent: self)
         NSLayoutConstraint.activate([
-            liveBubble.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            liveBubble.view.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor),
-            liveBubble.view.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            liveBubbleContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            liveBubbleContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            liveBubble.view.leadingAnchor.constraint(equalTo: liveBubbleContainer.leadingAnchor),
+            liveBubble.view.trailingAnchor.constraint(equalTo: liveBubbleContainer.trailingAnchor),
+            liveBubble.view.topAnchor.constraint(equalTo: liveBubbleContainer.topAnchor),
+            liveBubble.view.bottomAnchor.constraint(equalTo: liveBubbleContainer.bottomAnchor),
         ])
         anchorLiveBubble()
     }
@@ -238,10 +247,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         let field = conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" }
         let bottom: NSLayoutConstraint
         if let field {
-            bottom = liveBubble.view.bottomAnchor.constraint(equalTo: field.topAnchor, constant: -18)
+            bottom = liveBubbleContainer.bottomAnchor.constraint(equalTo: field.topAnchor, constant: -18)
             liveBubbleOnComposer = true
         } else if liveBubbleBottom == nil {
-            bottom = liveBubble.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -72)
+            bottom = liveBubbleContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -72)
         } else {
             return
         }
