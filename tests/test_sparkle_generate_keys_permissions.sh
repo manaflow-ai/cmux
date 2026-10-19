@@ -15,24 +15,52 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 cat > "$FAKE_BIN/git" <<'GIT'
 #!/usr/bin/env bash
-set -euo pipefail
-[ "${1:-}" = clone ] || exit 2
-mkdir -p "${@: -1}"
+echo "unverified source clone must not run" >&2
+exit 97
 GIT
 
 cat > "$FAKE_BIN/xcodebuild" <<'XCODEBUILD'
 #!/usr/bin/env bash
+echo "source-built key tool must not run" >&2
+exit 98
+XCODEBUILD
+
+cat > "$FAKE_BIN/curl" <<'CURL'
+#!/usr/bin/env bash
 set -euo pipefail
-derived=""
+out=""
+url=""
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = -derivedDataPath ]; then derived="$2"; shift; fi
+  case "$1" in
+    -o) out="$2"; shift ;;
+    https://*) url="$1" ;;
+  esac
   shift
 done
-[ -n "$derived" ] || exit 2
-mkdir -p "$derived/Build/Products/Release"
-cp "$CMUX_TEST_GENERATE_KEYS" "$derived/Build/Products/Release/generate_keys"
-chmod +x "$derived/Build/Products/Release/generate_keys"
-XCODEBUILD
+[ "$url" = "https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz" ]
+[ -n "$out" ]
+printf '%s' fixture-tarball > "$out"
+echo download >> "$CMUX_TEST_PINNED_CALLS"
+CURL
+
+cat > "$FAKE_BIN/shasum" <<'SHASUM'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = -a ] && [ "$2" = 256 ] && [ "$(cat "$3")" = fixture-tarball ]
+echo checksum >> "$CMUX_TEST_PINNED_CALLS"
+printf '%s  %s\n' "${CMUX_TEST_PINNED_SHA:-5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be}" "$3"
+SHASUM
+
+cat > "$FAKE_BIN/tar" <<'TAR'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = -xf ] && [ "$3" = -C ] && [ "$5" = ./bin ]
+[ "$(cat "$2")" = fixture-tarball ]
+mkdir -p "$4/bin"
+cp "$CMUX_TEST_GENERATE_KEYS" "$4/bin/generate_keys"
+chmod +x "$4/bin/generate_keys"
+echo extract >> "$CMUX_TEST_PINNED_CALLS"
+TAR
 
 cat > "$FAKE_TOOLS/generate_keys" <<'GENERATE_KEYS'
 #!/usr/bin/env bash
@@ -57,10 +85,14 @@ mode_of() {
 run_case() {
   local target="$1"
   local expect_keep="$2"
+  : > "$TMP_DIR/pinned-calls"
   PATH="$FAKE_BIN:$PATH" \
     CMUX_TEST_GENERATE_KEYS="$FAKE_TOOLS/generate_keys" \
+    CMUX_TEST_PINNED_CALLS="$TMP_DIR/pinned-calls" \
     SPARKLE_ENV_FILE="$target" \
     "$SCRIPT" >/dev/null
+  [ "$(paste -sd, "$TMP_DIR/pinned-calls")" = download,checksum,extract ] \
+    || fail "Sparkle tools were not downloaded, verified, then extracted"
   [ "$(mode_of "$target")" = 600 ] || fail "$target mode is $(mode_of "$target"), expected 600"
   if [ "$expect_keep" = yes ]; then
     grep -qx 'KEEP_ME=yes' "$target" || fail "$target did not preserve unrelated settings"
@@ -79,4 +111,18 @@ printf '%s\n' 'KEEP_ME=yes' 'SPARKLE_PUBLIC_KEY=old' 'SPARKLE_PRIVATE_KEY=old' >
 chmod 644 "$existing_target"
 run_case "$existing_target" yes
 
-echo "PASS: Sparkle key export files are mode 600"
+bad_target="$TMP_DIR/bad.env"
+: > "$TMP_DIR/pinned-calls"
+if PATH="$FAKE_BIN:$PATH" \
+  CMUX_TEST_GENERATE_KEYS="$FAKE_TOOLS/generate_keys" \
+  CMUX_TEST_PINNED_CALLS="$TMP_DIR/pinned-calls" \
+  CMUX_TEST_PINNED_SHA=bad \
+  SPARKLE_ENV_FILE="$bad_target" \
+  "$SCRIPT" >/dev/null 2>&1; then
+  fail "a mismatched Sparkle tools checksum was accepted"
+fi
+[ "$(paste -sd, "$TMP_DIR/pinned-calls")" = download,checksum ] \
+  || fail "the mismatched tarball was extracted or executed"
+[ ! -e "$bad_target" ] || fail "a key file was written after a checksum mismatch"
+
+echo "PASS: Sparkle key generation uses pinned tools and writes mode-600 exports"
