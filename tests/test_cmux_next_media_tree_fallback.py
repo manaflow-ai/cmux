@@ -72,31 +72,31 @@ class TreeFallbackTest(unittest.TestCase):
         return dict(line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line)
 
     def test_unpublished_base_and_unchanged_head_share_the_newest_published_tree(self) -> None:
-        checkout(self.base, "B" * 40, resolved("P" * 40, 2))
-        checkout(self.workspace, "B" * 40)
+        checkout(self.base, "b" * 40, resolved("c" * 40, 2))
+        checkout(self.workspace, "b" * 40)
         env = self.run_step()
-        self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "P" * 40)
-        self.assertEqual(env.get("HEAD_TUI_TREE_KEY"), "P" * 40)
+        self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "c" * 40)
+        self.assertEqual(env.get("HEAD_TUI_TREE_KEY"), "c" * 40)
 
     def test_a_head_that_changes_cmux_tui_keeps_its_own_tree(self) -> None:
-        checkout(self.base, "B" * 40, resolved("P" * 40, 2))
-        checkout(self.workspace, "H" * 40)
+        checkout(self.base, "b" * 40, resolved("c" * 40, 2))
+        checkout(self.workspace, "e" * 40)
         env = self.run_step()
-        self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "P" * 40)
+        self.assertEqual(env.get("BASE_TUI_TREE_KEY"), "c" * 40)
         self.assertNotIn("HEAD_TUI_TREE_KEY", env)
 
     def test_a_published_base_tree_is_used_as_is(self) -> None:
-        checkout(self.base, "B" * 40, resolved("B" * 40, 0))
-        checkout(self.workspace, "B" * 40)
+        checkout(self.base, "b" * 40, resolved("b" * 40, 0))
+        checkout(self.workspace, "b" * 40)
         self.assertEqual(self.run_step(), {})
 
     def test_nothing_published_in_reach_leaves_the_wait(self) -> None:
-        checkout(self.base, "B" * 40)
-        checkout(self.workspace, "B" * 40)
+        checkout(self.base, "b" * 40)
+        checkout(self.workspace, "b" * 40)
         self.assertEqual(self.run_step(), {})
 
     def test_a_reused_base_app_needs_no_tree(self) -> None:
-        checkout(self.workspace, "B" * 40)  # no base worktree: the app came from the cache
+        checkout(self.workspace, "b" * 40)  # no base worktree: the app came from the cache
         self.assertEqual(self.run_step(), {})
 
     def test_the_builds_take_the_keys(self) -> None:
