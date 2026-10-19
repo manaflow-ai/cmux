@@ -38,7 +38,11 @@ test("following a cmux app link on the Markdown page asks the host to open it as
   const calls: { op: string; params: unknown }[] = [];
   const client = { call: async (op: string, params: unknown) => (calls.push({ op, params }), {}) };
   const router = new LinkRouter({
-    store: { getState: () => ({ config: { path: "/Users/me/notes.md" } }), navigate: async () => null, go: async () => null } as never,
+    store: {
+      getState: () => ({ config: { path: "/Users/me/notes.md" } }),
+      navigate: async () => null,
+      go: async () => null,
+    } as never,
     client: client as never,
     resolver: { get: () => undefined },
     scrollToAnchor: () => false,
