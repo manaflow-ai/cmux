@@ -229,12 +229,19 @@ export function isAgentHome(cwd: string | undefined): boolean {
 
 /// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
 /// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
-/// on another machine (a peer or a Cloud host).
-export function mostRecentProject(sessions: readonly AcpmuxSessionEntry[], home?: string): string | undefined {
+/// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
+/// folders that no longer exist), only a folder in it: a deleted or removed project never starts one.
+export function mostRecentProject(
+  sessions: readonly AcpmuxSessionEntry[],
+  home?: string,
+  known?: readonly string[],
+): string | undefined {
+  const projects = known && new Set(known.map((path) => path.replace(/(.)\/+$/, "$1")));
   let newest: AcpmuxSessionEntry | undefined;
   for (const session of sessions) {
     const cwd = session.cwd?.replace(/\/+$/, "");
     if (!cwd || cwd === "~" || cwd === home?.replace(/\/+$/, "") || isAgentHome(cwd)) continue;
+    if (projects && !projects.has(cwd)) continue;
     if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) continue;
     if (!newest || (session.updatedAt ?? 0) > (newest.updatedAt ?? 0)) newest = session;
   }

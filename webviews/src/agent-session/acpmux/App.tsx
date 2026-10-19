@@ -4806,6 +4806,11 @@ function AcpmuxPane() {
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
+  // The folders the host lists as projects (no chat folders): the most recent project is one of them.
+  const newTabKnownProjects = useMemo(
+    () => [...directProjects.map((project) => project.cwd), ...(newTab?.projects ?? [])],
+    [directProjects, newTab?.projects],
+  );
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -5492,6 +5497,7 @@ function AcpmuxPane() {
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
+              knownProjects={newTabKnownProjects}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               // The field takes keys from its first render (the host's buffer hands them over at
               // once); only a submit waits for acpmux (`whenHandshaken`).

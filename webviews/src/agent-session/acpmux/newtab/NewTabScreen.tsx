@@ -83,6 +83,9 @@ type Props = NewTabScreenActions & {
   location?: string;
   lastAgent?: string;
   home?: string;
+  /// The host's project folders (`project.list` and the page's own list), so a deleted or removed
+  /// folder never becomes the start project. Absent, every local chat folder counts.
+  knownProjects?: readonly string[];
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
@@ -135,10 +138,17 @@ export function NewTabScreen(props: Props) {
   // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
-  const recent = useMemo(
-    () => (!picked && folderless && !props.startCwd ? mostRecentProject(snapshot.sessions, home) : undefined),
-    [picked, folderless, props.startCwd, snapshot.sessions, home],
+  const candidate = useMemo(
+    () =>
+      !picked && folderless && !props.startCwd
+        ? mostRecentProject(snapshot.sessions, home, props.knownProjects)
+        : undefined,
+    [picked, folderless, props.startCwd, snapshot.sessions, home, props.knownProjects],
   );
+  // The first one found stays: a chat updating elsewhere must not move the chip while the user types.
+  const [latched, setLatched] = useState<string | undefined>(undefined);
+  if (latched === undefined && candidate !== undefined) setLatched(candidate);
+  const recent = !picked && folderless && !props.startCwd ? (latched ?? candidate) : undefined;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
   const wholeSelection = useRef(false);
