@@ -307,4 +307,12 @@ still `com.danielraffel.tartci.reclaim`, with `LowPriorityIO=true` and
 The rescore shell PID `20151` is not currently doing filesystem work: its only
 child is `sleep 86400`, and it has near-zero CPU time after two days. That makes
 it a stale workspace/process to account for, but not the active wait point in
-the current storage failure. No process was terminated.
+the current storage failure. At sampling time, no process had yet been
+terminated.
+
+The owned reclaim instance was then terminated with `SIGTERM` as a reversible,
+scoped cleanup. Launchd recorded exit 15 and did not immediately restart it.
+The M5S fsync probe still timed out for 20 seconds after reclaim stopped. That
+rules out the reclaim process as the sole cause of the volume stall; it was an
+amplifier and a source of additional blocked scans, while the underlying APFS,
+bridge, or device path remains unhealthy.
