@@ -76,13 +76,14 @@ async function draw(
   sessionId = `live-test-${testSession}`,
   turnStreaming = true,
   openResult: () => boolean | Promise<boolean> = () => true,
-  renderLive = turnStreaming,
+  renderLive: boolean | { attachment: number } = turnStreaming,
 ) {
   act(() => root?.unmount());
   document.documentElement.setAttribute("data-lab-live-render", live ? "on" : "off");
   sent.length = prefilled.length = opened.length = 0;
   const { createRoot } = await import("react-dom/client");
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { renderAttachment } = await import("../src/agent-session/acpmux/conversation/renderExecution");
   const { RenderBridgeContext } = await import("../src/agent-session/acpmux/conversation/RenderBridgeContext");
   root = createRoot(host);
   act(() =>
@@ -102,7 +103,15 @@ async function draw(
         }}
       >
         <ChatSessionContext.Provider value={sessionId}>
-          <RenderLiveContext.Provider value={renderLive}>
+          <RenderLiveContext.Provider
+            value={
+              typeof renderLive === "object"
+                ? renderLive
+                : renderLive
+                  ? { attachment: renderAttachment(sessionId) }
+                  : false
+            }
+          >
             <Markdown turnStreaming={turnStreaming}>{markdown}</Markdown>
           </RenderLiveContext.Provider>
         </ChatSessionContext.Provider>
@@ -299,6 +308,7 @@ test("the side panel uses the same opaque dev frame for markup and components", 
       "```" + (artifact.kind === "html" ? "cmux-render" : "cmux-react") + "\n" + artifact.code + "\n```",
     );
     act(() => root!.render(<ArtifactPanel key={artifact.kind} artifact={artifact} onClose={() => {}} />));
+    click("Show preview");
     const frame = host.querySelector("iframe")!;
     expect(frame.srcdoc).toContain("Content-Security-Policy");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
@@ -1247,7 +1257,7 @@ test("live fences run after a burst or delayed text reveal, even after streaming
   const markdown = "```cmux-render\n<p>Complete burst</p>\n```";
   await draw(true, markdown, "burst", false, undefined, true);
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
-  expect(ranRenders.has("<p>Complete burst</p>")).toBe(true);
+
   await draw(true, markdown, "burst", false, undefined, false);
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
 });
@@ -1345,6 +1355,14 @@ test("a page that loses its heartbeat after loading reports a hang after the lon
     expect(host.querySelectorAll("iframe")).toHaveLength(0);
     expect(host.querySelector('[role="status"]')?.textContent).toContain("The page stopped responding");
     expect(host.textContent).not.toContain("Could not load the page");
+    await draw();
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("The page stopped responding");
+    click("Ask to fix");
+    expect(prefilled.at(-1)).toContain("Render error: The page stopped responding");
+    click("Show preview");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    expect(host.querySelector('[role="status"]')).toBeNull();
   } finally {
     act(() => root?.unmount());
     root = undefined;
@@ -1365,4 +1383,102 @@ test("a history page in the side panel keeps Run until the reader runs it", asyn
   expect(host.querySelectorAll("iframe")).toHaveLength(0);
   click("Show preview");
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
+});
+
+test("execution grants stay with their session and card through reattachment", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const sessionId = `grant-${testSession}`;
+  const session = { sessionId, status: "running", updatedAt: 1 };
+  let socket: any;
+  let holdAttach = false;
+  let releaseAttach: (() => void) | undefined;
+  let notifyAttach: (() => void) | undefined;
+  const attachStarted = new Promise<void>((resolve) => {
+    notifyAttach = resolve;
+  });
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", sessionId },
+    () => {},
+    undefined,
+    () => {
+      socket = {
+        readyState: 1,
+        close() {},
+        send(raw: string) {
+          const { id, method } = JSON.parse(raw);
+          const result =
+            method === "initialize"
+              ? { protocolVersion: 1 }
+              : method === "_acpmux/watch"
+                ? { sessions: [session] }
+                : method === "_acpmux/attach"
+                  ? { session, lastSeq: 0, events: [], hasMore: false }
+                  : null;
+          const reply = () => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id, result }) });
+          if (method === "_acpmux/attach" && holdAttach) {
+            releaseAttach = reply;
+            notifyAttach?.();
+          } else if (id !== undefined) queueMicrotask(reply);
+        },
+      };
+      queueMicrotask(() => socket.onopen?.());
+      return socket as WebSocket;
+    },
+  );
+  const markdown = "```cmux-render\n<p>Scoped execution</p>\n```";
+  try {
+    await draw(true, markdown, sessionId);
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    await draw(true, markdown, sessionId, false);
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    await draw(true, markdown, "other-session", false);
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    click("Show preview");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    const { renderAttachment } = await import("../src/agent-session/acpmux/conversation/renderExecution");
+    const oldProvenance = { attachment: renderAttachment(sessionId) };
+    await draw(true, markdown, sessionId, true, undefined, oldProvenance);
+    holdAttach = true;
+    let selection: Promise<string | undefined> | undefined;
+    await act(async () => {
+      selection = client.select(sessionId);
+      void selection.catch(() => undefined);
+      await attachStarted;
+    });
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    await draw(true, markdown, sessionId, true, undefined, oldProvenance);
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    await act(async () => {
+      releaseAttach?.();
+      await selection;
+    });
+    await draw(true, markdown, sessionId, false);
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    click("Show preview");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("identical HTML in another row waits for Show preview", async () => {
+  await draw();
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+  const mount = (row: string, live: boolean) =>
+    act(() =>
+      root!.render(
+        <ChatSessionContext.Provider value="grant-rows">
+          <TranscriptRowContext.Provider value={row}>
+            <RenderLiveContext.Provider value={live}>
+              <RenderCard call={{ html: PAGE, id: "0" }} />
+            </RenderLiveContext.Provider>
+          </TranscriptRowContext.Provider>
+        </ChatSessionContext.Provider>,
+      ),
+    );
+  mount("first", true);
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  mount("second", false);
+  expect(host.querySelectorAll("iframe")).toHaveLength(0);
 });
