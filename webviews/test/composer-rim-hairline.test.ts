@@ -166,8 +166,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   test("over art keyboard focus brightens the glass card's top-lit rim", async () => {
     const page = await open(2);
     await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
-    const topRim = async () =>
-      (await insets(page, "composer")).find(({ spread }) => spread === 0)?.alpha ?? 0;
+    const topRim = async () => (await insets(page, "composer")).find(({ spread }) => spread === 0)?.alpha ?? 0;
     const rest = await topRim();
     expect(rest, "the glass card draws its top-lit rim").toBeGreaterThan(0);
     await page.focus("#composer-field");
