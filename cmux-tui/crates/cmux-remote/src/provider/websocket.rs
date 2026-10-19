@@ -1,5 +1,4 @@
 use std::fmt;
-use std::time::Duration;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -275,7 +274,7 @@ impl FrameLink for AxumWebSocketLink {
         // reading (ingress backpressure) is not a dead peer.
         let mut idle_since = tokio::time::Instant::now();
         loop {
-            let next = match tokio::time::timeout(Duration::MAX, stream.next()).await
+            let next = match tokio::time::timeout(self.keepalive.ping_interval, stream.next()).await
             {
                 Ok(next) => next,
                 Err(_) => {
@@ -310,10 +309,25 @@ impl FrameLink for AxumWebSocketLink {
         }
     }
 
+    /// Send a Close frame (bounded by one ping interval: the peer may be
+    /// gone), then drop both halves so the socket closes now rather than
+    /// whenever the link itself is dropped.
     async fn close(&self) -> Result<(), LinkError> {
         let mut sender = self.sender.lock().await;
-        let Some(sender) = sender.as_mut() else { return Ok(()) };
-        sender.close().await.map_err(|error| LinkError::Transport(error.to_string()))
+        let result = match sender.as_mut() {
+            Some(sink) => {
+                match tokio::time::timeout(self.keepalive.ping_interval, sink.close()).await {
+                    Ok(result) => result.map_err(|error| LinkError::Transport(error.to_string())),
+                    Err(_) => Ok(()),
+                }
+            }
+            None => Ok(()),
+        };
+        sender.take();
+        if let Ok(mut receiver) = self.receiver.try_lock() {
+            receiver.take();
+        }
+        result
     }
 }
 

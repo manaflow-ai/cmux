@@ -340,7 +340,7 @@ fn handle_websocket_connection_with_permit(
     // The read timeout is the ping clock: a read that sees nothing for one
     // interval returns, and the loop below pings or gives up.
     let keepalive = rules.keepalive;
-    if websocket.get_mut().set_read_timeout(None).is_err() {
+    if websocket.get_mut().set_read_timeout(Some(keepalive.ping_interval)).is_err() {
         return;
     }
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
@@ -442,6 +442,22 @@ fn handle_websocket_connection_with_permit(
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
+            // A full ping interval of inbound silence (the read timeout:
+            // WouldBlock on Unix, TimedOut on Windows). Tungstenite keeps a
+            // partly read frame buffered across it.
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if idle_since.elapsed() >= keepalive.dead_peer_timeout {
+                    break;
+                }
+                if ping_stream.write_websocket_ping().is_err() {
+                    break;
+                }
+            }
             Err(_) => break,
         }
     }
