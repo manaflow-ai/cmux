@@ -293,6 +293,28 @@ mod tests {
     }
 
     #[test]
+    fn cloud_scope_dial_tokens_stay_denied_with_every_cloud_grant() {
+        let table = ScopeTable::get();
+        let grant = grant(&["cloud:read", "cloud:write", "cloud:execute", "cloud:external"]);
+        assert_eq!(
+            table.check("cloud.machine.list", &json!({}), &grant),
+            Decision::Allow(OpClass::Read)
+        );
+        assert_eq!(
+            table.check("cloud.machine.upgrade", &json!({}), &grant),
+            Decision::Allow(OpClass::Mutation)
+        );
+        assert!(matches!(
+            table.check("cloud.machine.link_token", &json!({ "machine": "vm-alpha01" }), &grant),
+            Decision::ScopeMissing(_)
+        ));
+        assert!(!table.known_ops().iter().any(|op| op == "cloud.machine.link_token"));
+        assert!(!table.allowed_ops(&grant).iter().any(|op| op == "cloud.machine.link_token"));
+        assert!(super::super::serves::policy("cloud.machine.list").is_some());
+        assert!(super::super::serves::policy("cloud.machine.link_token").is_none());
+    }
+
+    #[test]
     fn sandbox_and_preview_deny_network_and_everything() {
         let table = ScopeTable::get();
         let mut g = grant(&["net:api.github.com", "workspace:read"]);
