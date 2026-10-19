@@ -16,7 +16,7 @@ public nonisolated enum AttentionStyle: String, Hashable, Sendable, CaseIterable
 /// whether the tab and the sidebar row show the unread mark too.
 public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// No ring by default: the sidebar status glyph and the tab mark carry attention (Lawrence,
-    /// 2026-10-14). The ring is opt-in: `steady` or `blink`.
+    /// 2026-10-14). The ring is opt-in: `steady`, `blink` or `pulse`.
     public var style: AttentionStyle = .none
     /// nil takes the theme's attention color (`Palette.attention`).
     public var color: ThemeRGB?
