@@ -159,10 +159,6 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
         }
     }
 
-    func steer(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
-        try await send(text: text, attachments: attachments, sessionID: sessionID)
-    }
-
     func interrupt(sessionID: String, hard: Bool) async throws {
         guard let index = descriptors.firstIndex(where: { $0.id == sessionID }) else { throw PreviewError.missingSession }
         let descriptor = descriptors[index]
