@@ -3,8 +3,9 @@
 //! Adopting resumes a Claude Code or Codex conversation in a new acpmux session (`adopt.rs`).
 //! Claude Code's `--resume` replays nothing to the client, so the pane showed an empty chat. This
 //! reads the harness's own transcript (the file `adopt::find` found) into turns: each person
-//! prompt and the assistant text that answered it. `Hub::replay_adopted` appends them as acpmux
-//! history (`turn_started`, `user_message`, `agent_message_chunk`, `turn_end`) before the session
+//! prompt, the tool calls the turn made (`adopt_tools.rs`) and the assistant text that answered
+//! it. `Hub::replay_adopted` appends them as acpmux history (`turn_started`, `user_message`,
+//! `tool_call` and `tool_call_update`, `agent_message_chunk`, `turn_end`) before the session
 //! continues, the same records a live turn leaves, so every client draws them.
 
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
@@ -12,10 +13,14 @@ use std::path::Path;
 
 use serde_json::Value;
 
-/// One past exchange: the person's prompt and the assistant's answer text.
+use crate::adopt_tools::{PastTool, ToolResult};
+
+/// One past exchange: the person's prompt, the tool calls it led to, in order, and the
+/// assistant's answer text.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PastTurn {
     pub prompt: String,
+    pub tools: Vec<PastTool>,
     pub answer: String,
     /// When the prompt was sent and the answer last written (ms since the epoch), when recorded.
     pub prompt_at: Option<u64>,
@@ -25,6 +30,8 @@ pub struct PastTurn {
 /// At most this many turns (the newest) and this much text per answer: a long chat stays cheap.
 const MAX_TURNS: usize = 200;
 const MAX_ANSWER: usize = 20_000;
+/// At most this many tool calls per turn (the first).
+const MAX_TOOLS: usize = 400;
 /// A transcript bigger than this is read for its newest part only.
 const MAX_BYTES: u64 = 64 << 20;
 
@@ -45,6 +52,9 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
     // Current Codex writes no event messages: from its first annotated item on (a chat begun on
     // an older Codex and resumed on a current one), items are the turns.
     let mut current = false;
+    // Current Codex records each finished tool call as an `item_completed` event; older Codex
+    // wrote `exec_command_end` and patch events, read until the first such item.
+    let mut tool_items = false;
     for (index, line) in BufReader::new(f).lines().map_while(Result::ok).enumerate() {
         if skip_first && index == 0 {
             continue;
@@ -54,14 +64,21 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
         match family {
             "codex" => {
                 current = current || has_item_kinds(&record);
-                if let Some(step) = codex_step(&record) {
+                if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
+                    tool_items = tool_items || item;
+                    if item || !tool_items {
+                        // With the turns that are being read: event messages, else items.
+                        let into = if current || !turns.is_empty() { &mut turns } else { &mut items };
+                        add(into, tool.map_or_else(Step::ToolResult, Step::Tool), at);
+                    }
+                } else if let Some(step) = codex_step(&record) {
                     add(&mut turns, step, at);
                 } else if let Some(step) = codex_item_step(&record) {
                     add(if current { &mut turns } else { &mut items }, step, at);
                 }
             }
             _ => {
-                if let Some(step) = claude_step(&record) {
+                for step in claude_steps(&record, at) {
                     add(&mut turns, step, at);
                 }
             }
@@ -78,17 +95,35 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
 enum Step {
     Prompt(String),
     Answer(String),
+    Tool(PastTool),
+    ToolResult(ToolResult),
 }
 
-/// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER.
+/// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER; a tool call
+/// joins the last one (once: a call recorded again replaces it), and a result settles its call.
 fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
     match step {
         Step::Prompt(text) => turns.push(PastTurn {
             prompt: text,
+            tools: Vec::new(),
             answer: String::new(),
             prompt_at: at,
             answer_at: at,
         }),
+        Step::Tool(tool) => {
+            let Some(turn) = turns.last_mut() else { return };
+            if let Some(known) = turn.tools.iter_mut().find(|t| t.id == tool.id) {
+                *known = tool;
+            } else if turn.tools.len() < MAX_TOOLS {
+                turn.tools.push(tool);
+            }
+        }
+        Step::ToolResult(result) => {
+            let Some(turn) = turns.last_mut() else { return };
+            if let Some(tool) = turn.tools.iter_mut().rev().find(|t| t.id == result.id) {
+                tool.settle(&result, at);
+            }
+        }
         Step::Answer(text) => {
             let Some(turn) = turns.last_mut() else { return };
             turn.answer_at = at.or(turn.answer_at);
@@ -108,32 +143,47 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
 }
 
 /// Claude Code: `{"type":"user","message":{"content":...}}` (a typed prompt: a string or text
-/// blocks; tool results and meta lines are not prompts) and `{"type":"assistant",...}` text blocks.
-fn claude_step(record: &Value) -> Option<Step> {
+/// blocks; tool results settle their calls, and meta lines are not prompts) and
+/// `{"type":"assistant",...}` text and `tool_use` blocks.
+fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
     if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") {
-        return None;
+        return Vec::new();
     }
-    let content = record.pointer("/message/content")?;
-    match record.get("type").and_then(Value::as_str)? {
-        "user" => {
-            // A tool result is not a prompt, also beside text (as `hub::fork_at::is_prompt`).
-            if content.as_array().is_some_and(|blocks| {
-                blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
-            }) {
-                return None;
-            }
-            let text = text_of(content)?;
-            let start = text.trim_start();
-            // Command and hook echoes and interruption markers are not prompts.
-            let echo = ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
-                .iter()
-                .any(|prefix| start.starts_with(prefix));
-            (!echo).then_some(Step::Prompt(text))
+    let Some(content) = record.pointer("/message/content") else { return Vec::new() };
+    match record.get("type").and_then(Value::as_str) {
+        // A tool result is not a prompt, also beside text (as `hub::fork_at::is_prompt`).
+        Some("user") if content.as_array().is_some_and(|blocks| {
+            blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
+        }) =>
+        {
+            crate::adopt_tools::claude_tool_results(content)
+                .into_iter()
+                .map(Step::ToolResult)
+                .collect()
         }
-        "assistant" => text_of(content).map(Step::Answer),
-        _ => None,
+        Some("assistant") => {
+            let mut steps: Vec<Step> = crate::adopt_tools::claude_tool_uses(content, at)
+                .into_iter()
+                .map(Step::Tool)
+                .collect();
+            steps.extend(text_of(content).map(Step::Answer));
+            steps
+        }
+        Some("user") => claude_prompt(content).into_iter().collect(),
+        _ => Vec::new(),
     }
+}
+
+/// A Claude Code prompt: a user message's text, unless it echoes a command or a hook or marks
+/// an interruption.
+fn claude_prompt(content: &Value) -> Option<Step> {
+    let text = text_of(content)?;
+    let start = text.trim_start();
+    let echo = ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
+        .iter()
+        .any(|prefix| start.starts_with(prefix));
+    (!echo).then_some(Step::Prompt(text))
 }
 
 /// Codex rollouts: `{"type":"event_msg","payload":{"type":"user_message"|"agent_message","message":...}}`.
