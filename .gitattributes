@@ -60,6 +60,9 @@ Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-gene
 # gen-strings.mjs writes every strings table, the agent pane's included (build
 # output since #21946).
 webviews/src/**/generated/strings.json merge=cmux-generated-v1
+webviews/src/pages/home-channels/generated/pane-strings.json merge=cmux-generated-v1
+webviews/src/pages/diff/generated/locales/** merge=cmux-generated-v1
+webviews/src/pages/diff/generated/localeLoaders.ts merge=cmux-generated-v1
 # The other exports scripts/ci/next_batch.py's merger rebuilds (its
 # SWIFT_GENERATED and SDK_GENERATED; tests/test_install_git_hooks.py checks
 # that every kept path is one of them). A kept copy that is stale fails its

@@ -373,7 +373,17 @@ export function writeStrings({ check = false, bestEffort = false, ifStale = fals
       const newest = Math.max(...inputsOf(page).map((f) => mtime(f) ?? Infinity));
       if (oldest >= newest) continue;
     }
-    const { json, errors } = generate(page);
+    let generated;
+    try {
+      generated = generate(page);
+    } catch (error) {
+      // A catalog or the schema is missing (a sparse checkout): best effort skips the page.
+      log(`${name}: ${error.message}`);
+      failed++;
+      if (bestEffort && !check) continue;
+      throw error;
+    }
+    const { json, errors } = generated;
     if (errors.length) {
       log(`${name}: ${errors.length} strings missing\n  ${errors.slice(0, 20).join("\n  ")}`);
       failed++;
@@ -387,8 +397,12 @@ export function writeStrings({ check = false, bestEffort = false, ifStale = fals
           failed++;
         }
       } else if (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== content) {
+        // Write then rename: test processes run the preload in parallel, and another one may be
+        // importing this table while it is rewritten.
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, content);
+        const temp = `${file}.${process.pid}.tmp`;
+        fs.writeFileSync(temp, content);
+        fs.renameSync(temp, file);
       } else {
         // Unchanged content: touch it so `ifStale` sees it as current.
         const now = new Date();

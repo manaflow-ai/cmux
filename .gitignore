@@ -102,3 +102,4 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 /webviews/src/pages/home-channels/generated/pane-strings.json
 /webviews/src/pages/diff/generated/locales/
 /webviews/src/pages/diff/generated/localeLoaders.ts
+/webviews/src/**/generated/*.tmp
