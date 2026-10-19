@@ -452,3 +452,11 @@ At commit [`3243eb4b82d51d74a2a3fce07b593a74dc9b527a`](https://github.com/daniel
 rebuilt the package and passed **883 tests in 100 suites**. This refresh is
 portable/package evidence only; the tagged full-app dogfood remains pending
 authenticated dev credentials and has not been substituted by this result.
+
+The same current checkout also ran
+`swift test --package-path Packages/macOS/CmuxTerminal --disable-sandbox
+--filter 'TerminalSurfaceRestoreSpawnSchedulerTests|TerminalSurfaceStartupRestorePolicyTests'`.
+It rebuilt the terminal package and passed **23 tests in 2 suites**, including
+the twelve-surface burst cadence, duplicate-readiness coalescing, deferred
+agent admission, and input-demand promotion cases. Compiler deprecation and
+unused-import warnings were pre-existing and did not fail the run.
