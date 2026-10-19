@@ -7,7 +7,14 @@ import { useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
 import { FormDialog } from "./FormDialog";
-import { CENTERED, preparePicture, type PictureCrop as Crop, type PreparedPicture } from "./picture";
+import {
+  CENTERED,
+  preparePicture,
+  STILL_MAX_BYTES,
+  withinPixels,
+  type PictureCrop as Crop,
+  type PreparedPicture,
+} from "./picture";
 import { PictureCrop } from "./PictureCrop";
 import type { HomeSheets } from "./sheets";
 import {
@@ -74,13 +81,14 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       ...g,
       [key]: g[key].includes(name) ? g[key].filter((item) => item !== name) : [...g[key], name],
     }));
-  const refuse = (error: "type" | "size" | "tooBig" | "unreadable") =>
+  const refuse = (error: "type" | "size" | "tooBig" | "pixels" | "unreadable") =>
     setImageError(
       t(
         {
           type: "chief.picture.type",
           size: "chief.picture.size",
           tooBig: "chief.picture.tooBig",
+          pixels: "chief.picture.pixels",
           unreadable: "chief.picture.type",
         }[error],
       ),
@@ -89,10 +97,15 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     if (!file) return;
     setImageError(undefined);
     if (file.type !== "image/gif") {
-      // A still is placed first; its size is checked and it is drawn when the sheet saves.
+      // A still is placed first and drawn when the sheet saves. Its bytes and pixels are checked
+      // before the preview decodes it: a small file can decode to gigabytes.
+      if (file.size > STILL_MAX_BYTES) return refuse("tooBig");
       const url = URL.createObjectURL(file);
       const size = await naturalSize(url);
-      if (!size) return refuse("unreadable");
+      if (!size || !withinPixels(size)) {
+        URL.revokeObjectURL(url);
+        return refuse(size ? "pixels" : "unreadable");
+      }
       setImage(undefined);
       setCrop(CENTERED);
       setPlacing({ file, url, size });
