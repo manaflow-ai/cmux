@@ -857,6 +857,12 @@ async fn dispatch_request(
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
+        method::MUX_WATCH_TAKE_OVER => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let if_live = crate::adopt::IfLive::parse(str_param(&params, "ifLive"))
+                .map_err(RpcError::invalid_params)?;
+            hub.watch_take_over(&s, if_live).await
+        }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);

@@ -108,6 +108,10 @@ impl Hub {
             }
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
             None if session.moving().is_some() => return Err(Err(moving_error())),
+            // A watched chat takes no prompt until it is taken over (`watch.rs`).
+            None if session.meta().watching.is_some() => {
+                return Err(Err(super::watch::read_only()));
+            }
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 
 /// Notification actions over the daemon's retained unread markers
@@ -86,6 +87,12 @@ enum NotificationHandlers {
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
+        // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.
+        registry.bind("agentChat.view", run: { invocation in
+            let key = (invocation["key"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard ChatOpenSubject.isWatchable(key: key) else { throw ActionFailure(message: RefusalStrings.notAWatchableChat(key)) }
+            context.services.chatsOpener.open(key, watch: true)
+        })
     }
 
     /// Removes a panel row. The daemon clears by terminal, so this removes
