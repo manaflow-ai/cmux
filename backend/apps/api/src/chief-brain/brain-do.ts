@@ -15,7 +15,7 @@ import { PrefixCache, ttlMs } from "./cache-prefix.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
 import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
-import { meteredOwner } from "../model-gateway/routes.ts"
+import { brainModel, meteredOwner, opencodeRuns } from "../model-gateway/routes.ts"
 import { brainModels, CLAUDE, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, turnFailedNotice, gatewayOptions, isClaude, isMetered, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts, stripStaleThinking } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
@@ -309,8 +309,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // Turning the brain on (from off) checks the model it would run on (the patch's, else the current one), so an
     // owner off the paid list cannot enable a Chief whose model is paid only to be refused at its first turn. A save
     // that repeats enabled:true on a Chief already on is not refused for it (its turns say why they cannot run).
-    const turningOn = patch.enabled === true && !cur.enabled && patch.model === undefined
-    const refused = modelRefusal(this.env, owner, turningOn ? { ...patch, model: cur.model } : patch)
+    // An opencode Chief with a container runs its turns on brainModel (opencode/host.ts): that is the model checked.
+    const turningOn = patch.enabled === true && !cur.enabled
+    const model = patch.model ?? cur.model
+    const impl = turningOn && opencodeRuns(this.env) ? await (this.env.MUX_DO.get(this.env.MUX_DO.idFromName(agent)) as unknown as { brainImplOf(): Promise<string> }).brainImplOf() : "pi"
+    const refused = modelRefusal(this.env, owner, turningOn ? { ...patch, model: impl === "opencode" ? brainModel(model) : model } : patch)
     if (refused) return refused
     if (patch.enabled === true) {
       const record = await chiefRecord(this.env, owner, agent)
