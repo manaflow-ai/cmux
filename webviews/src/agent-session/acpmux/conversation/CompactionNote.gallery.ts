@@ -12,7 +12,7 @@ export default agentPaneEntry({
   height: 360,
   covers: ["agent-session/acpmux/conversation/CompactionNote.tsx"],
   variants: {
-    accountSwitch: {
+    "account-switch": {
       note: "subrouter compacted the chat before moving it to another account, then the turn went on.",
       snapshot: chat([
         user("Finish the migration and run the tests", 6),
