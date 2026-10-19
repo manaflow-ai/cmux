@@ -5193,6 +5193,7 @@ function AcpmuxPane() {
         <Composer
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+          switching={Boolean(switchView.intent)}
           chips={ComposerChips}
           permissionAccess={permissionAccess}
           draft={draft}
