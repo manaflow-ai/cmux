@@ -58,12 +58,15 @@ public final class SidebarSessionTreeFeed {
             }
         }
         var state = SidebarSessionTreeState()
+        var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var folders: Set<String> = []
         for (id, ids) in sessions {
             let shown = ids.compactMap { lanes[$0] }
             if let parent = shown.lazy.compactMap({ $0.spawnedBy.flatMap { owner[$0] } }).first(where: { $0 != id }) {
                 state.parents[id] = parent
             }
+            // The strongest of its agents' states: one waiting on you outranks one still running.
+            if let state = shown.map({ Self.state($0.state) }).max() { agentStates[id] = state }
             let cwds = Set(shown.compactMap(\.cwd))
             folders.formUnion(cwds)
             // One pull request per branch: sessions in one folder share it.
@@ -71,7 +74,18 @@ public final class SidebarSessionTreeFeed {
             let statuses = cwds.sorted().compactMap { pullRequests[$0] }.filter { seen.insert($0.url).inserted }.compactMap(Self.status)
             state.pullRequests[id] = SidebarPullRequestBadge.combining(statuses)
         }
+        state.states = agentStates
         return Pass(state: state, folders: folders)
+    }
+
+    /// A lane's state in the tree's terms: acpmux's `input` waits on the person; a lost agent counts as failed.
+    static func state(_ lane: AgentActivityLane.State) -> SidebarAgentState {
+        switch lane {
+        case .input: .blocked
+        case .failed, .lost: .failed
+        case .working: .running
+        case .idle: .idle
+        }
     }
 
     /// The badge color of one pull request; nil for a closed one, which the badge leaves out.

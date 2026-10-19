@@ -19,6 +19,10 @@ extension WorkspaceRowView {
             let name = disclosure == .expanded ? Strings.hideTabs : Strings.showTabs
             actions.append(NSAccessibilityCustomAction(name: name) { onToggleTabs(); return true })
         }
+        if let treeFold, let onToggleTree {
+            let name = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
+            actions.append(NSAccessibilityCustomAction(name: name) { onToggleTree(); return true })
+        }
         if let onMore {
             actions.append(NSAccessibilityCustomAction(name: Strings.workspaceMenu) { onMore(); return true })
         }
@@ -32,6 +36,7 @@ extension WorkspaceRowView {
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
+        if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {

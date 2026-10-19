@@ -44,6 +44,74 @@ import Testing
         #expect(tree.depth.values.max() == 4)
     }
 
+    @Test func aFoldedParentHidesItsWholeSubtree() {
+        let a = WorkspaceID("a"), b = WorkspaceID("b"), c = WorkspaceID("c"), d = WorkspaceID("d")
+        let order = SidebarLayout.treeOrder([c, nil, a, d, b], parents: [b: a, c: b], collapsed: [b])
+        #expect(order.map { $0.index } == [1, 2, 4, 3])
+        #expect(order.map { $0.depth } == [0, 0, 1, 0])
+    }
+
+    /// a started b and e; b started c and d. Folding a rolls up everything under it, by state.
+    @Test func aFoldedParentRollsUpWhatItsSessionsAreDoing() {
+        let ids = ["a", "b", "c", "d", "e"].map(WorkspaceID.init)
+        let (a, b, c, d, e) = (ids[0], ids[1], ids[2], ids[3], ids[4])
+        var finished = SidebarWorkspace(id: d, title: "d")
+        finished.unread = .dot
+        let sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+            .workspace(SidebarWorkspace(id: a, title: "a")), .workspace(SidebarWorkspace(id: b, title: "b")),
+            .workspace(SidebarWorkspace(id: c, title: "c")), .workspace(finished), .workspace(SidebarWorkspace(id: e, title: "e")),
+        ])]
+        var tree = SidebarSessionTreeState(parents: [b: a, c: b, d: b, e: a], states: [b: .running, c: .blocked, d: .idle, e: .failed])
+        func rows() -> [WorkspaceID: WorkspaceRowContent] {
+            var options = SidebarLayoutOptions()
+            options.sessionTree = tree
+            return Dictionary(uniqueKeysWithValues: SidebarLayout.make(sections: sections, metrics: .standard, options: options).rows.compactMap { row in
+                if case let .workspace(id) = row.key, let content = row.content { (id, content) } else { nil }
+            })
+        }
+        let open = rows()
+        #expect(open.count == 5)
+        #expect(open[a]?.treeFold == .expanded)
+        #expect(open[b]?.treeFold == .expanded)
+        #expect(open[c]?.treeFold == nil)
+        #expect(open[a]?.rollUp == nil)
+        tree.collapsed = [a]
+        let folded = rows()
+        #expect(Set(folded.keys) == [a])
+        #expect(folded[a]?.treeFold == .collapsed)
+        // d is idle by its lane but unread: finished, unread. An idle descendant is not counted.
+        #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1))
+    }
+
+    @Test func aWorkspaceWithoutALaneReadsItsRowStrictly() {
+        var ws = SidebarWorkspace(id: WorkspaceID("w"), title: "w")
+        #expect(SidebarAgentState.of(ws, lane: nil) == .idle)
+        ws.unread = .count(3)
+        #expect(SidebarAgentState.of(ws, lane: nil) == .finishedUnread) // unread alone never waits on you
+        ws.activity = .waiting
+        #expect(SidebarAgentState.of(ws, lane: nil) == .blocked)
+        ws.activity = .error
+        #expect(SidebarAgentState.of(ws, lane: nil) == .failed)
+        // A lane decides: a coordinator idle while its children run is idle, whatever its row says.
+        ws.activity = .waiting
+        ws.unread = .none
+        #expect(SidebarAgentState.of(ws, lane: .idle) == .idle)
+        #expect(SidebarAgentState.of(ws, lane: .running) == .running)
+    }
+
+    @Test func aFoldSurvivesTheFeedsNextPass() {
+        let defaults = UserDefaults(suiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults)
+        let a = WorkspaceID("a")
+        tree.state = SidebarSessionTreeState(parents: [WorkspaceID("b"): a])
+        tree.toggle(a)
+        tree.state = SidebarSessionTreeState(parents: [WorkspaceID("b"): a, WorkspaceID("c"): a]) // the feed passes again
+        #expect(tree.drawn?.collapsed == [a])
+        #expect(SidebarSessionTree(defaults: defaults).collapsed == [a]) // and the next launch
+        tree.toggle(a)
+        #expect(tree.drawn?.collapsed == [])
+    }
+
     /// A fixed fifty-workspace spawn tree: `w0`...`w4` are coordinators; `w<n>` for n >= 5 was
     /// started by an earlier workspace, chosen so the tree is four levels deep. Model order is the
     /// ids' order shuffled by a fixed stride, so drawn order cannot follow model order by chance.

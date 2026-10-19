@@ -52,7 +52,7 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
-        if let tree = SidebarSessionTree.shared.state {
+        if let tree = SidebarSessionTree.shared.drawn {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
         }
         o.excludedWorkspaces.formUnion(leaving)

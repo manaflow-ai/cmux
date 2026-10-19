@@ -54,6 +54,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
     public var pullRequests: SidebarPullRequestBadge?
+    /// The session tree: a parent's chevron (nil without children).
+    public var treeFold: SidebarTreeFold?
+    /// The session tree: a folded parent's descendants by state, drawn as chips.
+    public var rollUp: SidebarTreeRollUp?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,

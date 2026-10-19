@@ -50,7 +50,7 @@ extension SidebarViewComponents {
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-            tree = SidebarSessionTree.shared.state
+            tree = SidebarSessionTree.shared.drawn
         }
     }
     func observe() {
