@@ -1421,6 +1421,9 @@ export function VirtualTranscript({
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
   /// does not scan for its turn's footer again.
   const pointedRow = useRef<string | undefined>(undefined);
+  // The rows the cached footer was found in: a footer can appear, or stop being the last turn's,
+  // while the pointer rests on the same row.
+  const pointedRows = useRef<AcpmuxRow[] | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -2117,8 +2120,9 @@ export function VirtualTranscript({
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const rowId = row?.dataset.rowId;
-    if (rowId === pointedRow.current) return;
+    if (rowId === pointedRow.current && rows === pointedRows.current) return;
     pointedRow.current = rowId;
+    pointedRows.current = rows;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
     let footer: string | undefined;
     for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
