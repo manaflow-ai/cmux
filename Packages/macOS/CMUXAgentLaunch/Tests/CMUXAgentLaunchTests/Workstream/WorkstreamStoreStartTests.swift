@@ -5,6 +5,29 @@ import Testing
 @MainActor
 @Suite("WorkstreamStore start")
 struct WorkstreamStoreStartTests {
+    @Test("Startup retains a durable revision floor above the JSONL byte count")
+    func startupRetainsDurableRevisionFloor() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-start-revision-floor-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: tmp.appendingPathExtension("revision"))
+        }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.recordRevision(1_000_000)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "small-row",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let store = WorkstreamStore(persistence: WorkstreamPersistence(fileURL: tmp))
+        await store.start()
+
+        #expect(store.revision >= 1_000_000)
+    }
+
     @Test("Repeated and concurrent starts load history and subscribe once (#21352)")
     func repeatedStartsShareOnePass() async throws {
         let tmp = FileManager.default.temporaryDirectory

@@ -157,8 +157,9 @@ public actor WorkstreamPersistence {
     }
 
     /// Loads a bounded startup tail without decoding the complete append-only
-    /// log. The revision is the file-byte generation, which is cheap and
-    /// monotonic while the append-only file remains in place.
+    /// log. The revision is the maximum of the file-byte generation and the
+    /// durable high-water sidecar, so non-writing transitions remain monotonic
+    /// across restart.
     public func loadStartupSnapshot(
         limit: Int,
         budgetNanoseconds: UInt64? = nil,
@@ -169,9 +170,10 @@ public actor WorkstreamPersistence {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
             let fileExists = FileManager.default.fileExists(atPath: fileURL.path)
             let fileBytes = (try? fileSize()) ?? 0
+            let revision = (try? loadRevision()) ?? Int(min(fileBytes, UInt64(Int.max)))
             return StartupSnapshot(
                 items: [],
-                revision: Int(min(fileBytes, UInt64(Int.max))),
+                revision: revision,
                 page: empty,
                 diagnostics: StartupDiagnostics(
                     elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - started,
@@ -183,9 +185,10 @@ public actor WorkstreamPersistence {
         }
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
+            let revision = (try? loadRevision()) ?? 0
             return StartupSnapshot(
                 items: [],
-                revision: 0,
+                revision: revision,
                 page: empty,
                 diagnostics: StartupDiagnostics(
                     elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - started,
@@ -208,7 +211,7 @@ public actor WorkstreamPersistence {
             let elapsed = DispatchTime.now().uptimeNanoseconds - started
             return StartupSnapshot(
                 items: latest.items,
-                revision: Int(min(size, UInt64(Int.max))),
+                revision: try loadRevision(),
                 page: Page(items: [], hasMoreBefore: false, startOffset: nil),
                 diagnostics: StartupDiagnostics(
                     elapsedNanoseconds: elapsed,
@@ -222,7 +225,7 @@ public actor WorkstreamPersistence {
         let page = paged.exceededBudget
             ? Page(items: [], hasMoreBefore: false, startOffset: nil)
             : paged.page
-        let revision = Int(min(size, UInt64(Int.max)))
+        let revision = try loadRevision()
         let elapsed = DispatchTime.now().uptimeNanoseconds - started
         return StartupSnapshot(
             items: latest.items,
