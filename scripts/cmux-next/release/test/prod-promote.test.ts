@@ -5,7 +5,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { candidateRuns, holdPinned, holdReleases, main, pickCandidate, rollbackPlan, serving, SOAK_MINUTES } from "../prod-promote.ts"
@@ -121,10 +121,14 @@ const setDeployments = (list: Array<Omit<Dep, "at">>) => {
 const wranglerWith = (tags: Array<string>) =>
   `// production config\n${JSON.stringify({ name: "cmux-api", env: { production: { vars: { CHIEF_BRAIN_ENABLED: "1" }, migrations: tags.map((tag) => ({ tag, new_sqlite_classes: [`Class_${tag}`] })) } } }, null, 2)}\n`
 const repo: Record<"A" | "B" | "C", string> = { A: "", B: "", C: "" }
+let tmpRoot = ""
 
 beforeAll(() => {
-  const root = mkdtempSync(join(tmpdir(), "rails-prod-promote-"))
-  const git = (...args: Array<string>) => execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: root, encoding: "utf8" }).trim()
+  const root = (tmpRoot = mkdtempSync(join(tmpdir(), "rails-prod-promote-")))
+  // Hermetic even inside a git hook: no inherited GIT_DIR or index, no hooks, no signing.
+  const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")))
+  const git = (...args: Array<string>) =>
+    execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args], { cwd: root, env: gitEnv, encoding: "utf8" }).trim()
   git("init", "-q")
   mkdirSync(join(root, "backend/apps/api"), { recursive: true })
   const commit = (tags: Array<string>, note: string) => {
@@ -145,6 +149,7 @@ beforeAll(() => {
 afterAll(() => {
   globalThis.fetch = realFetch
   process.chdir(env.cwd)
+  rmSync(tmpRoot, { recursive: true, force: true })
   if (env.token === undefined) delete process.env.CLOUDFLARE_API_TOKEN
   else process.env.CLOUDFLARE_API_TOKEN = env.token
 })
@@ -262,6 +267,14 @@ describe("rollbackPlan", () => {
     setDeployments([{ version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
     expect(await rollbackPlan("cmux-api")).toEqual({ refused: "cmux-api: no deployment before the current code" })
   })
+  it("from the off switch, never steps past a rollback onto code that was rolled back", async () => {
+    // A, off(A), promote B, B goes bad: rollback onto off(A); then target=chief-off again (serving A).
+    versions = { v4: off(repo.A, 2), v3: code(repo.B), v2: off(repo.A, 1), v1: code(repo.A) }
+    setDeployments([{ version: "v4", trigger: "deployment" }, { version: "v2", trigger: "rollback" }, { version: "v3", trigger: "deployment" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
+    const plan = await rollbackPlan("cmux-api")
+    expect("refused" in plan ? plan.refused : plan).toContain("not the code the off switch serves")
+    expect((await dryRun()).code).toBe(3)
+  })
   it("a code deployment after the off switch rolls back onto the off switch (the brain stays off)", async () => {
     versions = { v3: code(repo.C), v2: off(repo.B), v1: code(repo.B) }
     setDeployments([{ version: "v3", trigger: "deployment" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
@@ -273,7 +286,7 @@ describe("rollback (dry run) and Durable Object migrations", () => {
   it("refuses across a DO lifecycle change and names the added tag", async () => {
     versions = { v2: code(repo.C), v1: code(repo.B) }
     setDeployments([{ version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
-    const r = await dryRun("--force")
+    const r = await dryRun()
     expect(r.code).toBe(3)
     expect(r.out).toContain("crosses a Durable Object lifecycle change (v2)")
     expect(r.out).toContain("target=chief-off")
