@@ -664,7 +664,11 @@ const SummaryRow = memo(
 );
 const PlanRow = memo(
   function PlanRow({ row }: RowProps) {
-    return row.plan ? <PlanList entries={row.plan} /> : <div className="acpmux-muted">{row.text}</div>;
+    return row.plan ? (
+      <PlanList entries={row.plan} ended={row.turnEnded} />
+    ) : (
+      <div className="acpmux-muted">{row.text}</div>
+    );
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
