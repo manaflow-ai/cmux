@@ -1,6 +1,7 @@
 import type { RowReader, RowWrite } from "@cmux/ownership"
 import type { Host, TeamMember } from "@cmux/protocol"
 import { roleHas, type TeamGrant } from "./team-roles.ts"
+import { TABLE_MEMBER_AUTHORITY } from "./team-authority.ts"
 
 /**
  * TeamDO members and hosts live in rows ((f), DO audit F-1): the head stays small for 10k+ member
@@ -13,7 +14,7 @@ export const TABLE_HOST = "host"
 /** install id -> host id (a server or host enrolled by that install). */
 export const TABLE_HOST_BY_INSTALL = "host_by_install"
 /** Rows subscribers never get in event effects: clients page members, hosts and audit records (team-audit-rows.ts) with reads. */
-export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, "audit"]
+export const TEAM_PRIVATE_TABLES: ReadonlyArray<string> = [TABLE_MEMBER, TABLE_HOST, TABLE_HOST_BY_INSTALL, TABLE_MEMBER_AUTHORITY, "audit"]
 
 export type Member = typeof TeamMember.Type
 export type HostRecord = typeof Host.Type

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { personalTeamIdFor } from "../src/domains/user.ts"
+import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { clearSignInRules } from "../src/policy-gate.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { call, deliver, mirroredTeam, teamIdOf, teamStub } from "./team-stack-support.ts"
@@ -42,7 +42,7 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(r.body.op).toBe("user.teams.list")
     const teams = r.body.value.teams as Array<{ id: string; display_name: string; kind: string; role: string }>
     expect(teams[0]).toMatchObject({ id: personalTeamIdFor(t.user), kind: "personal", role: "owner", sso_required: false })
-    expect(teams).toContainEqual({ id: t.team, display_name: "Acme Corp", kind: "stack", stack_team: t.stackTeam, role: "member", sso_required: false })
+    expect(teams.find((entry) => entry.id === t.team)).toMatchObject({ id: t.team, display_name: "Acme Corp", kind: "stack", stack_team: t.stackTeam, role: "member", sso_required: false })
     expect(teams[0]).not.toHaveProperty("stack_team")
     expect(teams).toHaveLength(2)
     expect(r.body.value.incomplete).toBe(false)
@@ -188,5 +188,16 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(changed.body.ok, JSON.stringify(changed.body)).toBe(true)
     clearSignInRules()
     expect(await authorityOf(t.creator.token, t.team)).not.toBe(first)
+  })
+
+  it("keeps implicit personal authority stable across its first creation", async () => {
+    const stackUser = crypto.randomUUID(), user = userIdFor(testEnv.STACK_PROJECT_ID, stackUser)
+    const token = await sessionToken(stackUser, "New owner"), team = personalTeamIdFor(user)
+    const first = await authorityOf(token, team)
+    const ensured = await inDO(teamStub(team), async (instance) => instance.submit(team,
+      { identity: user, kind: "session", user, team },
+      { t: "op", op: "team.ensure_personal", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" }))
+    expect(ensured.frames.some((frame: { t: string }) => frame.t === "result")).toBe(true)
+    expect(await authorityOf(token, team)).toBe(first)
   })
 })
