@@ -210,19 +210,23 @@ public actor DeviceHubClient {
         return try await call("GET", "/v1/audit", query: query, as: Answer.self).entries
     }
 
-    /// The User DO socket's upgrade request (`GET /v1/user/ws`), with the account and device headers.
-    public func userSocketRequest() async throws -> URLRequest {
-        var request = URLRequest(url: socketURL(url("/v1/user/ws")))
+    /// The User DO socket's URL and headers (`GET /v1/user/ws`): the account
+    /// session and the device signature, signed now.
+    public func userSocketHandshake() async throws -> DeviceHubHandshake {
+        let url = socketURL(url("/v1/user/ws"))
         let account = try await accountSession()
-        request.setValue("Bearer \(account.token)", forHTTPHeaderField: "Authorization")
-        do { try signer.sign(&request) } catch { throw DeviceHubError.identity("\(error)") }
-        return request
+        var headers: [String: String]
+        do { headers = try signer.headers(method: "GET", pathAndQuery: DeviceRequestSigner.pathAndQuery(of: url), body: nil) } catch {
+            throw DeviceHubError.identity("\(error)")
+        }
+        headers["Authorization"] = "Bearer \(account.token)"
+        return DeviceHubHandshake(url: url, headers: headers)
     }
 
     // MARK: Requests
 
-    /// The signed request for one call (tests read it; ``call`` sends it).
-    public func request(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> URLRequest {
+    /// The signed request for one call.
+    func request(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> URLRequest {
         var request = URLRequest(url: url(path, query: query))
         request.httpMethod = method
         if let body {
@@ -333,4 +337,21 @@ public struct RelayUpdate: Encodable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey { case name, urls, authMode, sealed, enabled, priority }
+}
+
+/// A WebSocket's URL and upgrade headers.
+public struct DeviceHubHandshake: Sendable, Equatable {
+    public var url: URL
+    public var headers: [String: String]
+
+    public init(url: URL, headers: [String: String]) {
+        self.url = url
+        self.headers = headers
+    }
+
+    public var request: URLRequest {
+        var request = URLRequest(url: url)
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        return request
+    }
 }

@@ -153,9 +153,11 @@ import Testing
     @Test func theUserSocketRequestIsSignedForItsPath() async throws {
         let identity = DeviceIdentity.software()
         let hub = StubHub.routes([:])
-        let request = try await makeClient(hub, identity: identity).userSocketRequest()
+        let handshake = try await makeClient(hub, identity: identity).userSocketHandshake()
+        let request = handshake.request
         #expect(request.url?.absoluteString == "wss://\(hub.host)/v1/user/ws")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer hub-session")
+        #expect(request.value(forHTTPHeaderField: "X-Device-Id") == identity.id)
         let canonical = DeviceRequestSigner.canonical(method: "GET", pathAndQuery: "/v1/user/ws", timestamp: 1_800_000_000, body: nil)
         #expect(DeviceIdentity.verify(signature: request.value(forHTTPHeaderField: "X-Device-Sig") ?? "", of: Data(canonical.utf8),
                                       signingKey: identity.signingKey))

@@ -25,7 +25,8 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
     }
 
     public func connect() async throws -> any DeviceHubSocketConnection {
-        let task = session.webSocketTask(with: try await client.userSocketRequest())
+        let handshake = try await client.userSocketHandshake()
+        let task = session.webSocketTask(with: handshake.request)
         task.maximumMessageSize = 1 << 20
         task.resume()
         return URLSessionSocketConnection(task: task)
