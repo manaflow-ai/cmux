@@ -42,6 +42,15 @@ beforeEach(async () => {
 afterEach(async () => { await h.dispose(); });
 
 describe("device overlay policy", () => {
+  it.each(["account", "signed"] as const)("identifies the authoritative tenant for a %s policy read", async (mode) => {
+    const id = await enroll();
+    const response = mode === "account" ? await read(id) : await h.request(`/v1/devices/${id}/signed/overlay-policy`, { "x-cmux-team-id": "team_bravo" }, {
+      method: "POST", body: await deviceRequestBody(install, id, "overlay-policy"),
+    });
+    expect(response.status).toBe(200);
+    expect((await json(response))["tenantId"]).toBe(TEAM);
+  });
+
   it("defaults to deny and exposes only public identity for the requesting device", async () => {
     const id = await enroll();
     const before = h.upstreamRequests.length;
