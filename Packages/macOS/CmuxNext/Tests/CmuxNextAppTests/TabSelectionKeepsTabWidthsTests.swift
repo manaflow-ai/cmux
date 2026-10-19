@@ -72,7 +72,10 @@ import Testing
         window.contentView = strip
         strip.layoutSubtreeIfNeeded()
         let first = Self.geometry(strip)
-        #expect(Set(strip.result.slots.map(\.width)).count == 1, "\(Set(strip.result.slots.map(\.width)))")
+        // Even shares: whole points, the leftover points on the leading tabs (`TabLayoutEngine.distribute`).
+        let widths = strip.result.slots.map(\.width)
+        #expect((widths.max() ?? 0) - (widths.min() ?? 0) <= 1, "\(Set(widths))")
+        #expect((widths.min() ?? 0) < strip.metrics.minActiveTabWidth, "the strip is not crowded: \(Set(widths))")
         for id in ids {
             model.selectedID = TabID(id)
             strip.syncFromModel()
