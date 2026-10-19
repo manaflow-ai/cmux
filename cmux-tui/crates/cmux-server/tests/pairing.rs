@@ -333,10 +333,7 @@ fn server_pairing_begin_that_never_reached_the_api_can_be_retried_at_once() {
     let path = dir.path().join("pairing/identity.json");
     let api = Api { unsent_begin: true, ..Api::new(vec![]) };
     for _ in 0..2 {
-        assert_eq!(
-            run(&path, &api, None, &mut vec![]).unwrap_err().message,
-            "server.pair.unsent"
-        );
+        assert_eq!(run(&path, &api, None, &mut vec![]).unwrap_err().message, "server.pair.unsent");
         assert_eq!(pairing::status(&path).unwrap()["state"], "unpaired");
     }
     assert_eq!(api.begins.load(Ordering::SeqCst), 2);
