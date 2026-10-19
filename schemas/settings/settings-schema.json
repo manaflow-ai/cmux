@@ -513,6 +513,7 @@
               "agentPane.showContextUsage",
               "agentPane.showDictation",
               "agentPane.zoom",
+              "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -549,17 +550,6 @@
             "title" : {
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
-            }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
             }
           }
         ],
@@ -22261,174 +22251,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPet",
-        "text" : "Chief Pet"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPetEnabled.help",
-        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPetEnabled",
-      "keywords" : [
-        "chief",
-        "pet",
-        "mascot",
-        "floating",
-        "notifications",
-        "reply",
-        "dock"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPetEnabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPetEnabled",
-        "text" : "Show Chief Pet"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
-        "machine",
-        "machine-cyan",
-        "machine-blue",
-        "moon",
-        "moon-blue",
-        "fox"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb",
-            "text" : "Orb"
-          },
-          "value" : "orb"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-spark",
-            "text" : "Orb Spark"
-          },
-          "value" : "orb-spark"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.orb-hood",
-            "text" : "Hooded Orb"
-          },
-          "value" : "orb-hood"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine",
-            "text" : "Machine"
-          },
-          "value" : "machine"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine-cyan",
-            "text" : "Cyan Machine"
-          },
-          "value" : "machine-cyan"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.machine-blue",
-            "text" : "Blue Machine"
-          },
-          "value" : "machine-blue"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.moon",
-            "text" : "Moon"
-          },
-          "value" : "moon"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.moon-blue",
-            "text" : "Blue Moon"
-          },
-          "value" : "moon-blue"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.chiefPetMascot.fox",
-            "text" : "Fox"
-          },
-          "value" : "fox"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "orb",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPet",
-        "text" : "Chief Pet"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPetMascot",
-      "keywords" : [
-        "chief",
-        "pet",
-        "mascot",
-        "character",
-        "avatar",
-        "pixel"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPetMascot"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPetMascot",
-        "text" : "Character"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -24666,6 +24488,82 @@
     },
     {
       "accepts" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.permissionFullAccess",
+            "text" : "Full Access"
+          },
+          "value" : "fullAccess"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionStandard",
+            "text" : "Harness Default"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionAsk",
+            "text" : "Ask Before Changes"
+          },
+          "value" : "ask"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "fullAccess",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaultPermissionMode.help",
+        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaultPermissionMode",
+      "keywords" : [
+        "permission",
+        "mode",
+        "full access",
+        "ask",
+        "approval",
+        "yolo",
+        "bypass",
+        "agent",
+        "new chat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaultPermissionMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.defaultPermissionMode",
+        "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -25456,7 +25354,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "43021320a1147a058f9d1eef675122070bb2b6d6dc5bba3bf98f299d81e1d864",
+  "schema_hash" : "b5a8a5f821bff8f0f2b9ac6f60d01e2b243d10a1263d54e6c60312d8e17774dc",
   "sections" : [
     {
       "id" : "general",

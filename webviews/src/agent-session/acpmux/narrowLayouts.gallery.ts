@@ -327,6 +327,28 @@ export default agentPaneEntry({
       }),
       play: check,
     },
+    // CI plays these in Linux Chromium, whose fallback fonts set the chips' labels wider than macOS
+    // does: the New Tab row at 280 px passed on a Mac with half a pixel of overlap and failed in CI
+    // ("Mode overlaps Dictate"). Spacing the page's letters out by half a pixel stands in for those
+    // metrics, so a row with no slack fails on a Mac too.
+    "new-tab-wide-type": {
+      note: "The New Tab page with its letters spaced half a pixel wider, as Linux's fonts set them.",
+      ready: {
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newSession: true,
+      },
+      snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", ...controls },
+      }),
+      play: async (ctx) => {
+        const style = ctx.document.createElement("style");
+        style.textContent = ".nt-screen, .nt-screen * { letter-spacing: 0.5px; }";
+        ctx.document.head.append(style);
+        const view = ctx.document.defaultView!;
+        await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+        await check(ctx);
+      },
+    },
     code: {
       note: "A reply with a long code line and a long path: the block scrolls inside itself.",
       snapshot: withControls(

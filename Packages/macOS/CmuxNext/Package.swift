@@ -179,10 +179,12 @@ let package = Package(
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextKeepAwake",
+                "CmuxNextPopups",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
+                "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextDaemonService",
@@ -555,6 +557,21 @@ let package = Package(
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        // Browser popup panels: sized `window.open` popups (OAuth, payment) and
+        // extension popup windows over their opener's window. The App routes page intents.
+        .target(
+            name: "CmuxNextPopups",
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextPopupsTests",
+            dependencies: ["CmuxNextBrowser", "CmuxNextPopups"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
         // pane listing computer use sessions on every machine, their
         // screenshot timeline and user controls. A projection: the CUA host
@@ -774,6 +791,20 @@ let package = Package(
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
             ],
             swiftSettings: daemonSwiftSettings
+        ),
+        // The diff viewer engine (the diff page provider, sidecar, grants,
+        // stores and strings). DiffPageService in the App opens and hosts it.
+        .target(
+            name: "CmuxNextDiff",
+            dependencies: [
+                "CmuxNextAgentPane",
+                "CmuxNextCompat",
+                "CmuxNextDaemonService",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextDesign",
@@ -1000,7 +1031,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextCompat", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            // ReduceMotionLoopTests builds the vendored Home typing indicators.
