@@ -31,13 +31,15 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
         ],
     );
     assert_success(&report);
+    // The suggested command reaches the same daemon: `cli` passes --socket.
+    let socket = format!("--socket '{}'", server.socket.display());
     let stderr = |output: &Output| String::from_utf8_lossy(&output.stderr).into_owned();
 
     let typed = cli(&server, &["terminal", &agent_terminal, "write", "--text", "it's done"]);
     assert_success(&typed);
     let hint = stderr(&typed);
     assert!(
-        hint.contains(&format!("cmux agent message {agent_terminal} 'it'\"'\"'s done'")),
+        hint.contains(&format!("cmux {socket} agent message {agent_terminal} 'it'\"'\"'s done'")),
         "typing into an agent names the agent message command: {hint}"
     );
 
@@ -52,7 +54,7 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
         cli(&server, &["terminal", &agent_terminal, "write", "--text", "go\r\u{1b}]0;x\u{7}"]);
     assert_success(&submit);
     let hint = stderr(&submit);
-    assert!(hint.contains(&format!("cmux agent message {agent_terminal} '…'")), "{hint}");
+    assert!(hint.contains(&format!("agent message {agent_terminal} '…'")), "{hint}");
     assert!(!hint.contains('\u{1b}') && !hint.contains('\r'), "raw control characters: {hint:?}");
 
     // The suggested command keeps the caller's route.
@@ -62,8 +64,9 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
     );
     assert_success(&routed);
     assert!(
-        stderr(&routed)
-            .contains(&format!("cmux --machine current agent message {agent_terminal} 'hi'")),
+        stderr(&routed).contains(&format!(
+            "cmux --machine current {socket} agent message {agent_terminal} 'hi'"
+        )),
         "{}",
         stderr(&routed)
     );
