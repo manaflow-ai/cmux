@@ -68,7 +68,7 @@ describe("access-token review regressions", () => {
 
   it("sweeps expired SSH identities and records revocation", async () => {
     const { vmId } = harness.addVm("team_alpha");
-    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec"]);
+    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec", "vm:read"]);
     const expired = await mint(key, vmId, ["ssh"], 1);
     expect((await ssh(expired)).status).toBe(200);
     const live = await mint(key, vmId, ["ssh"]);
@@ -88,7 +88,7 @@ describe("access-token review regressions", () => {
 
   it("retries failed revocations on the next sweep without waiting for expiry, and continues past failed rows", async () => {
     const { vmId } = harness.addVm("team_alpha");
-    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec"]);
+    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec", "vm:read"]);
     const first = await mint(key, vmId, ["ssh"]);
     const second = await mint(key, vmId, ["ssh"]);
     for (const token of [first, second]) {
@@ -113,7 +113,7 @@ describe("access-token review regressions", () => {
 
   it("deletes an identity created concurrently with revocation and returns no SSH credential", async () => {
     const { vmId } = harness.addVm("team_alpha");
-    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec"]);
+    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec", "vm:read"]);
     const token = await mint(key, vmId, ["ssh"]);
     harness.upstream.beforeNext("createIdentityToken", async () => {
       expect((await harness.request(`/v1/access-tokens/${token.id}`, bearer(key), { method: "DELETE" })).status).toBe(204);
