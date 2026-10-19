@@ -44,7 +44,7 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_CANARY != 'off' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     outputs:
@@ -96,7 +96,7 @@ jobs:
     needs: pick
     if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
     # No secrets: this job runs the published app.
-    runs-on: ${{ vars.NIGHTLY_NEXT_CANARY_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -105,6 +105,8 @@ jobs:
       # Gatekeeper, ticket or build-number check (a download error is none).
       verdict: ${{ steps.run.outputs.verdict || steps.broken.outputs.verdict }}
     env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
@@ -112,6 +114,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      # The canary builds nothing, but stapler and spctl come from the selected Xcode.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Download the feed's DMG
         run: |
@@ -212,7 +218,7 @@ jobs:
   failed:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write # dispatch nightly-next-rollback.yml

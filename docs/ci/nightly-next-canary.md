@@ -111,7 +111,6 @@ anything.
 | unset or `report` | Both canaries run. A failure is an annotation and an issue; the build publishes and stays on the feed. |
 | `enforce` | A pre-publication failure fails `verify-signed-nightly`, so `publish-nightly` publishes nothing. A post-publication failure pulls the build. |
 | `off` | Skips both. |
-| `NIGHTLY_NEXT_CANARY_RUNNER` | The post-publication canary's Mac (default `blacksmith-6vcpu-macos-26`). |
 
 Turn it on:
 
