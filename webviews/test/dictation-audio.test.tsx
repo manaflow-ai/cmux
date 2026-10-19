@@ -181,3 +181,14 @@ test("a recording past the byte cap is no attachment", () => {
   const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
   expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
 });
+
+test("the left-out recording notice fits both caps, not only the two-minute one", async () => {
+  // App.tsx shows `dictation.recordingTooLong` when the host stops keeping audio at two minutes
+  // and when `audioAttachment` refuses a clip past `MAX_AUDIO_BYTES`, so it must not name a length.
+  const catalog = (await Bun.file(
+    new URL("../src/agent-session/acpmux/Localizable.xcstrings", import.meta.url),
+  ).json()) as { strings: Record<string, { localizations: Record<string, { stringUnit: { value: string } }> }> };
+  const notice = catalog.strings["dictation.recordingTooLong"]?.localizations.en?.stringUnit.value ?? "";
+  expect(notice).toContain("too long to attach");
+  expect(notice).not.toMatch(/\d/);
+});
