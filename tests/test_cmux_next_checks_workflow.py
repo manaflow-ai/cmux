@@ -947,6 +947,16 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
             self.assertIn("github.event_name == 'push'", save.get("if", ""))
             self.assertIn("refs/heads/feat-cmux-next", save.get("if", ""))
 
+    def test_every_fast_tier_cache_step_names_one_directory(self):
+        """scripts/ci/r2-cache.sh takes one directory per call and exits 2 on a multi-line path,
+        so a two-directory cache step never restored or saved anything on the r2 backend."""
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        for step in job["steps"]:
+            uses = str(step.get("uses", ""))
+            if "cache-restore" in uses or "cache-save" in uses:
+                path = str(step.get("with", {}).get("path", "")).strip()
+                self.assertNotIn("\n", path, step.get("name"))
+
     def test_fast_tier_emits_a_json_timing_receipt(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
         run = next(step for step in job["steps"] if "scripts/cmux-next/fast-tier.py" in step.get("run", ""))
