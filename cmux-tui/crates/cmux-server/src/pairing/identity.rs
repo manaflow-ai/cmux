@@ -271,3 +271,7 @@ impl Store {
         fsx::atomic_write(&self.path, &bytes, 0o600)
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "identity_tests.rs"]
+mod tests;
