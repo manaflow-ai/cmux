@@ -334,6 +334,7 @@
 		B1F0C0080000000000000001 /* AppDelegateDetachedInspectorClose.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0080000000000000002 /* AppDelegateDetachedInspectorClose.swift */; };
 		A1B2C3D4E5F600000000CF01 /* AppDelegateDisplayConfigRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000CF02 /* AppDelegateDisplayConfigRestoreTests.swift */; };
 		06122FE8227E5CD68586441E /* AppDelegateEqualizeSplitsShortcutTests+DividerDoubleClick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2DC2347073D79A46C7C1EF /* AppDelegateEqualizeSplitsShortcutTests+DividerDoubleClick.swift */; };
+		63352604D3373A68B1BC9E4C /* AppDelegateEqualizeSplitsShortcutTests+DividerEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E698AEEEC4749DE88E8B76C /* AppDelegateEqualizeSplitsShortcutTests+DividerEvents.swift */; };
 		E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */; };
 		F5996001A1B2C3D4E5F60001 /* AppDelegateFileExplorerShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5996001A1B2C3D4E5F60002 /* AppDelegateFileExplorerShortcutRoutingTests.swift */; };
 		895500000000000000000001 /* AppDelegateFullScreenFrameRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895500000000000000000002 /* AppDelegateFullScreenFrameRestoreTests.swift */; };
@@ -1985,6 +1986,8 @@
 		6556E074DB1446169065BA56 /* DiffViewerViewedFilesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FAB146561B01C944321F6A /* DiffViewerViewedFilesStore.swift */; };
 		1AB92F80BD2D1FAB498887A5 /* DiffViewerViewedFilesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ABC7DAFD38509284B880BC2 /* DiffViewerViewedFilesStoreTests.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
+		435FE91BF38B4588C2A0746D /* DividerDoubleClickSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C977F027484909BFDB0FE0E5 /* DividerDoubleClickSettingsFileTests.swift */; };
+		B6187D664822310D82C7F2F4 /* DividerTrackingEventProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB22E358DB4A0CDAE76D29C9 /* DividerTrackingEventProbe.swift */; };
 		DCDC1000000000000000B003 /* DockConfigFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B004 /* DockConfigFile.swift */; };
 		DCDC1000000000000000B005 /* DockConfigIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B006 /* DockConfigIdentity.swift */; };
 		DCDC1000000000000000B007 /* DockConfigResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B008 /* DockConfigResolution.swift */; };
@@ -5092,6 +5095,7 @@
 		B1F0C0080000000000000002 /* AppDelegateDetachedInspectorClose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppDelegateDetachedInspectorClose.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000CF02 /* AppDelegateDisplayConfigRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateDisplayConfigRestoreTests.swift; sourceTree = "<group>"; };
 		0E2DC2347073D79A46C7C1EF /* AppDelegateEqualizeSplitsShortcutTests+DividerDoubleClick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegateEqualizeSplitsShortcutTests+DividerDoubleClick.swift"; sourceTree = "<group>"; };
+		3E698AEEEC4749DE88E8B76C /* AppDelegateEqualizeSplitsShortcutTests+DividerEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegateEqualizeSplitsShortcutTests+DividerEvents.swift"; sourceTree = "<group>"; };
 		E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateEqualizeSplitsShortcutTests.swift; sourceTree = "<group>"; };
 		F5996001A1B2C3D4E5F60002 /* AppDelegateFileExplorerShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateFileExplorerShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		895500000000000000000002 /* AppDelegateFullScreenFrameRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateFullScreenFrameRestoreTests.swift; sourceTree = "<group>"; };
@@ -6577,6 +6581,8 @@
 		A5FAB146561B01C944321F6A /* DiffViewerViewedFilesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffViewerViewedFilesStore.swift; sourceTree = "<group>"; };
 		6ABC7DAFD38509284B880BC2 /* DiffViewerViewedFilesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiffViewerViewedFilesStoreTests.swift"; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
+		C977F027484909BFDB0FE0E5 /* DividerDoubleClickSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DividerDoubleClickSettingsFileTests.swift"; sourceTree = "<group>"; };
+		CB22E358DB4A0CDAE76D29C9 /* DividerTrackingEventProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DividerTrackingEventProbe.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B004 /* DockConfigFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigFile.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B006 /* DockConfigIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigIdentity.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B008 /* DockConfigResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigResolution.swift; sourceTree = "<group>"; };
@@ -13982,6 +13988,9 @@
 				F152960A3E2799807D8DD3EE /* VaultClaudeCustomTitleTests.swift */,
 				745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */,
 				0E2DC2347073D79A46C7C1EF /* AppDelegateEqualizeSplitsShortcutTests+DividerDoubleClick.swift */,
+				3E698AEEEC4749DE88E8B76C /* AppDelegateEqualizeSplitsShortcutTests+DividerEvents.swift */,
+				C977F027484909BFDB0FE0E5 /* DividerDoubleClickSettingsFileTests.swift */,
+				CB22E358DB4A0CDAE76D29C9 /* DividerTrackingEventProbe.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17983,6 +17992,7 @@
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
 				A1B2C3D4E5F600000000CF01 /* AppDelegateDisplayConfigRestoreTests.swift in Sources */,
 				06122FE8227E5CD68586441E /* AppDelegateEqualizeSplitsShortcutTests+DividerDoubleClick.swift in Sources */,
+				63352604D3373A68B1BC9E4C /* AppDelegateEqualizeSplitsShortcutTests+DividerEvents.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,
 				F5996001A1B2C3D4E5F60001 /* AppDelegateFileExplorerShortcutRoutingTests.swift in Sources */,
 				895500000000000000000001 /* AppDelegateFullScreenFrameRestoreTests.swift in Sources */,
@@ -18510,6 +18520,8 @@
 				9648DEAE0000000000000002 /* DiffViewerPickerCommandRunnerTests.swift in Sources */,
 				9648DEAD0000000000000002 /* DiffViewerURLSchemeHandlerLifecycleTests.swift in Sources */,
 				1AB92F80BD2D1FAB498887A5 /* DiffViewerViewedFilesStoreTests.swift in Sources */,
+				435FE91BF38B4588C2A0746D /* DividerDoubleClickSettingsFileTests.swift in Sources */,
+				B6187D664822310D82C7F2F4 /* DividerTrackingEventProbe.swift in Sources */,
 				DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */,
 				D7529001A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift in Sources */,
 				D77800010000000000000001 /* DockPortalReconcileTests.swift in Sources */,
