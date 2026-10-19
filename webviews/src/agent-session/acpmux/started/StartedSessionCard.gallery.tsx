@@ -9,11 +9,13 @@ type Props = { started: StartedSession[]; reply?: string };
 const triage: StartedSession = {
   sessionId: "child-1",
   title: "Triage the 10 failing Swift tests at the tip",
+  named: true,
   state: "idle",
 };
 const freeze: StartedSession = {
   sessionId: "child-2",
   title: "Switch gh-merge-green to merge-freeze issues",
+  named: true,
   state: "running",
   activity: "Running ss -ltnp 2>/dev/null | grep 2222; timeout 40 ssh huge-blue uptime",
   pullRequests: { count: 2, tone: "ready" },
