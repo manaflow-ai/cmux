@@ -186,11 +186,19 @@ try:
         rpc("action.run", {"action": "newSurface", "args": {}, "focus": True, "origin": "script"})
         time.sleep(1.0)
         rpc("debug.frames", {"action": "start"})
+        rpc("debug.tab_switch", {"action": "start"})
         for _ in range(160):
             rpc("action.run", {"action": "nextSurface", "args": {}, "focus": True, "origin": "script", "wait": False})
             time.sleep(1 / 60)
         time.sleep(0.5)
         report["tabs_frames"] = rpc("debug.frames", {"action": "stop"})
+        switches = (rpc("debug.tab_switch", {"action": "stop"}) or {}).get("switches") or []
+        stats = {}
+        for key in sorted({k for sw in switches for k in sw}):
+            values = sorted(sw[key] for sw in switches if isinstance(sw.get(key), (int, float)))
+            if values:
+                stats[key] = {"n": len(values), "p50": round(values[len(values) // 2], 2), "p99": round(values[min(len(values) - 1, int(len(values) * 0.99))], 2), "max": round(values[-1], 2)}
+        report["tab_switch"] = stats
     # Pass rule, per terminal: the drawn columns equal what its frame fits at the same step (the text
     # fits the pane on the same frame); the owner's grid equals a fit of that step or one of the --lag
     # steps before it (one grid in flight and its echo) and changes during the drag; after the drag
@@ -245,6 +253,7 @@ print("frames drag:", json.dumps({k: v for k, v in (report.get("frames") or {}).
 print("dragmargins:", json.dumps(((report.get("frames") or {}).get("dragmargins") or {}))[:12000])
 tf = report.get("tabs_frames") or {}
 print("tabs:", json.dumps({k: v for k, v in tf.items() if k != "dragmargins"})[:400], "resets", (tf.get("dragmargins") or {}).get("resets"), "needs", (tf.get("dragmargins") or {}).get("needs"))
+print("tab_switch:", json.dumps(report.get("tab_switch")))
 print("drag resets:", ((report.get("frames") or {}).get("dragmargins") or {}).get("resets"), "needs", ((report.get("frames") or {}).get("dragmargins") or {}).get("needs"))
 for record in ((report.get("hangs") or {}).get("records") or [])[:6]:
     print("hang %.1f ms %s %s: %s" % (record.get("duration_ms", 0), record.get("kind"), {k: v for k, v in record.items() if k not in ("frames", "duration_ms", "kind")}, " < ".join(str(f)[:60] for f in (record.get("frames") or [])[:30])))
