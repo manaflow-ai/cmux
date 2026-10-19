@@ -3917,7 +3917,7 @@ function AcpmuxPane() {
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
-            // Search Files… (Cmd-P): the composer opens its file search.
+            // Search Files… (the command palette; no default key: Cmd-P is the native Go to): the composer opens its file search.
             "searchFiles",
           ].includes(name)
         ) {

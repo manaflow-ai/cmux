@@ -137,9 +137,11 @@ public extension PageDescriptor {
     /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus
     /// `'wasm-unsafe-eval'` for Shiki's Oniguruma engine; no `connect-src` and no `'unsafe-eval'`.
     /// Its worker is a same-origin module, which `script-src 'self'` allows.
+    /// Its one app action is the native command palette: Monaco's own palette (F1, the context
+    /// menu's Command Palette) opens it instead, so no web view has a palette of its own.
     static let editor = PageDescriptor(
         id: "cmux.editor", resource: diffResource, namespaces: ["cmux.editor."],
-        nativeOps: [PageNativeOp.clipboardWrite],
+        nativeOps: [PageNativeOp.clipboardWrite, PageNativeOp.actionRun], actions: ["commandPalette"],
         commands: PageNativeOp.commands.union(EditorPageCommand.all),
         csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry)
 }
