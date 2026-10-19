@@ -213,6 +213,7 @@ import { RenderBridgeContext, useRenderBridge } from "./conversation/RenderBridg
 import { reactRenderPage } from "./conversation/renderFrameDoc";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
+import { viewerOrDetails } from "./chatViewerPanels";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
@@ -4703,6 +4704,13 @@ function AcpmuxPane() {
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
+  // One panel beside the chat until Files and Thread details share a sidebar (chatViewerPanels.ts).
+  const viewerOpen = chatViewer && (filesOpen || fileOpen || diffView !== undefined);
+  const detailsCard = viewerOrDetails(summaryCard, viewerOpen, () => {
+    closeFile();
+    closeFiles();
+    if (diffView) closeDiff();
+  });
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue =
     !!snapshot.canHandoff &&
@@ -5996,7 +6004,7 @@ function AcpmuxPane() {
                         );
                       }}
                       sessionRail={sessionRail.button}
-                      summary={<SummaryButton card={summaryCard} />}
+                      summary={<SummaryButton card={detailsCard} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}
@@ -6117,6 +6125,7 @@ function AcpmuxPane() {
           !(replaying && replaying === snapshot.sessionId) &&
           !inspectorOpen &&
           !diffView &&
+          !viewerOpen &&
           summaryCard.column &&
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
