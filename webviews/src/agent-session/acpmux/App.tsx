@@ -2657,7 +2657,9 @@ function AcpmuxPane() {
               return readChatAccounts(await client.routes(sessionId));
             },
             set: async (sessionId, routeId) => {
-              await directClient.current?.setChatRoute(sessionId, routeId);
+              const client = directClient.current;
+              if (!client) throw new Error("acpmux.notConnected");
+              await client.setChatRoute(sessionId, routeId);
             },
           }
         : undefined,

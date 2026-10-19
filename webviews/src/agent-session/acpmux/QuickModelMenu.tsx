@@ -211,7 +211,7 @@ export function QuickModelMenu({
                 closeOnClick
                 disabled={choice.disabled}
                 className="acpmux-quick-item"
-                shortcut={index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
+                shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
               >
                 <span className="acpmux-menu-label">{choice.name}</span>
                 {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
@@ -497,21 +497,26 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
       live = false;
     };
   }, [open, sessionId, accounts]);
+  // The chat the latest pick was for: a late answer for another chat changes nothing here.
+  const pickFor = useRef(sessionId);
   // Another chat's accounts never show for this one.
   useEffect(() => {
+    pickFor.current = sessionId;
     setList(undefined);
     setSwitchFailed(false);
   }, [sessionId]);
   const pick = (routeId: string | null) => {
     if (!sessionId || !accounts) return;
+    const forSession = sessionId;
     setList((old) =>
       old
         ? { ...old, ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }) }
         : old,
     );
     accounts.set(sessionId, routeId).then(
-      () => setSwitchFailed(false),
+      () => pickFor.current === forSession && setSwitchFailed(false),
       () => {
+        if (pickFor.current !== forSession) return;
         setSwitchFailed(true);
         // The next open reads where the chat really is.
         setList(undefined);
