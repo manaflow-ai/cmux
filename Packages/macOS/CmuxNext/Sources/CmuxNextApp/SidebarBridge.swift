@@ -136,12 +136,7 @@ final class SidebarBridge {
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                 tabTitle: Self.tabTitle(services), rows: feed.rowSource)
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
-            // A workspace Cmd-N shows before the daemon has it lists as its pending row, at its slot, until the daemon's
-            // workspace takes its model over (its handle, read here, so the confirm re-runs this pass).
-            let sections = PendingWorkspaceRows.removing(PendingWorkspaceRows.shared.ids(in: windowState.id) { id in
-                machines.workspace(id: id)?.0.isProvisional == true
-            }, from: listed)
-            return ((sections, services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+            return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document))
         }) { [weak self] value in
             let ((sections, decorations), launching, failed, profiles, active, shown) = value

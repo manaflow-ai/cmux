@@ -115,12 +115,7 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var intentLog = IntentLog()
     /// The one model of each pending split's provisional pane, by public pane id: every overlay
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
-    @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
-    /// The one model of each pending workspace create, by key, and of its provisional screen:
-    /// every restore shows the same objects, and the daemon's workspace takes the model over in
-    /// place (`confirmedWorkspace`), so the window showing it keeps its content.
-    @ObservationIgnored var provisionalWorkspaces: [String: WorkspaceModel] = [:]
-    @ObservationIgnored var provisionalScreens: [String: ScreenModel] = [:]
+    @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:], provisionalWorkspaces = ProvisionalWorkspaceModels() // and Cmd-N's
     /// This app's own live divider and column drags and their held echoes (DaemonStore+LayoutEchoes.swift).
     @ObservationIgnored var layoutEchoes = LayoutEchoes()
     /// True while daemon state applies to the confirmed records (the
@@ -388,10 +383,7 @@ public final class DaemonStore: StateResourceQueries {
         guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
         guard checkedListGeneration != listGeneration else { return }
         checkedListGeneration = listGeneration
-        // A stand-in (Cmd-N's provisional workspace) the daemon's workspace took over counts as a
-        // change: the window places the workspace then (a placement moves a daemon workspace).
-        let name = { (workspace: WorkspaceModel) in workspace.isProvisional ? workspace.id + "~" : workspace.id }
-        let list = sidebarSections.flatMap(\.workspaces).map(name) + ["|"] + workspaces.map(name)
+        let list = sidebarSections.flatMap(\.workspaces).map(\.listID) + ["|"] + workspaces.map(\.listID)
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
         hook()

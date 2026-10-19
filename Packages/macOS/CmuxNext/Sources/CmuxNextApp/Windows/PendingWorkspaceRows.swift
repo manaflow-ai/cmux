@@ -66,6 +66,12 @@ final class PendingWorkspaceRows {
         redraws.run()
     }
 
+    /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
+    /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
+    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
+        Self.removing(ids(in: window) { machines.workspace(id: $0)?.0.isProvisional == true }, from: listed)
+    }
+
     /// The pending rows of `window` whose workspace the store shows only as a stand-in
     /// (`provisional`: Cmd-N's optimistic workspace): the sidebar lists the pending row for them.
     func ids(in window: String, provisional: (String) -> Bool) -> Set<String> {
