@@ -75,3 +75,73 @@ test("grouped What's New entries keep readable summaries and expose their docs l
   expect(link.getAttribute("aria-label")).toBe("Learn more: Workspace groups");
   act(() => root.unmount());
 });
+
+test("the Digest design shows each change's docs link under its summary", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { DigestPage } = await import("../src/pages/changelog/DigestPage");
+  const notes = {
+    build: "1",
+    shortVersion: "1.0.0-nightly.1",
+    date: "2026-10-16",
+    highlights: [],
+    changes: [],
+    whatsNew: {
+      version: "1.0.0-nightly.1",
+      channel: "nightly" as const,
+      date: "2026-10-16",
+      headline: { en: "A clearer update" },
+      entries: [
+        {
+          id: "groups",
+          category: "new" as const,
+          title: { en: "Workspace groups" },
+          summary: { en: "Keep related workspaces together so the sidebar is easier to scan." },
+          docs: "https://cmux.com/docs/sidebar",
+        },
+      ],
+    },
+  };
+  const strings = {
+    language: "en",
+    t: (key: string) =>
+      ({
+        "changelog.group.new": "New",
+        "changelog.page.learnMore": "Learn more",
+        "changelog.page.title": "What's New",
+      })[key] ?? key,
+    format: (key: string, ...args: string[]) => `${key} ${args.join(" ")}`,
+  };
+  const snapshot = {
+    builds: [{ build: "1", shortVersion: "1.0.0-nightly.1", date: "2026-10-16", highlights: 1 }],
+    loading: false,
+    missing: false,
+    inSpan: [],
+    loaded: { "1": notes },
+    unavailable: {},
+  };
+  const store = { tryIt: async () => undefined, ensure: async () => undefined };
+  const root = createRoot(host);
+  act(() =>
+    root.render(
+      <DigestPage
+        store={store as unknown as Parameters<typeof DigestPage>[0]["store"]}
+        strings={strings as unknown as Parameters<typeof DigestPage>[0]["strings"]}
+        s={snapshot as unknown as Parameters<typeof DigestPage>[0]["s"]}
+      />,
+    ),
+  );
+
+  const item = host.querySelector(".cld-item")!;
+  expect(item.querySelector(".cl-row-summary")?.textContent).toContain("easier to scan");
+  const link = item.querySelector<HTMLAnchorElement>(".cl-row-link")!;
+  expect(link.href).toBe("https://cmux.com/docs/sidebar");
+  expect(link.getAttribute("aria-label")).toBe("Learn more: Workspace groups");
+  // Digest stacks each change in a column, so its actions stay visible instead of revealing on hover.
+  const style = host.ownerDocument.createElement("style");
+  style.textContent = await Bun.file(new URL("../src/pages/changelog/styles.css", import.meta.url)).text();
+  host.ownerDocument.head.append(style);
+  const actions = item.querySelector<HTMLElement>(".cl-row-actions")!;
+  expect(host.ownerDocument.defaultView!.getComputedStyle(actions).opacity).toBe("1");
+  style.remove();
+  act(() => root.unmount());
+});
