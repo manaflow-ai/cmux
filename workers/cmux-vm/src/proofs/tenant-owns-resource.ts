@@ -18,7 +18,7 @@ const TenantOwnsResource = defineProof("TenantOwnsResource");
 
 /** The tenant of caller `C` owns the public resource named `R`, and `C` may reach it. */
 export interface TenantOwnsResource<C, R, K extends ResourceKind = ResourceKind> extends Proof<"TenantOwnsResource", [C, R]> {
-  readonly kind: K;
+  readonly resourceKind: K;
   /** The ownership row's display name and labels (public data, not evidence). */
   readonly displayName: string | null;
   readonly labels: Readonly<Record<string, string>>;
@@ -53,7 +53,7 @@ const owns = <C, R, K extends ResourceKind>(
 const mint = <C, R, K extends ResourceKind>(caller: Named<C, Principal>, resource: Named<R, unknown>, row: OwnedResource, kind: K): TenantOwnsResource<C, R, K> => {
   const proof: TenantOwnsResource<C, R, K> = Object.freeze({
     ...TenantOwnsResource.prove(caller, resource),
-    kind,
+    resourceKind: kind,
     displayName: row.displayName,
     labels: row.labels,
   });

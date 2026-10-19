@@ -464,18 +464,20 @@ const identityPermission = <C, R>(request: Request, parts: ReadonlyArray<string>
   const vmParsed = parseVmId(vmRow.value.cmuxId);
   if (Option.isNone(vmParsed)) return notFound();
   const template = parts.length === 0 ? "/v5/identities/{id}/permissions/vm" : `/v5/identities/{id}/permissions/vm/${encodeURIComponent(resolvedVmId)}`;
-  const vmOwns = yield* name(vmParsed.value, (vm) => tenantOwnsVm(caller, vm));
-  if (vmOwns === null) return notFound();
-  const response = yield* upstream.forwardGrant(identityProof, vmOwns, { request, template: template.replace("{id}", "{identity}").replace(resolvedVmId, "{vm}"), operation: `identity.permission.${request.method.toLowerCase()}` }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)));
-  if (response.status === 404) return response;
-  if (response.status >= 500) return unavailable();
-  if (response.ok && (request.method === "POST" || request.method === "PATCH")) {
-    const data = yield* Effect.promise(() => parseJson(response));
-    yield* identities.recordGrant({ id: stringField(data, "id") ?? idFrom("vmp-"), tenantId: principal.tenantId, identityCmuxId: identityId, vmCmuxId: vmParsed.value, upstreamId: vmRow.value.upstreamId, allowedLinuxUsers: Array.isArray(data?.allowedLinuxUsers) ? data.allowedLinuxUsers.filter((value): value is string => typeof value === "string") : null, grantedAt: now, grantedBy: principal.tenantId }).pipe(Effect.tapError(() => upstream.forwardGrant(identityProof, vmOwns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "grant.recordFailure.revoke" }).pipe(Effect.ignore)), Effect.mapError(() => unavailable()));
-  }
-  if (response.ok && request.method === "DELETE") yield* identities.revokeGrant(principal.tenantId, identityId, vmParsed.value, now).pipe(Effect.ignore);
-  yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.identity.permission.${request.method.toLowerCase()}`, cmuxId: identityId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
-  return response;
+  return yield* name(vmParsed.value, (vm) => Effect.gen(function* () {
+    const vmOwns = yield* tenantOwnsVm(caller, vm);
+    if (vmOwns === null) return notFound();
+    const response = yield* upstream.forwardGrant(identityProof, vmOwns, { request, template: template.replace("{id}", "{identity}").replace(resolvedVmId, "{vm}"), operation: `identity.permission.${request.method.toLowerCase()}` }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)));
+    if (response.status === 404) return response;
+    if (response.status >= 500) return unavailable();
+    if (response.ok && (request.method === "POST" || request.method === "PATCH")) {
+      const data = yield* Effect.promise(() => parseJson(response));
+      yield* identities.recordGrant({ id: stringField(data, "id") ?? idFrom("vmp-"), tenantId: principal.tenantId, identityCmuxId: identityId, vmCmuxId: vmParsed.value, upstreamId: vmRow.value.upstreamId, allowedLinuxUsers: Array.isArray(data?.allowedLinuxUsers) ? data.allowedLinuxUsers.filter((value): value is string => typeof value === "string") : null, grantedAt: now, grantedBy: principal.tenantId }).pipe(Effect.tapError(() => upstream.forwardGrant(identityProof, vmOwns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "grant.recordFailure.revoke" }).pipe(Effect.ignore)), Effect.mapError(() => unavailable()));
+    }
+    if (response.ok && request.method === "DELETE") yield* identities.revokeGrant(principal.tenantId, identityId, vmParsed.value, now).pipe(Effect.ignore);
+    yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.identity.permission.${request.method.toLowerCase()}`, cmuxId: identityId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
+    return response;
+  }));
 });
 
 const identityToken = <C, R>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R, "identity">, identityId: IdentityId, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
