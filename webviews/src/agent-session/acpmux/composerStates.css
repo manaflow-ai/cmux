@@ -279,12 +279,27 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    (Lawrence, Leo 10-14): the same one-device-pixel rim, never a wider ring or the accent, and clear
    with appearance.borders none. Its tone steps 30% toward the text (--acpmux-composer-edge-focus):
    the earlier 8% step was below what an eye can see, so a focused composer was pixel-identical to an
-   idle one in every theme (cg-composer focus audit, 10-14). The card's rim goes round the location
+   idle one in every theme (cg-composer focus audit, 10-14). Leo 2026-10-19 asked for a subtler focus,
+   so it steps 22%: still well clear of the invisible 8%. Over art the glass card also catches more
+   light on its top edge (below). The card's rim goes round the location
    strip too (composerLocation.css), so the focused rim stays one outline. Shell mode takes its own accent,
    the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
 .acpmux-composer,
 .nt-composer {
-  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 30%, var(--acpmux-composer-edge));
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-edge));
+}
+/* Glass focus: over art (data-cmux-see-through) a focused card's top-lit rim (#21786) brightens, as
+   light catches a lifted pane of glass, instead of the ring growing heavier. Reduce Transparency
+   draws no rim layer at all (above), so it keeps the plain step. */
+:root[data-cmux-see-through]
+  :is(
+    .acpmux-composer-box:has(:focus-visible),
+    .acpmux-composer:has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box
+  ) {
+  --acpmux-composer-rim: inset 0 1px 0 light-dark(
+    color-mix(in srgb, var(--cmux-tone-light) 85%, transparent),
+    color-mix(in srgb, var(--cmux-tone-light) 22%, transparent)
+  );
 }
 :root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
   --acpmux-composer-edge-focus: transparent;
