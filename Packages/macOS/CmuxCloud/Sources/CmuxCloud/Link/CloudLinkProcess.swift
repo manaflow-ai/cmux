@@ -8,16 +8,23 @@ import Foundation
 /// signals the client: a dial helper that ignores `SIGTERM` and inherited the
 /// link's pipes survives and keeps the attempt wedged (#11008).
 ///
-/// Signals go to the whole group. The leader is reaped as soon as it exits,
-/// like `Process`, and ``killGroup()`` later kills whatever is left of its group:
-/// at once on cancellation, or after a bounded stderr drain when the client
-/// exits on its own. The kernel does not hand out a PID that is still in use as
-/// a process group ID, so while any member remains, the group ID stays ours.
+/// The leader is reaped as soon as it exits, like `Process`, and ``killGroup()``
+/// later kills whatever is left of its group: at once on cancellation, or after
+/// a bounded stderr drain when the client exits on its own. The kernel does not
+/// hand out a PID that is still in use as a process group ID, so while any
+/// member remains, the group ID stays ours.
+///
+/// An SSH link opts out of group signals (`sweepsGroup: false`). OpenSSH's
+/// ProxyCommand child of a persisted `ControlMaster` stays in the group that
+/// started it, and killing it would drop every connection sharing that master.
 ///
 /// Unchecked Sendable: the identifiers and pipes are immutable, `exit`
 /// synchronizes itself, and `lock` guards the two lifecycle flags.
 final class CloudLinkProcess: @unchecked Sendable {
     let processIdentifier: Int32
+    /// Whether ``signal(_:)`` and ``killGroup()`` reach the whole group, or
+    /// only the leader.
+    let sweepsGroup: Bool
     let standardOutput: Pipe
     let standardError: Pipe
     /// The leader's exit code, or its terminating signal number like
@@ -28,8 +35,9 @@ final class CloudLinkProcess: @unchecked Sendable {
     private var exited = false
     private var groupKilled = false
 
-    private init(processIdentifier: Int32, standardOutput: Pipe, standardError: Pipe) {
+    private init(processIdentifier: Int32, sweepsGroup: Bool, standardOutput: Pipe, standardError: Pipe) {
         self.processIdentifier = processIdentifier
+        self.sweepsGroup = sweepsGroup
         self.standardOutput = standardOutput
         self.standardError = standardError
     }
@@ -40,7 +48,8 @@ final class CloudLinkProcess: @unchecked Sendable {
     static func spawn(
         executableURL: URL,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        sweepsGroup: Bool
     ) throws -> CloudLinkProcess {
         let standardOutput = Pipe()
         let standardError = Pipe()
@@ -84,11 +93,12 @@ final class CloudLinkProcess: @unchecked Sendable {
                 posix_spawn(&processIdentifier, path, &actions, &attributes, argv, envp)
             }
         }
-        guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO) }
+        guard status == 0 else { throw spawnError(status, path: path) }
         try? standardOutput.fileHandleForWriting.close()
         try? standardError.fileHandleForWriting.close()
         let process = CloudLinkProcess(
             processIdentifier: processIdentifier,
+            sweepsGroup: sweepsGroup,
             standardOutput: standardOutput,
             standardError: standardError
         )
@@ -103,8 +113,18 @@ final class CloudLinkProcess: @unchecked Sendable {
         return !exited
     }
 
-    /// Signals every process still in the link's group.
+    /// Signals only the leader, so the client can shut its helpers down itself.
+    func signalLeader(_ signal: Int32) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !exited else { return }
+        _ = Darwin.kill(processIdentifier, signal)
+    }
+
+    /// Signals every process still in the link's group, or only a running
+    /// leader when the link does not sweep its group.
     func signal(_ signal: Int32) {
+        guard sweepsGroup else { return signalLeader(signal) }
         lock.lock()
         defer { lock.unlock() }
         guard !groupKilled else { return }
@@ -114,7 +134,7 @@ final class CloudLinkProcess: @unchecked Sendable {
     /// Kills whatever is left of the group, once. Returns when the group is
     /// gone, or after a one-second bound: SIGKILL is delivered asynchronously.
     func killGroup() async {
-        guard markGroupKilled() else { return }
+        guard sweepsGroup, markGroupKilled() else { return }
         let deadline = ContinuousClock.now.advanced(by: .seconds(1))
         // Signal 0 is only a probe.
         while Darwin.kill(-processIdentifier, 0) == 0, ContinuousClock.now < deadline {
@@ -146,6 +166,15 @@ final class CloudLinkProcess: @unchecked Sendable {
         thread.name = "cmux-cloud-link-reaper"
         thread.stackSize = 1 << 18
         thread.start()
+    }
+
+    /// Keeps the wording `Process.run()` used for a missing or unusable client.
+    private static func spawnError(_ code: Int32, path: String) -> Error {
+        switch code {
+        case ENOENT: return CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+        case EACCES, EPERM: return CocoaError(.fileReadNoPermission, userInfo: [NSFilePathErrorKey: path])
+        default: return POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
     }
 
     /// The exit code, or the terminating signal number, as `Process` reports it.

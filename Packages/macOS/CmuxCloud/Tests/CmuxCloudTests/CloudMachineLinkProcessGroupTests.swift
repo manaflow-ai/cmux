@@ -62,6 +62,43 @@ struct CloudMachineLinkProcessGroupTests {
         #expect(Self.hasStopped(helperPID), "cancellation must stop descendants holding the link pipes before returning")
     }
 
+    @Test("cancelling an SSH link leaves the rest of its group alone")
+    func sshCancellationSparesGroupMembers() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-link-pgroup-ssh-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helperFIFO = root.appendingPathComponent("helper.pid")
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        // The helper stands in for OpenSSH's ProxyCommand child of a persisted
+        // ControlMaster: it stays in the link's group and must outlive the link.
+        try """
+        #!/bin/sh
+        /bin/sleep 30 </dev/null >/dev/null 2>&1 &
+        echo $! > '\(helperFIFO.path)'
+        exec /bin/sleep 30
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        try #require(Darwin.mkfifo(helperFIFO.path, 0o600) == 0)
+        let helperFD = Darwin.open(helperFIFO.path, O_RDWR | O_NONBLOCK)
+        try #require(helperFD >= 0)
+        var helperLines = CloudLinkPipe.lines(from: FileHandle(fileDescriptor: helperFD, closeOnDealloc: true))
+            .makeAsyncIterator()
+
+        let link = CloudMachineLink(machineID: "pgroup-ssh", clientURL: client, paths: CloudTuiClientPaths(home: root))
+        let connect = Task {
+            try await link.connect(route: "ssh://user@fixture", session: "main")
+        }
+        defer { connect.cancel() }
+        let helperLine = try #require(await helperLines.next())
+        let helperPID = try #require(Int32(helperLine))
+        defer { _ = Darwin.kill(helperPID, SIGKILL) }
+
+        connect.cancel()
+        _ = try? await connect.value
+        #expect(!Self.hasStopped(helperPID), "an SSH link must not kill other members of its process group")
+    }
+
     /// A killed descendant may still be an unreaped zombie of launchd.
     private static func hasStopped(_ pid: Int32) -> Bool {
         var info = proc_bsdinfo()

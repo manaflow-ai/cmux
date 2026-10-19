@@ -308,7 +308,10 @@ public actor CloudMachineLink {
             process = try CloudLinkProcess.spawn(
                 executableURL: clientURL,
                 arguments: arguments,
-                environment: environment
+                environment: environment,
+                // See CloudLinkProcess: an SSH link's group can hold the
+                // ProxyCommand of a shared ControlMaster.
+                sweepsGroup: ssh == nil && !route.hasPrefix("ssh://")
             )
         } catch {
             state = .error
@@ -323,11 +326,14 @@ public actor CloudMachineLink {
         stderrDrainTask = stderrDrain
         Task.detached { [weak self] in
             guard let status = await processExit.result else { return }
-            await self?.linkProcessDidExit(process, status: status)
             // Helpers of a client that exited on its own get a bounded chance to
             // finish its last stderr lines; then the rest of its group goes.
-            await CloudMachineLink.awaitStderrDrain(stderrDrain)
-            await process.killGroup()
+            // Independent of the actor hop, so a slow teardown cannot delay it.
+            Task.detached {
+                await CloudMachineLink.awaitStderrDrain(stderrDrain)
+                await process.killGroup()
+            }
+            await self?.linkProcessDidExit(process, status: status)
         }
 
         // The first connection-snapshot line names the socket; later lines only update
@@ -820,9 +826,9 @@ public actor CloudMachineLink {
         ).errorDescription
     }
 
-    /// Signals the link's whole process group, waits for the leader's exit, then
-    /// kills whatever is left of the group (after a bounded stderr drain when
-    /// `stderrDrain` is given). The waiter is detached because the caller can
+    /// Asks the client to stop, escalates to SIGKILL for its group, waits for the
+    /// leader's exit, then kills whatever is left of the group (after a bounded
+    /// stderr drain when `stderrDrain` is given). The waiter is detached because the caller can
     /// already be cancelled when cleanup starts.
     #if compiler(>=6.2)
     @concurrent
@@ -837,7 +843,9 @@ public actor CloudMachineLink {
     ) async {
         // Cleanup outlives caller cancellation and retains the process until its exit.
         let cleanup = Task.detached {
-            if process.isRunning { process.signal(SIGTERM) }
+            // The client closes its own helpers on SIGTERM (an SSH child gets EOF
+            // rather than a signal); the group is swept after the leader exits.
+            process.signalLeader(SIGTERM)
             // A genuine escalation deadline; process exit owns and cancels this timer.
             let escalation = Task {
                 do { try await clock.sleep(for: .seconds(5)) } catch { return }
