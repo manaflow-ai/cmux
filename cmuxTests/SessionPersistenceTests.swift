@@ -1536,6 +1536,22 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(restored.minY, -90, "Changed display geometry should clamp/remap frame")
     }
 
+    private func containsIntegerToken(_ value: Int, in text: String) -> Bool {
+        let token = String(value)
+        var remainder = Substring(text)
+        while let range = remainder.range(of: token) {
+            let beforeIsDigit = range.lowerBound > remainder.startIndex
+                && remainder[remainder.index(before: range.lowerBound)].isNumber
+            let afterIsDigit = range.upperBound < remainder.endIndex
+                && remainder[range.upperBound].isNumber
+            if !beforeIsDigit && !afterIsDigit {
+                return true
+            }
+            remainder = remainder[range.upperBound...]
+        }
+        return false
+    }
+
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: "captured-value",
@@ -1568,6 +1584,122 @@ final class SessionPersistenceTests: XCTestCase {
             resolved?.count,
             SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         )
+    }
+
+    func testPersistedScrollbackMarksLineCap() {
+        let lineCount = SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1
+        let source = (0..<lineCount).map { "line-\($0)" }.joined(separator: "\n")
+
+        let persisted = SessionPersistencePolicy.persistedScrollback(source)
+        let lines = persisted.text?.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        XCTAssertTrue(persisted.wasTruncated)
+        XCTAssertEqual(lines?.count, SessionPersistencePolicy.maxScrollbackLinesPerTerminal)
+        XCTAssertEqual(lines?.first, "line-1")
+        XCTAssertEqual(lines?.last, "line-\(lineCount - 1)")
+    }
+
+    func testPersistedScrollbackMarksCharacterCap() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let source = "HEAD" + String(repeating: "x", count: maxChars)
+
+        let persisted = SessionPersistencePolicy.persistedScrollback(source)
+
+        XCTAssertTrue(persisted.wasTruncated)
+        XCTAssertEqual(persisted.text?.count, maxChars)
+        XCTAssertEqual(persisted.text, SessionPersistencePolicy.truncatedScrollback(source))
+        XCTAssertFalse(persisted.text?.hasPrefix("HEAD") ?? true)
+    }
+
+    func testPersistedScrollbackLeavesTextUnderCapsUnmarked() {
+        let short = "alpha\nbeta\n"
+        let atLineCap = (0..<SessionPersistencePolicy.maxScrollbackLinesPerTerminal)
+            .map { "L\($0)" }
+            .joined(separator: "\n")
+        let atCharCap = String(
+            repeating: "y",
+            count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        )
+
+        let shortPersisted = SessionPersistencePolicy.persistedScrollback(short)
+        let linePersisted = SessionPersistencePolicy.persistedScrollback(atLineCap)
+        let charPersisted = SessionPersistencePolicy.persistedScrollback(atCharCap)
+
+        XCTAssertFalse(shortPersisted.wasTruncated)
+        XCTAssertEqual(shortPersisted.text, short)
+        XCTAssertFalse(linePersisted.wasTruncated)
+        XCTAssertEqual(linePersisted.text, atLineCap)
+        XCTAssertFalse(charPersisted.wasTruncated)
+        XCTAssertEqual(charPersisted.text, atCharCap)
+    }
+
+    func testLegacyTerminalSnapshotDecodesWithoutTruncationFlag() throws {
+        let json = #"{"workingDirectory":"/tmp","scrollback":"kept tail"}"#
+        let decoded = try JSONDecoder().decode(
+            SessionTerminalPanelSnapshot.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(decoded.workingDirectory, "/tmp")
+        XCTAssertEqual(decoded.scrollback, "kept tail")
+        XCTAssertNil(decoded.scrollbackWasTruncated)
+
+        let marked = SessionTerminalPanelSnapshot(
+            scrollback: "tail",
+            scrollbackWasTruncated: true
+        )
+        let encoded = try JSONEncoder().encode(marked)
+        let roundTrip = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: encoded)
+        XCTAssertEqual(roundTrip.scrollback, "tail")
+        XCTAssertEqual(roundTrip.scrollbackWasTruncated, true)
+    }
+
+    func testTruncatedScrollbackReplayStartsWithNotice() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-notice-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let source = String(
+            repeating: "x",
+            count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 1
+        )
+        let persisted = SessionPersistencePolicy.persistedScrollback(source)
+        let url = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(
+                for: persisted.text,
+                scrollbackWasTruncated: true,
+                tempDirectory: tempDir
+            )
+        )
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        let notice = SessionScrollbackReplayStore.truncationNoticeLine()
+
+        XCTAssertTrue(contents.hasPrefix(notice + "\n"))
+        XCTAssertTrue(contents.contains(String(repeating: "x", count: 32)))
+        XCTAssertTrue(
+            containsIntegerToken(
+                SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
+                in: notice
+            )
+        )
+        XCTAssertTrue(
+            containsIntegerToken(
+                SessionPersistencePolicy.maxScrollbackCharactersPerTerminal,
+                in: notice
+            )
+        )
+
+        let completeURL = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(
+                for: "complete output\n",
+                scrollbackWasTruncated: false,
+                tempDirectory: tempDir
+            )
+        )
+        let complete = try String(contentsOf: completeURL, encoding: .utf8)
+        XCTAssertFalse(complete.contains(notice))
+        XCTAssertTrue(complete.contains("complete output"))
     }
 
     func testResolvedSnapshotTerminalScrollbackSkipsFallbackWhenRestoreIsUnsafe() {
