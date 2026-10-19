@@ -17,6 +17,8 @@
     {"title": "Notifications panel", "cmux": ["action", "run", "showNotifications"],
      "optional": "the notifications panel is not ported yet"},
     {"title": "Agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
-     "optional": "agent chat views are not ported yet"}
+     "optional": "agent chat views are not ported yet"},
+    {"title": "Profile menu", "cmux": ["action", "run", "sidebar.profileMenu"], "wait": 2, "display": true,
+     "optional": "the menu shot needs a screen capture route"}
   ]
 }
