@@ -10018,6 +10018,137 @@
           }
         }
       }
+    },
+    "handlers.browserPage.wakeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The hibernated page did not wake in time; retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تستيقظ الصفحة المُسبَتة في الوقت المحدد؛ أعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uspavana stranica se nije probudila na vrijeme; pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den dvaletilstandede side vågnede ikke i tide; prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die ruhende Seite wurde nicht rechtzeitig geweckt; erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La página hibernada no se reactivó a tiempo; vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page en veille ne s’est pas réveillée à temps ; réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina ibernata non si è riattivata in tempo; riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休止中のページが時間内に再開しませんでした。もう一度お試しください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រដែលកំពុងសម្រាកមិនបានភ្ញាក់ទាន់ពេលទេ សូមព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "절전 중인 페이지가 제때 깨어나지 않았습니다. 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den dvalende siden våknet ikke i tide; prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uśpiona strona nie wybudziła się na czas; spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página hibernada não foi reativada a tempo; tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спящая страница не проснулась вовремя; повторите попытку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าที่พักไว้ไม่ตื่นขึ้นทันเวลา โปรดลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uykudaki sayfa zamanında uyanmadı; yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приспана сторінка не прокинулася вчасно; повторіть спробу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang đang ngủ đông không được đánh thức kịp; hãy thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休眠的页面未能及时唤醒；请重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休眠的頁面未能及時喚醒；請重試"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
