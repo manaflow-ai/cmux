@@ -2,6 +2,7 @@
 """test_touches_diff: per-file verdicts from a bun metafile, and a real bundle when bun is present."""
 import importlib.util
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -223,6 +224,32 @@ class Sandbox(unittest.TestCase):
                 self.assertFalse((outside / "planted").exists())
             finally:
                 in_tmp.unlink(missing_ok=True)
+
+    def test_bun_cannot_reach_the_host_through_proc_or_unix_sockets(self):
+        # /proc/<ppid>/root leads back to the host's writable mounts, and a read-only mount
+        # still lets connect() reach a socket file (tmux, the user bus, docker, ssh-agent).
+        script = ("const fs = require('fs'); const net = require('net');"
+                  "const [planted, sock] = process.argv.slice(1);"
+                  "for (const pid of [process.ppid, 1]) {"
+                  "  try { fs.writeFileSync(`/proc/${pid}/root${planted}`, 'x'); console.log('wrote'); }"
+                  "  catch { console.log('refused'); } }"
+                  "const c = net.connect(sock);"
+                  "c.on('connect', () => { console.log('connected'); c.destroy(); });"
+                  "c.on('error', () => console.log('no-socket'));")
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            work, outside = Path(tmp, "work"), Path(tmp, "outside")
+            work.mkdir()
+            outside.mkdir()
+            planted, sock_path = outside / "planted", outside / "host.sock"
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(str(sock_path))
+            listener.listen(1)
+            try:
+                result = touches.run_bun(["-e", script, str(planted), str(sock_path)], work, work, sandbox=True)
+            finally:
+                listener.close()
+            self.assertEqual(result.stdout.split(), ["refused", "refused", "no-socket"], result.stderr)
+            self.assertFalse(planted.exists())
 
 
     def test_test_paths(self):
