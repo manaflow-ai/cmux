@@ -136,6 +136,24 @@ import Testing
         #expect(s.coordinator.machine.phase == .idle, "leaving before the delay left a card pending")
     }
 
+    /// Lawrence 2026-10-19: the card sits right against its tab, no gap for the pointer to cross.
+    @Test func theCardTouchesItsTab() async throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        try await Self.open("b", s)
+        let cell = try #require(s.strip.cells[TabID("b")])
+        let tab = s.window.convertToScreen(s.strip.tabsClip.convert(cell.frame, to: nil))
+        let card = NSRectFromString(try #require(s.coordinator.report["card_frame"]))
+        let scale = s.window.backingScaleFactor
+        // The strip is at the window's top, so the card opens below the tab.
+        let gap = tab.minY - card.maxY
+        #expect(gap <= 0.001, "a \(gap) pt gap between the tab and its card")
+        #expect(gap > -1 / scale - 0.001, "the card overlaps its tab by \(-gap) pt")
+        #expect(abs(card.minX - tab.minX) < 0.5, "the card is not aligned with its tab")
+    }
+
     /// Chrome: a click or Esc on a tab ends its card until the pointer leaves that tab; a
     /// small move on the same tab does not bring it back.
     @Test func aClickKeepsTheCardAwayUntilThePointerLeavesTheTab() async throws {
