@@ -3,6 +3,7 @@ import { b64u, beginPairing, call, inDO, testEnv } from "./pairing-harness.ts"
 import { rolesTeam } from "./team-roles-support.ts"
 import { deliver } from "./team-stack-support.ts"
 import { clearSignInRules } from "../src/policy-gate.ts"
+import type { Domain } from "../src/domains/team-domains.ts"
 
 afterEach(() => { vi.restoreAllMocks(); clearSignInRules() })
 
@@ -96,7 +97,10 @@ describe("client team-scoped token issuance", () => {
     // Seed a serving connection; its provisioning is covered by team-sso-login. The policy RPC and mint gates run normally.
     await inDO(stub, async (owner) => {
       const state = owner.boundEngine.currentState
-      state.domains = { "client-sso.test": { domain: "client-sso.test", state: "verified" } }
+      // Domain rechecks run from the real owner alarm, so seed its timestamps too.
+      const now = Date.now()
+      const domain: Domain = { domain: "client-sso.test", state: "verified", record_name: "_cmux-challenge.client-sso.test", record_value: "test", requested_at: now, expires_at: now + 14 * 86_400_000, verified_at: now }
+      state.domains = { "client-sso.test": domain }
       state.sso_connections = { ssoc_test: { id: "ssoc_test", kind: "oidc", state: "active", domains: ["client-sso.test"], oidc: { issuer: "https://idp.test", client_id: "test", scopes: ["openid"], authorization_endpoint: "https://idp.test/auth", token_endpoint: "https://idp.test/token", jwks_uri: "https://idp.test/jwks" }, secret_set: true, jit: { enabled: false, default_role: "member" }, created_at: Date.now(), updated_at: Date.now() } }
     })
     const changed = await call("/v1/ops", f.creator.token, { op: "team.policy.update", params: { changes: ["sso.enforce", "sso.enforceForOwners"].map((key) => ({ key, value: { value: true, mode: "enforced" } })), expected_version: 0, reason: "test" }, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": f.team })
