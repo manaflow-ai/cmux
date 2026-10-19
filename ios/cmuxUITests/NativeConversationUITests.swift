@@ -416,6 +416,29 @@ final class NativeConversationUITests: XCTestCase {
     }
 
     @MainActor
+    func testNativeConversationEmptyTaskUsesProviderName() throws {
+        for (sessionID, providerName) in [
+            ("fixture-codex", "Codex"),
+            ("fixture-claude", "Claude Code"),
+            ("fixture-opencode", "OpenCode"),
+        ] {
+            let app = makeFixtureApplication(scenario: "empty")
+            app.launch()
+            defer { app.terminate() }
+            try waitForTaskList(in: app)
+            let task = app.descendants(matching: .any)["ConversationTaskRow-\(sessionID)"]
+            XCTAssertTrue(task.waitForExistence(timeout: 5))
+            task.tap()
+            let heading = app.staticTexts["Work with \(providerName)"]
+            XCTAssertTrue(heading.waitForExistence(timeout: 5), "Empty conversation must name its provider without literal interpolation syntax")
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "native-empty-provider-\(sessionID)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+        }
+    }
+
+    @MainActor
     func testNativeConversationSecretQuestionUsesSecureField() throws {
         let app = makeFixtureApplication(scenario: "secret-question")
         app.launch()
