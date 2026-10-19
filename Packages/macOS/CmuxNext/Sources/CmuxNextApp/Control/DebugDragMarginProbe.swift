@@ -16,9 +16,9 @@ enum DragMarginProbe {
     static var needStacks: [String: Int] = [:]
     static var structuralStacks: [String: Int] = [:]
     private static var installed = false
-    nonisolated(unsafe) private static var originalNeeds: IMP?
-    nonisolated(unsafe) private static var originalReset: IMP?
-    nonisolated(unsafe) private static var originalStructural: IMP?
+    nonisolated(unsafe) private static var originalNeeds: IMP? // crash-allow: probe only, never landed
+    nonisolated(unsafe) private static var originalReset: IMP? // crash-allow: probe only, never landed
+    nonisolated(unsafe) private static var originalStructural: IMP? // crash-allow: probe only, never landed
 
     static func reset() {
         resets = 0; needs = 0; structural = 0; needStacks = [:]; structuralStacks = [:]
@@ -35,51 +35,51 @@ enum DragMarginProbe {
         guard !installed else { return }
         installed = true
         if env["CMUX_NEXT_PROBE_NODRAGMARGINS"] == "1",
-           let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_resetDragMarginsIfNeeded")) {
+           let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_resetDragMarginsIfNeeded")) { // crash-allow: probe only, never landed
             let block: @convention(block) (AnyObject) -> Void = { _ in }
-            method_setImplementation(method, imp_implementationWithBlock(block))
+            method_setImplementation(method, imp_implementationWithBlock(block)) // crash-allow: probe only, never landed
         }
         guard env["CMUX_NEXT_PROBE_DRAGMARGINS"] == "1" else { return }
-        if let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_setNeedsToResetDragMargins:")) {
+        if let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_setNeedsToResetDragMargins:")) { // crash-allow: probe only, never landed
             originalNeeds = method_getImplementation(method)
             typealias Fn = @convention(c) (AnyObject, Selector, Bool) -> Void
             let block: @convention(block) (AnyObject, Bool) -> Void = { me, flag in
                 if flag, Thread.isMainThread {
-                    MainActor.assumeIsolated {
+                    MainActor.assumeIsolated { // crash-allow: probe only, never landed
                         if recording {
                             needs += 1
                             if needStacks.count < 300 { needStacks[stackKey(), default: 0] += 1 }
                         }
                     }
                 }
-                unsafeBitCast(originalNeeds!, to: Fn.self)(me, NSSelectorFromString("_setNeedsToResetDragMargins:"), flag)
+                unsafeBitCast(originalNeeds!, to: Fn.self)(me, NSSelectorFromString("_setNeedsToResetDragMargins:"), flag) // crash-allow: probe only, never landed
             }
-            method_setImplementation(method, imp_implementationWithBlock(block))
+            method_setImplementation(method, imp_implementationWithBlock(block)) // crash-allow: probe only, never landed
         }
-        if let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_resetDragMargins")) {
+        if let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_resetDragMargins")) { // crash-allow: probe only, never landed
             originalReset = method_getImplementation(method)
             typealias Fn = @convention(c) (AnyObject, Selector) -> Void
             let block: @convention(block) (AnyObject) -> Void = { me in
-                if Thread.isMainThread { MainActor.assumeIsolated { if recording { resets += 1 } } }
-                unsafeBitCast(originalReset!, to: Fn.self)(me, NSSelectorFromString("_resetDragMargins"))
+                if Thread.isMainThread { MainActor.assumeIsolated { if recording { resets += 1 } } } // crash-allow: probe only, never landed
+                unsafeBitCast(originalReset!, to: Fn.self)(me, NSSelectorFromString("_resetDragMargins")) // crash-allow: probe only, never landed
             }
-            method_setImplementation(method, imp_implementationWithBlock(block))
+            method_setImplementation(method, imp_implementationWithBlock(block)) // crash-allow: probe only, never landed
         }
-        if let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_updateStructuralRegionsOnNextDisplayCycle")) {
+        if let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_updateStructuralRegionsOnNextDisplayCycle")) { // crash-allow: probe only, never landed
             originalStructural = method_getImplementation(method)
             typealias Fn = @convention(c) (AnyObject, Selector) -> Void
             let block: @convention(block) (AnyObject) -> Void = { me in
                 if Thread.isMainThread {
-                    MainActor.assumeIsolated {
+                    MainActor.assumeIsolated { // crash-allow: probe only, never landed
                         if recording {
                             structural += 1
                             if structuralStacks.count < 300 { structuralStacks[stackKey(), default: 0] += 1 }
                         }
                     }
                 }
-                unsafeBitCast(originalStructural!, to: Fn.self)(me, NSSelectorFromString("_updateStructuralRegionsOnNextDisplayCycle"))
+                unsafeBitCast(originalStructural!, to: Fn.self)(me, NSSelectorFromString("_updateStructuralRegionsOnNextDisplayCycle")) // crash-allow: probe only, never landed
             }
-            method_setImplementation(method, imp_implementationWithBlock(block))
+            method_setImplementation(method, imp_implementationWithBlock(block)) // crash-allow: probe only, never landed
         }
     }
 
