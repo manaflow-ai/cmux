@@ -94,7 +94,7 @@ const Counting = ({ row }: { row: AcpmuxRow }) => {
   renders.set(row.id, (renders.get(row.id) ?? 0) + 1);
   return <p>{row.text}</p>;
 };
-const registry = { user: Counting, assistant: Counting } as unknown as Parameters<
+const registry = { user: Counting, assistant: Counting, turnSummary: Counting } as unknown as Parameters<
   typeof VirtualTranscript
 >[0]["registry"];
 
@@ -133,6 +133,48 @@ test("a streaming update that changes only the latest row draws no earlier row a
     }
     expect(renders.get("live-answer") ?? 0).toBeGreaterThanOrEqual(5);
     expect(earlier.filter((id) => renders.has(id)).map((id) => [id, renders.get(id)])).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// The hover reveal of a turn's footer is cached by the row under the pointer. A footer that appears,
+// or stops being the last turn's, while the pointer rests on that turn must still show on the next
+// pointer move inside the same row.
+test("a turn's footer shows on hover after the rows change under a resting pointer", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  const onToggleActivity = () => {};
+  const draw = async (rows: AcpmuxRow[], working: boolean) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          working={working}
+          registry={registry}
+          onToggleActivity={onToggleActivity}
+          expanded={expanded}
+        />,
+      ),
+    );
+  const node = (id: string) =>
+    dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`);
+  const hover = async (id: string) =>
+    act(async () => {
+      node(id)!.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
+    });
+  const first = [row("h-user", "user", { text: "Do it" }), row("h-answer", "assistant", { text: "Working" })];
+  try {
+    await draw(first, true);
+    await hover("h-answer");
+    const done = [...first, row("h-summary", "turnSummary")];
+    await draw(
+      [...done, row("h2-user", "user", { text: "Next" }), row("h2-answer", "assistant", { text: "On it" })],
+      true,
+    );
+    expect(node("h-summary")).not.toBeNull();
+    await hover("h-answer");
+    expect(node("h-summary")!.hasAttribute("data-turn-revealed")).toBe(true);
   } finally {
     await act(async () => root.unmount());
   }
