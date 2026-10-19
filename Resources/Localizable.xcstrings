@@ -657116,13 +657116,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: فشل التركيز على الشريط الجانبي الأيسر"
+            "value": "ERROR: فشل التركيز على الشريط الجانبي الأيسر"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Linke Seitenleiste konnte nicht fokussiert werden"
+            "value": "ERROR: Linke Seitenleiste konnte nicht fokussiert werden"
           }
         },
         "es": {
@@ -657134,7 +657134,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : échec de la mise au point de la barre latérale gauche"
+            "value": "ERROR: échec de la mise au point de la barre latérale gauche"
           }
         },
         "ja": {
@@ -657146,19 +657146,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 왼쪽 사이드바에 포커스를 설정하지 못했습니다"
+            "value": "ERROR: 왼쪽 사이드바에 포커스를 설정하지 못했습니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：聚焦左侧边栏失败"
+            "value": "ERROR: 聚焦左侧边栏失败"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：無法聚焦左側邊欄"
+            "value": "ERROR: 無法聚焦左側邊欄"
           }
         }
       }
@@ -657175,13 +657175,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: هدف الشريط الجانبي الأيسر غير موجود"
+            "value": "ERROR: هدف الشريط الجانبي الأيسر غير موجود"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Ziel der linken Seitenleiste nicht gefunden"
+            "value": "ERROR: Ziel der linken Seitenleiste nicht gefunden"
           }
         },
         "es": {
@@ -657193,7 +657193,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : cible de barre latérale gauche introuvable"
+            "value": "ERROR: cible de barre latérale gauche introuvable"
           }
         },
         "ja": {
@@ -657205,19 +657205,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 왼쪽 사이드바 대상을 찾을 수 없습니다"
+            "value": "ERROR: 왼쪽 사이드바 대상을 찾을 수 없습니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：未找到左侧边栏目标"
+            "value": "ERROR: 未找到左侧边栏目标"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：找不到左側邊欄目標"
+            "value": "ERROR: 找不到左側邊欄目標"
           }
         }
       }
@@ -657234,13 +657234,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: الشريط الجانبي الأيسر غير متوفر"
+            "value": "ERROR: الشريط الجانبي الأيسر غير متوفر"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Linke Seitenleiste nicht verfügbar"
+            "value": "ERROR: Linke Seitenleiste nicht verfügbar"
           }
         },
         "es": {
@@ -657252,7 +657252,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : barre latérale gauche indisponible"
+            "value": "ERROR: barre latérale gauche indisponible"
           }
         },
         "ja": {
@@ -657264,19 +657264,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 왼쪽 사이드바를 사용할 수 없습니다"
+            "value": "ERROR: 왼쪽 사이드바를 사용할 수 없습니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：左侧边栏不可用"
+            "value": "ERROR: 左侧边栏不可用"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：左側邊欄無法使用"
+            "value": "ERROR: 左側邊欄無法使用"
           }
         }
       }
@@ -657293,13 +657293,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: الاستخدام: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: الاستخدام: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Verwendung: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Verwendung: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "es": {
@@ -657311,7 +657311,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : utilisation : left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: utilisation : left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
@@ -657323,19 +657323,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 사용법: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 사용법: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -657529,13 +657529,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: %@ يتطلب معرفًا"
+            "value": "ERROR: %@ يتطلب معرفًا"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: %@ erfordert eine ID"
+            "value": "ERROR: %@ erfordert eine ID"
           }
         },
         "es": {
@@ -657547,7 +657547,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : %@ requiert un identifiant"
+            "value": "ERROR: %@ requiert un identifiant"
           }
         },
         "ja": {
@@ -657559,19 +657559,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: %@에는 ID가 필요합니다"
+            "value": "ERROR: %@에는 ID가 필요합니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：%@ 需要一个 id"
+            "value": "ERROR: %@ 需要一个 id"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：%@ 需要 ID"
+            "value": "ERROR: %@ 需要 ID"
           }
         }
       }
@@ -657588,13 +657588,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: خيار الشريط الجانبي الأيسر مجهول '%@'"
+            "value": "ERROR: خيار الشريط الجانبي الأيسر مجهول '%@'"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Unbekannte Option für die linke Seitenleiste: „%@“"
+            "value": "ERROR: Unbekannte Option für die linke Seitenleiste: „%@“"
           }
         },
         "es": {
@@ -657606,7 +657606,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : option de barre latérale gauche inconnue '%@'"
+            "value": "ERROR: option de barre latérale gauche inconnue '%@'"
           }
         },
         "ja": {
@@ -657618,19 +657618,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 알 수 없는 왼쪽 사이드바 옵션: '%@'"
+            "value": "ERROR: 알 수 없는 왼쪽 사이드바 옵션: '%@'"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：未知的左侧边栏选项 '%@'"
+            "value": "ERROR: 未知的左侧边栏选项 '%@'"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：未知的左側邊欄選項「%@」"
+            "value": "ERROR: 未知的左側邊欄選項「%@」"
           }
         }
       }
@@ -657647,13 +657647,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: أمر الشريط الجانبي الأيسر مجهول '%@'"
+            "value": "ERROR: أمر الشريط الجانبي الأيسر مجهول '%@'"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Unbekannter Befehl für die linke Seitenleiste: „%@“"
+            "value": "ERROR: Unbekannter Befehl für die linke Seitenleiste: „%@“"
           }
         },
         "es": {
@@ -657665,7 +657665,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : commande de barre latérale gauche inconnue '%@'"
+            "value": "ERROR: commande de barre latérale gauche inconnue '%@'"
           }
         },
         "ja": {
@@ -657677,19 +657677,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 알 수 없는 왼쪽 사이드바 명령어: '%@'"
+            "value": "ERROR: 알 수 없는 왼쪽 사이드바 명령어: '%@'"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：未知的左侧边栏命令 '%@'"
+            "value": "ERROR: 未知的左侧边栏命令 '%@'"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：未知的左側邊欄命令「%@」"
+            "value": "ERROR: 未知的左側邊欄命令「%@」"
           }
         }
       }
@@ -657706,13 +657706,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: الاستخدام: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: الاستخدام: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Verwendung: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Verwendung: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "es": {
@@ -657724,7 +657724,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : utilisation : left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: utilisation : left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
@@ -657736,19 +657736,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 사용법: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 사용법: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -657765,13 +657765,13 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: شريط جانبي أيسر غير صالح --%@ معرف '%@'"
+            "value": "ERROR: شريط جانبي أيسر غير صالح --%@ معرف '%@'"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Ungültige linke Seitenleiste --%@-ID „%@“"
+            "value": "ERROR: Ungültige linke Seitenleiste --%@-ID „%@“"
           }
         },
         "es": {
@@ -657783,7 +657783,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : identifiant de barre latérale gauche invalide pour --%@ : '%@'"
+            "value": "ERROR: identifiant de barre latérale gauche invalide pour --%@ : '%@'"
           }
         },
         "ja": {
@@ -657795,19 +657795,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 잘못된 왼쪽 사이드바 --%@ ID '%@'"
+            "value": "ERROR: 잘못된 왼쪽 사이드바 --%@ ID '%@'"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：左侧边栏 --%@ id '%@' 无效"
+            "value": "ERROR: 左侧边栏 --%@ id '%@' 无效"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：無效的左側邊欄 --%@ id「%@」"
+            "value": "ERROR: 無效的左側邊欄 --%@ id「%@」"
           }
         }
       }
