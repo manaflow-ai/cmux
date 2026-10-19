@@ -282,11 +282,11 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.labs.planProgress", PageTunables.section, "Plan progress above the composer",
         help: "The running plan's current step stays above the composer. New agent tabs.",
         default: false, code: "AgentPaneTunables.planProgress")
-    /// Files and changes open in one viewer beside the transcript, inside the chat, instead of a
-    /// new column or a tab over the chat (Lucas 2026-10-19).
+    /// Files and linked files open in one viewer beside the transcript, inside the chat, instead of a
+    /// new column or a tab over the chat; Changes opens as without the switch (Lucas 2026-10-19).
     public static let chatViewer = Tunable<Bool>.toggle(
-        "agentPane.labs.chatViewer", PageTunables.section, "Files and changes beside the chat",
-        help: "Changes and files from the chat open in one viewer beside the transcript, inside the chat, instead of a new column or a tab over the chat. New agent tabs.",
+        "agentPane.labs.chatViewer", PageTunables.section, "Files beside the chat",
+        help: "Files and files the chat links to open in one viewer beside the transcript, inside the chat, instead of a new column or a tab over the chat. Changes opens as before. New agent tabs.",
         default: true, code: "AgentPaneTunables.chatViewer")
     public static let shortcutsHelp = Tunable<Bool>.toggle(
         "agentPane.labs.shortcutsHelp", PageTunables.section, "Keyboard shortcuts in the chat menu",

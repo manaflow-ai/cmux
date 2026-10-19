@@ -16,7 +16,7 @@ import { useSyncExternalStore } from "react";
 /// - `codeWrap`: remember one wrap choice for every code card in the pane.
 /// - `planProgress`: keep the running plan's current step above the composer.
 /// - `shortcutsHelp`: show the chat's live keys from its menu.
-/// - `chatViewer`: changes and files open in one viewer beside the transcript, inside the chat,
+/// - `chatViewer`: Files and linked files open in one viewer beside the transcript, inside the chat,
 ///   instead of a new column or a tab over the chat (Lucas 2026-10-19, on by default).
 ///
 /// Set one in the Debug Settings window, for new agent tabs. An explicit boolean in `"labs"` in

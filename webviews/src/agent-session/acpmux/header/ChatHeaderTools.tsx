@@ -123,7 +123,7 @@ export function ChatHeaderTools({
   onChanges?: (mode: QuickActionMode) => void;
   /// Files runs the tree of the chat's folder with the quick action's mode; without it (a remote chat) Files hides.
   onFiles?: (mode: QuickActionMode, opener?: HTMLElement) => void;
-  /// What the chat's own viewer shows (labs chatViewer: HEADER_ACTIONS.files or .changes): its button
+  /// What the chat's own viewer shows (labs chatViewer: HEADER_ACTIONS.files): its button
   /// lights, as a split the host reports lit does, so it reads as the way to close it.
   viewing?: readonly string[];
   /// The local page the chat's last turn started or mentioned: Preview shows then, and while its page is open.
@@ -180,7 +180,8 @@ export function ChatHeaderTools({
   const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
   const on = (action: string, mode: QuickActionMode) =>
-    viewing?.includes(action) || (mode === "toggle" ? lit.includes(action) : undefined);
+    (action === HEADER_ACTIONS.files && viewing?.includes(action)) ||
+    (mode === "toggle" ? lit.includes(action) : undefined);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();

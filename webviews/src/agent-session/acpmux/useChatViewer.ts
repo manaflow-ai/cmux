@@ -81,10 +81,10 @@ export function useChatViewer(sessionId: string | undefined, cwd: string | undef
     setFileView(undefined);
     setFilesView({ sessionId: session.current, folder });
   };
+  // An in-place diff replaces files, but keeps production Thread details and inspector behavior.
   const openChanges = (open: () => void) => {
     restore.current = undefined;
     invalidate();
-    opened.current();
     setFileView(undefined);
     setFilesView(undefined);
     open();

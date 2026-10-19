@@ -3010,9 +3010,8 @@ function AcpmuxPane() {
     /// The palette's Commit or Push for the open view (DiffPanel `gitIntent`).
     gitIntent?: { op: GitWriteOp; nonce: number };
   }>();
-  // The chat's viewer (labs `chatViewer`, Lucas 2026-10-19): changes and files open beside the
-  // transcript, inside the chat, never in a new column or a tab over it. One viewer: a file there
-  // closes the changes view and opening changes closes the file.
+  // Only Files and linked files use the chat viewer (Lucas 2026-10-19). Changes keeps the
+  // production host action and falls back to its existing in-place diff when the host cannot open it.
   const chatViewer = useLab("chatViewer");
   const chatViewerRef = useRef(chatViewer);
   chatViewerRef.current = chatViewer;
@@ -3095,7 +3094,6 @@ function AcpmuxPane() {
         setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked }),
       );
     };
-    if (chatViewerRef.current) return inPlace();
     void diffBeside.current().then((opened) => {
       if (!opened) inPlace();
     }, inPlace);
@@ -3129,14 +3127,12 @@ function AcpmuxPane() {
     const nonce = ++gitIntents.current;
     const rowId = snapshotRef.current?.rows.at(-1)?.id;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    if (diffView && diffView.sessionId === sessionIdRef.current) {
-      viewerRef.current.invalidate();
-      setDiffView({ ...diffView, gitIntent: { op, nonce } });
-    } else if (rowId) {
-      viewerRef.current.openChanges(() =>
-        setDiffView({ sessionId: sessionIdRef.current, rowId, opener, gitIntent: { op, nonce } }),
-      );
-    }
+    viewerRef.current.openChanges(() =>
+      setDiffView((view) => {
+        if (view && view.sessionId === sessionIdRef.current) return { ...view, gitIntent: { op, nonce } };
+        return rowId ? { sessionId: sessionIdRef.current, rowId, opener, gitIntent: { op, nonce } } : view;
+      }),
+    );
   };
   const clearGitIntent = useCallback(
     () => setDiffView((view) => (view?.gitIntent ? { ...view, gitIntent: undefined } : view)),
@@ -4797,8 +4793,6 @@ function AcpmuxPane() {
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
-  // The header's Changes with the chat's viewer: the newest turn that changed files, in the viewer;
-  // again closes it. A chat whose turns changed nothing opens the folder's changes as before.
   // The header's Files with the chat's viewer: the chat's folder beside the transcript; again closes it.
   const toggleFilesViewer = (cwd: string, opener?: HTMLElement) => {
     // A file opened from the list goes with it.
@@ -4811,14 +4805,6 @@ function AcpmuxPane() {
     setDiffView(undefined);
     setFileView(undefined);
     viewer.openFiles(cwd, opener);
-  };
-  const toggleChangesViewer = (mode: QuickActionMode) => {
-    if (diffView) return closeDiff();
-    const row = [...snapshot.rows]
-      .reverse()
-      .find((candidate) => candidate.kind === "activity" && candidate.items?.some((item) => item.tool?.diffs?.length));
-    if (row) openDiff(row.id);
-    else runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
   };
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
     runHeaderAction(id, cwd, mode);
@@ -5981,9 +5967,7 @@ function AcpmuxPane() {
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
-                      onChanges={(mode) =>
-                        chatViewer ? toggleChangesViewer(mode) : runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)
-                      }
+                      onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
                       onFiles={
                         localCwd
                           ? (mode, opener) =>
@@ -5992,14 +5976,7 @@ function AcpmuxPane() {
                                 : runSplitAction(HEADER_ACTIONS.files, localCwd, mode)
                           : undefined
                       }
-                      viewing={
-                        chatViewer
-                          ? [
-                              ...(filesOpen && !diffView ? [HEADER_ACTIONS.files] : []),
-                              ...(diffView ? [HEADER_ACTIONS.changes] : []),
-                            ]
-                          : undefined
-                      }
+                      viewing={chatViewer && filesOpen && !diffView ? [HEADER_ACTIONS.files] : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(
@@ -6083,11 +6060,7 @@ function AcpmuxPane() {
                       initialPath={diffView.path}
                       onClose={closeDiff}
                       source={changesSource}
-                      onOpenFile={
-                        chatViewer
-                          ? (path, where) => (where === "tab" ? viewFile(path) : openChangedFile(path, where))
-                          : openChangedFile
-                      }
+                      onOpenFile={openChangedFile}
                       checkpointAction={
                         checkpoints.supported ? (
                           <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
