@@ -215,6 +215,7 @@
         "CmuxNextTasks",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
+        "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming"
@@ -269,6 +270,7 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextTabs",
         "CmuxNextTasks",
+        "CmuxNextTerminalGeometry",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -279,6 +281,7 @@
         "CmuxMessagesLab"
       ],
       "reads": [
+        "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "plans/cmux-next/",
         "schemas/keybindings/keybinding-vectors.json",
