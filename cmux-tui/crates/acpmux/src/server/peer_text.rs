@@ -10,10 +10,11 @@
 //! is one per launch, shared by every peer, so nothing here tells one peer
 //! from another to trust.
 //!
-//! A peer that edits a queued prompt starts from its masked text; the edit
-//! gets the secrets back where their masks still stand
-//! (`secret_scan::unmask`, `hub/queue_edit.rs`), so a mask is never written
-//! over the prompt.
+//! A peer may not rewrite a queued prompt that holds a secret
+//! (`server/requests.rs`, `Hub::queued_holds_secret`): its edit would start
+//! from the masked text and write the mask over the secret, and putting the
+//! secret back would let it move one where a later summary no longer masks
+//! it. It may still move, send or remove one.
 //!
 //! Only these summary fields are masked. What the session itself says
 //! (`session/update`, `_acpmux/event`, history records, a chat transcript's

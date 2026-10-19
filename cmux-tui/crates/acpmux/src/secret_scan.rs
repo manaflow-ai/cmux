@@ -496,25 +496,6 @@ pub fn mask(text: &str) -> String {
     out
 }
 
-/// `edited` with the secrets of `original` put back where their masks still
-/// stand, in order: a peer edits a text it read masked (`server/peer_text.rs`),
-/// and its edit must not write `[label]` over the secret. A mask the edit
-/// deleted stays deleted, and the edit can only place a secret of `original`
-/// back into the same text.
-pub fn unmask(edited: &str, original: &str) -> String {
-    let mut out = String::with_capacity(edited.len());
-    let mut at = 0;
-    for f in find(original) {
-        let label = format!("[{}]", f.label);
-        let Some(i) = edited[at..].find(&label) else { continue };
-        out.push_str(&edited[at..at + i]);
-        out.push_str(&original[f.range.clone()]);
-        at += i + label.len();
-    }
-    out.push_str(&edited[at..]);
-    out
-}
-
 #[cfg(test)]
 #[path = "secret_scan_tests.rs"]
 mod tests;

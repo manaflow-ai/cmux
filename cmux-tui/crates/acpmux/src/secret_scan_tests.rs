@@ -353,24 +353,3 @@ fn nosey_parker_examples_are_caught_and_its_negatives_left_alone() {
 /// token's negatives) or values assigned to a password: masking them is right here.
 const MIN_RECALL_PERCENT: usize = 68;
 const MAX_FLAGGED_NEGATIVES: usize = 49;
-
-/// A peer edits a text it read masked: the secrets come back where their
-/// masks still stand, and only those of the original text.
-#[test]
-fn unmask_puts_the_originals_secrets_back_where_their_masks_stand() {
-    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
-    let original = format!("deploy with {token} now");
-    let label = "[GitHub Personal Access Token]";
-    assert_eq!(mask(&original), format!("deploy with {label} now"));
-    assert_eq!(
-        unmask(&format!("please deploy with {label} today"), &original),
-        format!("please deploy with {token} today")
-    );
-    // A mask the edit deleted stays deleted.
-    assert_eq!(unmask("deploy now", &original), "deploy now");
-    // A label in a text with no secret behind it stays as written.
-    assert_eq!(
-        unmask(&format!("write {label} in the docs"), "write it in the docs"),
-        format!("write {label} in the docs")
-    );
-}

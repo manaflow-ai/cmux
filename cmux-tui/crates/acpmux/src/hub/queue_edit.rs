@@ -77,33 +77,15 @@ impl Hub {
         Ok(reply)
     }
 
-    /// A peer's `queue_edit` with the secrets of the queued prompt put back where
-    /// their masks still stand: the peer read the prompt masked
-    /// (`server/peer_text.rs`) and edits from that text.
-    pub fn unmask_queue_edit(&self, session: &Session, params: &Value) -> Value {
-        let mut params = params.clone();
-        let prompt_id = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
-        let original = {
-            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            queue.iter().find(|q| q.prompt_id == prompt_id).map(|q| prompt_text(&q.run.blocks))
-        };
-        let Some(original) = original else { return params };
-        let unmask = |v: &mut Value| {
-            if let Some(text) = v.as_str() {
-                *v = Value::String(crate::secret_scan::unmask(text, &original));
-            }
-        };
-        if let Some(text) = params.get_mut("text") {
-            unmask(text);
-        }
-        if let Some(Value::Array(blocks)) = params.get_mut("prompt") {
-            for block in blocks.iter_mut().filter(|b| b["type"] == "text") {
-                if let Some(text) = block.get_mut("text") {
-                    unmask(text);
-                }
-            }
-        }
-        params
+    /// Whether a waiting prompt holds a secret (`secret_scan`). A peer reads it
+    /// masked (`server/peer_text.rs`), so it may not rewrite it: an edit from
+    /// the masked text would write the mask over the secret.
+    pub fn queued_holds_secret(&self, session: &Session, prompt_id: &str) -> bool {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue
+            .iter()
+            .find(|q| q.prompt_id == prompt_id)
+            .is_some_and(|q| !crate::secret_scan::find(&prompt_text(&q.run.blocks)).is_empty())
     }
 
     /// Replaces a waiting prompt's content; it keeps its place. It runs under the stricter
