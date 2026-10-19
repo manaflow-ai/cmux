@@ -217,16 +217,17 @@ jobs:
       # without the lock script, and with a prune that ignores held tags; this
       # step comes from the merge ref, so it takes both from that commit and
       # hands the prune step their dir (MEDIA_CI_SCRIPTS).
-      # A tour waits for its tag as long as the holder's job can run (this
-      # job's timeout-minutes): a merge tour holds feat-cmux-next for up to an
-      # hour warm and longer cold, and the holder lets go when its job ends.
+      # A tour waits an hour for its tag: longer than a warm merge tour holds
+      # feat-cmux-next (54 min seen), and short enough that the waiter keeps
+      # 45+ min of its own job timeout for a cold build and the tour. A
+      # longer wait would end in a job-timeout cancel, not the "held" error.
       - name: Hold this tour's tag
         if: steps.scope.outputs.is_ui == 'true'
         run: |
           set -euo pipefail
           ci=scripts/ci
           if [ ! -f "$ci/media_tag_lock.py" ] || ! grep -q -- '--lock-dir' "$ci/prune_media_derived_data.py"; then
-            git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+            git fetch --no-tags origin "$GITHUB_SHA"
             ci="$RUNNER_TEMP/media-ci"
             mkdir -p "$ci"
             for script in media_tag_lock.py prune_media_derived_data.py; do
@@ -234,7 +235,7 @@ jobs:
             done
           fi
           echo "MEDIA_CI_SCRIPTS=$ci" >> "$GITHUB_ENV"
-          python3 "$ci/media_tag_lock.py" hold --tag "$TOUR_TAG" --wait 7200
+          python3 "$ci/media_tag_lock.py" hold --tag "$TOUR_TAG" --wait 3600
 
       # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
