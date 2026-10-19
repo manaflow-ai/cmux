@@ -107,8 +107,12 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         switch source {
         case .bundled:
             return AgentPaneRenderFrame.isFrame(url)
-        case .devServer:
-            return source.isTrusted(url) && url.user == nil && url.password == nil && url.path == "/__cmux-render-frame"
+        case .devServer(let root):
+            let alternateHost = root.host?.lowercased() == "127.0.0.1" ? "localhost" : "127.0.0.1"
+            let renderHost = url.host?.lowercased()
+            return url.scheme?.lowercased() == root.scheme?.lowercased() && url.port == root.port
+                && (renderHost == root.host?.lowercased() || renderHost == alternateHost)
+                && url.user == nil && url.password == nil && url.path == "/__cmux-render-frame"
         }
     }
 }

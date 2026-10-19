@@ -12,19 +12,17 @@ import { isReactRender, reactRenderPage, renderBridgeScript } from "./renderFram
 import { devRenderFrameURL, LIVE_RENDER_FRAME_DOC } from "./renderFrameShell";
 import { RenderBridgeContext } from "./RenderBridgeContext";
 import { useRenderRequests } from "./useRenderRequests";
-import { ChatSessionContext, TranscriptRowContext, RenderLiveContext } from "./viewIdentity";
+import { ChatSessionContext, TranscriptRowContext, RenderLiveContext, useRenderAttachment } from "./viewIdentity";
 import { renderWatchdog, renderHeartbeatPage } from "./renderWatchdog";
 import { renderStreamScript } from "./renderStreamRuntime";
+import { ranRenders, failedRenders, renderExecutionKey } from "./renderExecution";
+export { ranRenders } from "./renderExecution";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
 /// The tallest a card draws until the reader expands it.
 const COLLAPSED_MAX_HEIGHT = 560;
 /// The tallest an expanded card draws; a taller page scrolls inside it.
 const EXPANDED_MAX_HEIGHT = 4000;
-
-/// The HTML the reader has run while this pane lives: a card scrolled away and back keeps
-/// running, and a reloaded pane (after a hang or a crash) starts with every card waiting again.
-export const ranRenders = new Set<string>();
 
 /// Whether this page can frame renders: only the bundled pane has the render origin.
 export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
@@ -45,11 +43,12 @@ export function useRenderFrame(
   frozen = false,
   kit = false,
   enabled = true,
+  onStop?: (error: string) => void,
 ) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(live ? 0 : RENDER_FRAME_MIN_HEIGHT);
-  const latest = useRef({ html, streaming, request, frozen });
-  latest.current = { html, streaming, request, frozen };
+  const latest = useRef({ html, streaming, request, frozen, onStop });
+  latest.current = { html, streaming, request, frozen, onStop };
   const [error, setError] = useState<string>();
   const [stopped, setStopped] = useState(false);
   const measured = useRef(height);
@@ -65,7 +64,9 @@ export function useRenderFrame(
     const watchdog = renderWatchdog((reason) => {
       stalled = true;
       setStopped(true);
-      setError(translate(reason === "hang" ? "render.hung" : "render.loadFailed"));
+      const error = translate(reason === "hang" ? "render.hung" : "render.loadFailed");
+      setError(error);
+      latest.current.onStop?.(error);
     });
     let reportedError = false;
     let booted = false,
@@ -194,16 +195,32 @@ export function useRenderFrame(
   return { frame, height, error, stopped };
 }
 
-export function RenderCard({
-  call,
-  panel = false,
-  streaming = false,
-}: {
+type RenderCardProps = {
   call: RenderCall;
   panel?: boolean;
   streaming?: boolean;
   turnStreaming?: boolean;
-}) {
+};
+
+export function RenderCard(props: RenderCardProps) {
+  const sessionId = useContext(ChatSessionContext);
+  const rowId = useContext(TranscriptRowContext);
+  const initialHTML = useRef(props.call.html);
+  const identity = rowId ? [rowId, props.call.id ?? ""] : (props.call.id ?? initialHTML.current);
+  const attachment = useRenderAttachment();
+  const provenance = useContext(RenderLiveContext);
+  const liveTurn = provenance !== false && (provenance === true ? 0 : provenance.attachment) === attachment;
+  const executionKey = renderExecutionKey(sessionId, identity, attachment);
+  return <ScopedRenderCard key={executionKey} {...props} executionKey={executionKey} liveTurn={liveTurn} />;
+}
+
+function ScopedRenderCard({
+  call,
+  panel = false,
+  streaming = false,
+  executionKey,
+  liveTurn,
+}: RenderCardProps & { executionKey: string; liveTurn: boolean }) {
   const t = useT();
   const live = useLab("liveRender");
   const renderExpand = useLab("renderExpand");
@@ -217,15 +234,15 @@ export function RenderCard({
   const identity = rowId ? [rowId, call.id ?? ""] : (call.id ?? call.html);
   const key = JSON.stringify([sessionId, identity]);
   const requests = useRenderRequests(key);
-  const liveTurn = useContext(RenderLiveContext);
-  const [ran, setRan] = useState(() => ranRenders.has(call.html) || (live && liveTurn));
-  const running = ran || (live && liveTurn);
+  const [ran, setRan] = useState(() => ranRenders.has(executionKey) || (live && liveTurn));
+  const [failure, setFailure] = useState(() => failedRenders.get(executionKey));
+  const running = !failure && (ran || (live && liveTurn));
   useEffect(() => {
     if (live && liveTurn) setRan(true);
   }, [live, liveTurn]);
   useEffect(() => {
-    if (running) ranRenders.add(call.html);
-  }, [running, call.html]);
+    if (running) ranRenders.add(executionKey);
+  }, [running, executionKey]);
   const { frame, height, error, stopped } = useRenderFrame(
     call.html,
     live,
@@ -234,13 +251,19 @@ export function RenderCard({
     live && !!requests.pending,
     kit,
     running,
+    (error) => {
+      failedRenders.set(executionKey, error);
+      setFailure(error);
+    },
   );
   useEffect(() => {
     if (stopped) requests.cancel();
   }, [stopped, requests.cancel]);
   const [expanded, setExpanded] = useState(false);
   const run = () => {
-    ranRenders.add(call.html);
+    failedRenders.delete(executionKey);
+    setFailure(undefined);
+    ranRenders.add(executionKey);
     setRan(true);
   };
   const title = call.title ?? (live ? renderTitle(call.html) || t("render.untitled") : t("render.untitled"));
@@ -342,10 +365,10 @@ export function RenderCard({
           }
         />
       )}
-      {error && (
+      {(error || failure) && (
         <div className="acpmux-render-note" role="status" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
           <span style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-            {t("render.error")} {error}
+            {t("render.error")} {error || failure}
           </span>
           {bridge && (
             <button
@@ -355,7 +378,7 @@ export function RenderCard({
               // l10n-allow: repair context sent to the agent
               onClick={() =>
                 bridge.prefill(
-                  `Please fix ${repairName ? `the chat render ${JSON.stringify(repairName)}` : "this chat render"}. Render error: ${error}`,
+                  `Please fix ${repairName ? `the chat render ${JSON.stringify(repairName)}` : "this chat render"}. Render error: ${error || failure}`,
                 )
               }
             >
@@ -433,11 +456,16 @@ function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequ
           aria-label={label}
         >
           {pending.text
-            .replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0\u2000-\u200a\u3000\ufff9-\ufffb]/gu, (character) =>
-              character === "\n" ? character : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
+            .replace(
+              /[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0\u2000-\u200a\u3000\ufff9-\ufffb]/gu,
+              (character) =>
+                character === "\n"
+                  ? character
+                  : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
             )
-            .replace(/\n(?: *\n){3,}/g, (lines) =>
-              `\n${t("render.blankLines", { count: lines.split("\n").length - 2 })}\n`,
+            .replace(
+              /\n(?: *\n){3,}/g,
+              (lines) => `\n${t("render.blankLines", { count: lines.split("\n").length - 2 })}\n`,
             )}
         </div>
       </div>

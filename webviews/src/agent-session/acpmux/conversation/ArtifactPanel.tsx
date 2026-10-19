@@ -3,7 +3,9 @@
 // render frame (RenderCard.tsx), an origin of its own that allows no connection, so a document cannot
 // reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
 // pane on a dev server shows source only unless liveRender supplies its srcdoc frame.
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import { ChatSessionContext, useRenderAttachment } from "./viewIdentity";
+import { renderExecutionKey } from "./renderExecution";
 import { useT } from "../i18n";
 import { useLab } from "../labs";
 import { isReactRender, REACT_MARKER } from "./renderFrameDoc";
@@ -219,7 +221,11 @@ const runsScript = (code: string) => /<script\b|\son[a-z]+\s*=|javascript:/i.tes
 
 function ArtifactFrame({ html, title }: { html: string; title: string }) {
   const t = useT();
-  const [running, setRunning] = useState(() => ranRenders.has(html) || !runsScript(html));
+  const session = useContext(ChatSessionContext);
+  const attachment = useRenderAttachment();
+  const key = renderExecutionKey(session, ["artifact", html], attachment);
+  const [granted, setGranted] = useState<string>();
+  const running = granted === key || ranRenders.has(key) || !runsScript(html);
   if (!running)
     return (
       <div className="acpmux-artifact-run">
@@ -227,8 +233,8 @@ function ArtifactFrame({ html, title }: { html: string; title: string }) {
           type="button"
           className="acpmux-review-changes"
           onClick={() => {
-            ranRenders.add(html);
-            setRunning(true);
+            ranRenders.add(key);
+            setGranted(key);
           }}
         >
           {t("render.run")}
@@ -242,7 +248,11 @@ function RunningFrame({ html, title }: { html: string; title: string }) {
   const { frame, stopped, error } = useRenderFrame(html);
   const t = useT();
   if (stopped)
-    return <div className="acpmux-render-note" role="status">{t("render.error")} {error}</div>;
+    return (
+      <div className="acpmux-render-note" role="status">
+        {t("render.error")} {error}
+      </div>
+    );
   return (
     <iframe
       ref={frame}

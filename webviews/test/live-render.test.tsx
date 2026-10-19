@@ -76,13 +76,14 @@ async function draw(
   sessionId = `live-test-${testSession}`,
   turnStreaming = true,
   openResult: () => boolean | Promise<boolean> = () => true,
-  renderLive = turnStreaming,
+  renderLive: boolean | { attachment: number } = turnStreaming,
 ) {
   act(() => root?.unmount());
   document.documentElement.setAttribute("data-lab-live-render", live ? "on" : "off");
   sent.length = prefilled.length = opened.length = 0;
   const { createRoot } = await import("react-dom/client");
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { renderAttachment } = await import("../src/agent-session/acpmux/conversation/renderExecution");
   const { RenderBridgeContext } = await import("../src/agent-session/acpmux/conversation/RenderBridgeContext");
   root = createRoot(host);
   act(() =>
@@ -102,7 +103,15 @@ async function draw(
         }}
       >
         <ChatSessionContext.Provider value={sessionId}>
-          <RenderLiveContext.Provider value={renderLive}>
+          <RenderLiveContext.Provider
+            value={
+              typeof renderLive === "object"
+                ? renderLive
+                : renderLive
+                  ? { attachment: renderAttachment(sessionId) }
+                  : false
+            }
+          >
             <Markdown turnStreaming={turnStreaming}>{markdown}</Markdown>
           </RenderLiveContext.Provider>
         </ChatSessionContext.Provider>
@@ -294,8 +303,12 @@ test("the side panel uses the same opaque dev frame for markup and components", 
     { kind: "html" as const, lang: "html", code: PAGE },
     { kind: "react" as const, lang: "cmux-react", code: "function App() { return <button>+</button>; }" },
   ]) {
-    await draw(true, "```" + (artifact.kind === "html" ? "cmux-render" : "cmux-react") + "\n" + artifact.code + "\n```");
+    await draw(
+      true,
+      "```" + (artifact.kind === "html" ? "cmux-render" : "cmux-react") + "\n" + artifact.code + "\n```",
+    );
     act(() => root!.render(<ArtifactPanel key={artifact.kind} artifact={artifact} onClose={() => {}} />));
+    click("Show preview");
     const frame = host.querySelector("iframe")!;
     expect(frame.srcdoc).toContain("Content-Security-Policy");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
@@ -395,10 +408,12 @@ test("the injected bridge resolves replies and updates its theme style in place"
     expect(win.cmux.theme.mode).toBe("dark");
     expect(win.document.querySelector("style")).toBe(style);
     expect(style?.textContent).toBe("body{color:white}");
-    win.dispatchEvent(new win.MessageEvent("message", {
-      source: win as unknown as Window,
-      data: { type: "cmux-render-ping", id: "health-check" },
-    }));
+    win.dispatchEvent(
+      new win.MessageEvent("message", {
+        source: win as unknown as Window,
+        data: { type: "cmux-render-ping", id: "health-check" },
+      }),
+    );
     expect(requests.at(-1)).toEqual({ type: "cmux-render-pong", id: "health-check" });
   } finally {
     child.window.close();
@@ -449,7 +464,13 @@ test("embedded frames retain accessible titles without a visible heading or hove
     ["<title>Plan &amp; effort</title><p>Choose</p>", "Plan & effort"],
     ["<!-- cmux-react -->\n// title: Plan picker\nfunction App() { return null; }", "Plan picker"],
   ]) {
-    act(() => root!.render(<RenderLiveContext.Provider value><RenderCard turnStreaming call={{ html }} /></RenderLiveContext.Provider>));
+    act(() =>
+      root!.render(
+        <RenderLiveContext.Provider value>
+          <RenderCard turnStreaming call={{ html }} />
+        </RenderLiveContext.Provider>,
+      ),
+    );
     expect(host.querySelector(".acpmux-render-card-title")).toBeNull();
     expect(host.querySelector("iframe")?.getAttribute("aria-label")).toBe(title);
     expect(host.querySelector("iframe")?.hasAttribute("title")).toBe(false);
@@ -508,7 +529,9 @@ test.each([
       root!.render(
         <ChatSessionContext.Provider value={`two-cards-${name}`}>
           <TranscriptRowContext.Provider value="reply">
-            <RenderLiveContext.Provider value><Markdown turnStreaming>{nested(html)}</Markdown></RenderLiveContext.Provider>
+            <RenderLiveContext.Provider value>
+              <Markdown turnStreaming>{nested(html)}</Markdown>
+            </RenderLiveContext.Provider>
           </TranscriptRowContext.Provider>
         </ChatSessionContext.Provider>,
       ),
@@ -555,7 +578,9 @@ test("a tool card keeps its frame and state when its HTML changes under the same
   const card = (html: string) => (
     <ChatSessionContext.Provider value="tool-identity">
       <TranscriptRowContext.Provider value="tool-call-1">
-        <RenderLiveContext.Provider value><RenderCard turnStreaming call={{ html }} /></RenderLiveContext.Provider>
+        <RenderLiveContext.Provider value>
+          <RenderCard turnStreaming call={{ html }} />
+        </RenderLiveContext.Provider>
       </TranscriptRowContext.Provider>
     </ChatSessionContext.Provider>
   );
@@ -742,7 +767,9 @@ test("render confirmation labels the draft and Cancel or Escape rejects it witho
 
 test.each(["sendPrompt", "prefill", "copy"])("%s confirmations expose the full scrollable payload", async (method) => {
   const style = document.createElement("style");
-  style.textContent = await Bun.file(new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url)).text();
+  style.textContent = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
   document.head.append(style);
   try {
     const card = await draw();
@@ -760,38 +787,45 @@ test.each(["sendPrompt", "prefill", "copy"])("%s confirmations expose the full s
   }
 });
 
-test.each(["sendPrompt", "prefill", "copy"])("%s marks bidi and invisible characters while preserving the confirmed bytes", async (method) => {
-  const card = await draw();
-  const controls = "\u200B\u200C\u200D\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\uFEFF";
-  const payload = "Safe " + controls + " payload";
-  card.request(method, { text: payload });
-  const preview = host.querySelector(".acpmux-render-confirm-text")!.textContent!;
-  for (const control of controls) {
-    expect(preview).toContain("[U+" + control.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0") + "]");
-    expect(preview).not.toContain(control);
-  }
-  if (method === "sendPrompt") {
-    click("Send");
-    expect(sent).toEqual([payload]);
-  } else if (method === "prefill") {
-    click("Edit in prompt");
-    expect(prefilled).toEqual([payload]);
-  } else {
-    const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-    const copies: string[] = [];
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async (text: string) => { copies.push(text); } },
-    });
-    try {
-      await act(async () => click("Copy"));
-      expect(copies).toEqual([payload]);
-    } finally {
-      if (previous) Object.defineProperty(navigator, "clipboard", previous);
-      else Reflect.deleteProperty(navigator, "clipboard");
+test.each(["sendPrompt", "prefill", "copy"])(
+  "%s marks bidi and invisible characters while preserving the confirmed bytes",
+  async (method) => {
+    const card = await draw();
+    const controls = "\u200B\u200C\u200D\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\uFEFF";
+    const payload = "Safe " + controls + " payload";
+    card.request(method, { text: payload });
+    const preview = host.querySelector(".acpmux-render-confirm-text")!.textContent!;
+    for (const control of controls) {
+      expect(preview).toContain("[U+" + control.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0") + "]");
+      expect(preview).not.toContain(control);
     }
-  }
-});
+    if (method === "sendPrompt") {
+      click("Send");
+      expect(sent).toEqual([payload]);
+    } else if (method === "prefill") {
+      click("Edit in prompt");
+      expect(prefilled).toEqual([payload]);
+    } else {
+      const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+      const copies: string[] = [];
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            copies.push(text);
+          },
+        },
+      });
+      try {
+        await act(async () => click("Copy"));
+        expect(copies).toEqual([payload]);
+      } finally {
+        if (previous) Object.defineProperty(navigator, "clipboard", previous);
+        else Reflect.deleteProperty(navigator, "clipboard");
+      }
+    }
+  },
+);
 
 test("a refused replacement does not restart the 500ms click guard", async () => {
   const card = await draw();
@@ -807,13 +841,24 @@ test("a refused replacement does not restart the 500ms click guard", async () =>
   card.request("sendPrompt", { text: "Draft B" }, undefined, "replacement");
   click("Send", false);
   expect(sent).toEqual(["Draft A"]);
-  expect(card.replies).toContainEqual({ type: "cmux-render-reply", id: "replacement", ok: false, error: "confirmation pending" });
+  expect(card.replies).toContainEqual({
+    type: "cmux-render-reply",
+    id: "replacement",
+    ok: false,
+    error: "confirmation pending",
+  });
 });
 
 test.each([false, true])("a pending request freezes frame height, panel=%s", async (panel) => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
-  act(() => root!.render(<RenderLiveContext.Provider value><RenderCard turnStreaming call={{ html: PAGE }} panel={panel} /></RenderLiveContext.Provider>));
+  act(() =>
+    root!.render(
+      <RenderLiveContext.Provider value>
+        <RenderCard turnStreaming call={{ html: PAGE }} panel={panel} />
+      </RenderLiveContext.Provider>,
+    ),
+  );
   const frame = host.querySelector("iframe")!;
   const receive = (data: Record<string, unknown>) =>
     act(() => {
@@ -1003,7 +1048,14 @@ test("render repair uses only the first normalized bounded error and names the r
 test("kit toggles and frame remounts reset the first-error limit and note", async () => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
-  const render = (key: string) => act(() => root!.render(<RenderLiveContext.Provider value><RenderCard turnStreaming key={key} call={{ html: PAGE }} /></RenderLiveContext.Provider>));
+  const render = (key: string) =>
+    act(() =>
+      root!.render(
+        <RenderLiveContext.Provider value>
+          <RenderCard turnStreaming key={key} call={{ html: PAGE }} />
+        </RenderLiveContext.Provider>,
+      ),
+    );
   const report = (error: string) =>
     act(() =>
       dom.window.dispatchEvent(
@@ -1052,7 +1104,6 @@ test("render expansion uses an accessible dialog and its lab can remove the cont
   document.documentElement.setAttribute("data-lab-render-expand", "on");
 });
 
-
 test("history waits for Run and run pages survive remounts in the pane", async () => {
   const markdown = "```cmux-render\n<p>History</p>\n```";
   await draw(true, markdown, "history", false);
@@ -1100,7 +1151,6 @@ test("a watchdog removes an unresponsive frame without waiting in real time", as
   }
 });
 
-
 test.each(["no acknowledgement", "false", "rejection"])("openLink rejects host %s", async (result) => {
   const card = await draw(true, undefined, undefined, true, () => {
     if (result === "rejection") return Promise.reject(new Error("host refused browser.open"));
@@ -1116,19 +1166,22 @@ test.each(["sendPrompt", "prefill", "copy", "openLink"])("%s confirmation names 
   const card = await draw();
   card.request(method, method === "openLink" ? { url: "https://example.com" } : { text: "Approve this" });
   expect(host.querySelector(".acpmux-render-confirm-origin")?.textContent).toBe("From a page in this chat");
-  expect(host.querySelector(".acpmux-render-confirm")?.getAttribute("aria-label")).toContain("From a page in this chat");
+  expect(host.querySelector(".acpmux-render-confirm")?.getAttribute("aria-label")).toContain(
+    "From a page in this chat",
+  );
 });
-
 
 test("an attached unfinished reply stays gated even when its row says streaming", async () => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   const { RenderLiveContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
-  act(() => root!.render(
-    <RenderLiveContext.Provider value={false}>
-      <RenderCard call={{ html: "<p>Unfinished history</p>" }} turnStreaming />
-    </RenderLiveContext.Provider>,
-  ));
+  act(() =>
+    root!.render(
+      <RenderLiveContext.Provider value={false}>
+        <RenderCard call={{ html: "<p>Unfinished history</p>" }} turnStreaming />
+      </RenderLiveContext.Provider>,
+    ),
+  );
   expect(host.querySelectorAll("iframe").length).toBe(0);
   click("Show preview");
   expect(host.querySelectorAll("iframe").length).toBe(1);
@@ -1146,7 +1199,16 @@ test.each([4, 40])("blank-line padding with %s newlines is counted beside the hi
 
 test("all invisible spacing and annotation characters are named in the confirmation", async () => {
   const card = await draw();
-  const codes = [...Array.from({ length: 11 }, (_, i) => 0x2000 + i), 0x3000, 0x2028, 0x2029, 0x180e, 0xfff9, 0xfffa, 0xfffb];
+  const codes = [
+    ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+    0x3000,
+    0x2028,
+    0x2029,
+    0x180e,
+    0xfff9,
+    0xfffa,
+    0xfffb,
+  ];
   card.request("sendPrompt", { text: "Start" + String.fromCodePoint(...codes) + "End" });
   expect(host.querySelector(".acpmux-render-confirm-text")?.textContent).toBe(
     "Start" + codes.map((code) => `[U+${code.toString(16).toUpperCase().padStart(4, "0")}]`).join("") + "End",
@@ -1191,34 +1253,53 @@ test("confirmation stays disabled until the full payload has been scrolled into 
   }
 });
 
-
 test("live fences run after a burst or delayed text reveal, even after streaming ends", async () => {
   const markdown = "```cmux-render\n<p>Complete burst</p>\n```";
   await draw(true, markdown, "burst", false, undefined, true);
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
-  expect(ranRenders.has("<p>Complete burst</p>")).toBe(true);
+
   await draw(true, markdown, "burst", false, undefined, false);
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
 });
-
 
 test.each([false, true])("tool renders use their live provenance through the transcript: %s", async (renderLive) => {
   await draw(false);
   document.documentElement.setAttribute("data-lab-live-render", "on");
   const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
-  const rows = turnView([
-    { id: "prompt", kind: "user", version: 1, at: 1, text: "Make a page" },
-    { id: "tool", kind: "activity", version: 1, at: 2, renderLive, items: [
-      { kind: "tool", text: "Page", tool: { id: "page", title: "mcp__cmux__render", status: "completed", inputSummary: JSON.stringify({ html: `<p>Tool ${renderLive}</p>` }) } },
-    ] },
-    { id: "end", kind: "turnSummary", version: 1, at: 3, status: "completed" },
-  ], new Set());
-  act(() => root!.render(
-    <RenderLiveContext.Provider value={false}>
-      <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
-    </RenderLiveContext.Provider>,
-  ));
+  const rows = turnView(
+    [
+      { id: "prompt", kind: "user", version: 1, at: 1, text: "Make a page" },
+      {
+        id: "tool",
+        kind: "activity",
+        version: 1,
+        at: 2,
+        renderLive,
+        items: [
+          {
+            kind: "tool",
+            text: "Page",
+            tool: {
+              id: "page",
+              title: "mcp__cmux__render",
+              status: "completed",
+              inputSummary: JSON.stringify({ html: `<p>Tool ${renderLive}</p>` }),
+            },
+          },
+        ],
+      },
+      { id: "end", kind: "turnSummary", version: 1, at: 3, status: "completed" },
+    ],
+    new Set(),
+  );
+  act(() =>
+    root!.render(
+      <RenderLiveContext.Provider value={false}>
+        <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
+      </RenderLiveContext.Provider>,
+    ),
+  );
   expect(host.querySelectorAll("iframe")).toHaveLength(renderLive ? 1 : 0);
   if (!renderLive) {
     click("Show preview");
@@ -1248,7 +1329,9 @@ test("a page that loses its heartbeat after loading reports a hang after the lon
     }
     return original(run, delay);
   }) as typeof setTimeout);
-  const clear = spyOn(globalThis, "clearTimeout").mockImplementation((id) => { timers.delete(Number(id)); });
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+    timers.delete(Number(id));
+  });
   const fire = (delay: number) => {
     const task = [...timers].find(([, task]) => task.delay === delay);
     if (!task) return;
@@ -1257,9 +1340,8 @@ test("a page that loses its heartbeat after loading reports a hang after the lon
   };
   try {
     const card = await draw();
-    const receive = (data: unknown) => void act(() => dom.window.dispatchEvent(
-      new dom.window.MessageEvent("message", { source: card.target, data }),
-    ));
+    const receive = (data: unknown) =>
+      void act(() => dom.window.dispatchEvent(new dom.window.MessageEvent("message", { source: card.target, data })));
     receive({ type: "cmux-render-ready" });
     const challenge = card.replies.find((message) => message.type === "cmux-render-ping")!;
     receive({ type: "cmux-render-pong", id: challenge.id });
@@ -1273,6 +1355,14 @@ test("a page that loses its heartbeat after loading reports a hang after the lon
     expect(host.querySelectorAll("iframe")).toHaveLength(0);
     expect(host.querySelector('[role="status"]')?.textContent).toContain("The page stopped responding");
     expect(host.textContent).not.toContain("Could not load the page");
+    await draw();
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("The page stopped responding");
+    click("Ask to fix");
+    expect(prefilled.at(-1)).toContain("Render error: The page stopped responding");
+    click("Show preview");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    expect(host.querySelector('[role="status"]')).toBeNull();
   } finally {
     act(() => root?.unmount());
     root = undefined;
@@ -1281,15 +1371,114 @@ test("a page that loses its heartbeat after loading reports a hang after the lon
   }
 });
 
-
 test("a history page in the side panel keeps Run until the reader runs it", async () => {
   await draw(false);
   document.documentElement.setAttribute("data-lab-live-render", "on");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
-  act(() => root!.render(
-    <ArtifactPanel artifact={{ kind: "html", lang: "html", code: "<p>History panel</p>" }} onClose={() => {}} />,
-  ));
+  act(() =>
+    root!.render(
+      <ArtifactPanel artifact={{ kind: "html", lang: "html", code: "<p>History panel</p>" }} onClose={() => {}} />,
+    ),
+  );
   expect(host.querySelectorAll("iframe")).toHaveLength(0);
   click("Show preview");
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
+});
+
+test("execution grants stay with their session and card through reattachment", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const sessionId = `grant-${testSession}`;
+  const session = { sessionId, status: "running", updatedAt: 1 };
+  let socket: any;
+  let holdAttach = false;
+  let releaseAttach: (() => void) | undefined;
+  let notifyAttach: (() => void) | undefined;
+  const attachStarted = new Promise<void>((resolve) => {
+    notifyAttach = resolve;
+  });
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", sessionId },
+    () => {},
+    undefined,
+    () => {
+      socket = {
+        readyState: 1,
+        close() {},
+        send(raw: string) {
+          const { id, method } = JSON.parse(raw);
+          const result =
+            method === "initialize"
+              ? { protocolVersion: 1 }
+              : method === "_acpmux/watch"
+                ? { sessions: [session] }
+                : method === "_acpmux/attach"
+                  ? { session, lastSeq: 0, events: [], hasMore: false }
+                  : null;
+          const reply = () => socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id, result }) });
+          if (method === "_acpmux/attach" && holdAttach) {
+            releaseAttach = reply;
+            notifyAttach?.();
+          } else if (id !== undefined) queueMicrotask(reply);
+        },
+      };
+      queueMicrotask(() => socket.onopen?.());
+      return socket as WebSocket;
+    },
+  );
+  const markdown = "```cmux-render\n<p>Scoped execution</p>\n```";
+  try {
+    await draw(true, markdown, sessionId);
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    await draw(true, markdown, sessionId, false);
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    await draw(true, markdown, "other-session", false);
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    click("Show preview");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    const { renderAttachment } = await import("../src/agent-session/acpmux/conversation/renderExecution");
+    const oldProvenance = { attachment: renderAttachment(sessionId) };
+    await draw(true, markdown, sessionId, true, undefined, oldProvenance);
+    holdAttach = true;
+    let selection: Promise<string | undefined> | undefined;
+    await act(async () => {
+      selection = client.select(sessionId);
+      void selection.catch(() => undefined);
+      await attachStarted;
+    });
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    await draw(true, markdown, sessionId, true, undefined, oldProvenance);
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    await act(async () => {
+      releaseAttach?.();
+      await selection;
+    });
+    await draw(true, markdown, sessionId, false);
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    click("Show preview");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("identical HTML in another row waits for Show preview", async () => {
+  await draw();
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+  const mount = (row: string, live: boolean) =>
+    act(() =>
+      root!.render(
+        <ChatSessionContext.Provider value="grant-rows">
+          <TranscriptRowContext.Provider value={row}>
+            <RenderLiveContext.Provider value={live}>
+              <RenderCard call={{ html: PAGE, id: "0" }} />
+            </RenderLiveContext.Provider>
+          </TranscriptRowContext.Provider>
+        </ChatSessionContext.Provider>,
+      ),
+    );
+  mount("first", true);
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  mount("second", false);
+  expect(host.querySelectorAll("iframe")).toHaveLength(0);
 });

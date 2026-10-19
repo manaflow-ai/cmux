@@ -45,16 +45,23 @@ final class RenderPreviewControl {
               let view = pane(for: session, in: tabs) else {
             throw ControlError(code: "unavailable", message: "the requesting session has no local chat pane")
         }
-        guard inFlight < 2 else { throw ControlError(code: "busy", message: "two render previews are already running") }
-        inFlight += 1
-        defer { inFlight -= 1 }
-        do {
-            let json = try await view.renderPreview(html: html, width: width, dataStore: dataStore) { webView in
+        return try await capture {
+            try await view.renderPreview(html: html, width: width, dataStore: dataStore) { webView in
                 let panel = AgentRenderPanel(viewport: webView.bounds.size, screens: NSScreen.screens.map(\.frame),
                                              privateCalls: WebKitPrivateCalls())
                 panel.park(webView, webView: webView)
                 return { panel.finish() }
             }
+        }
+    }
+
+    func capture(_ operation: @MainActor () async throws -> String) async throws -> JSONValue {
+        try Task.checkCancellation()
+        guard inFlight < 2 else { throw ControlError(code: "busy", message: "two render previews are already running") }
+        inFlight += 1
+        defer { inFlight -= 1 }
+        do {
+            let json = try await operation()
             return try await Task.detached { try JSONValue.parse(Data(json.utf8)) }.value
         } catch let error as AgentPaneRenderPreviewError {
             throw ControlError(code: error.rawValue, message: error.message)

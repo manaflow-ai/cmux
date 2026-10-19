@@ -5,15 +5,21 @@ let restore = () => {};
 afterEach(() => restore());
 
 function clock() {
-  let now = 0, next = 100000;
+  let now = 0,
+    next = 100000;
   const tasks = new Map<number, { at: number; run: () => void }>();
   const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay: number) => {
     const id = next++;
     tasks.set(id, { at: now + delay, run });
     return id;
   }) as typeof setTimeout);
-  const clear = spyOn(globalThis, "clearTimeout").mockImplementation((id) => { tasks.delete(Number(id)); });
-  restore = () => { timeout.mockRestore(); clear.mockRestore(); };
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+    tasks.delete(Number(id));
+  });
+  restore = () => {
+    timeout.mockRestore();
+    clear.mockRestore();
+  };
   return {
     tasks,
     advance(ms: number) {
@@ -71,7 +77,11 @@ test("duplicate replies and ready messages cannot renew a load or response deadl
   const time = clock();
   let stops = 0;
   let id = "";
-  const frame = { postMessage: (data: { id: string }) => { id = data.id; } } as unknown as Window;
+  const frame = {
+    postMessage: (data: { id: string }) => {
+      id = data.id;
+    },
+  } as unknown as Window;
   const watch = renderWatchdog(() => stops++);
   watch.start(frame);
   const first = id;
@@ -105,7 +115,11 @@ test("a missing heartbeat after document replacement gets a bounded hang grace p
   const reasons: string[] = [];
   let id = "";
   const watch = renderWatchdog((reason) => reasons.push(reason));
-  watch.start({ postMessage: (data: { id: string }) => { id = data.id; } } as unknown as Window);
+  watch.start({
+    postMessage: (data: { id: string }) => {
+      id = data.id;
+    },
+  } as unknown as Window);
   watch.pong(id);
   // document.open/document.write can erase the listener after the first successful answer.
   time.advance(2000);
@@ -125,7 +139,11 @@ test("a late matching heartbeat recovers during the post-load grace period", () 
   const reasons: string[] = [];
   let id = "";
   const watch = renderWatchdog((reason) => reasons.push(reason));
-  watch.start({ postMessage: (data: { id: string }) => { id = data.id; } } as unknown as Window);
+  watch.start({
+    postMessage: (data: { id: string }) => {
+      id = data.id;
+    },
+  } as unknown as Window);
   watch.pong(id);
   time.advance(12000);
   watch.pong(id);
