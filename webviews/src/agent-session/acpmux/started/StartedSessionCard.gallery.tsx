@@ -18,7 +18,7 @@ const freeze: StartedSession = {
   named: true,
   state: "running",
   activity: "Running ss -ltnp 2>/dev/null | grep 2222; timeout 40 ssh huge-blue uptime",
-  pullRequests: { count: 2, tone: "ready" },
+  pullRequests: { count: 2, tone: "ready", number: 22092, repo: "cmux" },
 };
 
 /// The cards and a reply naming them, as a chat that started two chats draws them.
@@ -54,7 +54,7 @@ export default componentEntry<Props>({
   load: async () => GalleryStartedSessions,
   variants: {
     two: {
-      note: "Two chats the agent started: one done, one running with its latest command and two ready PRs; the reply names both as chips.",
+      note: "Two chats the agent started: one done, one running with its latest command and two PRs (the branch PR ready); the reply names both as chips.",
       props: {
         started: [triage, freeze],
         reply:
@@ -70,14 +70,14 @@ export default componentEntry<Props>({
             sessionId: "c-2",
             title: "Fix the flaky sidebar test",
             state: "failed",
-            pullRequests: { count: 1, tone: "failing" },
+            pullRequests: { count: 1, tone: "failing", number: 22163, repo: "cmux" },
           },
           {
             sessionId: "c-3",
             title: "Bump the Ghostty pin",
             state: "idle",
             unread: true,
-            pullRequests: { count: 1, tone: "merged" },
+            pullRequests: { count: 1, tone: "merged", number: 22164, repo: "cmux" },
           },
         ],
       },

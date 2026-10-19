@@ -1,5 +1,7 @@
-/* The chats a chat started (StartedSessionCard.tsx): quiet one line cards with a thin edge, the
-   title over what the chat does now, then its pull requests, a status dot and a chevron. */
+/* The chats a chat started (StartedSessionCard.tsx): quiet cards with a thin edge (Claude Code's
+   linked session card), the title in the body step over a detail line in the dim colour: what the
+   chat does now · `repo #N`, the PR's status in its colour at the end (Claude Code's PR rows). Then
+   a status dot and a chevron. Sizes are the type scale's steps (desktop.css). */
 .acpmux-started {
   display: flex;
   flex-direction: column;
@@ -14,15 +16,15 @@
   gap: 10px;
   width: 100%;
   min-width: 0;
-  min-height: 40px;
+  min-height: 34px;
   padding: 7px 10px 7px 12px;
   border: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
   border-radius: 10px;
   background: none;
   color: var(--agent-text);
   font: inherit;
-  font-size: var(--text-control);
-  line-height: 18px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   text-align: start;
   cursor: default;
 }
@@ -41,41 +43,59 @@
   min-width: 0;
 }
 .acpmux-started-title,
-.acpmux-started-line {
+.acpmux-started-activity {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .acpmux-started-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);
-  line-height: 16px;
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
 }
-.acpmux-started-card[data-state="waiting"] .acpmux-started-line {
+.acpmux-started-activity {
+  flex: 0 1 auto;
+}
+.acpmux-started-card[data-state="waiting"] .acpmux-started-activity {
   color: var(--acpmux-warning);
 }
-.acpmux-started-card[data-state="failed"] .acpmux-started-line {
+.acpmux-started-card[data-state="failed"] .acpmux-started-activity {
   color: var(--agent-danger);
 }
-.acpmux-started-prs {
+/* `what it does now · repo #N`: the separator only between the two. */
+.acpmux-started-pr {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-started-activity + .acpmux-started-pr::before {
+  content: "·";
+  margin-inline-end: 2px;
+}
+.acpmux-started-status {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 4px;
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  margin-inline-start: auto;
+  padding-inline-start: 8px;
 }
-.acpmux-started-prs[data-tone="ready"] {
+.acpmux-started-status[data-tone="ready"],
+.acpmux-started-status[data-tone="open"] {
   color: var(--agent-success, var(--acpmux-add, #3fb950));
 }
-.acpmux-started-prs[data-tone="failing"],
-.acpmux-started-prs[data-tone="closed"] {
+.acpmux-started-status[data-tone="failing"],
+.acpmux-started-status[data-tone="closed"] {
   color: var(--agent-danger);
 }
-.acpmux-started-prs[data-tone="merged"] {
+.acpmux-started-status[data-tone="merged"] {
   color: var(--agent-ansi-5, #a371f7);
 }
 .acpmux-started-dot {

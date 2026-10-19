@@ -21,11 +21,15 @@ export const startedCardsShown = (): boolean => experimentArm(startedSessionCard
 /// agent went away), or it is idle.
 export type StartedState = "running" | "waiting" | "failed" | "idle";
 
-/// A started chat's pull requests, as its badge counts them. `tone` is the state of the one PR
-/// acpmux reads the state of (the chat folder's branch PR); `unknown` when the chat only names
-/// URLs (`pullRequests`, the `gh pr create` calls acpmux recorded).
+/// A started chat's pull requests, the way Claude Code's PR rows name one: `repo #N` and its status.
+/// `number` and `tone` are those of the one PR acpmux reads the state of (the chat folder's branch
+/// PR); without one, the newest recorded URL (`pullRequests`, the `gh pr create` calls acpmux
+/// recorded) names it and `tone` is `unknown`. `repo` is the repository's name, from a recorded URL
+/// of that number. `count` is every PR the chat opened.
 export type StartedPullRequests = {
   count: number;
+  number: number;
+  repo?: string;
   tone: "ready" | "open" | "draft" | "failing" | "merged" | "closed" | "unknown";
 };
 
@@ -56,19 +60,31 @@ export function startedState(entry: AcpmuxSessionEntry): StartedState {
 
 const PR_URL = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)(?:[/?#]|$)/i;
 
-/// The badge of a chat's pull requests: each named once, whether acpmux recorded its URL, reads it
+/// The badge of a chat's pull requests: each counted once, whether acpmux recorded its URL, reads it
 /// as the folder's branch PR, or both.
 export function startedPullRequests(entry: AcpmuxSessionEntry): StartedPullRequests | undefined {
-  const keys = new Set<string>();
+  // `owner/repo#N` (lowercase) to the repository's name as written.
+  const recorded = new Map<string, { repo: string; number: number }>();
   for (const url of entry.pullRequestUrls ?? []) {
     const match = PR_URL.exec(url);
-    if (match) keys.add(`${match[1]!.toLowerCase()}#${Number(match[2])}`);
+    if (!match) continue;
+    const number = Number(match[2]);
+    const key = `${match[1]!.toLowerCase()}#${number}`;
+    if (!recorded.has(key)) recorded.set(key, { repo: match[1]!.split("/")[1]!, number });
   }
   const branch = entry.pullRequest;
+  const urls = [...recorded.values()];
   // The branch PR carries a number only: a recorded URL with that number is the same one.
-  if (branch && ![...keys].some((key) => key.endsWith(`#${branch.number}`))) keys.add(`#${branch.number}`);
-  if (keys.size === 0) return undefined;
-  return { count: keys.size, tone: branch ? pullRequestTone(branch) : "unknown" };
+  const same = branch ? urls.find((pr) => pr.number === branch.number) : undefined;
+  const count = urls.length + (branch && !same ? 1 : 0);
+  if (count === 0) return undefined;
+  const named = branch ? same : urls[urls.length - 1];
+  return {
+    count,
+    number: branch?.number ?? named!.number,
+    ...(named ? { repo: named.repo } : {}),
+    tone: branch ? pullRequestTone(branch) : "unknown",
+  };
 }
 
 function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {

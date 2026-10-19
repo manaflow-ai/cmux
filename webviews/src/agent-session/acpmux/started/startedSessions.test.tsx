@@ -249,7 +249,12 @@ describe("StartedSessionCard", () => {
     expect(html).not.toContain("acpmux-started-line");
     const merged = renderToStaticMarkup(
       <StartedSessionCard
-        child={{ sessionId: "s", title: "Done task", state: "idle", pullRequests: { count: 1, tone: "merged", number: 4 } }}
+        child={{
+          sessionId: "s",
+          title: "Done task",
+          state: "idle",
+          pullRequests: { count: 1, tone: "merged", number: 4 },
+        }}
         onOpen={() => undefined}
       />,
     );
@@ -287,7 +292,12 @@ describe("StartedSessionCard", () => {
   test("a pull request of unknown state names no status", () => {
     const html = renderToStaticMarkup(
       <StartedSessionCard
-        child={{ sessionId: "s", title: "URL task", state: "idle", pullRequests: { count: 1, tone: "unknown", number: 3 } }}
+        child={{
+          sessionId: "s",
+          title: "URL task",
+          state: "idle",
+          pullRequests: { count: 1, tone: "unknown", number: 3 },
+        }}
         onOpen={() => undefined}
       />,
     );

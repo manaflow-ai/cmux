@@ -1,6 +1,8 @@
 // A chat this chat's agent started, as a card in the transcript (Claude Code desktop's linked
 // session card, cmux-design-references apps/claude/live/transcript-linked-session-card.png):
-// `title / what it does now  [PR 2 Ready]  •  ›`. The whole card opens the chat. Its name in a
+// `title / what it does now · repo #N   Status  •  ›`, its pull request named the way Claude Code's
+// PR rows name one (its Changes panel and PR list: `repo #N`, the status in its colour at the end
+// of the line). The whole card opens the chat. Its name in a
 // reply draws as a chip that opens it too (StartedSessionChip). Behind the
 // `started-session-cards` experiment (startedSessions.ts).
 import { createContext, useContext } from "react";
@@ -11,7 +13,7 @@ import "./startedSessions.css";
 
 const PR_WORDS: Record<StartedPullRequests["tone"], StringKey | undefined> = {
   ready: "started.prReady",
-  failing: "started.prFailing",
+  failing: "started.checksFailed",
   open: "header.prBadge.open",
   draft: "header.prBadge.draft",
   merged: "header.prBadge.merged",
@@ -60,23 +62,38 @@ export function StartedSessionCard({ child, onOpen }: { child: StartedSession; o
     >
       <span className="acpmux-started-text">
         <span className="acpmux-started-title">{child.title}</span>
-        {line && <span className="acpmux-started-line">{line}</span>}
+        {(line || child.pullRequests) && (
+          <span className="acpmux-started-line">
+            {line && <span className="acpmux-started-activity">{line}</span>}
+            {child.pullRequests && <PullRequestLine pullRequests={child.pullRequests} />}
+          </span>
+        )}
       </span>
-      {child.pullRequests && <PullRequestBadge pullRequests={child.pullRequests} />}
       <span className="acpmux-started-dot" aria-hidden="true" />
       <Icon name="disclosure.collapsed" size={12} className="acpmux-started-chevron" />
     </button>
   );
 }
 
-function PullRequestBadge({ pullRequests }: { pullRequests: StartedPullRequests }) {
+/// The chat's pull request on its second line: `repo #N` (and how many more it opened), then the
+/// PR's status in its colour at the line's end.
+function PullRequestLine({ pullRequests }: { pullRequests: StartedPullRequests }) {
   const t = useT();
   const word = PR_WORDS[pullRequests.tone];
+  const name = pullRequests.repo ? `${pullRequests.repo} #${pullRequests.number}` : `#${pullRequests.number}`;
   return (
-    <span className="acpmux-started-prs" data-tone={pullRequests.tone}>
-      <Icon name="git.pullrequest" size={12} />
-      <span>{word ? `${pullRequests.count} ${t(word)}` : pullRequests.count}</span>
-    </span>
+    <>
+      <span className="acpmux-started-pr">
+        <span>{name}</span>
+        {pullRequests.count > 1 && <span>{t("started.morePullRequests", { count: pullRequests.count - 1 })}</span>}
+      </span>
+      {word && (
+        <span className="acpmux-started-status" data-tone={pullRequests.tone}>
+          <Icon name="git.pullrequest" size={12} />
+          <span>{t(word)}</span>
+        </span>
+      )}
+    </>
   );
 }
 

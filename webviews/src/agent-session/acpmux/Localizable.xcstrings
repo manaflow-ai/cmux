@@ -1,140 +1,272 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "started.prFailing": {
-      "comment": "A pull request badge on a chat card: its checks fail (\"1 Failing\")",
+    "started.checksFailed": {
+      "comment": "A chat card's pull request status: its checks fail (Claude Code's \"Checks failed\")",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فاشل"
+            "value": "فشلت الفحوصات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ne prolazi"
+            "value": "Provjere nisu prošle"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fejler"
+            "value": "Tjek fejlede"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fehlerhaft"
+            "value": "Checks fehlgeschlagen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failing"
+            "value": "Checks failed"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Con fallos"
+            "value": "Comprobaciones fallidas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "En échec"
+            "value": "Vérifications en échec"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non superato"
+            "value": "Controlli non superati"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "失敗中"
+            "value": "チェック失敗"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំពុងបរាជ័យ"
+            "value": "ការត្រួតពិនិត្យបរាជ័យ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "실패 중"
+            "value": "검사 실패"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feiler"
+            "value": "Sjekker feilet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieudane"
+            "value": "Testy nieudane"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Falhando"
+            "value": "Verificações falharam"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "С ошибками"
+            "value": "Проверки не пройдены"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่ผ่าน"
+            "value": "การตรวจสอบไม่ผ่าน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başarısız"
+            "value": "Denetimler başarısız"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "З помилками"
+            "value": "Перевірки не пройдено"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đang lỗi"
+            "value": "Kiểm tra thất bại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未通过"
+            "value": "检查未通过"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未通過"
+            "value": "檢查未通過"
+          }
+        }
+      }
+    },
+    "started.morePullRequests": {
+      "comment": "After a chat card's pull request (\"cmux #22092 and 1 more\"): how many more pull requests the chat opened",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "و{count} أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "i još {count}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "og {count} mere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "und {count} weitere"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "and {count} more"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "y {count} más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "et {count} de plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e altri {count}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほか{count}件"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "និង {count} ទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "외 {count}개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "og {count} til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "i {count} więcej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e mais {count}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "и ещё {count}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "และอีก {count}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ve {count} tane daha"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "і ще {count}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "và {count} khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "及另外 {count} 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "及另外 {count} 個"
           }
         }
       }
     },
     "started.prReady": {
-      "comment": "A pull request badge on a chat card: its pull requests are ready to merge (\"2 Ready\")",
+      "comment": "A chat card's pull request status: it is ready to merge",
       "extractionState": "manual",
       "localizations": {
         "ar": {
