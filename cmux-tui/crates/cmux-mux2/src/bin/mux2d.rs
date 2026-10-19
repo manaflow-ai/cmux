@@ -1,16 +1,14 @@
-//! macOS only for now (kqueue, posix_spawn PTY setup); see GOAL.md.
+//! The mux2 server: kqueue on macOS, epoll on Linux, an IO completion port
+//! on Windows. See GOAL.md.
 
-#[cfg(target_os = "macos")]
-#[path = "../macos/mux2d.rs"]
+#[cfg(unix)]
+#[path = "../unix/mux2d.rs"]
 mod imp;
 
-#[cfg(target_os = "macos")]
+#[cfg(windows)]
+#[path = "../windows/mux2d.rs"]
+mod imp;
+
 fn main() {
     imp::main();
-}
-
-#[cfg(not(target_os = "macos"))]
-fn main() {
-    eprintln!("mux2d: macOS only for now");
-    std::process::exit(2);
 }

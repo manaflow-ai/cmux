@@ -1,16 +1,8 @@
-//! macOS only for now (kqueue, posix_spawn PTY setup); see GOAL.md.
+//! The mux2 client. See `src/shared/mux2.rs`.
 
-#[cfg(target_os = "macos")]
-#[path = "../macos/mux2.rs"]
+#[path = "../shared/mux2.rs"]
 mod imp;
 
-#[cfg(target_os = "macos")]
 fn main() {
     imp::main();
-}
-
-#[cfg(not(target_os = "macos"))]
-fn main() {
-    eprintln!("mux2: macOS only for now");
-    std::process::exit(2);
 }

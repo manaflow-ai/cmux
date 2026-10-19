@@ -38,6 +38,26 @@ path = "src/bin/mux2-ctty-probe.rs"
 name = "mux2-wrapcheck"
 path = "src/bin/mux2-wrapcheck.rs"
 
+[[bin]]
+name = "mux2-resumecheck"
+path = "src/bin/mux2-resumecheck.rs"
+
+[[bin]]
+name = "mux2-query-probe"
+path = "src/bin/mux2-query-probe.rs"
+
 [dependencies]
 ghostty-vt.workspace = true
 libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+uds_windows.workspace = true
+windows-sys = { workspace = true, features = [
+    "Win32_Networking_WinSock",
+    "Win32_Security_Authorization",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_ProcessStatus",
+] }

@@ -1193,6 +1193,8 @@ version = "0.1.0"
 dependencies = [
  "ghostty-vt",
  "libc",
+ "uds_windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
