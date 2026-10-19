@@ -564,7 +564,7 @@ async fn serve(
     });
     if native {
         ready_line["native"] = json!(true);
-        ready_line["wg_public_key"] = json!(public_key);
+        ready_line["wg_public_key"] = json!(STANDARD.encode(public_key));
     }
     print_json(&ready_line);
     if let Some(ready) = ready {

@@ -56,6 +56,7 @@ fn native_cloud_broker_descriptor_transfer_uses_the_child_key_without_loading_le
         });
     }
     let child = ChildGuard(command.spawn().unwrap());
+    drop(command);
     drop(inherited_ready);
     let (version, descriptor) =
         cmux_unix_socket::descriptor::receive(&parent, 1).unwrap_or_else(|error| {
