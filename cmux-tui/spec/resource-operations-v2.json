@@ -4549,6 +4549,22 @@
             "name": "boolean"
           },
           "description": "True when the dock cannot be undocked or closed. Absent when false."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "pinned-dock-v1: true for a pinned column (the Home dock). Its first tab stays (no close, move out or reorder away from the first place), the column is never removed, undocked or unpinned, and it takes no other tab unless allow_tabs is true. Absent when false."
+        },
+        "allow_tabs": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "pinned-dock-v1: true when a pinned column takes more tabs. Absent when false (the default)."
         }
       },
       "extra": false,
@@ -17558,6 +17574,22 @@
             },
             "description": "Column width as a fraction of the viewport. Omit to leave the width unchanged."
           },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "pinned-dock-v1: true makes the docked column pinned (the Home dock). One way: false fails with validation.invalid."
+          },
+          "allow_tabs": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "pinned-dock-v1: whether a pinned column takes more tabs (new tabs, moves in). Default false. Needs a pinned column."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -17591,7 +17623,8 @@
         "validation.invalid"
       ],
       "constraints": [
-        "At least one of dock or width is required. edge and mode require the dock field and apply only when dock is true.",
+        "At least one of dock, width, pinned or allow_tabs is required. edge and mode require the dock field and apply only when dock is true.",
+        "pinned-dock-v1: a change that would close, move out or reorder the first tab of a pinned column, add a tab to a pinned column whose allow_tabs is false, or remove, undock or unpin a pinned column fails with operation.failed, reason_code dock-column-pinned. This holds for every operation, not only column.update.",
         "width is finite, at least 0.1, and at most 1.",
         "A screen keeps at most one docked column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
         "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
