@@ -330,7 +330,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -378,6 +378,10 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s\\n' " + runs_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + HEAD + "'; then "
             + workflow_route + "; fi\n"
+            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then exit 1; fi\n"
+               "if [ \"$1 $2\" = 'api graphql' ] && printf '%s' \"$*\" | grep -q 'files(first'; then printf '%s\\n' "
+               + shlex.quote(json.dumps({"data": {"repository": {"pullRequest": {"files": {"nodes": [{"path": f} for f in changed_files], "pageInfo": {"hasNextPage": False}}}}}}))
+               + "; exit 0; fi\n" if files_rest_fails else "") +
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
             "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
@@ -680,6 +684,55 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertIn(self.LINT, result.stderr)
             self.assertNotIn("red on the base too", result.stderr)
+
+    def test_the_fast_gate_waits_for_a_pending_lint_check(self):
+        """main's full gate never lets a pending god-file, l10n or concurrency check
+        through (#21692); the fast gate waits for it instead of merging past it."""
+        rollup = list(self.FAST_GREEN) + [(self.LINT, "in_progress", "")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     extra_args=("--wait", "0"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn(f"still waiting on {self.LINT}", result.stderr)
+
+    def test_the_fast_gate_refuses_a_completed_red_in_a_full_gate_lane(self):
+        """It does not wait for ci-status, the swift test or the Release compile, but one that
+        already finished red is judged as the full gate judges it: refused unless the base has it."""
+        for red in ("ci-status", "cmux-next swift test", "cmux-next Release compile (Xcode 26)"):
+            rollup = [c for c in self.FAST_GREEN if c[0] != red] + [(red, "completed", "failure")]
+            with self.subTest(red=red), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                         excuse=(1, "the base is green"))
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn(f"{red} red on {HEAD}, not excused", result.stderr)
+
+    def test_the_fast_gate_keeps_the_graphql_fallback_for_changed_files(self):
+        """#21529: a REST file listing that fails falls back to GraphQL on the fast gate too
+        (its own routing read and the freeze check), rather than refusing."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     files_rest_fails=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("used GraphQL fallback to inspect changed files", result.stderr)
+
+    def test_main_keeps_the_full_wait_without_full(self):
+        """Only feat-cmux-next gets the fast gate: a main PR with green fast lanes and a
+        pending ci-status still waits on everything, without --full."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, base="main", rollup=self.FAST_GREEN,
+                                     check_name="ci-status", extra_checks=[], check_conclusion="")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("full gate", summary[0])
 
     def test_full_keeps_the_wait_for_every_check(self):
         with tempfile.TemporaryDirectory() as directory:

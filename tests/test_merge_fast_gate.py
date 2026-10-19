@@ -1,5 +1,6 @@
 """scripts/ci/merge_fast_gate.py against a fake PR: no network, no sleeping."""
 import importlib.util
+import re
 from pathlib import Path
 import unittest
 
@@ -75,12 +76,35 @@ class FastGate(unittest.TestCase):
         self.assertEqual(waited, 60)
 
     def test_completed_reds_in_fast_lanes_and_gating_families_are_reported_pending_ones_are_not(self):
-        rollup = GREEN + [check("cmux-next checks (god files, concurrency, crash safety, l10n)", conclusion="FAILURE"),
-                          check("app-size", conclusion="FAILURE"), check("render (head, 0)", conclusion="FAILURE"),
+        rollup = GREEN + [check("app-size", conclusion="FAILURE"), check("render (head, 0)", conclusion="FAILURE"),
                           check("web / Web status", "IN_PROGRESS", "")]
         rollup[1] = check("cmux-next fast tier", conclusion="FAILURE")
         _, _, reds = run(Reader(rollup))
-        self.assertEqual(reds, ["app-size", "cmux-next checks (god files, concurrency, crash safety, l10n)", "cmux-next fast tier"])
+        self.assertEqual(reds, ["app-size", "cmux-next fast tier"])
+
+    def test_completed_reds_in_the_full_gate_lanes_are_reported_pending_ones_are_not(self):
+        """The fast gate does not wait for ci-status, the swift test or the Release compile,
+        but a completed red one is judged as the full gate judges it."""
+        names = ("ci-status", "cmux-next swift test", "cmux-next Release compile (Xcode 26)")
+        rollup = [c for c in GREEN if c["name"] not in names] + [check(n, conclusion="FAILURE") for n in names]
+        _, _, reds = run(Reader(rollup))
+        self.assertEqual(reds, sorted(names))
+        rollup = [c for c in GREEN if c["name"] not in names] + [check(n, "IN_PROGRESS", "") for n in names]
+        self.assertEqual(run(Reader(rollup))[2], [])
+
+    def test_lint_checks_are_waited_for_and_a_red_one_refuses(self):
+        """Like the full gate (#21692): god-file, l10n and concurrency lint must complete
+        green on the exact head; it is never waived or base-excused."""
+        lint = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        with self.assertRaisesRegex(gate.Refused, "still waiting on " + re.escape(lint)):
+            run(Reader(GREEN + [check(lint, "IN_PROGRESS", "")]), timeout=60)
+        for conclusion in ("FAILURE", "CANCELLED", "TIMED_OUT"):
+            with self.subTest(conclusion=conclusion):
+                with self.assertRaisesRegex(gate.Refused, re.escape(lint) + ".*never waived"):
+                    run(Reader(GREEN + [check(lint, conclusion=conclusion)]))
+        _, seen, reds = run(Reader(GREEN + [check(lint)]))
+        self.assertIn(lint, seen)
+        self.assertEqual(reds, [])
 
     def test_a_rerun_replaces_the_earlier_verdict(self):
         rollup = GREEN + [check("cmux-next fast tier", conclusion="FAILURE"), check("cmux-next fast tier")]
