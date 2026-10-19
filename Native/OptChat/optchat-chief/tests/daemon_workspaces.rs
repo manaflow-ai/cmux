@@ -18,11 +18,13 @@ use serde_json::{Value, json};
 fn serve(
     listener: UnixListener,
     capabilities: Vec<&'static str>,
+    refused: Vec<&'static str>,
     requests: Arc<Mutex<Vec<Value>>>,
 ) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let (requests, capabilities) = (requests.clone(), capabilities.clone());
+            let refused = refused.clone();
             std::thread::spawn(move || {
                 let mut out = conn.try_clone().unwrap();
                 for line in BufReader::new(conn.try_clone().unwrap()).lines() {
@@ -47,6 +49,14 @@ fn serve(
                             out,
                             "{}",
                             json!({"id": req["id"], "ok": false, "error": {"code": "invalid_params", "message": "origin and mutation_id must be provided together"}})
+                        );
+                        continue;
+                    }
+                    if refused.contains(&req["cmd"].as_str().unwrap()) {
+                        let _ = writeln!(
+                            out,
+                            "{}",
+                            json!({"id": req["id"], "ok": false, "error": {"code": "operation_failed", "message": "refused"}})
                         );
                         continue;
                     }
@@ -86,10 +96,22 @@ fn serve(
 fn workspaces(
     caps: Vec<&'static str>,
 ) -> (DaemonWorkspaces, Arc<Mutex<Vec<Value>>>, tempfile::TempDir) {
+    workspaces_refusing(caps, vec![])
+}
+
+fn workspaces_refusing(
+    caps: Vec<&'static str>,
+    refused: Vec<&'static str>,
+) -> (DaemonWorkspaces, Arc<Mutex<Vec<Value>>>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("cmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
-    serve(UnixListener::bind(&socket).unwrap(), caps, requests.clone());
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        caps,
+        refused,
+        requests.clone(),
+    );
     let w = DaemonWorkspaces {
         daemon: socket,
         host: "install:inst_test".into(),
@@ -161,4 +183,63 @@ fn a_daemon_without_agent_session_tabs_is_refused_before_any_write() {
         commands(&requests, "create-workspace").is_empty(),
         "nothing half made"
     );
+}
+
+const GROUPED: [&str; 4] = [
+    "workspace-registry-v1",
+    "conversation-tabs-v1",
+    "agent-session-tabs-v1",
+    "workspace-groups-v1",
+];
+
+fn open(w: &DaemonWorkspaces) -> Result<String, String> {
+    w.open(
+        &optchat_chief::workspaces::new_key(),
+        "sess-1",
+        "a1 · x",
+        Path::new("/tmp"),
+    )
+}
+
+/// Lawrence 2026-10-18: "use groups more aggressively so that you can
+/// organize and the user feels less overwhelmed".
+#[test]
+fn a_subagent_workspace_goes_into_the_chief_agents_group() {
+    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+    let key = open(&w).unwrap();
+    let group = commands(&requests, "create-workspace-group");
+    assert_eq!(group.len(), 1);
+    assert_eq!(
+        group[0]["group"], "chief-agents",
+        "a fixed id: one group for every spawn"
+    );
+    assert_eq!(group[0]["name"], "Chief agents");
+    let moved = commands(&requests, "move-workspace-to-group");
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0]["workspace"], 7);
+    assert_eq!(moved[0]["group"], "chief-agents");
+    assert_eq!(
+        moved[0]["mutation_id"],
+        format!("optchat-subagent-group-{key}")
+    );
+    assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
+}
+
+#[test]
+fn a_daemon_without_groups_gets_no_group_requests() {
+    let (w, requests, _dir) = workspaces(GROUPED[..3].to_vec());
+    open(&w).unwrap();
+    assert!(commands(&requests, "create-workspace-group").is_empty());
+    assert!(commands(&requests, "move-workspace-to-group").is_empty());
+}
+
+#[test]
+fn a_refused_group_never_stops_the_subagent_start() {
+    let (w, requests, _dir) = workspaces_refusing(
+        GROUPED.to_vec(),
+        vec!["create-workspace-group", "move-workspace-to-group"],
+    );
+    open(&w).unwrap();
+    assert_eq!(commands(&requests, "create-terminal").len(), 1);
+    assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
 }
