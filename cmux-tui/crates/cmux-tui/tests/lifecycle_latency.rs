@@ -217,15 +217,11 @@ fn lifecycle_latency_creates_and_closes_in_a_populated_session() {
         );
         assert!(conn.placement(&created["surface"]).is_none(), "the closed workspace is gone");
     }
-    // End every terminal this test made: a durable host outlives a killed
-    // daemon. The last workspace may refuse to close; its terminal still ends
-    // with the daemon's reap below.
-    let tree = conn.call(json!({"cmd": "list-workspaces"}));
-    for workspace in tree["workspaces"].as_array().into_iter().flatten() {
-        conn.reply(
-            json!({"cmd": "close-workspace", "workspace": workspace["id"], "end_terminals": true}),
-        );
-    }
+    // End every terminal host this test made: a durable host outlives a
+    // killed daemon (cx-leo45).
+    let identity = conn.call(json!({"cmd": "identify"}));
+    conn.reply(json!({"cmd": "shutdown-daemon", "pid": identity["pid"],
+        "generation": identity["generation"], "force": true, "end_terminals": true}));
     let text = report(&samples);
     eprint!("{text}");
     let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/perf-lifecycle");
