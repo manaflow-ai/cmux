@@ -1401,6 +1401,14 @@ path = "tests/test_release_changelog_lines.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_published_in_comments.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_release_notes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_idea_ledger.py"
 lane = "linux-guard"
 
@@ -1410,4 +1418,36 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_feed_rollback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_test_touches_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_web_test_failure_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_web_test_verdict.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_feature_flags_review_date.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_promotion_queue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_proof_section.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_status.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
