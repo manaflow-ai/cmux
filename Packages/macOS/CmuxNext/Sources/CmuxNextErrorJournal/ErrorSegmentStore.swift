@@ -16,6 +16,7 @@ struct ErrorSegmentStore {
     init(directory: URL, segmentBytes: Int) {
         self.directory = directory
         self.segmentBytes = segmentBytes
+        try? Self.protectDirectory(directory)
     }
 
     private static let prefix = "segment-"
@@ -36,6 +37,7 @@ struct ErrorSegmentStore {
         let decoder = JSONDecoder()
         let all = segments()
         for (_, url) in all {
+            try? Self.protectFile(url)
             guard let data = try? Data(contentsOf: url) else { continue }
             for line in data.split(separator: UInt8(ascii: "\n")) where !line.isEmpty {
                 if let entry = try? decoder.decode(ErrorEntry.self, from: Data(line)) { table[entry.fingerprint] = entry }
@@ -62,6 +64,7 @@ struct ErrorSegmentStore {
             return
         }
         defer { try? handle.close() }
+        try Self.protectFile(current)
         try handle.seekToEnd()
         try handle.write(contentsOf: data)
         currentBytes += data.count
@@ -69,13 +72,14 @@ struct ErrorSegmentStore {
 
     /// Writes `entries` as the only live segment and deletes the older ones.
     mutating func compact(_ entries: [ErrorEntry]) throws {
-        try files.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Self.protectDirectory(directory)
         let old = segments()
         sequence = (old.last?.sequence ?? sequence) + 1
         let name = Self.prefix + String(format: "%06d", sequence) + Self.suffix
         let url = directory.appendingPathComponent(name)
         let data = try Self.lines(entries)
         try data.write(to: url, options: .atomic)
+        try Self.protectFile(url)
         for (_, oldURL) in old where oldURL != url { try? files.removeItem(at: oldURL) }
         current = url
         currentBytes = data.count
@@ -97,5 +101,19 @@ struct ErrorSegmentStore {
             data.append(UInt8(ascii: "\n"))
         }
         return data
+    }
+
+    static func protectDirectory(_ url: URL) throws {
+        let files = FileManager.default
+        try files.createDirectory(
+            at: url,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+    }
+
+    static func protectFile(_ url: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }

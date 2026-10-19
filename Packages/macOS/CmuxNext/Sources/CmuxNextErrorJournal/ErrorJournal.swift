@@ -230,7 +230,10 @@ public actor ErrorJournal {
     }
 
     private func saveCursors(_ cursors: [String: String]) {
-        try? FileManager().createDirectory(at: directory, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(cursors) { try? data.write(to: cursorsURL, options: .atomic) }
+        try? ErrorSegmentStore.protectDirectory(directory)
+        if let data = try? JSONEncoder().encode(cursors),
+           (try? data.write(to: cursorsURL, options: .atomic)) != nil {
+            try? ErrorSegmentStore.protectFile(cursorsURL)
+        }
     }
 }
