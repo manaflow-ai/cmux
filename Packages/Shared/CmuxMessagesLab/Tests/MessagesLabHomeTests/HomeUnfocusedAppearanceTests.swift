@@ -39,11 +39,18 @@ import Testing
         return (window, controller)
     }
 
+    @Test func theInactivePaletteNeedsTheParitySwitch() {
+        #expect(!HomeKeyState.paletteInactive(followsKeyWindow: false, keyWindowShowsHome: false))
+        #expect(!HomeKeyState.paletteInactive(followsKeyWindow: false, keyWindowShowsHome: true))
+        #expect(HomeKeyState.paletteInactive(followsKeyWindow: true, keyWindowShowsHome: false))
+        #expect(!HomeKeyState.paletteInactive(followsKeyWindow: true, keyWindowShowsHome: true))
+    }
+
     @Test(arguments: [false, true])
     func aHomeInAWindowThatIsNotKeyKeepsTheKeyPalette(light: Bool) throws {
         let state = HomeKeyState.shared
-        let saved = (Fixture.inactive, Fixture.lightAppearance)
-        defer { Fixture.inactive = saved.0; Fixture.lightAppearance = saved.1 }
+        let saved = (state.followsKeyWindow, Fixture.inactive, Fixture.lightAppearance)
+        defer { state.followsKeyWindow = saved.0; Fixture.inactive = saved.1; Fixture.lightAppearance = saved.2 }
         let (window, controller) = pane()
         defer { window.close() }
         let demo = try #require(controller.demo)
@@ -51,6 +58,7 @@ import Testing
         state.register(controller)
         #expect(window.isKeyWindow == false)
 
+        state.followsKeyWindow = false
         demo.setInactive(false)
         let keyBackground = Fixture.background
         state.apply()
@@ -58,5 +66,9 @@ import Testing
         #expect(Fixture.background == keyBackground)
         #expect(demo.backgroundColor == keyBackground)
 
+        // The parity switch still gives MessagesLab's inactive window.
+        state.followsKeyWindow = true
+        state.apply()
+        #expect(Fixture.inactive == true)
     }
 }
