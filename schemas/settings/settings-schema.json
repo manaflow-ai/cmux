@@ -348,6 +348,7 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
+              "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
               "sidebar.showSpaces",
@@ -14031,6 +14032,64 @@
     },
     {
       "accepts" : [
+        8,
+        40,
+        24
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fontSize.help",
+        "text" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.size",
+      "keywords" : [
+        "markdown",
+        "font",
+        "size",
+        "text",
+        "zoom",
+        "viewer"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 40,
+        "min" : 8,
+        "placeholder" : 16,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        72,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontSize",
+        "text" : "Default Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -14650,6 +14709,57 @@
       "title" : {
         "key" : "settings.sidebar.showChats",
         "text" : "Show All Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sessionTree.help",
+        "text" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sessionTree",
+      "keywords" : [
+        "sidebar",
+        "tree",
+        "nested",
+        "parent",
+        "child",
+        "pull request",
+        "keycap",
+        "sessions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sessionTree"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.sessionTree",
+        "text" : "Session Tree"
       },
       "validation" : "portable"
     },
@@ -25589,7 +25699,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "83792af4a2de800d5ae2c0dbfd6e317b511f10e28f552adfc6a49d5358df4e49",
+  "schema_hash" : "04db5cffcde37f29f72b61be589a22d4e4a4e19f4dbbc1a9e465e2a9f248c108",
   "sections" : [
     {
       "id" : "general",
