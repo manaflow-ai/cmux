@@ -22,6 +22,7 @@ import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
+import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
@@ -74,6 +75,18 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
+    const base = this.nextTeamWakeAt(state, now)
+    const dropAt = this.replicaDrops.nextAt(now)
+    return base === null ? dropAt : dropAt === null ? base : Math.min(base, dropAt)
+  }
+
+  /** A host that left its owner loses its read replica (team-host-replica-drop.ts); the queue is SQL, the alarm retries. */
+  private _replicaDrops: HostReplicaDrops | undefined
+  private get replicaDrops(): HostReplicaDrops {
+    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host)) as unknown as ReplicaDropTarget))
+  }
+
+  private nextTeamWakeAt(state: TeamState, now: number): number | null {
     const stackAt = this.stackSync.nextWakeAt(state, now)
     if (!state.team) return stackAt
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
@@ -119,6 +132,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    await this.replicaDrops.flush(now)
     // Stack re-checks, and a deleted Stack team's members leaving through team.member.remove (team-stack-sync.ts).
     if (this.boundEngine) await this.stackSync.wake(now)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
@@ -189,6 +203,11 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** A member removal settles their SSH certificates and hosts in the same turn (the alarm retries; team-member-cleanup.ts). */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
+    const leaving = hostsLeavingOwner(op, frames)
+    if (leaving.length > 0) {
+      this.replicaDrops.queue(leaving, op === "team.member.cleaned" ? "the host's owner left the team" : "the host was removed", Date.now())
+      this.ctx.waitUntil(this.replicaDrops.flush(Date.now()).finally(() => this.scheduleAlarm()))
+    }
     if (op === "team.member.remove") this.cleanupMembers()
     // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
     const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
@@ -363,7 +382,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   async hostReplicaRole(entity: string, host: string, principal: Principal): Promise<"publisher" | "reader" | null> {
     if (!this.isBound(entity) || !principal.user || principal.agent) return null
     const record = hostOf(this.bind(entity).currentState, this.rows, host)
-    if (!record || record.owner_user !== principal.user) return null
+    // An orphaned host (its owner left the team) has no owner to read it until a team owner reassigns it.
+    if (!record || record.owner_user !== principal.user || record.orphaned) return null
     return principal.kind === "install" && principal.install === record.enrolled_by ? "publisher" : "reader"
   }
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending

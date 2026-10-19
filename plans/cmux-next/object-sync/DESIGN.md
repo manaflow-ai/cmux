@@ -649,8 +649,13 @@ Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
   Presence changes go to every subscribed reader as `owner.status`. A reader subscribes at most 30
   times in 10 s. Sockets register in the user's UserDO (instant revocation, chief archive) and close
   at token expiry by alarm.
-- Not yet: deleting a host or changing its owner does not yet purge the replica or close its
-  sockets (the next slice wires TeamDO's host removal to `HostDO.purge`).
+- A host that leaves its owner loses its replica (slice 1b): when TeamDO commits `host.remove`,
+  `server.revoke`, or a member cleanup that orphans the member's hosts, it queues the host in its
+  own SQL (`team-host-replica-drop.ts`) and calls `HostDO.dropReplica`. HostDO forgets every stored
+  stream, closes every replica socket (4403) and answers later upgrades 410 (host ids are never
+  reused). The alarm retries a failed call. `hostReplicaRole` gives an orphaned host no role, so no
+  new socket opens before the drop arrives. Tests: `test/host-replica.test.ts` (host removed) and
+  `test/team-member-remove.test.ts` (owner left the team).
 - Test: `backend/apps/api/test/host-replica.test.ts` drives the real Worker sockets (403 for a
   stranger; publish, live read, gap request, forwarded op and its settle, an op in flight refused
   when the host goes away, offline status, resume from the replica with the host off, offline
