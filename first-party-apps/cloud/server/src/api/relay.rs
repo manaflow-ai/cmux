@@ -133,6 +133,8 @@ impl Drop for ReaderGuard {
 }
 
 enum Input<R> {
+    /// EOF or a read failure was already observed, including by a relay call.
+    Closed,
     /// Read on the caller's thread (tests and direct use).
     Direct(R),
     /// The serve loop's inbox: host lines and wakes, in arrival order.
@@ -216,15 +218,20 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
         if std::mem::take(&mut self.wake_dropped) {
             return Ok(Some(Next::Wake));
         }
-        match &mut self.input {
-            Input::Direct(reader) => Ok(read_json_line(reader)?.map(Next::Message)),
+        let next = match &mut self.input {
+            Input::Closed => Ok(None),
+            Input::Direct(reader) => read_json_line(reader).map(|line| line.map(Next::Message)),
             Input::Inbox(inbox) => match inbox.recv() {
                 Ok(Inbound::Host(line)) => Ok(line?.map(Next::Message)),
                 Ok(Inbound::Wake) => Ok(Some(Next::Wake)),
                 // The reader thread ended without an end-of-input item.
                 Err(_) => Ok(None),
             },
+        };
+        if matches!(next, Ok(None) | Err(_)) {
+            self.input = Input::Closed;
         }
+        next
     }
 
     /// The oldest kept line, with the counts kept in step.
@@ -253,18 +260,23 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// call is not lost: it becomes a [`Next::Wake`] after the call (the
     /// waker sends no second wake while one is pending).
     fn read_line(&mut self) -> std::io::Result<Option<Value>> {
-        match &mut self.input {
+        let line = match &mut self.input {
+            Input::Closed => Ok(None),
             Input::Direct(reader) => read_json_line(reader),
             Input::Inbox(inbox) => loop {
                 match inbox.recv() {
-                    Ok(Inbound::Host(line)) => return line,
+                    Ok(Inbound::Host(line)) => break line,
                     // Kept as a flag: the loop takes the events after the
                     // call ([`Self::next_step`]).
                     Ok(Inbound::Wake) => self.wake_dropped = true,
-                    Err(_) => return Ok(None),
+                    Err(_) => break Ok(None),
                 }
             },
+        };
+        if matches!(line, Ok(None) | Err(_)) {
+            self.input = Input::Closed;
         }
+        line
     }
 
     fn exchange(&mut self, mut request: Value) -> Result<Value, RelayError> {
@@ -402,7 +414,7 @@ impl<R: BufRead + Send + 'static, W: Write> HostRelay<R, W> {
     /// the inbox, and returns the waker that link events use. The thread
     /// ends at end of input (or when the loop is gone). Called once.
     pub(crate) fn into_inbox(mut self) -> std::io::Result<(Self, Waker)> {
-        if matches!(self.input, Input::Inbox(_)) {
+        if !matches!(self.input, Input::Direct(_)) {
             return Err(std::io::Error::other("the host reader thread already runs"));
         }
         let (sender, inbox) = sync_channel(INBOX_LINES);
