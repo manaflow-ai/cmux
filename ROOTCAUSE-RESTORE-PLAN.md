@@ -232,7 +232,7 @@ after Xcode reported `BUILD SUCCEEDED`.
 
 The receipts in this historical section refer to earlier heads. The current
 landing receipt is the later section naming the exact repair head
-`ae15ec073830caf6a6cf4eae7be419a5832431d0`.
+`d0cae2b7022411d29ecc05edf1038eb0902fc101`.
 
 The historical repair worktree head was
 [`12aa332ac53e331e8307db0a8531c062de20fe81`](https://github.com/danielraffel/cmux/commit/12aa332ac53e331e8307db0a8531c062de20fe81).
@@ -588,7 +588,7 @@ repair iterations. The current landing worktree is
 `/Volumes/Atelier/Code/cmux-pr21423-update`, branch
 `codex/pr21423-rootcause-update`. The last pushed fork head is
 [`878ffb0c5686c6f22ed42a62e2a9a2d19664d336`](https://github.com/danielraffel/cmux/commit/878ffb0c5686c6f22ed42a62e2a9a2d19664d336); the exact repair head is
-[`ae15ec073830caf6a6cf4eae7be419a5832431d0`](https://github.com/danielraffel/cmux/commit/ae15ec073830caf6a6cf4eae7be419a5832431d0), including the cross-process helper launch lease and the fail-closed recovery guards.
+[`d0cae2b7022411d29ecc05edf1038eb0902fc101`](https://github.com/danielraffel/cmux/commit/d0cae2b7022411d29ecc05edf1038eb0902fc101), including the cross-process helper launch lease, fail-closed recovery guards, and structured-admission-only legacy restore policy.
 
 The helper lease is an owner-validated `flock` in the private runtime scope,
 held across helper health checks, replacement, installation, launch, and
