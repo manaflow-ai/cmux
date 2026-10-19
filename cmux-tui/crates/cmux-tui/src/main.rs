@@ -960,15 +960,26 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     Ok(out)
 }
 
+/// The packaged build's source stamps. Only this crate reads them at compile
+/// time; cmux-tui-core gets them at start (`install_build_stamp`), so a new
+/// stamp recompiles this crate and not the libraries.
+fn build_stamp() -> cmux_tui_core::server::BuildStamp {
+    cmux_tui_core::server::BuildStamp::new(
+        // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
+        // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
+        option_env!("CMUX_TUI_BUILD_COMMIT")
+            .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+            .filter(|commit| !commit.is_empty()),
+        option_env!("CMUX_TUI_GHOSTTY_COMMIT"),
+    )
+}
+
 pub(crate) fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
     // it enters an app bundle. Local builds report the crate version alone.
-    let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty());
-    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
-    match (commit, ghostty) {
+    let stamp = build_stamp();
+    match (stamp.build_commit(), stamp.ghostty_commit()) {
         (Some(commit), Some(ghostty)) => {
             format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
         }
@@ -1628,6 +1639,8 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
+    // Before any mode can serve `identify` or `ping`.
+    cmux_tui_core::server::install_build_stamp(build_stamp());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
