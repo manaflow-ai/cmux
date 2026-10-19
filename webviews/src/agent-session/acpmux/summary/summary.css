@@ -64,6 +64,9 @@
 .acpmux-summary-title__button>svg{flex:none;opacity:.7}
 .acpmux-summary-title__button:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-title__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:0}
+.acpmux-summary-card:focus{outline:none}
+/* Beside the tabs the popover's fold button is its icon only: it leaves the row to them. */
+.acpmux-summary-card__head>.acpmux-summary-card__fold:has(+.acpmux-summary-tabs){flex:none}
 .acpmux-summary-tabs{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:2px;margin-left:-8px}
 .acpmux-summary-tab{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-weight:500;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-tab:hover,.acpmux-summary-tab[data-selected]{color:var(--agent-text)}

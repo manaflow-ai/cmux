@@ -5323,19 +5323,22 @@ function AcpmuxPane() {
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
   const summaryPanel = (
-    // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark.
-    <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
-      <SummaryCard
-        key={snapshot.sessionId}
-        card={summaryCard}
-        rows={snapshot.rows}
-        changes={quick ? undefined : lastChanges}
-        onOpenChanges={toggleLastChanges}
-        onOpenOutput={quick ? undefined : openOutput}
-        onOpenImage={quick ? undefined : openImage}
-        subagents={cardSubagents}
-      />
-    </SubagentHarnessContext.Provider>
+    // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark and
+    // a running one's stop button.
+    <SubagentStopContext.Provider value={stopSubagent}>
+      <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+        <SummaryCard
+          key={snapshot.sessionId}
+          card={summaryCard}
+          rows={snapshot.rows}
+          changes={quick ? undefined : lastChanges}
+          onOpenChanges={toggleLastChanges}
+          onOpenOutput={quick ? undefined : openOutput}
+          onOpenImage={quick ? undefined : openImage}
+          subagents={cardSubagents}
+        />
+      </SubagentHarnessContext.Provider>
+    </SubagentStopContext.Provider>
   );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>

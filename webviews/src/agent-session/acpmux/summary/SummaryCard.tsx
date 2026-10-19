@@ -64,12 +64,18 @@ export function SummaryCard({
   const panel = useRef<HTMLElement>(null);
   const popover = shown && !card.column;
   const close = card.close;
-  // Closing the Subagents tab leaves focus on the Subagents title that opened it.
+  // Closing the Subagents tab leaves focus on the Subagents title that opened it; on a folded
+  // popover, where that title is not drawn, on the fold button, else on the card itself.
   const refocus = useRef(false);
   useEffect(() => {
     if (tab || !refocus.current) return;
     refocus.current = false;
-    panel.current?.querySelector<HTMLElement>(".acpmux-summary-title__button")?.focus();
+    const card = panel.current;
+    (
+      card?.querySelector<HTMLElement>(".acpmux-summary-title__button") ??
+      card?.querySelector<HTMLElement>(".acpmux-summary-card__fold") ??
+      card
+    )?.focus();
   }, [tab]);
   useEffect(() => {
     if (!popover) return;
@@ -110,6 +116,8 @@ export function SummaryCard({
       <aside
         ref={panel}
         className="acpmux-summary-card"
+        // Focusable from script only: the last place closing the Subagents tab can leave focus.
+        tabIndex={-1}
         aria-label={title}
         data-placement={card.column ? "inline" : "popover"}
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
