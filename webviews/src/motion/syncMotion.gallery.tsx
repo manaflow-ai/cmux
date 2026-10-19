@@ -29,7 +29,15 @@ function initialRows(long: boolean): SyncRow[] {
 }
 
 /** One client's list: it receives every event, batched per frame. */
-function ClientList({ device, rows, batch }: { device: Device; rows: SyncRow[]; batch: { snapshot: boolean; direct: boolean } }) {
+function ClientList({
+  device,
+  rows,
+  batch,
+}: {
+  device: Device;
+  rows: SyncRow[];
+  batch: { snapshot: boolean; direct: boolean };
+}) {
   const list = useRef<HTMLUListElement>(null);
   const motion = useSyncListMotion(list, rows, batch);
   return (
@@ -99,7 +107,13 @@ function PhoneFrame({ children, label }: { children: ReactNode; label: string })
   );
 }
 
-function Device({ device, stream, long, run, onDone }: StageProps & { device: Device; run: number; onDone(d: Device, v: boolean): void }) {
+function Device({
+  device,
+  stream,
+  long,
+  run,
+  onDone,
+}: StageProps & { device: Device; run: number; onDone(d: Device, v: boolean): void }) {
   const { state, done } = useClient(device, stream, Boolean(long), run);
   useEffect(() => onDone(device, done), [device, done, onDone]);
   const name = file.clients.find((client) => client.id === CLIENT_OF[device])?.device_name ?? device;
@@ -110,7 +124,11 @@ function Device({ device, stream, long, run, onDone }: StageProps & { device: De
 function SyncMotionStage({ stream, devices, long }: StageProps) {
   const [run, setRun] = useState(0);
   const [finished, setFinished] = useState<Record<string, boolean>>({});
-  const onDone = useMemo(() => (device: Device, value: boolean) => setFinished((current) => (current[device] === value ? current : { ...current, [device]: value })), []);
+  const onDone = useMemo(
+    () => (device: Device, value: boolean) =>
+      setFinished((current) => (current[device] === value ? current : { ...current, [device]: value })),
+    [],
+  );
   const allDone = devices.every((device) => finished[device]);
   const note = file.streams.find((candidate) => candidate.name === stream)?.note;
   return (
@@ -123,7 +141,15 @@ function SyncMotionStage({ stream, devices, long }: StageProps) {
       </div>
       <div className="sm-devices">
         {devices.map((device) => (
-          <Device key={device} device={device} stream={stream} long={long} devices={devices} run={run} onDone={onDone} />
+          <Device
+            key={device}
+            device={device}
+            stream={stream}
+            long={long}
+            devices={devices}
+            run={run}
+            onDone={onDone}
+          />
         ))}
       </div>
     </div>

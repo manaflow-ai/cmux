@@ -61,7 +61,14 @@ export function SyncTitle({ text, animate, fit = false, className, style }: Sync
       ref={box}
       className={className}
       data-sync-title-box=""
-      style={{ position: "relative", display: fit ? "inline-block" : "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...style }}
+      style={{
+        position: "relative",
+        display: fit ? "inline-block" : "block",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        ...style,
+      }}
     >
       <span data-sync-title="current">{text}</span>
       {leaving && (
@@ -94,7 +101,14 @@ function LeavingTitle({ text, onDone }: { text: string; onDone(): void }) {
       ref={element}
       aria-hidden="true"
       data-sync-title="leaving"
-      style={{ position: "absolute", inset: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", pointerEvents: "none" }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        pointerEvents: "none",
+      }}
     >
       {text}
     </span>

@@ -18,14 +18,7 @@
 // - Retarget: a change during a slide cancels it after reading the drawn transform; nothing jumps.
 import { type RefObject, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isAgentMotionOff } from "../agent-session/shared/motion";
-import {
-  planSyncChange,
-  springSamples,
-  SYNC_FADES,
-  SYNC_SPRINGS,
-  type SyncPlan,
-  type SyncRow,
-} from "./syncMotion";
+import { planSyncChange, springSamples, SYNC_FADES, SYNC_SPRINGS, type SyncPlan, type SyncRow } from "./syncMotion";
 
 type Place = { x: number; y: number; width: number; height: number };
 
@@ -99,7 +92,8 @@ export function useSyncListMotion<R extends SyncRow>(
   // the layout pass, where they can be measured).
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- `rows` is represented by its signature.
   const plan = useMemo(
-    () => planSyncChange({
+    () =>
+      planSyncChange({
         before: drawnRows.current,
         after: rows,
         snapshot: options.snapshot,

@@ -148,7 +148,9 @@ export function springSamples(spring: SpringParameters, samples = 24): { duratio
   const end = springVisibleEnd(spring);
   const progress: number[] = [];
   for (let index = 0; index <= samples; index += 1)
-    progress.push(index === samples ? 1 : Math.round(springStepResponse(spring, (end * index) / samples) * 10_000) / 10_000);
+    progress.push(
+      index === samples ? 1 : Math.round(springStepResponse(spring, (end * index) / samples) * 10_000) / 10_000,
+    );
   return { durationMs: Math.round(end * 1000), progress };
 }
 
