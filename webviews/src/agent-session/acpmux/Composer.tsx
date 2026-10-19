@@ -27,7 +27,8 @@ import {
 import { FileSearch } from "./FileSearch";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { Icon } from "./icons/Icon";
-import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
+import { MentionMenu, mentionQuery, mentionResults, useMentionSearch, type MentionState } from "./MentionMenu";
+import { mentionInsert, mentionItems, type MentionItem } from "./mentionItems";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
@@ -100,6 +101,9 @@ export const COMPOSER_LABELS = {
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
+
+/// The @ picker's files in a chat whose folder cannot be searched (a remote chat): none.
+const NO_FILES: MentionState = { kind: "done", results: [] };
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
@@ -527,14 +531,26 @@ export function Composer({
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
 
   useEffect(() => setActive(0), [query]);
-  // Typing @ at a word start lists the chat's files that match what follows (cx-ncc.68).
+  // Typing @ at a word start lists other chats, then the chat's folders and files that match what
+  // follows (cx-ncc.68, mentionItems.ts).
   const mentionAt =
-    !open && !recalling && searchFiles && mentionDismissed !== text
+    !open && !recalling && (searchFiles || snapshot.sessions.length > 0) && mentionDismissed !== text
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
-  const mentionState = useMentionSearch(searchFiles, mentionAt?.query);
+  const mentionSearch = useMentionSearch(searchFiles, mentionAt?.query);
+  // A chat whose folder cannot be searched still lists chats; it says no file matches.
+  const mentionState = searchFiles || !mentionAt?.query.trim() ? mentionSearch : NO_FILES;
   const mentionFiles = mentionResults(mentionState);
-  const mentionSelected = Math.min(mentionActive, Math.max(mentionFiles.length - 1, 0));
+  const chatId = snapshot.summary?.sessionId;
+  const mentionWord = mentionAt?.query;
+  const mentions = useMemo(
+    () =>
+      mentionWord === undefined
+        ? []
+        : mentionItems({ query: mentionWord, files: mentionFiles, sessions: snapshot.sessions, chatId }),
+    [mentionWord, mentionFiles, snapshot.sessions, chatId],
+  );
+  const mentionSelected = Math.min(mentionActive, Math.max(mentions.length - 1, 0));
   useEffect(() => setMentionActive(0), [mentionAt?.query]);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
@@ -571,10 +587,10 @@ export function Composer({
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
-  /// Writes `@path ` over the `@word` being typed.
-  const pickMention = (path: string) => {
+  /// Writes the picked chat, folder or file over the `@word` being typed.
+  const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
-    const { markdown, shown } = mentionText(path);
+    const { markdown, shown } = mentionInsert(item);
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
     const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
     const at = caret - 1 - mentionAt.query.length + shown.length;
@@ -799,14 +815,14 @@ export function Composer({
           : (event.key === "ArrowUp" && plain) || (control && (event.key === "p" || event.key === "k"))
             ? -1
             : 0;
-      if (step && mentionFiles.length > 0) {
+      if (step && mentions.length > 0) {
         event.preventDefault();
-        setMentionActive((mentionSelected + step + mentionFiles.length) % mentionFiles.length);
+        setMentionActive((mentionSelected + step + mentions.length) % mentions.length);
         return;
       }
-      if ((event.key === "Enter" || event.key === "Tab") && plain && mentionFiles[mentionSelected]) {
+      if ((event.key === "Enter" || event.key === "Tab") && plain && mentions[mentionSelected]) {
         event.preventDefault();
-        pickMention(mentionFiles[mentionSelected].path);
+        pickMention(mentions[mentionSelected]);
         return;
       }
     }
@@ -1126,7 +1142,13 @@ export function Composer({
           />
         )}
         {mentionAt && (
-          <MentionMenu state={mentionState} active={mentionSelected} onHover={setMentionActive} onPick={pickMention} />
+          <MentionMenu
+            state={mentionState}
+            items={mentions}
+            active={mentionSelected}
+            onHover={setMentionActive}
+            onPick={pickMention}
+          />
         )}
         <AttachmentStrip
           attachments={attachments}
@@ -1156,7 +1178,7 @@ export function Composer({
               "aria-activedescendant":
                 open && matches.length > 0
                   ? `acpmux-slash-${selected}`
-                  : mentionAt && mentionFiles.length > 0
+                  : mentionAt && mentions.length > 0
                     ? `acpmux-mention-${mentionSelected}`
                     : undefined,
             }}

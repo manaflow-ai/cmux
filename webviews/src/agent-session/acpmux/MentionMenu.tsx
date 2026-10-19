@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
-import { matchRuns, readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
+import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
+import { Icon } from "./icons/Icon";
+import type { MentionItem } from "./mentionItems";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
 
 /// How long typing settles before the picker asks again (as Search files does).
 const MENTION_DEBOUNCE_MS = 80;
 
-/// The `@` file picker (cx-ncc.68): typing `@` at a word start in the prompt lists the chat's files
-/// that match what follows, under the caret, the way the Codex app and the agent CLIs do. Picking
-/// one writes `@path ` in place of what was typed.
+/// The `@` picker (cx-ncc.68): typing `@` at a word start in the prompt lists other chats, then the
+/// folders and files of the chat's folder that match what follows, under the caret, the way the
+/// Claude and Codex apps do. Picking one writes it in place of what was typed (mentionItems.ts).
 
 /// The `@word` before the caret: where its `@` starts in the markdown and the word typed so far
 /// (backslash escapes undone), or undefined when the caret is not in one. An `@` inside a word (an
@@ -72,35 +74,41 @@ export function useMentionSearch(search: FileSearchSource | undefined, query: st
   return state;
 }
 
+const NONE: FileMatch[] = [];
 export const mentionResults = (state: MentionState): FileMatch[] =>
-  state.kind === "done" || state.kind === "searching" ? state.results : [];
+  state.kind === "done" || state.kind === "searching" ? state.results : NONE;
 
-/// The picker under the prompt, styled as the slash menu. The prompt keeps focus and its keys
-/// (Composer.tsx): arrows move, Return or Tab picks, Esc closes.
+/// The picker under the prompt, styled as the slash menu: other chats, folders, then files
+/// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
+/// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
+/// or Tab picks, Esc closes.
 export function MentionMenu({
   state,
+  items,
   active,
   onHover,
   onPick,
 }: {
   state: MentionState;
+  items: readonly MentionItem[];
   active: number;
   onHover(index: number): void;
-  onPick(path: string): void;
+  onPick(item: MentionItem): void;
 }) {
   const t = useT();
-  const results = mentionResults(state);
+  const files = mentionResults(state);
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   const escape = useEscapingList("top", 6);
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
+  // Chats can list before a word is typed; the files' state still says what the search is doing.
   const note =
     state.kind === "idle"
       ? t("files.hint")
       : state.kind === "failed"
         ? t("files.failed")
-        : results.length === 0
+        : files.length === 0 && items.length === 0
           ? t(state.kind === "searching" ? "files.searching" : "files.none")
           : undefined;
   return (
@@ -111,39 +119,42 @@ export function MentionMenu({
       className="ui-popup acpmux-slash-menu acpmux-mention-menu"
       id="acpmux-mention-menu"
     >
-      {results.map((match, index) => {
-        const { dir, name } = matchRuns(match.path, match.matches);
-        return (
-          <PickerOption
-            key={match.path}
-            id={`acpmux-mention-${index}`}
-            type="button"
-            // The prompt keeps focus (aria-activedescendant), so no row is a tab stop.
-            active={false}
-            selected={index === active}
-            className={
-              index === active
-                ? "acpmux-slash-row acpmux-mention-row acpmux-slash-active"
-                : "acpmux-slash-row acpmux-mention-row"
-            }
-            title={match.path}
-            onPointerMove={() => onHover(index)}
-            // A mouse-down here would take focus from the prompt.
-            onMouseDown={(event) => {
-              event.preventDefault();
-              onPick(match.path);
-            }}
-          >
-            <span className="acpmux-slash-name">{runs(name)}</span>
-            {dir.length > 0 && <span className="acpmux-slash-description">{runs(dir)}</span>}
-          </PickerOption>
-        );
-      })}
+      {items.map((item, index) => (
+        <PickerOption
+          key={item.key}
+          id={`acpmux-mention-${index}`}
+          type="button"
+          // The prompt keeps focus (aria-activedescendant), so no row is a tab stop.
+          active={false}
+          selected={index === active}
+          className={
+            index === active
+              ? "acpmux-slash-row acpmux-mention-row acpmux-slash-active"
+              : "acpmux-slash-row acpmux-mention-row"
+          }
+          data-mention-kind={item.kind}
+          title={item.kind === "session" ? item.title : item.path}
+          onPointerMove={() => onHover(index)}
+          // A mouse-down here would take focus from the prompt.
+          onMouseDown={(event) => {
+            event.preventDefault();
+            onPick(item);
+          }}
+        >
+          <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
+            <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
+          </span>
+          <span className="acpmux-slash-name">{runs(item.name)}</span>
+          {item.kind === "session"
+            ? item.project && <span className="acpmux-slash-description">{item.project}</span>
+            : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
+        </PickerOption>
+      ))}
       {note && <output className="acpmux-file-note">{note}</output>}
     </PickerOptionList>
   );
 }
 
-function runs(parts: Run[]) {
+function runs(parts: readonly Run[]) {
   return parts.map((part, index) => (part.matched ? <b key={index}>{part.text}</b> : part.text));
 }

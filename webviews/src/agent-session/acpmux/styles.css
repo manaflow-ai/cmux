@@ -157,6 +157,10 @@
 .acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
 .acpmux-slash-source{flex:none;color:var(--acpmux-composer-dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
 .acpmux-slash-description{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+/* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
+.acpmux-mention-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--acpmux-composer-dim)}
+.acpmux-mention-row .acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-mention-row .acpmux-slash-description{flex:0 1000 auto}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
