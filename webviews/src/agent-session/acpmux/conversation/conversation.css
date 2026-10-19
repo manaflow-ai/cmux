@@ -762,12 +762,6 @@ pre.cv-math-source {
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
 }
-/* The spacer is the scroller's extent, which a followed view's offset is set against in the same
-   frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
-   that frame, and the offset clamped short of the end and stayed there. */
-.acpmux-spacer {
-  transition: none;
-}
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset);
