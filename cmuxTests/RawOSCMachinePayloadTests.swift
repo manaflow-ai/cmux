@@ -40,7 +40,11 @@ struct RawOSCMachinePayloadClassifierTests {
         ("Task", #"{"query":"a } inside a string","more":"#),
         // Invisible leading characters do not hide the payload's shape.
         ("Task", "\u{200B}{\"v\":1,\"event\":\"stop\"}"),
-        ("Task", "\u{FEFF}[{\"event\":")
+        ("Task", "\u{FEFF}[{\"event\":"),
+        ("Task", "\u{200E}{\"v\":1,\"event\":\"stop\"}"),
+        // A complete object followed by more output is still machine output.
+        ("Task", "{\"a\":1}\n{\"b\":2}"),
+        ("Task", #"{"v":1,"event":"stop"};extra"#)
     ] + ((0..<0x20).filter { ![9, 10, 13].contains($0) } + Array(0x7f...0x9f)).flatMap { value in
         let control = String(UnicodeScalar(value)!)
         return [("Task" + control, "Completed"), ("Task", "Completed" + control)]
@@ -83,7 +87,8 @@ struct RawOSCMachinePayloadClassifierTests {
         ("Build", "[1, 2] round"),
         ("Build", "[1,2,3] stages done"),
         ("Note", #"["x"] means quoted"#),
-        ("Form", #"{"name"} is required"#)
+        ("Form", #"{"name"} is required"#),
+        ("Note", "\u{200F}\u{05E9}\u{05DC}\u{05D5}\u{05DD} done")
     ]
 
     @Test(arguments: machinePayloads)

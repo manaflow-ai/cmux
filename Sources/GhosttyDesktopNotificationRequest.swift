@@ -61,20 +61,28 @@ struct GhosttyDesktopNotificationRequest: Equatable, Sendable {
                 of: #"^\[\s*(?:-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)\s*,"#,
                 options: .regularExpression
             ) != nil
-        return opensLikeJSON && !closesOutermostContainer(content)
+        guard opensLikeJSON else { return false }
+        guard let closed = closedOutermostContainer(content) else { return true }
+        // A complete object followed by more lines or bytes (NDJSON, a payload
+        // with a suffix) is still machine output; "{\"name\"} is required" is not.
+        let object = try? JSONSerialization.jsonObject(with: Data(closed.utf8)) as? [String: Any]
+        return object.map { !$0.isEmpty } ?? false
     }
 
-    /// Zero-width characters and a byte-order mark can lead a payload without changing its shape.
+    /// Invisible format characters (zero-width, byte-order and direction marks)
+    /// can lead a payload without changing its shape.
     private static func isInvisibleFormat(_ character: Character) -> Bool {
-        character.unicodeScalars.allSatisfy { [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF].contains($0.value) }
+        character.unicodeScalars.allSatisfy { $0.properties.generalCategory == .format }
     }
 
-    /// Whether the outermost bracket closes, ignoring brackets inside JSON strings.
-    private static func closesOutermostContainer(_ text: Substring) -> Bool {
+    /// The text through the outermost bracket's close, ignoring brackets inside
+    /// JSON strings, or nil when it never closes.
+    private static func closedOutermostContainer(_ text: Substring) -> Substring? {
         var depth = 0
         var inString = false
         var escaped = false
-        for scalar in text.unicodeScalars {
+        for index in text.unicodeScalars.indices {
+            let scalar = text.unicodeScalars[index]
             if inString {
                 if escaped {
                     escaped = false
@@ -90,10 +98,10 @@ struct GhosttyDesktopNotificationRequest: Equatable, Sendable {
             case "{", "[": depth += 1
             case "}", "]":
                 depth -= 1
-                if depth == 0 { return true }
+                if depth == 0 { return text[...index] }
             default: break
             }
         }
-        return false
+        return nil
     }
 }

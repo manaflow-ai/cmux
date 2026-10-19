@@ -16,7 +16,7 @@ extension TerminalNotificationStore {
     ) async {
         if GhosttyDesktopNotificationRequest.isMachinePayload(title: title, body: body) {
 #if DEBUG
-            cmuxDebugLog("notification.desktop.drop reason=machine-payload origin=\(origin) title.len=\(title.count) body.len=\(body.count)")
+            cmuxDebugLog("notification.desktop.drop reason=machine-payload origin=\(origin.kind) titleLen=\(title.count) bodyLen=\(body.count)")
 #endif
             return
         }
