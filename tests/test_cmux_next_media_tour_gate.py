@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""The cmux-next "Tour the app" job runs on merges and on opted-in pull requests.
+"""The cmux-next "Tour the app" job runs on merges, on opted-in pull requests, and on
+pull requests whose Swift UI change a specific tour covers.
 
 It ran on every push to every feat-cmux-next pull request that touched UI
 paths: on 2026-10-14 it had 32 queued and 8 running jobs on the owned Macs'
 gui runners, one per mini, which saturated them. It now runs for a push to
 feat-cmux-next (a merge: one tour at a time, the newest merge waiting) and for
-a pull request labeled `media-tour`. A pull request event without the label,
-or a label event for another label, starts no job and cancels no tour.
+a pull request labeled `media-tour`. Since 2026-10-19 a pull request without the
+label gets a tour too when scripts/ci/media_auto_tour.py says a specific tour
+covers its Swift UI change (tests/test_media_auto_tour.py); the route job asks
+it, and with no tour wanted no Mac is taken and nothing is posted. A label
+event for another label starts no job and cancels no tour.
 
 This evaluates the workflow's own trigger, concurrency and job conditions for
 each event, runs the publish job's pull request lookup with a fake gh, and
@@ -139,8 +143,9 @@ def main():
     cancel = workflow["concurrency"]["cancel-in-progress"]
     opted_group = expression(group, pr_event("synchronize", [LABEL]))
     cases = [
-        ("a pull request push without the label tours nothing", pr_event("synchronize", ["dev-build"]), False),
-        ("an opened pull request without the label tours nothing", pr_event("opened", []), False),
+        ("a pull request push without the label asks whether a tour covers it",
+         pr_event("synchronize", ["dev-build"]), True),
+        ("an opened pull request without the label asks too", pr_event("opened", []), True),
         ("a pull request push with the label tours", pr_event("synchronize", [LABEL]), True),
         ("adding the label tours", pr_event("labeled", [LABEL], label=LABEL), True),
         ("adding another label to a labeled pull request tours nothing",
@@ -163,7 +168,21 @@ def main():
     _check(merge_group == expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
            f"merge tours share one group, so the newest merge waits and older pending ones are replaced ({merge_group!r})")
 
-    route_env = jobs["route"]["steps"][-1]["env"]
+    # The route job decides; without a wanted tour no Mac is taken and nothing is posted.
+    _check(jobs["tour"]["if"] == "${{ needs.route.outputs.runs_on != '' }}", "the tour needs a picked runner")
+    for wanted, want in (("true", True), ("false", False)):
+        context = pr_event("synchronize", [])
+        context["needs"] = {"route": {"result": "success", "outputs": {"wanted": wanted}}}
+        _check(bool(expression(jobs["publish"]["if"], context)) == want,
+               f"the publish job {'posts' if want else 'posts nothing'} when the route wanted={wanted}")
+    decide = next((s for s in jobs["route"]["steps"] if s.get("id") == "decide"), None)
+    _check(decide is not None and "media_auto_tour.py" in decide.get("run", ""),
+           "the route asks media_auto_tour.py whether a pull request gets a tour")
+    pick = next(s for s in jobs["route"]["steps"] if s.get("id") == "pick")
+    _check("steps.decide.outputs.wanted == 'true'" in str(pick.get("if", "")),
+           "no runner is picked when no tour is wanted")
+
+    route_env = pick["env"]
     _check(str(expression(route_env["SAME_REPO"], push_event())).lower() == "true", "a merge counts as same-repository")
     tour_env = jobs["tour"]["env"]
     _check(expression(tour_env["BASE_SHA"], push_event()) == "f" * 40, "a merge tour compares against the previous head")
@@ -228,7 +247,8 @@ def main():
             with open(os.path.join(tmp, "scripts", "cmux-next", "media", "publish.py"), "w") as handle:
                 handle.write("import json, sys\njson.dump(sys.argv[1:], open(%r, 'w'))\n" % argv_log)
             context = pr_event("synchronize", [LABEL])
-            context["needs"] = {"route": {"result": "success", "outputs": {"reason": "", "runs_on": "gui"}},
+            context["needs"] = {"route": {"result": "success",
+                                          "outputs": {"reason": "", "runs_on": "gui", "wanted": "true"}},
                                 "tour": {"result": tour_result, "outputs": {"is_ui": "true"}}}
             context["steps"] = {"target": {"outputs": {"pr": "42", "sha": "h" * 40}}}
             env = {key: str(expression(value, context) or "") for key, value in upload["env"].items()}
@@ -252,7 +272,7 @@ def main():
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
         sys.exit(1)
-    print("PASS: the tour runs on merges and on media-tour pull requests only")
+    print("PASS: the tour runs on merges, media-tour pull requests and Swift UI a tour covers")
 
 
 if __name__ == "__main__":
