@@ -10,6 +10,11 @@ extension CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
+        // `left-sidebar` takes --window as its target. Only its `focus` action
+        // brings that window forward, and the app does that itself.
+        if normalizedCommand == "left-sidebar" {
+            return false
+        }
         if normalizedCommand == "surface-resume" || normalizedCommand == "pr" {
             return false
         }
