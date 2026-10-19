@@ -35,6 +35,8 @@ class TourFilePathTests(unittest.TestCase):
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/RowBadgeView.swift"), ["core"])
         self.assertEqual(
             path_map.tours_for_path("webviews/src/agent-session/acpmux/harnesses/harnesses.css"), ["agent-pane"])
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripModel+PinnedClose.swift"), ["pinned-tabs"])
 
 
 if __name__ == "__main__":
