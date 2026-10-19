@@ -285,7 +285,7 @@ public final class DaemonStore: StateResourceQueries {
             savedTabGroups = reordered
         }
         savedOpenGroups = Set(savedTabGroups.compactMap(\.openGroup))
-        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
+        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: confirmedWorkspace,
                                      update: { $0.update($1) }) {
             workspaces = reordered
         }
@@ -383,7 +383,7 @@ public final class DaemonStore: StateResourceQueries {
         guard applyDepth == 0, isLoaded, let hook = onWorkspaceListChanged else { return }
         guard checkedListGeneration != listGeneration else { return }
         checkedListGeneration = listGeneration
-        let list = sidebarSections.flatMap(\.workspaces).map(\.id) + ["|"] + workspaces.map(\.id)
+        let list = sidebarSections.flatMap(\.workspaces).map(\.listID) + ["|"] + workspaces.map(\.listID)
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
         hook()

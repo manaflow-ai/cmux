@@ -139,6 +139,9 @@ public nonisolated struct KeyBindingDefaults {
         "splitRight", "openBrowser", "focusUp", "focusDown",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
+        // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
+        // "all common vscode shortcuts").
+        "toggleChecklistItemComplete", "toggleSplitZoom",
     ]
 
     /// Actions whose default key a terminal program also uses (Ctrl-_ is
