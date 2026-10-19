@@ -124,7 +124,21 @@ release_runner() {
   printf '%s; releasing the Testbox runner\n' "$1"
   # Bound the commit size. A prune failure must not fail the job: the
   # sticky disk would then skip the commit and keep the previous snapshot.
-  local target_dir="$repo_root/cmux-tui/target"
+  # hq's testbox-run.sh links cmux-tui/target to the family disk it used
+  # (/home/runner/cmux-tui-target/<family>); only that disk is pruned and
+  # recorded. Both disks commit only on change, so with no link nothing is
+  # committed.
+  local target_dir
+  target_dir="$(readlink -f "$repo_root/cmux-tui/target" 2>/dev/null || true)"
+  case "$target_dir" in
+    "$HOME/cmux-tui-target/main"|"$HOME/cmux-tui-target/next") ;;
+    *)
+      printf 'no warm target family linked at cmux-tui/target; nothing to commit\n'
+      sync || true
+      phone_home_with_retry completed || echo "warning: could not report completed" >&2
+      exit 0 ;;
+  esac
+  printf 'warm target family: %s\n' "$target_dir"
   timeout 900 bash "$script_dir/blacksmith-testbox-target-prune.sh" "$target_dir" \
     || echo "warning: target prune failed; committing as is" >&2
   # Record source mtimes next to the artifacts, so the next box can treat

@@ -30,6 +30,31 @@
       "message": "這台機器建立於 Cloud 更新之前，無法連線。",
       "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
     },
+    "guestUnresponsive": {
+      "title": "機器沒有回應",
+      "message": "這台機器未能及時回應，因此無法完成請求。",
+      "action": "建立新機器前，請附上追蹤 ID 聯絡支援團隊。"
+    },
+    "inProgress": {
+      "title": "仍在進行中",
+      "message": "雲端服務供應商尚未完成此變更，它稍後仍可能完成。",
+      "action": "重試之前，請使用 cmux vm ls 或在機器列表中查看機器狀態。"
+    },
+    "providerTimeout": {
+      "title": "雲端服務供應商回應緩慢",
+      "message": "雲端服務供應商未能及時回應。",
+      "action": "請稍後重試。"
+    },
+    "providerCapacity": {
+      "title": "Cloud 目前沒有可用容量",
+      "message": "Cloud 服務目前沒有空間執行這台機器。沒有進行任何變更。",
+      "action": "請一分鐘後再試一次。"
+    },
+    "stateConflict": {
+      "title": "機器忙碌中",
+      "message": "這台機器正在啟動、暫停或未執行，因此現在無法執行此操作。",
+      "action": "請稍候再試。用 cmux vm ls 查看機器狀態；如果已暫停，請先繼續執行它。"
+    },
     "networkRuleCapacity": {
       "title": "網路規則已達上限",
       "message": "網路政策已儲存，但未套用：cmux Cloud 的網路規則已達上限。",
@@ -89,12 +114,27 @@
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} 運算額度已用完",
+      "computeMessage": "你的 {plan} 方案已用完本計費週期的 {included} 運算小時。1 運算小時是 1 個 vCPU 搭配 2 GB 記憶體執行一小時。你的機器可在 {resetDate} 再次啟動。",
+      "computeAction": "已暫停的機器會保留其檔案。如需在 {resetDate} 之前取得更多運算資源，請聯絡支援團隊。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 磁碟額度已用完",
+      "storageMessage": "你的 {plan} 方案為所有已儲存的機器總共提供 {included} GB 磁碟。已儲存的機器使用了 {used} GB，此請求需要 {requested} GB。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Cloud VM 資源不足",
       "memoryMessage": "你的 VM 已使用 {pool} GB RAM 中的 {used} GB。這台 VM 需要 {requested} GB。",
       "vcpuMessage": "你的 VM 已使用 {pool} 個 vCPU 中的 {used} 個。這台 VM 需要 {requested} 個 vCPU。",
       "upgradeAction": "暫停或刪除一台 VM，或升級到 Max。",
       "action": "暫停或刪除一台 VM。"
+    },
+    "activeLimit": {
+      "counted": "目前計入：{machines}。已暫停的機器不計入。",
+      "provisioning": "{name}（正在佈建）",
+      "separator": "、"
     }
   },
   "billingRecovery": {
@@ -188,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "語言",
     "assets": "素材",
+    "art": "藝術",
     "openSource": "開源",
     "guides": "指南",
     "compare": "比較"
@@ -483,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "請先恢復方案再進行變更。",
           "granted": "由 cmux 授予，沒有可變更的項目。",
+          "grantedNoCancel": "由 cmux 授予，因此沒有可取消的項目。",
+          "paymentFailed": "變更方案前，請先更新付款方式。",
+          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
           "adminOnly": "只有團隊管理員可以變更方案。"
         },
         "names": {
@@ -525,6 +569,7 @@
       "change": {
         "title": "切換至 {plan}？",
         "upgradeBody": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每月支付 {price}。",
+        "upgradeBodyYearly": "{plan} 立即生效。今天為本計費週期的剩餘時間支付 {amount}。自 {date} 起，每年支付 {price}。",
         "downgradeBody": "{plan} 立即生效。目前方案未使用的部分 {credit} 會抵扣後續帳單。{date} 的下一張帳單為 {amount}。",
         "confirm": "切換至 {plan}",
         "keep": "保留目前方案",
@@ -537,6 +582,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 至 {date}。之後你將失去：",
         "bodyNoDate": "你可以使用 {plan} 至本計費週期結束。之後你將失去：",
+        "foundersBody": "你的 {plan} 訂閱將於 {date} 結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 訂閱將在本計費週期結束時結束。之後你將使用 Founder's Edition 永久包含的 Pro。",
         "reasonLabel": "為什麼取消？（選填）",
         "otherPlaceholder": "告訴我們更多（選填）",
         "confirm": "取消方案",
@@ -1122,7 +1169,7 @@
       "transferUnavailableError": "轉移暫時無法使用，或帳號正在更新。請稍後再試。",
       "shareWithTeam": "與團隊共用",
       "makePrivate": "設為私人",
-      "privateImportHint": "新帳戶預設為私人。共用帳戶後，此團隊的雲端虛擬機即可使用。",
+      "privateImportHint": "在組織中，新帳號會與團隊及其 Cloud VM 共用。在你的個人團隊中，新帳號僅限你本人使用。可用「設為私人」或「與團隊共用」變更某個帳號。",
       "description": "共享帳戶可供此團隊的 Cloud VM 使用。私人帳戶僅供新增它們的人使用。",
       "cancelAction": "取消",
       "apiKeysTitle": "API 金鑰",
@@ -2185,6 +2232,7 @@
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。",
           "showAgentUsage": "在 Claude Code 或 Codex 的狀態項目後附加程式碼代理的用量：所用模型與已佔用的脈絡視窗，並在 Claude Code 上依 Anthropic 公布的標價估算 API 費用（主執行緒與子代理）。該費用僅為估算，並非你的訂閱帳單；批次／優先等級、合作夥伴定價、快速模式以及伺服器工具費用皆未計入。",
+          "showCloudDeviceIcons": "無論 Git 分支和目錄詳細資訊為何，都在遠端工作區標題旁顯示 Cloud 電腦和裝置圖示。",
           "beta": {
             "conversations": {
               "enabled": "在側邊欄選擇器中顯示整合的對話檢視。"
@@ -2209,6 +2257,14 @@
           "indentGuides": "在內建檔案編輯器中，以一條細直線標示每一層縮排。",
           "currentLineHighlight": "在沒有選取任何內容時，為游標所在的那一列上色。",
           "tabWidth": "一個定位點所佔的欄數。縮排參考線使用相同的間距。"
+        },
+        "actions": "供命令面板、快捷鍵、分頁列按鈕和加號按鈕選單使用的可重複使用操作。支援 builtin、command、agent、workspaceCommand、workspace、setting、settingPreset 和 text。text 操作會向目前聚焦的終端機貼上文字並保留換行；submit: true 會按下 Enter。設定操作需要全域設定。",
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "選取遠端 tmux 工作區後，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2279,7 +2335,7 @@
       "plusButtonScreenshotAlt": "cmux 加號按鈕右鍵選單顯示 Worktree Agents、New Terminal 與 New Browser",
       "plusButtonScreenshotCaption": "右鍵選單會依照 ui.newWorkspace.contextMenu 的順序。",
       "newWorkspaceButton": "加號按鈕的自訂動作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。 New Cloud Workspace 會使用最近選取的 Cloud 工作區所屬機器，接著使用右側邊欄的第一台機器；New Cloud Machine 會主動佈建機器。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。 New Cloud Workspace 會使用最近選取的 Cloud 工作區所屬機器，接著使用右側邊欄中第一台機器；若沒有可用機器，則開啟 New Cloud Machine。",
       "newWorkspaceWorktreeNote": "此範例讓一般加號點擊執行 <action>worktree-agents</action> 動作。來自 <commands>commands</commands> 的工作區命令會先使用可見的設定終端機建立 Git <worktree>worktree</worktree>。Codex 與 Claude 同時啟動，等待該工作區專用的狀態檔，然後在 exec 前進入建立的目錄。",
       "simpleCommands": "shell 命令",
       "simpleCommandsDesc": "最簡單的項目只需一個名稱和一個命令字串。在 Command Palette 中選取它，就會把該字串輸入到目前聚焦的終端機並執行。",
@@ -2897,14 +2953,14 @@
       "reqNoVpn": "不需要設定 VPN、SSH 金鑰或連接埠轉送。cmux 會透過自動啟動的私人網路連線到你的機器。",
       "quickstartTitle": "快速入門",
       "stepSignIn": "登入。使用右側邊欄的 Cloud 分頁，或在終端機中執行登入指令。",
-      "stepCreate": "透過 File › New Cloud Machine 或 ⌘Y 建立機器。選擇規格和選用的標籤。建立過程會在背景進行，機器就緒時 cmux 會顯示通知。",
-      "stepWorkspace": "使用 ⇧⌘Y（New Cloud Workspace）在機器上開啟工作區。在 Cloud 工作區中，按 ⌘N 可在同一台機器上建立另一個工作區。",
+      "stepCreate": "透過 File › New Cloud Machine 或 ⇧⌘Y 建立機器。選擇規格和選用的標籤。建立過程會在背景進行，機器就緒時 cmux 會顯示通知。",
+      "stepWorkspace": "使用 ⌘Y（New Cloud Workspace）在機器上開啟工作區。在 Cloud 工作區中，按 ⌘N 一律會在這台 Mac 上建立本機工作區。",
       "stepAgent": "執行代理。機器上已預先安裝 Claude Code、Codex、OpenCode 和 Pi。",
       "stepCli": "也可以透過 CLI 完成相同的操作：",
       "appTitle": "在應用程式中使用 Cloud",
       "appSidebar": "右側邊欄的 Cloud 分頁會列出你的機器。每台機器下方會顯示其工作區、已轉送的連接埠、VNC 顯示器和終端機。點選項目即可開啟。你也可以在指令面板中使用 Open Cloud as Pane，將 Cloud 樹狀結構開啟為窗格。",
       "appMenu": "在機器上按右鍵，即可開啟 shell、建立工作區、開啟桌面、開啟完整的 cmux TUI 用戶端、調整規格、重新命名、拷貝 IP 位址、查看狀態、建立檢查點、分叉或刪除機器。你也可以釘選機器並調整它們的順序。",
-      "appShortcuts": "New Cloud Machine（⌘Y）和 New Cloud Workspace（⇧⌘Y）位於 File 選單、加號按鈕選單和指令面板中。這兩個快捷鍵都可以在設定中變更，或在 cmux.json 中透過 newCloudMachine 和 newCloudWorkspace 鍵變更。",
+      "appShortcuts": "New Cloud Machine（⇧⌘Y）和 New Cloud Workspace（⌘Y）位於 File 選單、加號按鈕選單和指令面板中。這兩個快捷鍵都可以在設定中變更，或在 cmux.json 中透過 newCloudMachine 和 newCloudWorkspace 鍵變更。",
       "cliIntroTitle": "透過 CLI 使用 Cloud",
       "cliIntroDesc": "cmux vm 和 cmux cloud 是同一個指令。不帶子指令執行 cmux vm 會列出你的機器。每個子指令都有不需應用程式即可使用的 --help 頁面，cmux vm guide 會輸出完整的 Markdown 指南。為任何子指令加上 --json 即可取得機器可讀的輸出。",
       "baseTitle": "你的基礎機器",
@@ -2922,7 +2978,7 @@
       "metaDescription": "了解如何建立 cmux Cloud 機器、選擇與調整規格，以及如何暫停、建立快照、分叉和刪除機器，並查看方案限制。",
       "intro": "本頁說明 cmux Cloud 機器的生命週期：如何建立、可選擇哪些規格、方案限制如何套用，以及如何暫停、建立快照、分叉和刪除機器。",
       "createTitle": "建立機器",
-      "createApp": "在應用程式中，使用 File › New Cloud Machine（⌘Y）、加號按鈕選單、指令面板，或 Cloud 側邊欄中的加號按鈕。出現的面板會要求你選擇規格並填寫選用的標籤。",
+      "createApp": "在應用程式中，使用 File › New Cloud Machine（⇧⌘Y）、加號按鈕選單、指令面板，或 Cloud 側邊欄中的加號按鈕。出現的面板會要求你選擇規格並填寫選用的標籤。",
       "createCli": "在 CLI 中，cmux vm new 會建立機器並在其上開啟工作區。使用 --detach 可只建立而不開啟任何內容。如果建立要求被重試，cmux 會沿用同一個要求，因此不會產生兩台機器。",
       "createFailed": "如果建立失敗，你可以從通知中重試、顯示錯誤，或拷貝錯誤以提交支援要求。",
       "sizesTitle": "規格",
@@ -3193,8 +3249,8 @@
       "cloudLink": "Cloud 機器上的代理如何設定",
       "teamsTitle": "團隊與共用",
       "teamsScope": "帳號屬於你目前登入的團隊。cr org list 會顯示你的團隊，cr org switch 會切換 cr 使用的團隊。cmux coderouter 指令接受 --team '<id>'。",
-      "teamsPrivate": "新帳號只供加入它的人使用。在儀表板中，「與團隊共用」會讓所有成員和團隊的 Cloud 機器都能使用它，「設為私人」則取消共用。",
-      "teamsPersonal": "在你的個人團隊中，你的私人帳號也會服務你自己的 Cloud 機器。組織的 Cloud 機器只使用共用帳號，因此在希望機器使用某個帳號之前，請先共用它。",
+      "teamsPrivate": "新增到組織的帳號會與團隊共用，所有成員和團隊的 Cloud 機器都能使用。在控制台中，「設為私人」會限制為新增者本人使用，「與團隊共用」則恢復共用。",
+      "teamsPersonal": "在你的個人團隊中，新帳號是私人的，你的私人帳號也供你自己的 Cloud 機器使用。組織的 Cloud 機器只使用共用帳號，因此私人帳號必須先共用，機器才能使用。",
       "teamsManage": "任何團隊成員都可以加入、重新命名、停用、轉移和移除團隊的共用帳號。cr transfer 會在你確認後將帳號轉移到另一個團隊。",
       "usageTitle": "用量與限制",
       "usageLimits": "每個供應商會依照處理請求的帳號本身的方案和限制來計量。CodeRouter 會把工作分散到多個帳號，但不會提高任何單一帳號的上限。",
@@ -3234,12 +3290,13 @@
       "apiKeyScope": "組織的 API 金鑰只會使用團隊的共用帳號。個人團隊中的金鑰還能使用你的私人帳號。CodeRouter 提供的是 OpenAI Responses API，而不是 Chat Completions。",
       "apiKeyLogin": "在無法開啟瀏覽器的機器上，cr login --api-key 會用金鑰登入 cr，CODEROUTER_API_KEY 則可為單一指令提供金鑰。若要撤銷金鑰，請在儀表板中操作，或在使用該金鑰的機器上執行 cr logout。",
       "cloudTitle": "在 cmux Cloud 機器上",
-      "cloudDesc": "Cloud 機器不需要任何設定。機器環境會把 OPENAI_BASE_URL 和 ANTHROPIC_BASE_URL 指向 CodeRouter 的私人位址，cmux 會在 shell 或代理第一次啟動時寫入每個代理的設定：",
-      "cloudClaude": "Claude Code 會從環境讀取 ANTHROPIC_BASE_URL 和預留位置的 ANTHROPIC_API_KEY。它的首次執行提示已經預先回答。",
+      "cloudDesc": "Cloud 機器不需要任何設定。每個代理會透過 CodeRouter 的私人位址使用你團隊的 CodeRouter 帳號，cmux 會在 shell 或代理第一次啟動時寫入它的設定：",
+      "cloudClaude": "Claude Code 會在每次啟動時取得 ANTHROPIC_BASE_URL 和預留位置的 ANTHROPIC_API_KEY，而不是從每個 shell 取得，因此它們永遠不會蓋過你自己的登入。它的首次執行提示已經預先回答。",
       "cloudCodex": "Codex 會在 ~/.codex/config.toml 中取得 cmux 模型供應商。",
       "cloudPi": "Pi 會在 ~/.pi/agent/models.json 中取得供應商覆寫設定。",
-      "cloudOpencode": "OpenCode 第一次啟動時會從 CodeRouter 下載供應商清單，並儲存到 ~/.config/opencode/opencode.json。",
+      "cloudOpencode": "OpenCode 第一次啟動時會從 CodeRouter 下載供應商清單，儲存到 ~/.config/cmux/opencode-team.json，並在每次執行時將其加入你自己的設定。",
       "cloudYours": "cmux 只在檔案不存在時才會寫入，因此你的修改會被保留。已經指定其他模型供應商的 Codex 設定不會被變更。",
+      "cloudOwnLogin": "若要改用你自己的帳號，請在機器上執行 cr use own，然後依代理平常的方式登入：在 Claude Code 中使用 /login，或使用 codex login、opencode auth login。cr use team 會切換回團隊帳號，cr use own codex 只變更一個代理，cr use 會顯示每個代理的登入方式。如果沒有做選擇，你已在機器上登入的代理會使用你自己的帳號，而你的團隊沒有對應帳號的代理會顯示其一般登入。變更會在代理下次啟動時生效。",
       "cloudRun": "照常執行代理即可。cmux coderouter agent 會把單獨的提示轉換為代理的一次性執行形式；在機器內部，它會在目前的終端機中執行；在 Mac 上，它會像 cmux vm agent 一樣在你指定的機器上啟動代理。",
       "cloudAccounts": "Cloud 機器會使用擁有它的團隊的帳號。如果代理回報沒有可用的帳號，請加入一個帳號，或將現有帳號共用給該團隊。",
       "modelsTitle": "模型",
@@ -3313,6 +3370,23 @@
   "wallOfLove": {
     "title": "使用者好評",
     "description": "大家對 cmux 的評價。"
+  },
+  "art": {
+    "metaTitle": "cmux 背景藝術",
+    "metaDescription": "瀏覽 cmux 提供作為視窗背景的公有領域畫作：梵谷、弗里德里希、哥雅、多雷等，附來源與授權資訊。",
+    "title": "藝術",
+    "description": "可以放在終端機背後的公有領域名畫與版畫。每件作品的作者均已過世 70 年以上，且作品發表於 1931 年之前。",
+    "howToUse": "即將登陸 cmux：可將其中任一作品設為終端機背後的背景。",
+    "loading": "正在載入作品集…",
+    "unavailable": "無法載入作品集。請幾分鐘後再試一次。",
+    "collectionsLabel": "作品集",
+    "source": "公有領域 · 來源",
+    "collections": {
+      "darkArt": "暗黑藝術",
+      "museumIcons": "博物館名作",
+      "calm": "寧靜",
+      "dore": "多雷"
+    }
   },
   "testimonials": {
     "mitchellh": "又一個基於 libghostty 的專案，這次是一個帶垂直分頁、更好的組織/通知、內建可編寫腳本瀏覽器的 macOS 終端機，專門針對大量使用終端機 agent 工作流程的使用者。",
@@ -3425,7 +3499,10 @@
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
     "button": "返回 cmux",
-    "switchAccountButton": "使用其他帳號"
+    "switchAccountButton": "使用其他帳號",
+    "rateLimitedTitle": "登入忙碌中",
+    "rateLimitedBody": "我們的登入服務收到太多要求。請稍候幾秒鐘後繼續。你不需要重新登入。",
+    "retryButton": "繼續登入"
   },
   "landing": {
     "bestTerminal": {
@@ -5460,6 +5537,9 @@
     "switchFailed": "無法登出，請再試一次。",
     "invalidTitle": "此邀請已失效",
     "invalidBody": "邀請已過期、已撤銷或已被使用。請向團隊管理員索取新的邀請。",
-    "goToTeams": "前往你的團隊"
+    "goToTeams": "前往你的團隊",
+    "unavailableTitle": "無法確認你的登入",
+    "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
+    "retry": "重試"
   }
 }

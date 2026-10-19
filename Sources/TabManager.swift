@@ -1,3 +1,5 @@
+import CmuxProductAnalytics
+import CmuxSSHClipboardTrust
 import AppKit
 import CmuxAgentChat
 import CmuxCloudMachines
@@ -225,6 +227,9 @@ class TabManager: ObservableObject {
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
     let cloudWorkspaceSelection: CloudWorkspaceSelectionState
+    /// Shared by the inline Cloud sidebar and any Cloud tool pane in this
+    /// window so CodeRouter reads and removals never overlap.
+    let coderouterAccountStore = CoderouterAccountStore()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -276,6 +281,16 @@ class TabManager: ObservableObject {
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        if newValue.count != tabs.count, ProductAnalytics.app.isEnabled {
+            // A window that already had a workspace gaining one, outside
+            // restore, is a created workspace (whatever entrypoint created it).
+            // A new window's first workspace is not.
+            if newValue.count > tabs.count, !tabs.isEmpty, !isRestoringSessionSnapshot {
+                ProductAnalytics.app.reach(.firstWorkspace)
+            }
+            // After the commit, so the count reads the new list. Reorders skip this.
+            Task { @MainActor in AppDelegate.shared?.refreshProductAnalyticsActivityContext() }
+        }
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
@@ -467,6 +482,7 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
+    private let ghosttyWorkingDirectoryInheritanceProvider: () -> GhosttyWorkingDirectoryInheritance
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
@@ -548,6 +564,7 @@ class TabManager: ObservableObject {
     let pullRequestProbeService: PullRequestProbeService
 
     private let managedDevicePolicy: ManagedDevicePolicy
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
 
     /// Picks how the automatic first-launch welcome reaches the new terminal.
     /// Tests replace it to exercise each delivery without depending on the host shell.
@@ -587,19 +604,25 @@ class TabManager: ObservableObject {
                 configuredValue: GhosttyConfig.loadForCmux().workingDirectory
             )
         },
+        ghosttyWorkingDirectoryInheritanceProvider: @escaping () -> GhosttyWorkingDirectoryInheritance = {
+            GhosttyConfig.loadForCmux().workingDirectoryInheritance
+        },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
-        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil
+        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.managedDevicePolicy = managedDevicePolicy
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
+        self.ghosttyWorkingDirectoryInheritanceProvider = ghosttyWorkingDirectoryInheritanceProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
@@ -930,11 +953,13 @@ class TabManager: ObservableObject {
     var isFindVisible: Bool {
         selectedTerminalPanel?.searchState != nil ||
             focusedBrowserPanel?.searchState != nil ||
-            focusedMarkdownPanel?.searchState != nil
+            focusedMarkdownPanel?.searchState != nil ||
+            focusedTextFilePreviewPanel?.isTextFindBarVisible == true
     }
 
     var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
+        selectedTerminalPanel?.hasSelection() == true ||
+            focusedTextFilePreviewPanel?.canUseSelectionForFind == true
     }
 
     @discardableResult
@@ -966,24 +991,30 @@ class TabManager: ObservableObject {
             // hidden but the shortcut was handled.
             return browserPanel.searchState != nil || browserPanel.isDiffViewerFindOwner
         }
-        guard let markdownPanel = focusedMarkdownPanel else { return false }
-        markdownPanel.startFind()
-        return markdownPanel.searchState != nil
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.startFind()
+            return markdownPanel.searchState != nil
+        }
+        guard let filePreviewPanel = focusedTextFilePreviewPanel else { return false }
+        return filePreviewPanel.startFind()
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
 #if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+        focusedTextFilePreviewPanel?.useSelectionForFind()
     }
 
     func findNext() {
@@ -996,7 +1027,11 @@ class TabManager: ObservableObject {
             browserPanel.findNext()
             return
         }
-        focusedMarkdownPanel?.findNext()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.findNext()
+            return
+        }
+        focusedTextFilePreviewPanel?.findNext()
     }
 
     func findPrevious() {
@@ -1009,7 +1044,11 @@ class TabManager: ObservableObject {
             browserPanel.findPrevious()
             return
         }
-        focusedMarkdownPanel?.findPrevious()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.findPrevious()
+            return
+        }
+        focusedTextFilePreviewPanel?.findPrevious()
     }
 
     @discardableResult
@@ -1148,7 +1187,11 @@ class TabManager: ObservableObject {
             browserPanel.hideFind()
             return
         }
-        focusedMarkdownPanel?.hideFind()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.hideFind()
+            return
+        }
+        focusedTextFilePreviewPanel?.hideFind()
     }
 
     func makeWorkspaceForCreation(
@@ -1191,6 +1234,7 @@ class TabManager: ObservableObject {
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             fileContentChangeCoordinator: fileContentChangeCoordinator,
@@ -1212,6 +1256,7 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
@@ -1405,6 +1450,7 @@ class TabManager: ObservableObject {
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
             let inheritanceEnabled = inheritWorkingDirectory
                 && settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+                && ghosttyWorkingDirectoryInheritance().window
             let inheritedWorkingDirectory = inheritanceEnabled
                 ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
                 : nil
@@ -1982,8 +2028,20 @@ class TabManager: ObservableObject {
         }.first
     }
 
+    /// Ghostty's `*-inherit-working-directory` keys (#177).
+    func ghosttyWorkingDirectoryInheritance() -> GhosttyWorkingDirectoryInheritance {
+        ghosttyWorkingDirectoryInheritanceProvider()
+    }
+
+    /// The directory a terminal starts in when it does not inherit one:
+    /// Ghostty's `working-directory`, else home.
+    func defaultTerminalWorkingDirectory() -> String {
+        defaultWorkspaceWorkingDirectoryProvider()
+    }
+
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
-        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory) else {
+        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory),
+              ghosttyWorkingDirectoryInheritance().window else {
             return nil
         }
         return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
@@ -2291,7 +2349,8 @@ class TabManager: ObservableObject {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        applyCreationTitleAsCustomTitle: Bool = true
+        applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool? = nil
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -2303,7 +2362,8 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            inheritWorkingDirectory: inheritWorkingDirectory
         )
     }
 
@@ -2964,8 +3024,9 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let hasActiveProcess = plan.workspaces.contains(where: workspaceNeedsConfirmClose)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
         let showsBatchConfirmation: Bool
-        var dontAskAgain: CloseWarningKinds
+        let dontAskAgain: CloseWarningKinds
         if containsPinned {
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults)
                 .shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut)
@@ -2973,15 +3034,23 @@ class TabManager: ObservableObject {
         } else if plan.willCloseWindow {
             // A batch that closes the whole window follows the window warning
             // policy. The tab warning must not suppress this prompt.
-            showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
+            let windowWarns = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
                 || hasActiveProcess
-            dontAskAgain = .window
-            if hasActiveProcess { dontAskAgain.insert(.safety) }
+            showsBatchConfirmation = windowWarns || alwaysConfirm
+            dontAskAgain = Self.workspaceCloseDontAskAgain(
+                ordinary: hasActiveProcess ? [.window, .safety] : .window,
+                ordinaryWarns: windowWarns,
+                alwaysConfirm: alwaysConfirm
+            )
         } else {
-            showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+            let workspaceWarns = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
                 || hasActiveProcess
-            dontAskAgain = .workspace
-            if hasActiveProcess { dontAskAgain.insert(.safety) }
+            showsBatchConfirmation = workspaceWarns || alwaysConfirm
+            dontAskAgain = Self.workspaceCloseDontAskAgain(
+                ordinary: hasActiveProcess ? [.workspace, .safety] : .workspace,
+                ordinaryWarns: workspaceWarns,
+                alwaysConfirm: alwaysConfirm
+            )
         }
         if showsBatchConfirmation {
             guard confirmClose(
@@ -3271,14 +3340,19 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
+        let warnsWithoutAlwaysConfirm = needsCloseConfirmation
+            || shouldConfirmWorkspaceClose(
+                requiresConfirmation: needsCloseConfirmation,
+                source: source
+            )
         let showsCloseConfirmation = requiresConfirmation
-            && (needsCloseConfirmation
-                || shouldConfirmWorkspaceClose(
-                    requiresConfirmation: needsCloseConfirmation,
-                    source: source
-                ))
-        var dontAskAgain: CloseWarningKinds = .workspace
-        if needsCloseConfirmation { dontAskAgain.insert(.safety) }
+            && (warnsWithoutAlwaysConfirm || alwaysConfirm)
+        let dontAskAgain = Self.workspaceCloseDontAskAgain(
+            ordinary: needsCloseConfirmation ? [.workspace, .safety] : .workspace,
+            ordinaryWarns: warnsWithoutAlwaysConfirm,
+            alwaysConfirm: alwaysConfirm
+        )
         if showsCloseConfirmation,
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
@@ -3331,6 +3405,21 @@ class TabManager: ObservableObject {
     private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
         AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
             && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
+    }
+
+    /// What "Don't ask again" turns off on a workspace close prompt. When the
+    /// prompt shows only because of `app.alwaysConfirmWorkspaceClose`, it turns
+    /// off just that setting and leaves the ordinary workspace and window
+    /// warnings alone. When the ordinary warning would have asked too, it turns
+    /// off both, so the same close does not ask next time.
+    static func workspaceCloseDontAskAgain(
+        ordinary: CloseWarningKinds,
+        ordinaryWarns: Bool,
+        alwaysConfirm: Bool
+    ) -> CloseWarningKinds {
+        guard alwaysConfirm else { return ordinary }
+        guard ordinaryWarns else { return .alwaysConfirmWorkspace }
+        return ordinary.union(.alwaysConfirmWorkspace)
     }
 
     /// Applies the user-configured warning toggles without turning the
@@ -3729,6 +3818,13 @@ class TabManager: ObservableObject {
         return action(panel)
     }
 
+    /// Runs a Ghostty font-size binding on the focused terminal, or returns nil
+    /// when no terminal is focused.
+    func performFocusedTerminalFontSizeAction(_ action: String) -> Bool? {
+        guard let panel = selectedTerminalPanel else { return nil }
+        return panel.performBindingAction(action)
+    }
+
     func zoomInFocusedBrowser() -> Bool {
         performFocusedBrowserZoom { $0.zoomIn() } ?? false
     }
@@ -3797,6 +3893,32 @@ class TabManager: ObservableObject {
         return toggleReactGrab(in: workspace, browserSurfaceId: nil, returnTerminalSurfaceId: nil) != nil
     }
 
+    /// The browser ``toggleReactGrab(in:browserSurfaceId:returnTerminalSurfaceId:)``
+    /// acts on, without acting: an explicit surface is authoritative (it
+    /// must be a browser, no fallback to a different browser); otherwise the
+    /// route's browser from focus. The socket method asks it first, to
+    /// refuse a tab a browser REPL session drives.
+    func reactGrabBrowserPanelId(in workspace: Workspace, browserSurfaceId: UUID?) -> UUID? {
+        reactGrabBrowserPanelId(in: workspace, browserSurfaceId: browserSurfaceId, route: reactGrabShortcutRoute(in: workspace))
+    }
+
+    private func reactGrabShortcutRoute(in workspace: Workspace) -> ReactGrabShortcutRoute? {
+        resolveReactGrabShortcutRoute(panels: workspace.panels.values.map { panel in
+            ReactGrabShortcutPanelSnapshot(
+                id: panel.id,
+                panelType: panel.panelType,
+                isFocused: panel.id == workspace.focusedPanelId
+            )
+        })
+    }
+
+    private func reactGrabBrowserPanelId(in workspace: Workspace, browserSurfaceId: UUID?, route: ReactGrabShortcutRoute?) -> UUID? {
+        if let explicit = browserSurfaceId {
+            return workspace.browserPanel(for: explicit) != nil ? explicit : nil
+        }
+        return route?.browserPanelId
+    }
+
     /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
     /// are nil this mirrors the keyboard shortcut: it resolves the browser + return terminal from the
     /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
@@ -3810,25 +3932,10 @@ class TabManager: ObservableObject {
         browserSurfaceId: UUID?,
         returnTerminalSurfaceId: UUID?
     ) -> UUID? {
-        let snapshots = workspace.panels.values.map { panel in
-            ReactGrabShortcutPanelSnapshot(
-                id: panel.id,
-                panelType: panel.panelType,
-                isFocused: panel.id == workspace.focusedPanelId
-            )
+        let route = reactGrabShortcutRoute(in: workspace)
+        guard let browserPanelId = reactGrabBrowserPanelId(in: workspace, browserSurfaceId: browserSurfaceId, route: route) else {
+            return nil
         }
-        let route = resolveReactGrabShortcutRoute(panels: snapshots)
-
-        // Browser target: an explicit surface is authoritative (it must be a browser, no
-        // fallback to a different browser); otherwise resolve the route's browser from focus.
-        let browserPanelId: UUID?
-        if let explicit = browserSurfaceId {
-            guard workspace.browserPanel(for: explicit) != nil else { return nil }
-            browserPanelId = explicit
-        } else {
-            browserPanelId = route?.browserPanelId
-        }
-        guard let browserPanelId else { return nil }
 
         // Return terminal: an explicit return surface is authoritative (must be a terminal in
         // this workspace, no fallback) so pasteback never silently goes to the wrong terminal.
@@ -7053,6 +7160,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 fileContentChangeCoordinator: fileContentChangeCoordinator,
@@ -7089,6 +7197,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 fileContentChangeCoordinator: fileContentChangeCoordinator,

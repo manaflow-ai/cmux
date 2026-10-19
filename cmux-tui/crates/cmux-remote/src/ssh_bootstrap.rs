@@ -54,6 +54,17 @@ pub struct SshBootstrapConfig {
     /// Exact local executable used to bootstrap unpublished same-platform
     /// builds. Published distributions continue to install through npm.
     pub local_binary: Option<PathBuf>,
+    /// Where the immutable per-commit cmux-tui builds are published. A native
+    /// client that ships a remote platform's checksum but not its executable
+    /// downloads `<base>/<commit>/cmux-tui-<target>` from here.
+    pub payload_base_url: String,
+    /// Local cache for those downloads, keyed by checksum, so every host of a
+    /// platform reuses one download. `None` when no cache directory is known.
+    pub payload_cache: Option<PathBuf>,
+    /// Tests only: a PAC script evaluated instead of the system proxy settings.
+    /// `None` uses the macOS system proxy and PAC configuration, like URLSession.
+    #[doc(hidden)]
+    pub payload_proxy_pac: Option<String>,
     pub auto_install: bool,
     pub timeout: Duration,
 }
@@ -71,6 +82,9 @@ impl SshBootstrapConfig {
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
             build_identity: BUILD_IDENTITY.into(),
             local_binary: std::env::current_exe().ok(),
+            payload_base_url: "https://files.cmux.com/cmux-tui".into(),
+            payload_cache: crate::ssh_artifacts::default_payload_cache(),
+            payload_proxy_pac: None,
             auto_install: true,
             timeout: Duration::from_secs(60),
         }
@@ -325,12 +339,29 @@ impl SshBootstrapper {
         })?;
         let remote = self.remote_platform().await?;
         let local = Platform::local();
-        let artifact = crate::ssh_artifacts::payload(
+        let artifact = match crate::ssh_artifacts::payload(
             source,
             &self.config.build_identity,
             &remote.os,
             &remote.arch,
-        )?;
+            &crate::ssh_artifacts::PayloadSource {
+                base_url: &self.config.payload_base_url,
+                cache: self.config.payload_cache.as_deref(),
+                proxy_pac: self.config.payload_proxy_pac.as_deref(),
+            },
+        )? {
+            Some(
+                crate::ssh_artifacts::Payload::Bundled(path)
+                | crate::ssh_artifacts::Payload::Client(path),
+            ) => Some(path),
+            Some(crate::ssh_artifacts::Payload::ClientSlice(slice)) => {
+                Some(crate::ssh_artifacts::extract_client_slice(&slice).await?)
+            }
+            Some(crate::ssh_artifacts::Payload::Published(published)) => {
+                Some(crate::ssh_artifacts::fetch_published(&published).await?)
+            }
+            None => None,
+        };
         if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
                 local: local.display(),
@@ -981,6 +1012,7 @@ pub enum BootstrapError {
     WindowsRequiresWsl,
     Incompatible { version: String, protocol: u8 },
     ChecksumMismatch { package: String },
+    PayloadDownload(String),
 }
 
 impl fmt::Display for BootstrapError {
@@ -1019,6 +1051,10 @@ impl fmt::Display for BootstrapError {
             Self::Incompatible { version, protocol } => write!(
                 formatter,
                 "remote cmux-tui {version} uses remote protocol {protocol}, expected {REMOTE_PROTOCOL_VERSION}"
+            ),
+            Self::PayloadDownload(message) => write!(
+                formatter,
+                "could not download the cmux-tui build for the remote platform: {message}"
             ),
         }
     }

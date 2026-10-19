@@ -1572,6 +1572,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// The Claude Code background session this pane was viewing through
     /// `claude attach`. Restore reattaches it instead of resuming a second writer.
     var claudeBackgroundViewer: ClaudeBackgroundSessionViewer?
+    /// Explicit recovery state retained when an automatic relaunch could not
+    /// start. This prevents the next snapshot from looking like a plain shell.
+    var restoreRecovery: SessionRestoreRecoverySnapshot?
 
     init(
         workingDirectory: String? = nil,
@@ -1588,7 +1591,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
         hasReceivedExplicitInput: Bool? = nil,
-        claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil
+        claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil,
+        restoreRecovery: SessionRestoreRecoverySnapshot? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1605,7 +1609,13 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.wasAgentRunning = wasAgentRunning
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
         self.claudeBackgroundViewer = claudeBackgroundViewer
+        self.restoreRecovery = restoreRecovery
     }
+}
+
+struct SessionRestoreRecoverySnapshot: Codable, Equatable, Sendable {
+    var reason: String
+    var recoveryInput: String?
 }
 
 extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
@@ -1708,6 +1718,8 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
 struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
+/// Marker for a CodeRouter guide pane; the guide content is static and needs no payload.
+struct SessionCoderouterGuidePanelSnapshot: Codable, Sendable {}
 /// Marker for the global notifications pane; its feed lives in the notification store.
 struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
@@ -1765,6 +1777,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
+    var coderouterGuide: SessionCoderouterGuidePanelSnapshot? = nil
     var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}

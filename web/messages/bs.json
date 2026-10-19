@@ -30,6 +30,31 @@
       "message": "Ova mašina je kreirana prije ažuriranja Clouda i ne može se povezati.",
       "action": "Kreirajte novu mašinu, kopirajte datoteke pomoću cmux vm pull i cmux vm push, a zatim obrišite ovu."
     },
+    "guestUnresponsive": {
+      "title": "Mašina ne odgovara",
+      "message": "Ova mašina nije odgovorila na vrijeme, pa zahtjev nije mogao biti završen.",
+      "action": "Obratite se podršci s ID-om praćenja prije nego što napravite novu mašinu."
+    },
+    "inProgress": {
+      "title": "Još je u toku",
+      "message": "Cloud provajder još nije završio ovu promjenu. Možda će se još završiti.",
+      "action": "Provjerite status mašine pomoću cmux vm ls ili na listi mašina prije nego što pokušate ponovo."
+    },
+    "providerTimeout": {
+      "title": "Cloud provajder je spor",
+      "message": "Cloud provajder nije odgovorio na vrijeme.",
+      "action": "Pokušajte ponovo za trenutak."
+    },
+    "providerCapacity": {
+      "title": "Trenutno nema Cloud kapaciteta",
+      "message": "Cloud servis trenutno nema mjesta za ovu mašinu. Ništa nije promijenjeno.",
+      "action": "Pokušajte ponovo za minutu."
+    },
+    "stateConflict": {
+      "title": "Mašina je zauzeta",
+      "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
+      "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
+    },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
       "message": "Vaša mrežna politika je sačuvana, ali nije primijenjena: cmux Cloud je dostigao kapacitet mrežnih pravila.",
@@ -89,12 +114,27 @@
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "Kvota računanja za {plan} je potrošena",
+      "computeMessage": "Vaš {plan} plan je potrošio svojih {included} računskih sati za ovaj obračunski period. Jedan računski sat je 1 vCPU sa 2 GB memorije tokom jednog sata. Vaše mašine se ponovo mogu pokrenuti {resetDate}.",
+      "computeAction": "Pauzirane mašine zadržavaju svoje datoteke. Kontaktirajte podršku ako vam treba više računanja prije {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Kvota diska za {plan} je potrošena",
+      "storageMessage": "Vaš {plan} plan uključuje ukupno {included} GB diska za sve sačuvane mašine. Sačuvane mašine koriste {used} GB, a ovaj zahtjev treba {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Nema dovoljno Cloud VM resursa",
       "memoryMessage": "Vaši VM-ovi već koriste {used} od {pool} GB RAM-a. Ovom VM-u treba {requested} GB.",
       "vcpuMessage": "Vaši VM-ovi već koriste {used} od {pool} vCPU-a. Ovom VM-u treba {requested} vCPU-a.",
       "upgradeAction": "Pauzirajte ili obrišite VM, ili pređite na Max.",
       "action": "Pauzirajte ili obrišite VM."
+    },
+    "activeLimit": {
+      "counted": "Trenutno se broje: {machines}. Pauzirane mašine se ne broje.",
+      "provisioning": "{name} (priprema se)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -188,6 +228,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Jezik",
     "assets": "Materijali",
+    "art": "Umjetnost",
     "openSource": "Otvoreni kod",
     "guides": "Vodiči",
     "compare": "Uporedi"
@@ -483,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Nastavite plan da biste ga promijenili.",
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
+          "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
+          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -525,6 +569,7 @@
       "change": {
         "title": "Preći na {plan}?",
         "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "upgradeBodyYearly": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} godišnje.",
         "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
         "confirm": "Pređi na {plan}",
         "keep": "Zadrži trenutni plan",
@@ -537,6 +582,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",
@@ -1122,7 +1169,7 @@
       "transferUnavailableError": "Prenosi su privremeno nedostupni ili se račun osvježava. Pokušajte ponovo za trenutak.",
       "shareWithTeam": "Podijeli s timom",
       "makePrivate": "Učini privatnim",
-      "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
+      "privateImportHint": "U organizaciji se novi računi dijele s timom i njegovim Cloud VM-ovima. U vašem ličnom timu ostaju privatni. Koristite Učini privatnim ili Podijeli s timom da promijenite račun.",
       "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
       "cancelAction": "Otkaži",
       "apiKeysTitle": "API ključevi",
@@ -2185,6 +2232,7 @@
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje.",
           "showAgentUsage": "Dodaje potrošnju agenta za kod u stavku statusa za Claude Code ili Codex: model i iskorišteni kontekstni prozor, a za Claude Code i procijenjeni trošak API-ja (glavna nit i podagenti) prema objavljenim cjenovnicima Anthropica. Trošak je procjena, a ne račun za vašu pretplatu; batch i prioritetni nivoi, partnerske cijene, brzi način rada i naknade za serverske alate nisu uračunati.",
+          "showCloudDeviceIcons": "Prikaži ikone Cloud računara i uređaja pored naslova udaljenih radnih prostora nezavisno od detalja Git grane i direktorija.",
           "beta": {
             "conversations": {
               "enabled": "Prikaži objedinjeni prikaz razgovora u izborniku bočne trake."
@@ -2209,6 +2257,14 @@
           "indentGuides": "Označite svaki nivo uvlačenja tankom vertikalnom linijom u ugrađenom uređivaču datoteka.",
           "currentLineHighlight": "Obojite red u kojem se nalazi kursor dok ništa nije označeno.",
           "tabWidth": "Koliko kolona obuhvata jedan tabulatorski korak. Vodilice uvlačenja koriste isti razmak."
+        },
+        "actions": "Višekratne radnje za paletu komandi, prečice, dugmad na traci kartica i meni dugmeta plus. Podržava builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Tekstualne radnje lijepe tekst u fokusirani terminal i čuvaju prijelome redova; submit: true pritiska Enter. Radnje postavki zahtijevaju globalnu konfiguraciju.",
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Kada je izabran udaljeni tmux radni prostor, „Novi radni prostor“ pokreće tmux sesiju na hostu tog radnog prostora."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2279,7 +2335,7 @@
       "plusButtonScreenshotAlt": "Meni plus dugmeta na desni klik prikazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Meni desnog klika prati redoslijed iz ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Prilagođene akcije plus dugmeta",
-      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen. New Cloud Workspace koristi mašinu posljednjeg odabranog Cloud workspacea, zatim prvu mašinu na desnoj bočnoj traci; New Cloud Machine namjerno kreira mašinu.",
+      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen. New Cloud Workspace koristi mašinu posljednjeg odabranog Cloud workspacea, zatim prvu mašinu na desnoj bočnoj traci; ako nema dostupne mašine, otvara New Cloud Machine.",
       "newWorkspaceWorktreeNote": "Ovaj primjer čini da običan klik na plus pokrene akciju <action>worktree-agents</action>. Komanda radnog prostora iz <commands>commands</commands> koristi vidljiv terminal za pripremu da prvo napravi Git <worktree>worktree</worktree>. Codex i Claude se pokreću istovremeno, čekaju datoteku stanja specifičnu za radni prostor, zatim prelaze u kreirani direktorij prije exec.",
       "simpleCommands": "Shell komande",
       "simpleCommandsDesc": "Najmanji unos je ime plus command string. Kada ga odaberete u komandnoj paleti, taj string se upisuje u terminal koji ima fokus i izvršava.",
@@ -2898,14 +2954,14 @@
       "reqNoVpn": "Nije potrebno podešavati VPN, SSH ključ ni prosljeđivanje portova. cmux se povezuje s vašim mašinama preko privatne mreže koja se pokreće automatski.",
       "quickstartTitle": "Brzi početak",
       "stepSignIn": "Prijavite se. Koristite karticu Cloud na desnoj bočnoj traci ili pokrenite komandu za prijavu u terminalu.",
-      "stepCreate": "Kreirajte mašinu putem File › New Cloud Machine ili ⌘Y. Izaberite veličinu i po želji oznaku. Kreiranje se nastavlja u pozadini, a cmux prikazuje notifikaciju kada je mašina spremna.",
-      "stepWorkspace": "Otvorite radni prostor na mašini pomoću ⇧⌘Y (New Cloud Workspace). Unutar Cloud radnog prostora, ⌘N pravi još jedan radni prostor na istoj mašini.",
+      "stepCreate": "Kreirajte mašinu putem File › New Cloud Machine ili ⇧⌘Y. Izaberite veličinu i po želji oznaku. Kreiranje se nastavlja u pozadini, a cmux prikazuje notifikaciju kada je mašina spremna.",
+      "stepWorkspace": "Otvorite radni prostor na mašini pomoću ⌘Y (New Cloud Workspace). Unutar Cloud radnog prostora, ⌘N uvijek pravi lokalni radni prostor na ovom Macu.",
       "stepAgent": "Pokrenite agenta. Claude Code, Codex, OpenCode i Pi su već instalirani na mašini.",
       "stepCli": "Isto možete uraditi iz CLI-ja:",
       "appTitle": "Cloud u aplikaciji",
       "appSidebar": "Kartica Cloud na desnoj bočnoj traci prikazuje vaše mašine. Ispod svake mašine vidite njene radne prostore, proslijeđene portove, VNC ekrane i terminale. Kliknite stavku da je otvorite. Cloud stablo možete otvoriti i kao panel iz palete naredbi pomoću Open Cloud as Pane.",
       "appMenu": "Kliknite desnim klikom na mašinu da otvorite ljusku, kreirate radni prostor, otvorite njenu radnu površinu, otvorite puni cmux TUI klijent, promijenite joj veličinu, preimenujete je, kopirate njenu IP adresu, vidite njen status, napravite kontrolnu tačku, forkujete je ili je obrišete. Mašine možete i zakačiti i mijenjati im redoslijed.",
-      "appShortcuts": "New Cloud Machine (⌘Y) i New Cloud Workspace (⇧⌘Y) nalaze se u meniju File, u meniju dugmeta plus i u paleti naredbi. Obje prečice možete promijeniti u postavkama ili u cmux.json pomoću ključeva newCloudMachine i newCloudWorkspace.",
+      "appShortcuts": "New Cloud Machine (⇧⌘Y) i New Cloud Workspace (⌘Y) nalaze se u meniju File, u meniju dugmeta plus i u paleti naredbi. Obje prečice možete promijeniti u postavkama ili u cmux.json pomoću ključeva newCloudMachine i newCloudWorkspace.",
       "cliIntroTitle": "Cloud iz CLI-ja",
       "cliIntroDesc": "cmux vm i cmux cloud su ista komanda. Pokrenite cmux vm bez glagola da vidite listu svojih mašina. Svaki glagol ima --help stranicu koja radi bez aplikacije, a cmux vm guide ispisuje kompletan vodič u Markdownu. Dodajte --json bilo kojem glagolu za mašinski čitljiv izlaz.",
       "baseTitle": "Vaša bazna mašina",
@@ -2923,7 +2979,7 @@
       "metaDescription": "Kreirajte cmux Cloud mašine, birajte im veličinu i povećavajte je, pauzirajte ih, pravite snimke i forkove te ih brišite kada vam više ne trebaju.",
       "intro": "Ova stranica objašnjava životni vijek cmux Cloud mašine: kako je kreirati, koje veličine možete izabrati, kako se primjenjuju ograničenja plana i kako je pauzirati, snimiti, forkovati i obrisati.",
       "createTitle": "Kreiranje mašine",
-      "createApp": "U aplikaciji koristite File › New Cloud Machine (⌘Y), meni dugmeta plus, paletu naredbi ili dugme plus na Cloud bočnoj traci. Prozor traži veličinu i neobaveznu oznaku.",
+      "createApp": "U aplikaciji koristite File › New Cloud Machine (⇧⌘Y), meni dugmeta plus, paletu naredbi ili dugme plus na Cloud bočnoj traci. Prozor traži veličinu i neobaveznu oznaku.",
       "createCli": "U CLI-ju, cmux vm new kreira mašinu i otvara radni prostor na njoj. Koristite --detach da je kreirate bez otvaranja bilo čega. Ako se zahtjev za kreiranje ponovi, cmux ponovo koristi isti zahtjev, tako da ne dobijete dvije mašine.",
       "createFailed": "Ako kreiranje ne uspije, notifikacija vam omogućava da pokušate ponovo, prikažete grešku ili je kopirate za zahtjev podršci.",
       "sizesTitle": "Veličine",
@@ -3194,8 +3250,8 @@
       "cloudLink": "Kako su agenti podešeni na Cloud mašinama",
       "teamsTitle": "Timovi i dijeljenje",
       "teamsScope": "Računi pripadaju timu u koji ste prijavljeni. cr org list prikazuje vaše timove, a cr org switch mijenja tim koji cr koristi. cmux coderouter komande primaju --team '<id>'.",
-      "teamsPrivate": "Novi račun je privatan za osobu koja ga je dodala. Na kontrolnoj tabli, „Podijeli s timom“ ga čini dostupnim svakom članu i Cloud mašinama tima, a „Učini privatnim“ to poništava.",
-      "teamsPersonal": "U vašem ličnom timu vaši privatni računi služe i vašim Cloud mašinama. Cloud mašine organizacije koriste samo dijeljene račune, pa podijelite račun prije nego što očekujete da ga mašina koristi.",
+      "teamsPrivate": "Račun dodan u organizaciju dijeli se s timom, pa ga mogu koristiti svi članovi i Cloud mašine tima. Na kontrolnoj tabli Učini privatnim ograničava ga na osobu koja ga je dodala, a Podijeli s timom to poništava.",
+      "teamsPersonal": "U vašem ličnom timu novi računi su privatni, a vaši privatni računi služe i vašim vlastitim Cloud mašinama. Cloud mašine organizacije koriste samo dijeljene račune, pa privatni račun mora biti podijeljen prije nego što ga mašina može koristiti.",
       "teamsManage": "Svaki član tima može dodati, preimenovati, isključiti, prenijeti i ukloniti dijeljene račune tima. cr transfer premješta račun u drugi tim nakon što potvrdite.",
       "usageTitle": "Potrošnja i ograničenja",
       "usageLimits": "Svaki provajder mjeri račun koji je obradio zahtjev, prema planu i ograničenjima tog računa. CodeRouter raspoređuje rad na račune, ali ne povećava ograničenje nijednog pojedinačnog računa.",
@@ -3235,12 +3291,13 @@
       "apiKeyScope": "API ključ organizacije koristi samo dijeljene račune tima. Ključ u vašem ličnom timu može koristiti i vaše privatne račune. CodeRouter služi OpenAI Responses API, a ne Chat Completions.",
       "apiKeyLogin": "Na mašini koja ne može otvoriti preglednik, cr login --api-key prijavljuje cr pomoću ključa, a CODEROUTER_API_KEY daje ključ za jednu komandu. Opozovite ključ na kontrolnoj tabli ili pokrenite cr logout na mašini koja ga koristi.",
       "cloudTitle": "Na cmux Cloud mašinama",
-      "cloudDesc": "Cloud mašine ne trebaju podešavanje. Okruženje mašine usmjerava OPENAI_BASE_URL i ANTHROPIC_BASE_URL na privatnu CodeRouter adresu, a cmux piše konfiguraciju svakog agenta kada se prvi put pokrene shell ili agent:",
-      "cloudClaude": "Claude Code čita ANTHROPIC_BASE_URL i zamjenski ANTHROPIC_API_KEY iz okruženja. Njegovi upiti pri prvom pokretanju već su odgovoreni.",
+      "cloudDesc": "Cloud mašine ne trebaju podešavanje. Svaki agent koristi CodeRouter račune vašeg tima preko privatne CodeRouter adrese, a cmux piše njegovu konfiguraciju kada se prvi put pokrene shell ili agent:",
+      "cloudClaude": "Claude Code dobija ANTHROPIC_BASE_URL i zamjenski ANTHROPIC_API_KEY pri svakom pokretanju, a ne iz svakog shella, pa nikad ne nadjačavaju vašu vlastitu prijavu. Njegovi upiti pri prvom pokretanju već su odgovoreni.",
       "cloudCodex": "Codex dobija cmux provajdera modela u ~/.codex/config.toml.",
       "cloudPi": "Pi dobija nadjačavanje provajdera u ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode preuzima svoju listu provajdera s CodeRoutera pri prvom pokretanju i sprema je u ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode preuzima svoju listu provajdera s CodeRoutera pri prvom pokretanju, sprema je u ~/.config/cmux/opencode-team.json i dodaje je vašoj vlastitoj konfiguraciji pri svakom pokretanju.",
       "cloudYours": "cmux piše svaku datoteku samo kada nedostaje, pa se vaše izmjene čuvaju. Codex konfiguracija koja već navodi drugog provajdera modela ostaje netaknuta.",
+      "cloudOwnLogin": "Da biste umjesto toga koristili vlastiti račun, pokrenite cr use own na mašini, a zatim se prijavite kako se agent inače prijavljuje: /login u Claude Code, codex login ili opencode auth login. cr use team vraća na tim, cr use own codex mijenja jednog agenta, a cr use prikazuje kako se svaki agent prijavljuje. Bez izbora, agent u koji ste se prijavili na mašini koristi vaš vlastiti račun, a agent za koji vaš tim nema račun prikazuje svoju uobičajenu prijavu. Promjena se primjenjuje pri sljedećem pokretanju agenta.",
       "cloudRun": "Pokrećite agente kao i obično. cmux coderouter agent pretvara goli prompt u jednokratni oblik agenta; unutar mašine radi u trenutnom terminalu, a na vašem Mac računaru pokreće agenta na mašini koju navedete, kao cmux vm agent.",
       "cloudAccounts": "Cloud mašine koriste račune tima koji ih posjeduje. Ako agent javi da nijedan račun nije dostupan, dodajte račun ili podijelite postojeći s tim timom.",
       "modelsTitle": "Modeli",
@@ -3314,6 +3371,23 @@
   "wallOfLove": {
     "title": "Zid ljubavi",
     "description": "Šta ljudi kažu o cmux-u."
+  },
+  "art": {
+    "metaTitle": "Umjetnost za pozadine u cmuxu",
+    "metaDescription": "Pregledajte slike u javnom vlasništvu koje cmux nudi kao pozadine prozora: Van Gogh, Friedrich, Goya, Doré i drugi, s izvorima i licencama.",
+    "title": "Umjetnost",
+    "description": "Poznate slike i grafike u javnom vlasništvu koje možete postaviti iza svojih terminala. Autori svih djela umrli su prije više od 70 godina, a svako djelo objavljeno je prije 1931. godine.",
+    "howToUse": "Uskoro u cmux-u: postavite bilo koje od ovih djela kao pozadinu iza terminala.",
+    "loading": "Učitavanje kolekcije…",
+    "unavailable": "Kolekciju nije moguće učitati. Pokušajte ponovo za nekoliko minuta.",
+    "collectionsLabel": "Kolekcije",
+    "source": "Javno vlasništvo · Izvor",
+    "collections": {
+      "darkArt": "Mračna umjetnost",
+      "museumIcons": "Muzejska remek-djela",
+      "calm": "Smireno",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Još jedan dan, još jedan projekat baziran na libghostty-ju, ovaj put macOS terminal sa vertikalnim tabovima, boljom organizacijom/notifikacijama, ugrađenim/skriptabilnim preglednikom specifično usmjeren na ljude koji koriste mnogo terminalskih agentskih tokova rada.",
@@ -3426,7 +3500,10 @@
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
     "button": "Vrati se u cmux",
-    "switchAccountButton": "Koristi drugi račun"
+    "switchAccountButton": "Koristi drugi račun",
+    "rateLimitedTitle": "Prijava je zauzeta",
+    "rateLimitedBody": "Naš servis za prijavu obrađuje previše zahtjeva. Sačekajte nekoliko sekundi, pa nastavite. Ne morate se ponovo prijaviti.",
+    "retryButton": "Nastavi prijavu"
   },
   "landing": {
     "bestTerminal": {
@@ -5461,6 +5538,9 @@
     "switchFailed": "Odjava nije uspjela. Pokušajte ponovo.",
     "invalidTitle": "Ova pozivnica više nije važeća",
     "invalidBody": "Istekla je, opozvana je ili je već iskorištena. Zamolite administratora tima za novu.",
-    "goToTeams": "Idi na svoje timove"
+    "goToTeams": "Idi na svoje timove",
+    "unavailableTitle": "Nismo mogli potvrditi vašu prijavu",
+    "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
+    "retry": "Pokušaj ponovo"
   }
 }

@@ -51,6 +51,8 @@ private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
         }
 
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        // AppKit may read the delegate while initializing the text view.
+        // Only reads performed by classification belong to this assertion.
         let initialDelegateReadCount = textView.delegateReadCount
         #expect(!(textView as NSResponder).isCommandPaletteFocusStealingTerminalOrBrowser)
         #expect(

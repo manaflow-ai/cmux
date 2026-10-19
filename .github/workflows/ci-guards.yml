@@ -129,6 +129,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate the bug-fix proof-section warning
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_proof_section.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -136,6 +140,10 @@ jobs:
       - name: Validate base-red excusal for gh-merge-green
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
+
+      - name: Validate merge freezes as issues
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_merge_freeze.py
 
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' }}
@@ -181,7 +189,7 @@ jobs:
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' }}
-        run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_cloud_upgrade_rollout_retirement.py
+        run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py tests/test_cloud_upgrade_rollout_retirement.py
 
       - name: Validate feature flag review lead-time report
         if: ${{ matrix.group == 'ci' }}
@@ -385,6 +393,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_fake_socket_env.py
 
+      - name: Test the /release changelog line classifier
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_release_changelog_lines.py
+
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_pr_media.py
@@ -561,6 +573,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate Swift package result reuse
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_result_reuse.py
+
       - name: Validate the package test lane's GhosttyKit revision on a fleet worktree
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_lane_ghostty_sha.py
@@ -589,6 +605,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate stale agent PR verdicts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_stale_agent_prs.py
+
+      - name: Validate published-in PR comments
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_published_in_comments.py
+
       - name: Validate the scheduled main full-suite run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
@@ -600,6 +624,14 @@ jobs:
       - name: Validate merge receipts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
+
+      - name: Validate the pull request status comment
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_status.py
+
+      - name: Validate the feat-cmux-next PR merge-tree publisher
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_pr_merge_tree.py
 
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
@@ -625,6 +657,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
 
+      - name: Validate agent pane frame pacing dispatch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_frame_pacing_dispatch.py
+
       - name: Validate manual dispatch routing guard
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_manual_dispatch_guard_workflow.py
@@ -644,6 +680,10 @@ jobs:
       - name: Validate late placement onto idle root runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
+
+      - name: Validate Python test lane shards
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_python_test_lane_shards.py
 
       - name: Validate spread-first compile admission placement
         if: ${{ matrix.group == 'ci' }}
@@ -737,6 +777,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
+      - name: Validate the signing keychain is deleted before bundle code runs
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
+
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
@@ -755,9 +799,33 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_census.py
 
+      - name: Validate the R2 storage census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_storage_census.py
+
+      - name: Validate the web test failure census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_failure_census.py
+
+      - name: Validate the web test import-graph check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_test_touches_diff.py
+
+      - name: Validate the web test verdict
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_verdict.py
+
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
+
+      - name: Validate the R2 binaries pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_binaries_prune.py
+
+      - name: Validate the Actions artifact pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_actions_artifact_prune.py
 
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}
@@ -773,9 +841,23 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_perf_activation_scrollback_sizing.py
 
+      - name: Validate browser engine bench logic
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_browser_engine_bench.py
+
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate release DMG LZMA encoding
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_release_dmg_lzma.sh
+
+      - name: Validate per-architecture stable release
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_ci_release_per_arch_stable.py
+          python3 tests/test_compose_stable_appcast.py
 
       - name: Validate Homebrew cask macOS dependency syntax
         if: ${{ matrix.group == 'release-notary' }}
@@ -1061,7 +1143,8 @@ jobs:
 
       - name: Initialize Ghostty for Zig version guard
         if: ${{ matrix.group == 'release-tooling' }}
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1085,6 +1168,10 @@ jobs:
           python3 tests/test_update_release_tag.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_resume_tracks.py
+
+      - name: Validate the cmux NEXT DEV daily dispatcher
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_daily_dispatch.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}
@@ -1134,10 +1221,17 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh
 
+      - name: Validate nightly signing admission and its shadow mode
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_nightly_sign_admit.py
+          python3 tests/test_nightly_sign_shadow_workflow.py
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_nightly_promotion_admission.py
+          python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
 
@@ -1377,6 +1471,9 @@ jobs:
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
+      - name: Validate CLI package graph
+        run: python3 tests/test_cli_package_graph.py
+
   workflow-guard-cli-scripts:
     if: ${{ inputs.linux_guard_cli == 'true' }}
     name: workflow-guard-cli-scripts / ${{ matrix.group }}
@@ -1449,7 +1546,8 @@ jobs:
 
       - name: Initialize Bonsplit for deferred-work ownership guard
         if: ${{ matrix.group == 'dispatch-ownership' }}
-        run: git submodule update --init --depth 1 vendor/bonsplit
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh vendor/bonsplit
 
       - name: Validate stored DispatchWorkItem ownership
         if: ${{ matrix.group == 'dispatch-ownership' }}

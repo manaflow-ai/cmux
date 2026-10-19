@@ -288,7 +288,7 @@ extension PaneDropContainer {
             }
             return .editor
         case .browser, .markdown, .rightSidebarTool, .customSidebar, .simulator,
-             .agentSession, .project, .extensionBrowser, .workspaceTodo,
+             .agentSession, .project, .extensionBrowser, .workspaceTodo, .coderouterGuide,
              .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
             return nil
         }
