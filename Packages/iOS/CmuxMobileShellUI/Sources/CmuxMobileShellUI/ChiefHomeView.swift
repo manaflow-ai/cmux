@@ -34,6 +34,11 @@ struct ChiefHomeView: View {
         }
     }
 
+    private var showsPinnedOnlyInvitation: Bool {
+        guard let pinnedConversation else { return false }
+        return matches(pinnedConversation) && visibleConversations.isEmpty
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -66,6 +71,20 @@ struct ChiefHomeView: View {
                                 .listRowInsets(EdgeInsets())
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
+
+                                if showsPinnedOnlyInvitation {
+                                    ChiefPinnedOnlyInvitation()
+                                        .frame(maxWidth: .infinity)
+                                        // A lone Chief card otherwise leaves a
+                                        // large, unexplained hole above the
+                                        // tab bar. Keep that space intentional
+                                        // and bounded while giving the user a
+                                        // useful next step.
+                                        .frame(height: ChiefPinnedOnlyInvitation.height)
+                                        .listRowInsets(EdgeInsets())
+                                        .listRowSeparator(.hidden)
+                                        .listRowBackground(Color.clear)
+                                }
                             }
                         }
 
@@ -79,7 +98,19 @@ struct ChiefHomeView: View {
                                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                                     .listRowBackground(Color.clear)
                                 }
+                            } header: {
+                                Text(L10n.string(
+                                    "mobile.chief.home.recent",
+                                    defaultValue: "Recent conversations"
+                                ))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 12)
+                                .padding(.bottom, 8)
                             }
+                            .textCase(nil)
                         }
                     }
                     .listStyle(.plain)
@@ -224,6 +255,36 @@ private struct ChiefPinnedConversationCard: View {
             values.append(L10n.unreadLabel(count: conversation.unread))
         }
         return values.joined(separator: ", ")
+    }
+}
+
+private struct ChiefPinnedOnlyInvitation: View {
+    static let height: CGFloat = 480
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.blue)
+                .accessibilityHidden(true)
+            Text(L10n.string(
+                "mobile.chief.home.ready.title",
+                defaultValue: "Chief is ready when you are"
+            ))
+            .font(.headline)
+            .multilineTextAlignment(.center)
+            Text(L10n.string(
+                "mobile.chief.home.ready.message",
+                defaultValue: "Start a conversation from Chief on your Mac. New messages will appear here."
+            ))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 280)
+        }
+        .padding(.horizontal, 24)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileChiefPinnedOnlyInvitation")
     }
 }
 
