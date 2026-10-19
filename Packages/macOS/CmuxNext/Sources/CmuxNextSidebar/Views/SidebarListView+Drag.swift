@@ -445,7 +445,7 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
-        let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
+        let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, below: decorations, animated: true)
         Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
     }
 
