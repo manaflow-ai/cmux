@@ -16,11 +16,23 @@ struct MarkdownPageSecurityTests {
         let url = try #require(URL(string: PageDescriptor.markdown.origin + "/"))
         let reply = try #require(await handler.reply(to: url))
         let policy = try #require(reply.response.value(forHTTPHeaderField: "Content-Security-Policy"))
-        let script = try #require(
+
+        #expect(try scriptSource(in: policy) == "script-src 'self'")
+    }
+
+    @Test func devServerAllowsViteInlinePreamble() throws {
+        let server = try #require(PageDevServer.resolve(
+            environment: [PageDevServer.variable: "http://127.0.0.1:4190/"],
+            allowsDevServer: true
+        ))
+
+        #expect(try scriptSource(in: server.csp(for: .markdown).header) == "script-src 'self' 'unsafe-inline'")
+    }
+
+    private func scriptSource(in policy: String) throws -> String {
+        try #require(
             policy.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
                 .first { $0.hasPrefix("script-src ") }
         )
-
-        #expect(script == "script-src 'self'")
     }
 }
