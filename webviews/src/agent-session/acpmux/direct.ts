@@ -1994,16 +1994,16 @@ export class AcpmuxDirectClient {
       // A note between messages: the text and tool fold before it close.
       this.endAssistantSegment();
       this.streamingActivity = undefined;
-      // One row per compaction: its end replaces the latest running note before it. A running
-      // note always starts its own row, so one that never ended (a stop mid-compaction, settled
-      // at its turn's end) is not taken over, and an older history page binds to its own rows,
-      // never to a live one.
+      // One row per compaction: its end replaces the latest running note before it, or the
+      // latest one its turn's end noted as failed (a Stop acpmux forced while the compaction
+      // went on: its end comes after the turn's). A running note always starts its own row, and
+      // an older history page binds to its own rows, never to a live one.
       let running: AcpmuxRow | undefined;
       if (compaction.state !== "running")
         for (const row of this.rows.values())
           if (
             row.kind === "compaction" &&
-            row.compaction?.state === "running" &&
+            (row.compaction?.state === "running" || row.compaction?.inferred === true) &&
             (row.seq ?? 0) < event.seq &&
             (row.seq ?? 0) > (running?.seq ?? -1)
           )
@@ -2104,12 +2104,17 @@ export class AcpmuxDirectClient {
   }
 
   /// A compaction still running when its turn ends (a Stop, the agent process exiting, a
-  /// relaunch) or the next turn starts never sends how it ended: it is noted as failed, so the
-  /// row stops spinning, live and when the history is read again.
+  /// relaunch) or the next turn starts may never send how it ended: it is noted as failed, so
+  /// the row stops spinning, live and when the history is read again. `inferred` lets an end
+  /// that does come later (a forced Stop the compaction outlived) take the row back.
   private settleCompactions(seq: number) {
     for (const row of this.rows.values())
       if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq)
-        this.rows.set(row.id, { ...row, version: row.version + 1, compaction: { ...row.compaction, state: "failed" } });
+        this.rows.set(row.id, {
+          ...row,
+          version: row.version + 1,
+          compaction: { ...row.compaction, state: "failed", inferred: true },
+        });
   }
 
   private endAssistantSegment(): void {

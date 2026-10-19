@@ -26,6 +26,8 @@ export type AcpmuxBackgroundTask = {
 /// is a wrapper's ("account_switch": subrouter compacted before moving the chat to another account).
 export type AcpmuxCompaction = {
   state: "running" | "completed" | "failed";
+  /// Failed because its turn ended while it ran, not because it said so; a later end replaces it.
+  inferred?: boolean;
   reason?: string;
   preTokens?: number;
   postTokens?: number;

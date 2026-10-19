@@ -206,7 +206,7 @@ test("a live compaction stops running when its turn ends or the next turn starts
   expect(states()).toEqual([{ state: "running", reason: "account_switch" }]);
   // The agent process exits mid-compaction: acpmux ends the turn.
   daemon.push(record([["mux", "turn_result", { status: "failed" }]], 4));
-  expect(states()).toEqual([{ state: "failed", reason: "account_switch" }]);
+  expect(states()).toEqual([{ state: "failed", inferred: true, reason: "account_switch" }]);
 
   // A harness that starts the next turn without ending this one's compaction.
   daemon.push(
