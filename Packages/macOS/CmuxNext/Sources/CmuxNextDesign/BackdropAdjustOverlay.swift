@@ -16,8 +16,9 @@ public final class BackdropAdjustOverlay: NSView {
     private var lastDrag: NSPoint?
     /// The window's content views this faded, and their opacity before.
     private var faded: [(NSView, CGFloat)] = []
-    /// Fades views the window adds while placing (a page, a toast).
-    private var subviewsObservation: NSKeyValueObservation?
+    /// Fades views the window adds while placing (a page, a toast): AppKit sends no change for
+    /// `subviews`, so each window update (after every event it handles) looks for new ones.
+    private var updateObserver: NSObjectProtocol?
     /// The one overlay placing now, in any window.
     private static weak var active: BackdropAdjustOverlay?
     private let bar = NSVisualEffectView()
@@ -37,9 +38,9 @@ public final class BackdropAdjustOverlay: NSView {
                                             placement: adjustable.current, frame: content.bounds)
         for view in content.subviews where view !== backdrop { overlay.fade(view) }
         content.addSubview(overlay, positioned: .above, relativeTo: nil)
-        overlay.subviewsObservation = content.observe(\.subviews, options: [.new]) { [weak overlay] content, _ in
-            let added = content.subviews.map(ObjectIdentifier.init)
-            MainDelivery().run { overlay?.fadeAdded(added) }
+        overlay.updateObserver = NotificationCenter.default.addObserver(forName: NSWindow.didUpdateNotification, object: window,
+                                                                        queue: .main) { [weak overlay] _ in
+            MainActor.assumeIsolated { overlay?.fadeAdded() } // main-proof: observer on queue: .main
         }
         // Brought forward: from a separate Settings window, the keys and pointer come here.
         window.makeKeyAndOrderFront(nil)
@@ -54,10 +55,10 @@ public final class BackdropAdjustOverlay: NSView {
         view.alphaValue = Self.fadedContentAlpha
     }
 
-    /// Fades the window's views that came in since (by identity, read on the main actor).
-    private func fadeAdded(_ added: [ObjectIdentifier]) {
+    /// Fades the window's views that came in since.
+    private func fadeAdded() {
         guard let content = superview else { return }
-        for view in content.subviews where added.contains(ObjectIdentifier(view)) { fade(view) }
+        for view in content.subviews { fade(view) }
     }
 
     /// The overlay `window` shows, if it is placing (tests).
@@ -181,7 +182,8 @@ public final class BackdropAdjustOverlay: NSView {
 
     /// Ends placing: the content comes back and the placement stays saved.
     @objc public func done() {
-        subviewsObservation = nil
+        if let updateObserver { NotificationCenter.default.removeObserver(updateObserver) }
+        updateObserver = nil
         for (view, alpha) in faded { view.alphaValue = alpha }
         faded = []
         if Self.active === self { Self.active = nil }
