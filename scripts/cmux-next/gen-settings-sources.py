@@ -149,8 +149,8 @@ SECTIONS = [
         "source": "schemas/settings/source/sessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Sessions.generated.swift",
         "type": "SessionSettingsSchema",
-        "lists": {"sessions": ("descriptors", "SessionSettings")},
-        "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting"},
+        "lists": {"sessions": ("descriptors", "SessionSettings"), "phone": ("phoneDescriptors", "SessionSettings")},
+        "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting", "phone.keepAwake": "PhoneKeepAwakeSetting"},
     },
     {
         "source": "schemas/settings/source/feed.json",

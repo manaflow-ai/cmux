@@ -202,6 +202,14 @@ public nonisolated struct AgentPaneTunables {
         help: "Place the answer footer's copy, retry and fork actions on the left or right.",
         default: .right, code: "AgentPaneTunables.turnActionsPlacement")
 
+    /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
+    /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
+    /// menu. It rides the `composer` page event (`plainFooter`, composerSettings.ts); no cmux.json key.
+    public static let composerPlainFooter = Tunable<Bool>.toggle(
+        "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
+        help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
+        default: false, code: "AgentPaneTunables.composerPlainFooter")
+
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
@@ -283,5 +291,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor, composerPlainFooter.descriptor] }
 }

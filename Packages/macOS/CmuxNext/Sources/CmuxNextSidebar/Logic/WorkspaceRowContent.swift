@@ -24,7 +24,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// busy or paused only for an agent turn with `working` on, or with
     /// `progress` on.
     public var activity: StatusIndicatorState
-    /// The bar under the row, when `progress` is on.
+    /// The bar under the row, when `progress` is on: a measured fraction or
+    /// an error only. An indeterminate report draws no bar; the status glyph
+    /// already says the workspace works (Lawrence 2026-10-13 and 2026-10-18:
+    /// the full-width line under every busy row read as a stray underline).
     public var progress: SidebarProgress?
     /// The agent-working indicator slot (WORKING-AND-LOADING-INDICATORS).
     public var showsWorking: Bool
@@ -97,7 +100,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
-            progress: set.shows(.progress) ? ws.progress : nil,
+            progress: set.shows(.progress) ? Self.bar(ws) : nil,
             showsWorking: working,
             status: status
         )
@@ -120,7 +123,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                 ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
-            progress: ws.progress,
+            progress: Self.bar(ws),
             showsWorking: ws.agentWorking
         )
         expanded = true
@@ -178,6 +181,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         calendar.isDate(date, inSameDayAs: now)
             ? date.formatted(date: .omitted, time: .shortened)
             : date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    /// The progress a row draws as a bar: a value or an error. A connecting
+    /// placeholder keeps its dimmed indeterminate bar (its only sign of life).
+    static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
+        guard let progress = ws.progress else { return nil }
+        return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
     }
 
     static func nonEmpty(_ text: String?) -> String? {
