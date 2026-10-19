@@ -102,7 +102,8 @@ pub(super) fn shape(rows: Value, terminals: &[Value], view: AgentRosterView, now
             (needs_me_rank(state_of(agent)), Reverse(updated_at(agent)), id_of(agent).to_owned())
         }),
         AgentSort::Recent => {
-            agents.sort_by_cached_key(|agent| (Reverse(updated_at(agent)), id_of(agent).to_owned()))
+            agents
+                .sort_by_cached_key(|agent| (Reverse(updated_at(agent)), id_of(agent).to_owned()));
         }
         AgentSort::None => {}
     }
