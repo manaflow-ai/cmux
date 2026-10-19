@@ -40,6 +40,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
+    /// Each tab's drawn values from app state, kept by their own observation (`PaneController+DrawnValues`).
+    var drawnCells: [ObjectIdentifier: TabDrawnCell] = [:]
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
@@ -81,11 +83,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         #if DEBUG
         DebugLayoutCounters.note("pane mount", #fileID, #line)
         #endif
+        syncDrawnCells()
         observe()
     }
 
     func teardown() {
         observation?.cancel()
+        dropDrawnCells()
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
@@ -128,7 +132,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
-        let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
+        // Whether a tab shows the New Tab page comes from its drawn-value cell, read alone.
+        var titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
+        titles.showsNewTabPage = { [weak self] tab in self?.drawn(tab).newTabPage ?? false }
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).
@@ -150,7 +156,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 item.icon = .icon(.terminal)
             } else if tab.kind != .browser {
                 item.machineBadge = machine
-                item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
+                item.themeBadge = drawn(tab).themeBadge
             } else {
                 // A browser tab names the machine whose localhost it sees.
                 let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
@@ -209,6 +215,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
+        syncDrawnCells() // a tab that arrived in this snapshot gets its cell outside the evaluation
         let snapshot = NewTabSuccession.order(reported, in: self)
         if force { view.stripView.discardPendingReorder() }
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }

@@ -11,6 +11,7 @@ extension PaneController {
         DebugLayoutCounters.note("pane adopt", #fileID, #line)
         #endif
         pane = model
+        syncDrawnCells()
         observe()
     }
 }
