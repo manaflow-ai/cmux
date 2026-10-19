@@ -1,5 +1,5 @@
 import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "@cmux/ownership"
-import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams, planRequiredDetails } from "@cmux/protocol"
+import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams, planRequiredDetails, type CloudVmNetwork } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
@@ -70,6 +70,7 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   /** 5.8: the one-time bind token (sha256 only), set when the provider reported the VM running. */
   readonly bind?: BindState | null
   readonly wg_public_key?: string
+  readonly network?: typeof CloudVmNetwork.Type
   readonly daemon?: { readonly version: string; readonly capabilities: ReadonlyArray<string> }
   /** The link-token keyset version the VM received at bind. */
   readonly keyset_version?: string
@@ -396,7 +397,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   if (l.op === "create" && machine && r.bind_token_sha256) {
     const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
     // The record takes the VM's real size (Freestyle has no size at create).
-    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
+    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.network ? { network: r.network } : {}), ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
   const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev) }

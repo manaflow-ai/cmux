@@ -89,6 +89,7 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
       host: row.host,
       epoch: row.epoch ?? 1,
       state: row.status,
+      ...(row.network ? { network: row.network } : {}),
       // vpc_endpoint, public_ipv6 and gateway come from TeamDO's peer map (lane 12), which does not exist yet.
       peer: { wg_public_key: row.wg_public_key, overlay_address: await overlayAddress(row.host), vpc_endpoint: null, public_ipv6: null },
       gateway: null,

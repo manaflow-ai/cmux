@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import type { CloudOpDef } from "./op-def.ts"
 import { InstallId } from "./schemas.ts"
+import { CloudVmNetwork } from "./cloud-network.ts"
 
 /**
  * Ops only CloudDO itself submits (plans/cmux-next/state-placement.md 5.2). Not exported to the
@@ -12,6 +13,8 @@ export const CloudDriverResultParams = Schema.Struct({
   ok: Schema.Boolean,
   /** create: the provider's VM id. */
   provider_id: Schema.optionalKey(Schema.String),
+  /** Native create: membership confirmed before the guest receives its bind file. */
+  network: Schema.optionalKey(CloudVmNetwork),
   error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
   /** Retrying cannot help (configuration, authorization, a name owned by someone else). */
   final: Schema.optionalKey(Schema.Boolean),
