@@ -47,7 +47,7 @@ for line in sys.stdin:
             "server": {"kind": "native", "binaries": {
                 "darwin-arm64": "scope-probe", "darwin-x64": "scope-probe",
                 "linux-arm64": "scope-probe", "linux-x64": "scope-probe"
-            }, "instances": "machine", "hosts": ["local"], "lifecycle": {"start": "on-demand"}}
+            }, "instances": "machine", "hosts": ["local"], "lifecycle": {"start": "onDemand"}}
         }),
     );
 }
