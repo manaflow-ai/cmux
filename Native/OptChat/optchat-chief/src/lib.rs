@@ -12,6 +12,7 @@ pub mod acpmux_peer;
 pub mod agent_chat;
 pub mod agents;
 pub mod approval;
+pub mod auto_resume;
 pub mod backup;
 pub mod brain;
 pub mod browse;
