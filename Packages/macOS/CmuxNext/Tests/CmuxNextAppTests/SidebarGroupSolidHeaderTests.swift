@@ -81,6 +81,21 @@ import Testing
         #expect(drawn.minX >= barRect.minX && drawn.maxX <= barRect.maxX, "the line \(drawn) is not under the bar \(barRect)")
     }
 
+    /// The line's top end tucks into the bar, so the bar must draw over it: a header the list
+    /// adds after the line exists (scrolled back into view, re-applied, a drag look) goes in
+    /// where every row does, right above the decorations, and must still cover the line.
+    @Test func aHeaderAddedAfterItsLineStillDrawsOverIt() throws {
+        let sidebar = Self.sidebar(minimal: false)
+        let list = sidebar.list
+        let header = try Self.header(sidebar)
+        let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: list).first, "no members' line")
+        header.removeFromSuperview()
+        list.addSubview(header, positioned: .above, relativeTo: list.decorations)
+        let order = list.subviews
+        let headerIndex = try #require(order.firstIndex(of: header)), lineIndex = try #require(order.firstIndex(of: line))
+        #expect(lineIndex < headerIndex, "the members' line draws over its header bar")
+    }
+
     @Test(arguments: [false, true])
     func aBusyRowWithoutMeasuredProgressDrawsNoLine(minimal: Bool) throws {
         let sidebar = Self.sidebar(minimal: minimal)
