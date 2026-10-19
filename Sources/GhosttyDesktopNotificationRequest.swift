@@ -44,25 +44,56 @@ struct GhosttyDesktopNotificationRequest: Equatable, Sendable {
         }) {
             return true
         }
-        let content = body.drop(while: { $0.isWhitespace })
+        let content = body.drop(while: { $0.isWhitespace || isInvisibleFormat($0) })
         guard let first = content.first, first == "{" || first == "[" else {
             return false
         }
         if (try? JSONSerialization.jsonObject(with: Data(content.utf8))) != nil {
             return true
         }
-        // Ghostty truncates OSC bodies to 255 bytes. Recognize container prefixes
-        // even when closing bytes are lost, without rejecting labels like "[build]".
+        // Ghostty truncates OSC bodies to 255 bytes, so a machine payload can
+        // arrive as a container that never closes. Text that closes its bracket
+        // and keeps going ("[ ] buy milk", "[1, 2] round") is a human label.
         let next = content.dropFirst().first(where: { !$0.isWhitespace })
-        if first == "{" && (next == "\"" || next == "}")
-            || first == "[" && (next == "{" || next == "[" || next == "\"" || next == "]") {
-            return true
+        let opensLikeJSON = first == "{" && next == "\""
+            || first == "[" && (next == "{" || next == "[" || next == "\"")
+            || content.range(
+                of: #"^\[\s*(?:-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)\s*,"#,
+                options: .regularExpression
+            ) != nil
+        return opensLikeJSON && !closesOutermostContainer(content)
+    }
+
+    /// Zero-width characters and a byte-order mark can lead a payload without changing its shape.
+    private static func isInvisibleFormat(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF].contains($0.value) }
+    }
+
+    /// Whether the outermost bracket closes, ignoring brackets inside JSON strings.
+    private static func closesOutermostContainer(_ text: Substring) -> Bool {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for scalar in text.unicodeScalars {
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if scalar == "\\" {
+                    escaped = true
+                } else if scalar == "\"" {
+                    inString = false
+                }
+                continue
+            }
+            switch scalar {
+            case "\"": inString = true
+            case "{", "[": depth += 1
+            case "}", "]":
+                depth -= 1
+                if depth == 0 { return true }
+            default: break
+            }
         }
-        // A closed numeric array already parsed above. Requiring a comma here
-        // preserves human labels such as "[1] done" while catching truncated lists.
-        return content.range(
-            of: #"^\[\s*(?:-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\s*,|(?:true|false|null)\s*[,\]])"#,
-            options: .regularExpression
-        ) != nil
+        return false
     }
 }
