@@ -189,8 +189,10 @@ class GitHub:
             if value is not None:
                 args += ["-F", f"{key}={value}"]
         completed = self.gh(*args, check=False)
-        if completed.returncode != 0 and re.search(r"HTTP 5\d\d|unexpected end of JSON input", completed.stderr):
-            time.sleep(10)  # a gateway timeout on a large query; once
+        if completed.returncode != 0 and re.search(
+                r"HTTP 5\d\d|unexpected end of JSON input|TLS handshake timeout|connection reset|i/o timeout",
+                completed.stderr):
+            time.sleep(10)  # a gateway or network timeout; once
             completed = self.gh(*args, check=False)
         if completed.returncode != 0:
             raise RuntimeError(f"gh api graphql failed: {completed.stderr.strip()[-500:]}")
@@ -238,6 +240,7 @@ class PullRequest:
     author_association: str = "MEMBER"
     committed_at: str = ""
     author: str = ""
+    mergeable: str = "UNKNOWN"  # GitHub's MERGEABLE, CONFLICTING or UNKNOWN against BASE
     files: list[str] = field(default_factory=list)
     checks: list[tuple[str, str, str]] = field(default_factory=list)  # (name, status, conclusion)
 
@@ -245,69 +248,164 @@ class PullRequest:
         return f"#{self.number}"
 
 
-# PRs per open_prs page. Each carries files and checks; 100 in one query
-# times out at GitHub (HTTP 504).
-PRS_PAGE = 30
-PRS_QUERY = """
+# Open PRs come in two queries. The list (LIST_PAGE per page) carries what the
+# cheap filters read, plus the check rollup's state and counts. Files and check
+# contexts, the heavy part (30 PRs with both in one page timed out at GitHub,
+# HTTP 504), are fetched DETAIL_PAGE PRs at a time and only for PRs the cheap
+# filters keep. Contexts are paged: a cmux-next head carries well over 100.
+LIST_PAGE = 50
+DETAIL_PAGE = 10
+LIST_QUERY = """
 query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, baseRefName: $base, first: $first, after: $after,
                  orderBy: {field: CREATED_AT, direction: ASC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        number title url isDraft headRefName headRefOid authorAssociation
+        id number title url isDraft headRefName headRefOid authorAssociation mergeable
         author { login }
-        files(first: 100) { nodes { path } }
         isCrossRepository
         labels(first: 30) { nodes { name } }
         commits(last: 1) { nodes { commit {
           committedDate
-          statusCheckRollup { contexts(first: 100) { nodes {
-            __typename
-            ... on CheckRun { name status conclusion }
-            ... on StatusContext { context state }
-          } } }
+          statusCheckRollup { state contexts(first: 1) {
+            checkRunCountsByState { state count }
+            statusContextCountsByState { state count }
+          } }
         } } }
       }
     }
   }
 }
 """
+CONTEXTS = """contexts(first: 100{after}) {{
+  pageInfo {{ hasNextPage endCursor }}
+  nodes {{
+    __typename
+    ... on CheckRun {{ name status conclusion }}
+    ... on StatusContext {{ context state }}
+  }}
+}}"""
+GRAPHQL_TOKEN = re.compile(r"^[A-Za-z0-9_=+/-]+$")
+# (head sha, rollup counts) -> (files, checks); a PR whose head and check
+# counts did not move since the last poll is not fetched again.
+DETAILS: dict[tuple[str, str], tuple[list[str], list[tuple[str, str, str]]]] = {}
 
 
-def open_prs(gh: GitHub) -> list[PullRequest]:
+def detail_query(items: list[tuple[str, bool, str | None]]) -> str:
+    """One query for up to DETAIL_PAGE PRs: (node id, want files, contexts cursor).
+    A cursor of "" asks for the first contexts page, None for none."""
+    parts = []
+    for index, (node_id, files, cursor) in enumerate(items):
+        if not GRAPHQL_TOKEN.match(node_id) or (cursor and not GRAPHQL_TOKEN.match(cursor)):
+            raise ValueError(f"unexpected GraphQL id or cursor {node_id!r} {cursor!r}")
+        fields = "files(first: 100) { nodes { path } }" if files else ""
+        if cursor is not None:
+            after = f', after: "{cursor}"' if cursor else ""
+            fields += (" commits(last: 1) { nodes { commit { statusCheckRollup { "
+                       + CONTEXTS.format(after=after) + " } } } }")
+        parts.append(f'p{index}: node(id: "{node_id}") {{ ... on PullRequest {{ {fields} }} }}')
+    return "query {\n" + "\n".join(parts) + "\n}"
+
+
+def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str]]:
+    checks = []
+    for item in rollup:
+        if item["__typename"] == "CheckRun":
+            checks.append((item["name"], (item["status"] or "").lower(), (item["conclusion"] or "").lower()))
+        else:
+            state = (item["state"] or "").lower()
+            status = "completed" if state not in {"pending", "expected"} else "in_progress"
+            checks.append((item["context"], status, state))
+    return checks
+
+
+def fetch_details(gh: GitHub, wanted: list[tuple[str, bool, bool]]) -> dict[str, tuple[list[str], list]]:
+    """Files and every check context for (node id, want files, want checks)."""
+    files: dict[str, list[str]] = {node_id: [] for node_id, _, _ in wanted}
+    checks: dict[str, list] = {node_id: [] for node_id, _, _ in wanted}
+    # node id -> (want files still, contexts cursor or None when done)
+    todo = {node_id: (want_files, "" if want_checks else None) for node_id, want_files, want_checks in wanted
+            if want_files or want_checks}
+    while todo:
+        batch = list(todo.items())[:DETAIL_PAGE]
+        data = gh.graphql(detail_query([(node_id, want, cursor) for node_id, (want, cursor) in batch]))
+        for index, (node_id, (want_files, cursor)) in enumerate(batch):
+            node = data.get(f"p{index}") or {}
+            if want_files:
+                files[node_id] = [item["path"] for item in (node.get("files") or {}).get("nodes") or []]
+            following = None
+            if cursor is not None:
+                commit = ((node.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}
+                connection = (commit.get("statusCheckRollup") or {}).get("contexts") or {}
+                checks[node_id] += parse_contexts(connection.get("nodes") or [])
+                info = connection.get("pageInfo") or {}
+                if info.get("hasNextPage") and info.get("endCursor"):
+                    following = info["endCursor"]
+            if following is None:
+                del todo[node_id]
+            else:
+                todo[node_id] = (False, following)
+    return {node_id: (files[node_id], checks[node_id]) for node_id, _, _ in wanted}
+
+
+def rollup_failing(rollup: dict) -> bool:
+    """Whether any check or status in the rollup ended red (its state or a red count)."""
+    if (rollup.get("state") or "").upper() in {"FAILURE", "ERROR"}:
+        return True
+    contexts = rollup.get("contexts") or {}
+    counts = (contexts.get("checkRunCountsByState") or []) + (contexts.get("statusContextCountsByState") or [])
+    return any((item.get("state") or "").lower() in RED and item.get("count") for item in counts)
+
+
+def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
+    """Every open PR into BASE. Files and checks are filled in only for PRs
+    the cheap filters keep (ineligible_reason without them), and checks only
+    when the rollup has a failure: nothing else reads them. `fresh` skips the
+    cache (landing rechecks the exact state)."""
     owner, name = gh.repo.split("/")
     nodes, after = [], None
     while True:
-        page = gh.graphql(PRS_QUERY, owner=owner, name=name, base=BASE, first=PRS_PAGE, after=after)
+        page = gh.graphql(LIST_QUERY, owner=owner, name=name, base=BASE, first=LIST_PAGE, after=after)
         connection = page["repository"]["pullRequests"]
         nodes += connection["nodes"]
         info = connection.get("pageInfo") or {}
         if not info.get("hasNextPage"):
             break
         after = info["endCursor"]
-    prs = []
+    at = now()
+    prs, wanted, keys, found = [], [], {}, {}
     for node in nodes:
         commit = (node["commits"]["nodes"] or [{}])[0].get("commit") or {}
-        rollup = (commit.get("statusCheckRollup") or {}).get("contexts", {}).get("nodes", [])
-        checks = []
-        for item in rollup:
-            if item["__typename"] == "CheckRun":
-                checks.append((item["name"], (item["status"] or "").lower(), (item["conclusion"] or "").lower()))
-            else:
-                state = (item["state"] or "").lower()
-                status = "completed" if state not in {"pending", "expected"} else "in_progress"
-                checks.append((item["context"], status, state))
-        prs.append(PullRequest(
+        rollup = commit.get("statusCheckRollup") or {}
+        pr = PullRequest(
             number=node["number"], sha=node["headRefOid"], title=node["title"], url=node["url"],
             head_ref=node["headRefName"], labels=[label["name"] for label in node["labels"]["nodes"]],
             draft=node["isDraft"], same_repo=not node["isCrossRepository"],
             author_association=node["authorAssociation"], committed_at=commit.get("committedDate", ""),
             author=(node.get("author") or {}).get("login", ""),
-            files=[item["path"] for item in (node.get("files") or {}).get("nodes") or []],
-            checks=checks,
-        ))
-    return prs
+            mergeable=node.get("mergeable") or "UNKNOWN",
+        )
+        prs.append((pr, node))
+        if ineligible_reason(pr, at) is not None:
+            continue
+        key = (pr.sha, json.dumps(rollup, sort_keys=True))
+        keys[node["id"]] = key
+        cached = None if fresh else DETAILS.get(key)
+        if cached is None:
+            wanted.append((node["id"], True, rollup_failing(rollup)))
+        else:
+            found[key] = cached
+    if wanted:
+        fetched = {keys[node_id]: details for node_id, details in fetch_details(gh, wanted).items()}
+        found.update(fetched)
+        if len(DETAILS) > 5000:
+            DETAILS.clear()
+        DETAILS.update(fetched)
+    for pr, node in prs:
+        if node["id"] in keys:
+            pr.files, pr.checks = found[keys[node["id"]]]
+    return [pr for pr, _ in prs]
 
 
 def touches_webviews(pr: PullRequest) -> bool:
@@ -357,6 +455,10 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
     held = sorted(label for label in pr.labels if label.lower() in HOLD_LABELS)
     if held:
         return "label " + ", ".join(held)
+    # A PR that conflicts with the base itself can never stack; it waits for
+    # its owner to merge feat-cmux-next instead of taking a batch slot.
+    if pr.mergeable == "CONFLICTING":
+        return f"conflicts with {BASE} (merge it, push)"
     if pr.committed_at and at - parse_time(pr.committed_at) > dt.timedelta(days=stale_days):
         return f"head commit older than {stale_days} days"
     red = red_fast_checks(pr)
@@ -1167,7 +1269,7 @@ class Controller:
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
         landed = []
         helper = self.merge_green()
-        fresh = {pr.number: pr for pr in open_prs(self.gh)}
+        fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
         for pr in validation.stack.included:
             current = fresh.get(pr.number)
             if current is None:

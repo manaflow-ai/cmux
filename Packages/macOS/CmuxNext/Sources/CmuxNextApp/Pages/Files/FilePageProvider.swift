@@ -27,6 +27,9 @@ protocol FilePageHosting: AnyObject {
     func openExternal(_ url: URL)
     /// Another file, through the file routing (its own page tab).
     func openFile(_ url: URL)
+    /// A cmux app link (`cmux://workspace/ws_…` and the other deep links) opened inside this app,
+    /// never through the system; false when the app does not open it.
+    func openAppLink(_ url: URL) -> Bool
     /// Whether `path` (canonical) is a recents entry the user opened.
     func isRecent(_ path: String) -> Bool
     /// The native "Open <path>?" sheet for a link outside every granted document's folder: shown
@@ -360,6 +363,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
                 userChose(target)
             }
             return host.openFile(target)
+        }
+        if params["kind"]?.stringValue == "app" {
+            // A cmux deep link opens inside the app or not at all; it never reaches the system.
+            guard let url = URL(string: href), host.openAppLink(url) else {
+                throw PageError.invalidParams("not a cmux link this app opens")
+            }
+            return
         }
         guard let url = URL(string: href), let scheme = url.scheme?.lowercased(),
               ["http", "https", "mailto", "tel"].contains(scheme) else {

@@ -161,6 +161,9 @@ type Props = {
   draft?: string;
   /// The durable session whose unsent prompt belongs in this composer.
   sessionId?: string;
+  /// A harness switch is under way (another provider's model was picked): the session changes
+  /// under the prompt, and the typed text stays instead of the new session's empty draft.
+  switching?: boolean;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Granted folder trust and chat-wide permission state, rendered inside Access.
@@ -262,6 +265,7 @@ export function Composer({
   onOpenInWindow,
   handle,
   sessionId,
+  switching,
   blocked,
 }: Props) {
   const t = useT();
@@ -331,6 +335,8 @@ export function Composer({
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
+  /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
+  const carryPrompt = useRef(false);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const locationSlotSession = useRef<string | undefined>(undefined);
@@ -461,7 +467,12 @@ export function Composer({
     pendingCaret.current = draft.length;
   }, [draft]);
   useEffect(() => {
+    if (switching) carryPrompt.current = true;
+  }, [switching]);
+  useEffect(() => {
     if (persistedSession.current === sessionId) return;
+    // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
+    const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     persistedSession.current = sessionId;
@@ -471,11 +482,17 @@ export function Composer({
     // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
     // when the local remount cache is empty; otherwise this effect can clear the host-provided
     // draft before the editor has initialized.
-    const initial = restored || draft || "";
+    // A chat's own saved draft wins: carried text only fills a session that has none, which a
+    // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
+    const initial = restored || carried || draft || "";
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // After the session effect, so a switch that ends with its session change still carries.
+  useEffect(() => {
+    if (!switching) carryPrompt.current = false;
+  }, [switching]);
   useEffect(() => {
     let current = true;
     void readDurableDraft(sessionId).then((restored) => {

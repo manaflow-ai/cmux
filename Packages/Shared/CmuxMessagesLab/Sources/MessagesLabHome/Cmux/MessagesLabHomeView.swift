@@ -135,7 +135,7 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
-    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+    /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
