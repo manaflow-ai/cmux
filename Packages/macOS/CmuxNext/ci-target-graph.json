@@ -148,6 +148,19 @@
         "CmuxAgentQuestion"
       ]
     },
+    "CmuxNextAgentUpdates": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextApp": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp",
@@ -161,6 +174,7 @@
         "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentQuestion",
+        "CmuxNextAgentUpdates",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -250,6 +264,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
+        "CmuxNextAgentUpdates",
         "CmuxNextApp",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
