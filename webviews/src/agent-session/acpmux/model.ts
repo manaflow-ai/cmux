@@ -10,7 +10,7 @@ import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
-import { STARTED_SESSIONS, type StartedSession } from "./started/startedSessions";
+import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -500,10 +500,12 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
-  // Started session cards (started/StartedSessionCard.tsx): 40px a card, 52px with its activity
-  // line, 6px apart, in 8px of margins.
+  // A turn's started chats (started/StartedSessionCard.tsx): one card, its 1px edges, a 34px row
+  // for each, 48px with its status line, 1px hairlines between, in 8px of margins.
   if (row.kind === STARTED_SESSIONS && row.started)
-    return 8 + row.started.reduce((sum, child) => sum + (child.activity ? 52 : 40), 0) + (row.started.length - 1) * 6;
+    return (
+      8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 48 : 34), 0) + (row.started.length - 1)
+    );
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (

@@ -1,13 +1,13 @@
 // The chats this chat's agent started (acpmux `spawnedBy`, set when its agent runs `acpmux new`),
-// as cards in its transcript (StartedSessionCard.tsx), the way Claude Code desktop draws a
-// session it started: the child's title, what it does now, its pull requests, a status dot and a
+// as one card in its transcript (StartedSessionCard.tsx), the way Claude Code desktop's Changes
+// card lists pull requests: a row for each chat, its title over its status and pull request, and a
 // chevron that opens it. Behind the `started-session-cards` experiment, off by default.
 //
-// A card sits where its chat was started: before the first row made after the child's
-// `createdAt` (rows and `createdAt` both come from the daemon's clock), and never after the end
-// of the turn it was started in, so it draws under that turn's fold line (conversation/turns.ts).
+// The card belongs to the turn its chats were started in (the last prompt made before the child's
+// `createdAt`; rows and `createdAt` both come from the daemon's clock) and draws at that turn's end,
+// after its reply and before its summary, so it reads after the text that names its chats and
+// under the turn's fold line (conversation/turns.ts).
 import { experimentArm } from "../../../experiments/experiment";
-import type { StringKey } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { type AcpmuxSessionEntry, type SessionPullRequest, sessionMark } from "../sessionList";
 import { startedSessionCards } from "./startedSessions.experiment";
@@ -38,9 +38,6 @@ export type StartedSession = {
   sessionId: string;
   title: string;
   state: StartedState;
-  /// The latest tool call's title while its turn runs ("Running ss -ltnp"), from the pane's hidden
-  /// watch of the chat (offer/offerChildren.ts).
-  activity?: string;
   /// Its last turn ended and nobody has looked at it yet.
   unread?: boolean;
   pullRequests?: StartedPullRequests;
@@ -88,21 +85,27 @@ export function startedPullRequests(entry: AcpmuxSessionEntry): StartedPullReque
   };
 }
 
-/// A pull request's status as Claude Code's PR rows say it ("Checks failed", "Merged"); none for
-/// a PR whose state acpmux does not read.
-export const PR_STATUS_WORDS: Record<StartedPullRequests["tone"], StringKey | undefined> = {
-  ready: "started.prReady",
-  failing: "started.checksFailed",
-  open: "header.prBadge.open",
-  draft: "header.prBadge.draft",
-  merged: "header.prBadge.merged",
-  closed: "header.prBadge.closed",
-  unknown: undefined,
-};
+/// What a chat's status line leads with (StartedSessionCard.tsx `SessionStatusLine`): what needs the
+/// person (it waits on them, or it failed), else its pull request's status, else that it runs, has
+/// new activity, or is done.
+export type SessionStatus = "waiting" | "failed" | "running" | "unread" | "done" | PullRequestStatus;
+export type PullRequestStatus = Exclude<StartedPullRequests["tone"], "unknown">;
 
-/// `repo #N`, or `#N` when acpmux names no repository.
-export const pullRequestName = (prs: StartedPullRequests): string =>
-  prs.repo ? `${prs.repo} #${prs.number}` : `#${prs.number}`;
+export function sessionStatus(
+  state: StartedState,
+  unread: boolean | undefined,
+  pullRequests: StartedPullRequests | undefined,
+): SessionStatus {
+  if (state === "waiting" || state === "failed") return state;
+  if (pullRequests && pullRequests.tone !== "unknown") return pullRequests.tone;
+  if (state === "running") return "running";
+  return unread ? "unread" : "done";
+}
+
+/// Whether a started chat's row draws a status line under its title: anything but a done chat
+/// with no pull request.
+export const hasStatusLine = (child: StartedSession): boolean =>
+  child.pullRequests !== undefined || sessionStatus(child.state, child.unread, child.pullRequests) !== "done";
 
 function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {
   if (pr.state !== "open") return pr.state;
@@ -112,15 +115,11 @@ function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {
 }
 
 /// The chats chat `chatId` started, oldest first, but those in `exclude` (an offer's started
-/// task, which its suggested tasks card already shows) and archived ones. `activity` gives a
-/// running chat's latest tool call.
+/// task, which its suggested tasks card already shows) and archived ones.
 export function startedSessions(
   sessions: readonly AcpmuxSessionEntry[],
   chatId: string | undefined,
-  {
-    exclude = new Set<string>(),
-    activity = {},
-  }: { exclude?: ReadonlySet<string>; activity?: Readonly<Record<string, string>> } = {},
+  { exclude = new Set<string>() }: { exclude?: ReadonlySet<string> } = {},
 ): StartedSession[] {
   if (!chatId) return [];
   return sessions
@@ -128,7 +127,6 @@ export function startedSessions(
     .map((entry): StartedSession => {
       const state = startedState(entry);
       const pullRequests = startedPullRequests(entry);
-      const live = state === "running" ? activity[entry.sessionId] : undefined;
       const title = entry.displayTitle || entry.title || entry.sessionId;
       const named = title === entry.name || title === entry.title?.trim();
       return {
@@ -136,7 +134,6 @@ export function startedSessions(
         title,
         state,
         ...(named ? { named: true } : {}),
-        ...(live ? { activity: live } : {}),
         ...(state === "idle" && entry.unread ? { unread: true } : {}),
         ...(pullRequests ? { pullRequests } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
@@ -158,34 +155,48 @@ export function offerChildren(rows: readonly AcpmuxRow[]): Set<string> {
 /// one snapshot to the next: the turn view reshapes only from the first row that changed.
 export type StartedCache = Map<string, { key: string; row: AcpmuxRow }>;
 
-/// `rows` with a card row for `children` (``startedSessions``, oldest first) where each was
-/// started. `rows` comes back as it is when there are none.
+/// `rows` with a card row for `children` (``startedSessions``, oldest first) at the end of the turn
+/// each was started in: after that turn's last row but its summary. A chat with no `createdAt` (an
+/// older acpmux) goes in the last turn's card. `rows` comes back as it is when there are none.
 export function withStartedSessions(
   rows: readonly AcpmuxRow[],
   children: readonly StartedSession[],
   cache: StartedCache = new Map(),
 ): readonly AcpmuxRow[] {
   if (children.length === 0) return rows;
+  // Each turn opens with its prompt; rows before the first prompt are a turn of their own.
+  const starts = [0];
+  rows.forEach((row, index) => {
+    if (row.kind === "user" && index > 0) starts.push(index);
+  });
+  const groups = new Map<number, StartedSession[]>();
+  for (const child of children) {
+    let turn = starts.length - 1;
+    if (child.createdAt !== undefined) while (turn > 0 && rows[starts[turn]!]!.at > child.createdAt) turn -= 1;
+    const group = groups.get(turn);
+    if (group) group.push(child);
+    else groups.set(turn, [child]);
+  }
   const out: AcpmuxRow[] = [];
   const made = new Set<string>();
-  let next = 0;
-  const place = (group: StartedSession[], at: number) => {
+  starts.forEach((start, turn) => {
+    const end = starts[turn + 1] ?? rows.length;
+    const group = groups.get(turn);
+    let at = end;
+    if (group) {
+      const summary = rows.findIndex((row, index) => index >= start && index < end && row.kind === "turnSummary");
+      if (summary >= 0) at = summary;
+    }
+    for (let index = start; index < end; index++) {
+      if (group && index === at) place(group, rows[index - 1]?.at ?? rows[index]!.at);
+      out.push(rows[index]!);
+    }
+    if (group && at === end) place(group, rows[end - 1]?.at ?? 0);
+  });
+  function place(group: StartedSession[], at: number) {
     const row = cardRow(group, at, cache);
     made.add(row.id);
-    // A turn's rows end with its summary: a chat started before the summary was written but
-    // stamped after it still belongs to that turn.
-    const end = out.length > 0 && out[out.length - 1]!.kind === "turnSummary" ? out.length - 1 : out.length;
-    out.splice(end, 0, row);
-  };
-  for (const row of rows) {
-    const group: StartedSession[] = [];
-    while (next < children.length && (children[next]!.createdAt ?? Infinity) < row.at) group.push(children[next++]!);
-    if (group.length) place(group, group[0]!.createdAt ?? row.at);
     out.push(row);
-  }
-  if (next < children.length) {
-    const rest = children.slice(next);
-    place(rest, rest[0]!.createdAt ?? out[out.length - 1]?.at ?? 0);
   }
   // Only this pass's cards stay cached, so another chat's cards do not pile up.
   for (const id of cache.keys()) if (!made.has(id)) cache.delete(id);

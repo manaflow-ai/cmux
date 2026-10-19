@@ -1,36 +1,25 @@
-// A chat this chat's agent started, as a card in the transcript (Claude Code desktop's linked
-// session card, cmux-design-references apps/claude/live/transcript-linked-session-card.png):
-// `title / what it does now · repo #N   Status  •  ›`, its pull request named the way Claude Code's
-// PR rows name one (its Changes panel and PR list: `repo #N`, the status in its colour at the end
-// of the line). The whole card opens the chat. Its name in a
-// reply draws as a chip that opens it too (StartedSessionChip). Both show its hover card
-// (SessionHoverCard.tsx). Behind the
+// The chats a turn's agent started, as one card at the end of that turn, after its reply (Claude
+// Code desktop's Changes card): a compact row for each, its title over a status line that leads
+// with the status (glyph and word in its colour) and then names its pull request, `· repo #N`, and
+// one chevron. A row opens its chat. Its name in a reply draws as a chip that opens it too
+// (StartedSessionChip). Both show its hover card (SessionHoverCard.tsx). Behind the
 // `started-session-cards` experiment (startedSessions.ts).
 import { createContext, useContext } from "react";
 import { Icon } from "../icons/Icon";
-import { useT, type Translate } from "../i18n";
+import { useT, type StringKey } from "../i18n";
+import { Spinner } from "../conversation/icons";
 import {
-  PR_STATUS_WORDS,
-  pullRequestName,
   type SessionMention,
+  type SessionStatus,
   type StartedPullRequests,
   type StartedSession,
+  hasStatusLine,
+  sessionStatus,
 } from "./startedSessions";
 import { useSessionHover } from "./SessionHoverCard";
 import "./startedSessions.css";
 
-/// The line under the title: the running chat's latest tool call, else what its state needs said.
-export function startedLine(t: Translate, child: StartedSession): string | undefined {
-  if (child.state === "running") return child.activity ? plainTitle(child.activity) : t("subagents.state.running");
-  if (child.state === "waiting") return t("home.needsInput");
-  if (child.state === "failed") return t("subagents.state.failed");
-  return undefined;
-}
-
-/// A tool call's title without the backticks Claude puts around a command.
-const plainTitle = (title: string) => title.replace(/^`([^`]*)`$/, "$1");
-
-/// The cards of the chats started at one place in the transcript, oldest first.
+/// The chats started in one turn, oldest first, as one card.
 export function StartedSessionCards({
   started,
   onOpen,
@@ -48,29 +37,23 @@ export function StartedSessionCards({
 }
 
 export function StartedSessionCard({ child, onOpen }: { child: StartedSession; onOpen(sessionId: string): void }) {
-  const t = useT();
-  const line = startedLine(t, child);
+  const status = sessionStatus(child.state, child.unread, child.pullRequests);
   const { trigger, card } = useSessionHover(child.sessionId);
   return (
     <>
       <button
         {...trigger}
         type="button"
-        className="acpmux-started-card"
+        className="acpmux-started-row"
         data-state={child.state}
-        data-unread={child.unread || undefined}
         onClick={() => onOpen(child.sessionId)}
       >
         <span className="acpmux-started-text">
           <span className="acpmux-started-title">{child.title}</span>
-          {(line || child.pullRequests) && (
-            <span className="acpmux-started-line">
-              {line && <span className="acpmux-started-activity">{line}</span>}
-              {child.pullRequests && <PullRequestLine pullRequests={child.pullRequests} />}
-            </span>
+          {hasStatusLine(child) && (
+            <SessionStatusLine status={status === "done" ? undefined : status} pullRequests={child.pullRequests} />
           )}
         </span>
-        <span className="acpmux-started-dot" aria-hidden="true" />
         <Icon name="disclosure.collapsed" size={12} className="acpmux-started-chevron" />
       </button>
       {card}
@@ -78,24 +61,55 @@ export function StartedSessionCard({ child, onOpen }: { child: StartedSession; o
   );
 }
 
-/// The chat's pull request on its second line: `repo #N` (and how many more it opened), then the
-/// PR's status in its colour at the line's end.
-function PullRequestLine({ pullRequests }: { pullRequests: StartedPullRequests }) {
+/// Each status's word and glyph; running draws the bare working spinner instead.
+const STATUS: Record<SessionStatus, { word: StringKey; glyph?: string }> = {
+  waiting: { word: "home.needsInput", glyph: "status.needsinput" },
+  failed: { word: "subagents.state.failed", glyph: "status.error" },
+  running: { word: "subagents.state.running" },
+  unread: { word: "sidebar.markUnread", glyph: "status.dot" },
+  done: { word: "subagents.state.completed", glyph: "status.complete" },
+  ready: { word: "started.prReady", glyph: "git.pullrequest" },
+  failing: { word: "started.checksFailed", glyph: "git.pullrequest" },
+  open: { word: "header.prBadge.open", glyph: "git.pullrequest" },
+  draft: { word: "header.prBadge.draft", glyph: "git.pullrequest" },
+  merged: { word: "header.prBadge.merged", glyph: "git.pullrequest" },
+  closed: { word: "header.prBadge.closed", glyph: "git.pullrequest" },
+};
+
+/// `repo #N`, or `#N` when acpmux names no repository.
+export const pullRequestName = (prs: StartedPullRequests): string =>
+  prs.repo ? `${prs.repo} #${prs.number}` : `#${prs.number}`;
+
+/// A session's status line, as Claude Code's PR rows read: the status first (its glyph and word in
+/// its colour; a running one the bare working spinner), then `· repo #N` (and how many more) in
+/// the dim colour. Without a status (a done chat on its card), only the pull request.
+export function SessionStatusLine({
+  status,
+  pullRequests,
+}: {
+  status: SessionStatus | undefined;
+  pullRequests?: StartedPullRequests | undefined;
+}) {
   const t = useT();
-  const word = PR_STATUS_WORDS[pullRequests.tone];
   return (
-    <>
-      <span className="acpmux-started-pr">
-        <span>{pullRequestName(pullRequests)}</span>
-        {pullRequests.count > 1 && <span>{t("started.morePullRequests", { count: pullRequests.count - 1 })}</span>}
-      </span>
-      {word && (
-        <span className="acpmux-started-status" data-tone={pullRequests.tone}>
-          <Icon name="git.pullrequest" size={12} />
-          <span>{t(word)}</span>
+    <span className="acpmux-session-status-line">
+      {status && (
+        <span className="acpmux-session-status" data-status={status}>
+          {STATUS[status].glyph ? (
+            <Icon name={STATUS[status].glyph!} size={11} />
+          ) : (
+            <Spinner size={11} className="acpmux-session-status-spinner" />
+          )}
+          <span>{t(STATUS[status].word)}</span>
         </span>
       )}
-    </>
+      {pullRequests && (
+        <span className="acpmux-session-status-pr">
+          <span>{pullRequestName(pullRequests)}</span>
+          {pullRequests.count > 1 && <span>{t("started.morePullRequests", { count: pullRequests.count - 1 })}</span>}
+        </span>
+      )}
+    </span>
   );
 }
 

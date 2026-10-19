@@ -1,15 +1,19 @@
-/* The chats a chat started (StartedSessionCard.tsx): quiet cards with a thin edge (Claude Code's
-   linked session card), the title in the body step over a detail line in the dim colour: what the
-   chat does now · `repo #N`, the PR's status in its colour at the end (Claude Code's PR rows). Then
-   a status dot and a chevron. Sizes are the type scale's steps (desktop.css). */
+/* The chats a turn started (StartedSessionCard.tsx), as Claude Code's Changes card lists pull
+   requests: one card at the end of the turn, a hairline edge, compact rows split by hairlines, each
+   the title in the body step over a detail line, and one chevron. The card is as wide as a reading
+   column, never edge to edge. Sizes are the type scale's steps (desktop.css). */
 .acpmux-started {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  width: min(100%, 520px);
   min-width: 0;
   margin: 4px 0;
+  border: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+  border-radius: 10px;
+  overflow: hidden;
 }
-.acpmux-started-card {
+.acpmux-started-row {
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -18,8 +22,7 @@
   min-width: 0;
   min-height: 34px;
   padding: 7px 10px 7px 12px;
-  border: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
-  border-radius: 10px;
+  border: 0;
   background: none;
   color: var(--agent-text);
   font: inherit;
@@ -28,13 +31,15 @@
   text-align: start;
   cursor: default;
 }
-.acpmux-started-card:hover {
-  background: var(--acpmux-pill-fill);
-  border-color: color-mix(in srgb, var(--agent-text) 18%, transparent);
+.acpmux-started-row + .acpmux-started-row {
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
-.acpmux-started-card:focus-visible {
+.acpmux-started-row:hover {
+  background: var(--acpmux-pill-fill);
+}
+.acpmux-started-row:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 .acpmux-started-text {
   display: flex;
@@ -42,84 +47,71 @@
   flex-direction: column;
   min-width: 0;
 }
-.acpmux-started-title,
-.acpmux-started-activity {
+.acpmux-started-title {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.acpmux-started-line {
+.acpmux-started-chevron {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+}
+
+/* A session's status line (SessionStatusLine), on a started chat's row and its hover card: the
+   status first, its glyph and word in its colour, then `· repo #N` in the dim colour. */
+.acpmux-session-status-line {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   white-space: nowrap;
 }
-.acpmux-started-activity {
-  flex: 0 1 auto;
-}
-.acpmux-started-card[data-state="waiting"] .acpmux-started-activity {
-  color: var(--acpmux-warning);
-}
-.acpmux-started-card[data-state="failed"] .acpmux-started-activity {
-  color: var(--agent-danger);
-}
-/* `what it does now · repo #N`: the separator only between the two. */
-.acpmux-started-pr {
-  display: inline-flex;
-  flex: none;
-  gap: 4px;
-  font-variant-numeric: tabular-nums;
-}
-.acpmux-started-activity + .acpmux-started-pr::before {
-  content: "·";
-  margin-inline-end: 2px;
-}
-.acpmux-started-status {
+.acpmux-session-status {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 4px;
-  margin-inline-start: auto;
-  padding-inline-start: 8px;
 }
-.acpmux-started-status[data-tone="ready"],
-.acpmux-started-status[data-tone="open"] {
-  color: var(--agent-success, var(--acpmux-add, #3fb950));
+.acpmux-session-status-pr {
+  display: inline-flex;
+  min-width: 0;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
 }
-.acpmux-started-status[data-tone="failing"],
-.acpmux-started-status[data-tone="closed"] {
+.acpmux-session-status + .acpmux-session-status-pr::before {
+  content: "·";
+  margin-inline-end: 2px;
+}
+.acpmux-session-status[data-status="running"] {
+  color: var(--agent-accent);
+}
+.acpmux-session-status[data-status="waiting"] {
+  color: var(--acpmux-warning);
+}
+.acpmux-session-status[data-status="failed"],
+.acpmux-session-status[data-status="failing"],
+.acpmux-session-status[data-status="closed"] {
   color: var(--agent-danger);
 }
-.acpmux-started-status[data-tone="merged"] {
+.acpmux-session-status[data-status="unread"] {
+  color: var(--agent-text);
+}
+.acpmux-session-status[data-status="done"],
+.acpmux-session-status[data-status="ready"],
+.acpmux-session-status[data-status="open"] {
+  color: var(--agent-success, var(--acpmux-add, #3fb950));
+}
+.acpmux-session-status[data-status="merged"] {
   color: var(--agent-ansi-5, #a371f7);
 }
-.acpmux-started-dot {
+.acpmux-session-status-spinner {
   flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--agent-text) 40%, transparent);
-}
-.acpmux-started-card[data-state="running"] .acpmux-started-dot {
-  background: var(--agent-accent);
-}
-.acpmux-started-card[data-state="waiting"] .acpmux-started-dot {
-  background: var(--acpmux-warning);
-}
-.acpmux-started-card[data-state="failed"] .acpmux-started-dot {
-  background: var(--agent-danger);
-}
-.acpmux-started-card[data-unread] .acpmux-started-dot {
-  background: var(--agent-text);
-}
-.acpmux-started-chevron {
-  flex: none;
-  color: var(--acpmux-composer-dim);
+  background: none;
 }
 
 /* A started chat's name in a reply: a tinted chip that opens it. */
@@ -145,18 +137,16 @@
   outline-offset: 1px;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-started-card,
+  .acpmux-started-row,
   .acpmux-started-chip {
-    transition:
-      background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),
-      border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
+    transition: background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
   }
-  .acpmux-started-card[data-state="running"] .acpmux-started-dot {
-    animation: acpmux-started-pulse 1.6s ease-in-out infinite;
+  .acpmux-session-status-spinner {
+    animation: acpmux-session-status-spin 800ms linear infinite;
   }
 }
-@keyframes acpmux-started-pulse {
-  50% {
-    opacity: 0.45;
+@keyframes acpmux-session-status-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
