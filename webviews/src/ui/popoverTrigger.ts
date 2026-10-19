@@ -16,6 +16,11 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       openAtPress.current = open;
       if (!isMousePress(event)) return;
+      // Opening a menu moves focus into it, and the browser's transient :active state goes with it
+      // before the held frame paints. The marker keeps that pressed tone until release; the composer
+      // uses it to draw the first frame of a click the same as the open chip.
+      const target = event.currentTarget;
+      target.dataset.pressActive = "true";
       pressed.current = true;
       press.current?.();
       if (open) setOpen(false);
@@ -25,6 +30,7 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
         close: open ? undefined : () => setOpen(false),
         end: (onTrigger) => {
           press.current = null;
+          delete target.dataset.pressActive;
           // No click follows a release off the trigger.
           if (!onTrigger) pressed.current = false;
         },
