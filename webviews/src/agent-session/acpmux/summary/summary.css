@@ -18,6 +18,8 @@
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 2px 4px 4px}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .acpmux-summary-card__fold>svg{flex:none;color:var(--agent-muted)}
+.acpmux-summary-card__fold--icon{flex:none;justify-content:center;width:26px;padding:0}
+.acpmux-summary-card__fold--icon+.acpmux-summary-tabs{margin-left:0}
 .acpmux-summary-card__title{flex:none;font-weight:500}
 .acpmux-summary-card__counts{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-summary-card__close{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-muted);cursor:default}
