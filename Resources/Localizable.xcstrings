@@ -237,6 +237,65 @@
         }
       }
     },
+    "cli.workspace.env.error.extraPositional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: unexpected argument '%@'. Expected at most one workspace handle (a positional or --workspace)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: وسيطة غير متوقعة '%@'. يُتوقع معرّف مساحة عمل واحد على الأكثر (موضعياً أو باستخدام --workspace)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: unerwartetes Argument „%@“. Es darf höchstens ein Workspace-Handle angegeben werden (entweder positionell oder mit --workspace)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: argumento inesperado '%@'. Se espera como máximo un identificador de espacio de trabajo (posicional o con --workspace)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env : argument inattendu '%@'. Au plus un handle d’espace de travail est attendu (en position ou avec --workspace)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: 予期しない引数 '%@'。ワークスペースハンドルは位置引数または --workspace のいずれか1つまで指定できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: 예상치 못한 인수 '%@'. 워크스페이스 핸들은 위치 인수 또는 --workspace 중 하나만 사용할 수 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env：意外参数 '%@'。最多只能有一个工作区句柄（位置参数或 --workspace）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env：意外的引數 '%@'。最多只能有一個工作區控制代碼（位置引數或 --workspace）"
+          }
+        }
+      }
+    },
     "projectPanel.reload": {
       "extractionState": "manual",
       "localizations": {
