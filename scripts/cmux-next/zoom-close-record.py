@@ -199,17 +199,38 @@ def split(of, direction, color, engine=None):
 
 
 def first_terminal(color):
+    """A new workspace with one terminal pane painted `color`. A new workspace opens on a New Tab
+    page, not a terminal: a split adds a terminal pane, then the page's pane closes."""
     ids.clear()
-    before = panes()
-    action("workspace.newAtBottom")
-    pane = await_pane(before, color)
+    old = {p["pane"] for p in panes()}
+    reply = action("workspace.newAtBottom")
+    shown = []
+    for _ in range(25):
+        settle(0.4)
+        shown = [p["pane"] for p in panes()]
+        if shown and not (set(shown) & old):
+            break
+    print("new workspace", color, len(shown), "panes, shared with the last:", len(set(shown) & old), json.dumps(reply)[:100], flush=True)
+    origin = shown[0] if len(shown) == 1 and shown[0] not in old else None
+    known = {p["pane"] for p in panes()}
+    action("splitRight")
+    pane = None
+    for _ in range(20):
+        settle(0.4)
+        created = [p["pane"] for p in panes() if p["pane"] not in known]
+        if created:
+            pane = created[0]
+            break
+    if pane and origin:
+        focus_pane(origin)
+        action("closePane")
+        settle(0.8)
     if not pane:
-        shown = panes()
-        if len(shown) == 1:
-            pane = shown[0]["pane"]
-            colors[pane], ids[color] = color, pane
-    if pane:
-        fill(pane, color)
+        print("first_terminal: no terminal pane for", color, flush=True)
+        return
+    colors[pane], ids[color] = color, pane
+    fill(pane, color)
+    print("first terminal", color, pane, "alone:", len(panes()) == 1, flush=True)
 
 
 def window_on_screen():

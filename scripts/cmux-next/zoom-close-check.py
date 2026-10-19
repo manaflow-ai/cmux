@@ -328,9 +328,20 @@ def check_zoom(name, directory, frames, colors, scale, zooming_in):
     return result, failures
 
 
+def moving_panes(directory, zooming):
+    """The panes a scenario moves: the zooming pane, else every pane whose cell differs before and
+    after (a close's or split's) and a pane the change added."""
+    if zooming:
+        return {zooming}
+    before = {p["pane"]: p["cell"] for p in panes_of(load(os.path.join(directory, "before.json")))[0]}
+    after = {p["pane"]: p["cell"] for p in panes_of(load(os.path.join(directory, "after.json")))[0]}
+    return {pane for pane, cell in after.items() if pane not in before or any(abs(a - b) > 0.5 for a, b in zip(cell, before[pane]))}
+
+
 def check_live(directory, colors, focus_pane=None):
     """The live-layout, header and frame-time checks (module doc: live, header, work)."""
     samples = [s for s in trace_samples(directory) if s.get("panes")]
+    moving = moving_panes(directory, focus_pane)
     rows = {}
     for sample in samples:
         for row in sample["panes"]:
@@ -341,6 +352,8 @@ def check_live(directory, colors, focus_pane=None):
         return {"live": "no laid-out fields in the trace (an older build)"}, []
     live = {}
     for pane, series in rows.items():
+        if pane not in moving:
+            continue
         shown = [r[1:5] for r in series]
         if max((abs(a[k] - b[k]) for a, b in zip(shown, shown[1:]) for k in range(4)), default=0) < 1:
             continue
@@ -365,7 +378,7 @@ def check_live(directory, colors, focus_pane=None):
             failures.append(f"{label}: content did not follow its rect in {frozen} samples")
         if end_jump is not None and len(changes) > 1 and end_jump > 0.5:
             failures.append(f"{label}: content jumped at the end ({end_jump * 100:.0f}% of its change in one step)")
-        if header is not None and header < 0.999 and (focus_pane is None or pane == focus_pane):
+        if header is not None and header < 0.999:
             failures.append(f"{label}: its tab strip showed only {header * 100:.0f}% in a frame")
     result["live"] = live
     work = (load(os.path.join(directory, "work.json"), {}) or {}).get("work") or {}
