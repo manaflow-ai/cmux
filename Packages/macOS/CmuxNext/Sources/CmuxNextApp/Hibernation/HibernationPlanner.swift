@@ -32,6 +32,8 @@ struct HibernationPlanner {
         /// The acpmux turn watch is down, so no chat's turn is known: every chat counts as busy.
         case agentTurnsUnknown = "agent_turns_unknown"
         case formSubmission = "form_submission"  // the page shows a form result (BR-R1)
+        /// An agent called the page within `BrowserHibernation.agentGrace` (`cmux browser`, MCP, the REPL).
+        case agentDriving = "agent_driving"
     }
 
     struct Plan: Equatable {
