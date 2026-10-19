@@ -88,7 +88,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: var(--ui-row-height);
+  min-height: var(--ui-row-height, var(--cmux-control-height));
   padding: 2px var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
   outline: none;
@@ -221,7 +221,7 @@
   padding: 6px 8px 2px;
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .ui-separator {

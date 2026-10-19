@@ -2,7 +2,7 @@
   "description": "The Chief's tool to see, make and edit other Chiefs (hq .cmux-scratch/hqec-slack/CHIEF-TOOLS.md). The brain (optchat-chief) offers it to a Chief's own turn only when the Chief's record holds the `chiefs` tool, never to a subagent, and answers each call on its own bound daemon connection (principal = the Chief's id) with chief.profile.list, chief.profile.get, chief.profile.create, chief.profile.update and chief.profile.avatar.set. The daemon enforces the rules (a new or edited Chief gets only what the calling Chief holds; no Chief deletes a Chief; the default Chief's grant is the person's); this text only tells the model. The brain reads this file at build time, so the turn's tool list stays byte-identical while the file does not change.",
   "tool": {
     "name": "chiefs",
-    "description": "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions; the tools, harnesses, self_edit, harness, model and effort you omit are taken from your own grant). update changes another Chief (chief plus the fields to change). avatar_path is a PNG, JPEG, GIF or WebP file on this machine, at most 1 MiB, that becomes that Chief's picture; clear_avatar true removes it. You can give a Chief only tools, harnesses, engine and self_edit that you hold yourself, you cannot edit a Chief that holds more than you, you cannot change the default Chief's grant, and you cannot delete a Chief (the person does). Change yourself with the profile tool. A new Chief starts and answers in its own conversation.",
+    "description": "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions; the tools, harnesses, self_edit, harness, model and effort you omit are taken from your own grant). update changes another Chief (chief plus the fields to change). avatar_path is a PNG, JPEG, GIF or WebP file on this machine, at most 1 MiB, that becomes that Chief's picture; clear_avatar true removes it. You can give a Chief only tools, harnesses, engine and self_edit that you hold yourself, you cannot edit a Chief that holds more than you, you cannot change the default Chief's grant, and you cannot delete a Chief (the person does). Change yourself with the profile tool. After a create, the answer says whether the new Chief's brain started; tell the person exactly that, and never say it answers when its brain did not start.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -27,7 +27,7 @@
   },
   "answers": {
     "list": "The records as chief.profile.list returns them, as JSON text.",
-    "changed": "The record after the create or update, as JSON text, and that the new Chief starts on its own.",
+    "changed": "The record after the create or update, as JSON text; after a create, its brain (started, or not_started with the reason) and one line that says it plainly.",
     "denied": "The daemon's refusal: 'Not allowed (<reason>): <why> [<fields>].'",
     "not_the_turn": "'chiefs: only this Chief's own turn may use it.' (a subagent, or a caller without the turn's key)"
   }

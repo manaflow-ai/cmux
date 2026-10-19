@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
-extension SidebarListView {
+extension SidebarListViewComponents {
     // MARK: - Mouse
     typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -36,6 +36,7 @@ extension SidebarListView {
                 inlineRename.begin(row.key)
                 return
             }
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
             if flags.contains(.command) {
                 model.toggleSelection(id)
             } else if flags.contains(.shift) {
@@ -47,7 +48,8 @@ extension SidebarListView {
             } else {
                 model.click(id)
             }
-            reload(animated: true)
+            // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
@@ -56,7 +58,16 @@ extension SidebarListView {
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-        case .section, .emptySection, .folder:
+        case let .item(item):
+            SidebarGroupKeys(list: self).setFocus(nil)
+            // Home and the App Store switch at once, as a workspace row does; the press can still drag
+            // the row. Any other item runs on mouse-up (as a band item), so a press meant as a move never runs it.
+            let id = LayoutItemID(item)
+            if model.listedItem(id)?.ref.activatesOnPress == true {
+                press.activatedOnPress = true
+                model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
+            }
+        case .section, .emptySection, .folder, .block:
             break
         }
         self.press = press
@@ -91,7 +102,7 @@ extension SidebarListView {
             break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
-            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
+            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
                 model.send(.openGroup(group))
             } else if groupEditing.isOnChip(point, group: group) {
                 // The chip opens the group editor (cx-rcby); its chevron and
@@ -102,7 +113,11 @@ extension SidebarListView {
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
-        case .emptySection, .folder:
+        case let .item(item):
+            // A link opens its page, a tab shows, an app opens, as in the band.
+            guard !press.activatedOnPress else { break }
+            model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
+        case .emptySection, .folder, .block:
             break
         }
         reload(animated: true)

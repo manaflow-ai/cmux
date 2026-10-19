@@ -9,6 +9,12 @@ use super::*;
 /// visibility of an existing one.
 pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubOpts) {
     let hidden = opts.hidden;
+    conn.bind_mailbox_receipt(crate::session_identity::SessionReceipt::new(
+        crate::session_identity::LOCAL_HOST_ID,
+        s.id.clone(),
+        s.meta().agent_session_id,
+        hub.started_at,
+    ));
     match conn.subs.lock().unwrap_or_else(|e| e.into_inner()).insert(s.id.clone(), opts) {
         None => hub.attach_count(s, 1, !hidden),
         Some(before) if before.hidden != hidden => hub.set_visible(s, !hidden),
@@ -19,6 +25,7 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
 /// `_acpmux/detach`.
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     if let Some(before) = conn.subs.lock().unwrap_or_else(|e| e.into_inner()).remove(&s.id) {
+        conn.unbind_mailbox_receipt(&s.id);
         hub.attach_count(s, -1, !before.hidden);
     }
 }
@@ -54,6 +61,7 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
     let subs: Vec<(String, SubOpts)> =
         conn.subs.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
     for (id, opts) in subs {
+        conn.unbind_mailbox_receipt(&id);
         if let Ok(s) = hub.resolve(&id) {
             hub.attach_count(&s, -1, !opts.hidden);
         }

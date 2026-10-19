@@ -7,7 +7,9 @@ import CmuxNextTerminal
 /// `debug.themes`: per window its room scope, per mounted workspace its
 /// workspace scope, per live terminal its scope and the Ghostty theme its
 /// surface uses (plans/cmux-next/data-model.md 6). Colors are the scope's
-/// resolved window and content backgrounds as `#RRGGBB`.
+/// resolved window and content backgrounds as `#RRGGBB`. A parked workspace and its terminals
+/// report the themes of their last show: a theme apply reaches only what windows show, and the
+/// parked catch up when they show (`ThemeCoordinator.contentDidShow`).
 enum DebugThemes {
     static func report(services: AppServices) -> JSONValue {
         let windows = services.windows.controllers.map { controller -> JSONValue in
@@ -16,6 +18,7 @@ enum DebugThemes {
             object["room"] = .string(controller.state.profileID.rawValue)
             object["appearance"] = .string(controller.window?.appearance?.name.rawValue ?? "")
             object["edge_fades"] = .array(controller.window?.contentView.map(Self.edgeFades) ?? [])
+            object["backdrop"] = .object((controller.window.map(ColorTransition.presentedBackdrop) ?? [:]).mapValues(JSONValue.string))
             object["workspaces"] = .array(controller.mountedContents.map { content in
                 var workspace = scope(content.themeScope)
                 workspace["workspace"] = .string(content.workspace.id)

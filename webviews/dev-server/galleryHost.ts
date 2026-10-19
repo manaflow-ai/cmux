@@ -109,9 +109,11 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
     .split("\n")
     .map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart()))
     .join("\n");
-  // The gallery runs it as is; a Swift interpolation or escape would make it differ from the app's.
-  if (/\\\(|\\[nt"\\]/.test(script)) throw new Error("gallery: bootstrapScript has Swift escapes; extend the reader");
-  return script;
+  // The gallery runs what the app runs: a Swift `\\` is one backslash (a regular expression's, as in
+  // the color transition's rgba parser); any other escape or an interpolation would differ.
+  if (/\\[nt"(]/.test(script.replace(/\\\\/g, "")))
+    throw new Error("gallery: bootstrapScript has Swift escapes; extend the reader");
+  return script.replace(/\\\\/g, "\\");
 }
 
 /**

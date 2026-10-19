@@ -103,8 +103,8 @@ public final class BrowserMediaRowView: NSView {
         return view
     }
 
-    private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
+    private func label(_ text: String, font: NSFont, color: NSColor) -> ChromeLabel {
+        let field = ChromeLabel(labelWithString: text)
         field.font = font
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail

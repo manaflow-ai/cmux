@@ -6,9 +6,10 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
 
   checks      always: god files, concurrency, crash safety, string tables,
               script tests, package conventions (Linux, about a minute)
-  generated   any change to the CmuxNext package or plans/cmux-next: the
-              generated action catalog, surfaces and inventory and the CI target
-              graph are fresh (a mini; a stale file is fixed by a bot commit)
+  generated   any change to the CmuxNext package, plans/cmux-next or a settings
+              export: the generated action catalog, surfaces and inventory, the
+              CI target graph and the settings exports are fresh (a mini; a
+              stale file is fixed by a bot commit)
   native      Swift or app sources: the Release compile
   canary      changed CmuxNext Swift targets type-check on a warm mini; this
               is the pull-request gate for small package-only Swift diffs
@@ -116,6 +117,14 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
+    # The settings exports and their source stamp
+    # (defaults_guard.py check-fresh; regenerate-settings-exports.sh). The
+    # CmuxNextSettings sources and the export tests are under PACKAGE.
+    # (The defaults snapshot and defaults_guard.py are checked on Linux.)
+    "schemas/settings/settings-schema.json",
+    "schemas/settings-export/",
+    "docs/mdm/",
+    "scripts/cmux-next/regenerate-settings-exports.sh",
 )
 
 # The path classes of the original routing: these never need a Mac.
@@ -145,6 +154,7 @@ BUNDLE_INPUTS = (
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
+    "schemas/sync-motion/*",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
@@ -270,6 +280,13 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         return result
     if not changed:
         result.everything("the diff is unknown or empty: every tier")
+        return result
+
+    # The workflow defines the native build and its routing contract. A change
+    # to it must exercise the release compile even though other CI-only files
+    # can stay on the Linux fast tier.
+    if ".github/workflows/cmux-next.yml" in changed:
+        result.everything("cmux-next workflow changed: run every tier")
         return result
 
     graph = load_graph(root)

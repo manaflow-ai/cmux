@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import os
 
 /// VoiceOver and automation element for one layer-drawn tab or chip. The
@@ -68,7 +69,7 @@ extension TabCell {
         if let audio = item.audio { parts.append(audio == .muted ? Strings.axMuted : Strings.axPlayingAudio) }
         if let theme = item.themeBadge { parts.append(Strings.axTheme(theme.name)) }
         switch item.status {
-        case .needsInput: parts.append(Strings.axNeedsInput)
+        case .needsInput: parts.append(item.blockedKind.flatMap { StatusIndicatorState.waiting(kind: $0).shortLabel } ?? Strings.axNeedsInput)
         case .success: parts.append(Strings.axSuccess)
         case .failure: parts.append(Strings.axFailure)
         case .none: if item.isUnread { parts.append(Strings.axUnread) }

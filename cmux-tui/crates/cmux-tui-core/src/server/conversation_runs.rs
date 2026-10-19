@@ -13,7 +13,7 @@ use super::conversations::decode;
 use super::{Mux, MuxEvent};
 use crate::conversation_store::ConversationEvent;
 use crate::conversation_store::runs::{
-    MAX_RUN_PAGE, MAX_RUNS_PAGE, RunInput, StepInput, valid_key,
+    MAX_RUN_PAGE, MAX_RUNS_PAGE, RunInput, RunStatus, StepInput, valid_key,
 };
 
 /// `conversation-run-append`, `conversation-runs`, `conversation-run` and the
@@ -90,6 +90,20 @@ pub(super) fn append(mux: &Mux, client: u64, params: AppendParams) -> anyhow::Re
             })))
         },
     )?;
+    // The run ended: its live text (`chief-live-v1`) goes; a talk or thought
+    // step's row frees that step's ended stream.
+    let rows: Vec<String> = appended
+        .steps
+        .iter()
+        .filter(|step| matches!(step["kind"].as_str(), Some("talk" | "thought")))
+        .filter_map(|step| step["id"].as_str().map(str::to_owned))
+        .collect();
+    mux.conversation_live_rows(
+        &conversation,
+        &appended.run.id,
+        appended.run.status != RunStatus::Running,
+        &rows,
+    );
     Ok(json!({"run": appended.run, "steps": appended.steps}))
 }
 

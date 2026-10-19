@@ -16,5 +16,11 @@ extension SettingsSchema {
         "tabs.newTabKind": "New Tab always opens the New Tab page",
         // The pane's buttons became one hover "…" listing every action (Leo 2026-10-12).
         "tabs.hiddenButtons": "the pane's \"…\" menu lists every action",
+        // The palette is the only way to hide a tab bar (Lawrence 2026-10-15, cx-5425v).
+        "tabs.tabBar.terminal": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
+        // The palette is the only way to hide a tab bar (Lawrence 2026-10-15, cx-5425v).
+        "tabs.tabBar.browser": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
+        // The palette is the only way to hide a tab bar (Lawrence 2026-10-15, cx-5425v).
+        "tabs.tabBar.agent": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
     ]
 }

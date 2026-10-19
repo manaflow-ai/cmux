@@ -1,19 +1,14 @@
 import CmuxNextBridge
 import CmuxNextSidebar
-import CmuxNextWakeups
 import Observation
 
-/// A new workspace's sidebar row from the press (cx-9a7wx): a window's
-/// creates run one at a time (`WorkspaceLanes`), so at key-repeat speed the
-/// last one is reported seconds after its press. Its row shows at once, as
-/// a placeholder at the slot the workspace will take, under the workspace's
-/// own id, and the workspace's row replaces it in place once the window
-/// lists it. A close that takes the create, or a create that fails, removes
-/// the row. A lone create's row waits ``grace`` first: a create the daemon
-/// reports by then changes the sidebar once, in the frame that shows the
-/// workspace and its page, never a placeholder row beside the old content
-/// (cx-21zkz). A create queued behind another in its window shows its row at
-/// the press, with the rows before it.
+/// A new workspace's sidebar row from the press (cx-9a7wx; Lawrence
+/// 2026-10-16: "This needs to be instant"): drawn at once in its final look
+/// (`SidebarMapping.creatingRow`: the name the create sends, its folder, no
+/// placeholder bar), at the slot the workspace will take, under the
+/// workspace's own id, so the workspace's row replaces it in place with no
+/// change on screen once the window lists it. A close that takes the create,
+/// or a create that fails, removes the row (it closes like any row).
 @MainActor @Observable
 final class PendingWorkspaceRows {
     static let shared = PendingWorkspaceRows()
@@ -23,56 +18,84 @@ final class PendingWorkspaceRows {
         let id: String
         let window: String
         let machine: MachineID
-        /// The name asked for; empty draws the placeholder bar.
-        let title: String
+        /// The row as the window lists it once the daemon has created it.
+        let face: SidebarWorkspace
         let slot: WorkspaceSlot?
         let byDefault: NewWorkspaceDefaultSlot?
     }
 
-    /// About the time a local create takes to be reported when its window has no other create
-    /// waiting (Cmd-N: ~70 ms in the frame strips); a queued create shows its row after it.
-    static let grace: Duration = .milliseconds(150)
-
     private(set) var rows: [Row] = []
-    /// Rows within their ``grace``, in press order.
-    @ObservationIgnored private var waiting: [(row: Row, timer: DemandTimer)] = []
+    /// The names `add` reserved, by key, until a store lists the workspace (its name counts there from then) or its create
+    /// ends without one (`remove`). Not at the reply: the store can list the workspace a moment later, and a press in that
+    /// gap would take the same name (the terminal path: remote, or a create with a command).
+    @ObservationIgnored private var names: [String: (machine: MachineID, name: String)] = [:]
+    /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
+    /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
+    let redraws = SidebarRedraws()
 
-    func add(_ row: Row) {
-        let window = row.window
-        if rows.contains(where: { $0.window == window }) || waiting.contains(where: { $0.row.window == window }) {
-            // Queued behind another create (key repeat): every row shows at its press.
-            let earlier = waiting.filter { $0.row.window == window }
-            waiting.removeAll { $0.row.window == window }
-            for entry in earlier { entry.timer.cancel() }
-            rows += earlier.map(\.row) + [row]
-            return
-        }
-        let timer = DemandTimer(owner: "PendingWorkspaceRows.grace")
-        waiting.append((row, timer))
-        timer.schedule(after: Self.grace) { @MainActor [weak self] in
-            guard let self, let index = waiting.firstIndex(where: { $0.row.id == row.id }) else { return }
-            waiting.remove(at: index)
-            rows.append(row)
-        }
+    func add(_ row: Row, name: String) {
+        rows.append(row)
+        names[row.id] = (row.machine, name)
+        redraws.run()
     }
 
+    /// The create `id` failed or a close took it: its row and its name go.
     func remove(_ id: String) {
-        if let index = waiting.firstIndex(where: { $0.row.id == id }) { waiting.remove(at: index).timer.cancel() }
         rows.removeAll { $0.id == id }
+        names[id] = nil
+        redraws.run()
+    }
+
+    /// The names given to `machine`'s creates that no store lists yet (`listed`); the listed ones are released here.
+    func reservedNames(on machine: MachineID, listed: (String) -> Bool) -> [String] {
+        names = names.filter { !listed($0.key) }
+        return names.values.filter { $0.machine == machine }.map(\.name)
     }
 
     /// Forgets the rows of `window` that it lists now (`listed`: its own row
-    /// replaces the placeholder in place) or that will not list there
+    /// replaces this one in place) or that will not list there
     /// (`elsewhere`: another window owns it, or it is pinned to another
     /// room). Owning is not listing: a window owns a new workspace a moment
     /// before its room shows it (the pin can come after the workspace), and
     /// a row forgotten then left a gap.
     func forget(in window: String, listed: Set<String>, elsewhere: (String) -> Bool) {
+        if !names.isEmpty { names = names.filter { !listed.contains($0.key) } } // listed: its name counts in the store now
         func done(_ row: Row) -> Bool { row.window == window && (listed.contains(row.id) || elsewhere(row.id)) }
-        for entry in waiting where done(entry.row) { entry.timer.cancel() }
-        waiting.removeAll { done($0.row) }
         guard rows.contains(where: done) else { return }
         rows.removeAll(where: done)
+        redraws.run()
+    }
+
+    /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
+    /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
+    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
+        Self.removing(ids(in: window) { machines.workspace(id: $0)?.0.isProvisional == true }, from: listed)
+    }
+
+    /// The pending rows of `window` whose workspace the store shows only as a stand-in
+    /// (`provisional`: Cmd-N's optimistic workspace): the sidebar lists the pending row for them.
+    func ids(in window: String, provisional: (String) -> Bool) -> Set<String> {
+        Set(rows.filter { $0.window == window && provisional($0.id) }.map(\.id))
+    }
+
+    /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).
+    static func removing(_ ids: Set<String>, from sections: [SidebarRowSection]) -> [SidebarRowSection] {
+        guard !ids.isEmpty else { return sections }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.compactMap { node in
+                switch node {
+                case let .workspace(workspace):
+                    return ids.contains(workspace.id.rawValue) ? nil : node
+                case var .group(group):
+                    group.workspaces.removeAll { ids.contains($0.id.rawValue) }
+                    return .group(group)
+                case .item:
+                    return node
+                }
+            }
+            return section
+        }
     }
 
     func rows(in window: String) -> [Row] {
@@ -91,27 +114,8 @@ final class PendingWorkspaceRows {
             // No slot keeps the daemon's place: the end of the loose rows.
             let slot = row.slot ?? row.byDefault?.slot(for: row.id, section: section, in: sections, home: home) ?? .bottom(anchor: nil)
             guard let position = slot.position(moving: [row.id], section: section, in: sections) else { continue }
-            let workspace = SidebarWorkspace(id: WorkspaceID(row.id), machineID: row.machine, title: row.title, rowState: .placeholder)
-            SidebarEdits.insert([workspace], at: position, in: &sections)
+            SidebarEdits.insert([row.face], at: position, in: &sections)
         }
         return sections
-    }
-
-    /// `sections` without placeholder rows, which no daemon knows: a new
-    /// workspace's slot is resolved against the rows it will sit among.
-    static func withoutPlaceholders(_ sections: [SidebarRowSection]) -> [SidebarRowSection] {
-        sections.map { section in
-            var section = section
-            section.nodes = section.nodes.compactMap { node in
-                switch node {
-                case let .workspace(workspace):
-                    return workspace.rowState == .placeholder ? nil : node
-                case var .group(group):
-                    group.workspaces.removeAll { $0.rowState == .placeholder }
-                    return .group(group)
-                }
-            }
-            return section
-        }
     }
 }

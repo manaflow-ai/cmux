@@ -26,7 +26,7 @@ public final class HomeNativeTranscriptView: NSView {
     public let binding: HomeStoreBinding
     /// The notice above the field (an attachment refused, a send refused in
     /// the background, an op that may not have gone through).
-    let noticeLabel = NSTextField(wrappingLabelWithString: "")
+    let noticeLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var notice: String?
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
@@ -54,6 +54,11 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// A click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { transcript.onOpenLink }
+        set { transcript.onOpenLink = newValue }
+    }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
@@ -66,6 +71,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// An agent row of the first-run panel was picked: the host opens that
     /// tab (its daemon tab id).
     public var onFirstRunAgent: (String) -> Void = { _ in }
+    /// The Switching card's Hide: the host records it, then clears the card.
+    public var onHideSwitchKeys: () -> Void = {}
+    /// The Switching card's Keyboard Shortcuts… button (the Mission Control note).
+    public var onOpenKeyboardShortcutSettings: () -> Void = {}
     /// The host is still loading the conversation's first page: the
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
@@ -81,6 +90,7 @@ public final class HomeNativeTranscriptView: NSView {
     private var cursorHold: HomeCursorRectHold?
 
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+        HomeReduceMotion.install()
         self.me = me
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
         // One binding per shown conversation; it opens the conversation on
@@ -101,6 +111,12 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
+        firstRun.switchCard.onHide = { [weak self] in
+            self?.firstRun.switchCard.apply(nil)
+            self?.firstRun.needsLayout = true
+            self?.onHideSwitchKeys()
+        }
+        firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
@@ -127,7 +143,7 @@ public final class HomeNativeTranscriptView: NSView {
         binding.stop()
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     #if DEBUG
@@ -167,6 +183,26 @@ public final class HomeNativeTranscriptView: NSView {
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
     }
+
+    /// Whether Home getting focus should move the keyboard from `responder`
+    /// to ``primaryInput``: yes, unless a text view or field has it, the
+    /// transcript holds or makes a text selection, or the person moves
+    /// through the first-run panel's rows with the keyboard.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should focus ``primaryInput``.
+    public func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        if let view = responder as? NSView, view.isDescendant(of: firstRun), !firstRun.isHiddenOrHasHiddenAncestor {
+            return false
+        }
+        return transcript.primaryInputShouldTakeKeyboard(from: responder)
+    }
+
+    /// Cmd+V from the first-run panel (the transcript's own pane handles it
+    /// below this view): the message box takes the keyboard and the paste.
+    @objc public func paste(_ sender: Any?) { transcript.pasteIntoPrimaryInput(sender) }
+
+    /// Whether ``paste(_:)`` has text, files or pictures for the message box.
+    public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
     /// The live interface scale applies to the native first-run chrome. The
     /// MessagesLab transcript owns its own text and field metrics.
@@ -241,10 +277,10 @@ public final class HomeNativeTranscriptView: NSView {
         layoutNotice()
     }
 
-    /// The first-run rows' shortcuts and the tab hint's keys, as the
-    /// registry shows them; nil hides one.
-    public func setFirstRunShortcuts(terminal: String?, agent: String?, tabs: String?) {
-        firstRun.setShortcuts(terminal: terminal, agent: agent, tabs: tabs)
+    /// The first-run rows' shortcuts and the Switching card's keys, as the
+    /// live binding table has them; nil hides one (nil `switching`: no card).
+    public func setFirstRunShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
+        firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
     }
 
     /// The user's agents for the first-run panel's glance (the host maps

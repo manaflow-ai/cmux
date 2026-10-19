@@ -18,6 +18,7 @@ import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } fr
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
+import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -203,9 +204,10 @@ const STARRED = "\u0000starred";
 const blockedProfile = (entry: HarnessChoice | undefined) =>
   entry?.folder?.state === "needs-trust" || entry?.folder?.state === "error";
 
-/// A rail tab: one icon in a rounded square, filled while its models show.
+/// A rail tab: a plain icon on a round wash, filled while its models show (no square tile; Leo
+/// 2026-10-18).
 const railTab =
-  "acpmux-mp-rail-tab grid size-8 flex-none cursor-pointer place-items-center rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail-tab grid size-8 flex-none cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
@@ -236,6 +238,7 @@ export function ModelPicker(props: ModelPickerProps) {
     catalog,
     harness,
     label,
+    chip,
     switching,
     onLand,
     onHarness,
@@ -248,6 +251,9 @@ export function ModelPicker(props: ModelPickerProps) {
     signedOut,
     onLogIn,
     usage,
+    quick,
+    detail,
+    detailShort,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
@@ -262,6 +268,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
+  // The compact menu (QuickModelMenu) a click opens when `quick` is set; More models opens the full one.
+  const [quickOpen, setQuickOpen] = useState(false);
   const [openHeight, setOpenHeight] = useState<number>();
   const [selectedHarness, setSelectedHarness] = useState(harness);
   const [activeHarness, setActiveHarness] = useState(0);
@@ -408,6 +416,8 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
+    // Cmd-Ctrl-M or automation over the compact menu: the full picker replaces it.
+    setQuickOpen(false);
     // The fold opens closed; a session on a folded model has its row with the top ones, highlighted.
     setOlderOpen(false);
     setActive(
@@ -426,6 +436,15 @@ export function ModelPicker(props: ModelPickerProps) {
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
   const press = usePopoverTrigger(open, toggle, show);
+  const more = (typed?: string) => {
+    setQuickOpen(false);
+    show();
+    if (typed) {
+      setQuery(typed);
+      setActive(0);
+      setAddChosen(false);
+    }
+  };
   useEscapeCloses(open, close);
 
   useLayoutEffect(() => {
@@ -447,10 +466,12 @@ export function ModelPicker(props: ModelPickerProps) {
       if (!root.current?.contains(event.target as Node)) close(false);
     };
     const blur = () => close(false);
-    document.addEventListener("pointerdown", away);
+    // In the capture phase, as Base UI's menus close: a press outside only closes the picker, and
+    // nothing under it sees the press (menuPressGuard.ts).
+    document.addEventListener("pointerdown", away, true);
     window.addEventListener("blur", blur);
     return () => {
-      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
@@ -492,6 +513,55 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     onLand(model.id);
     close();
+  };
+  // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
+  // that can start here, its top models numbered and the rest under More models.
+  const quickFamilies = useMemo(() => {
+    if (!quick) return undefined;
+    const row = (entry: HarnessChoice, model: ModelChoice): QuickModel => ({
+      id: model.id,
+      name: model.name,
+      family: entry.id,
+      ...(model.unavailable ? { disabled: true } : {}),
+    });
+    const startable = harnesses.filter(
+      (entry) => entry.pickable && !blockedProfile(entry) && entry.folder?.state !== "needs-enable",
+    );
+    const list: QuickFamily[] = [];
+    const starred = startable
+      .filter((entry) => loginFor(entry) === undefined)
+      .flatMap((entry) => choicesFor(entry).flatMap((model) => (favorites.has(model.id) ? [row(entry, model)] : [])));
+    if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
+    for (const entry of startable) {
+      const signedOutHere = loginFor(entry) !== undefined;
+      const { latest, older } = signedOutHere
+        ? { latest: [], older: [] }
+        : shownSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
+      list.push({
+        id: entry.id,
+        name: entry.name,
+        ...(agentBrand(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
+        models: latest.slice(0, 9).map((model) => row(entry, model)),
+        more: [...latest.slice(9), ...older].map((model) => row(entry, model)),
+        ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
+        ...(signedOutHere && loginFor(entry) && onLogIn
+          ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
+          : {}),
+      });
+    }
+    return list;
+  }, [quick, harnesses, loginFor, favorites, starredText, harness, props.model, t, onLogIn]);
+  /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
+  const pickQuick = (model: QuickModel) => {
+    const owner = harnesses.find((entry) => entry.id === model.family);
+    if (!owner || model.disabled || !owner.pickable || loginFor(owner) !== undefined) return;
+    if (owner.ids.includes(harness ?? "")) {
+      onLand(model.id);
+      return;
+    }
+    const harnessId = owner.acpmuxHarness ?? owner.id;
+    if (onCombo) onCombo({ harness: harnessId, model: model.id });
+    else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
   };
   const addHarness = () => {
     close();
@@ -628,6 +698,13 @@ export function ModelPicker(props: ModelPickerProps) {
     : undefined;
   const chipHarness = switchingMark ?? current?.mark ?? current?.id ?? harness;
   const chipLabel = switchingTo?.name ?? label;
+  // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
+  const rowChip = switchingTo ? undefined : chip;
+  // The name the chip writes: without the vendor its mark draws ("Opus 5.5"), the title keeps it whole.
+  const chipName = switchingTo ? chipLabel : withoutVendor(chipLabel, chipHarness);
+  const chipShort = rowChip?.short && rowChip.short !== chipName ? rowChip.short : undefined;
+  const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
+  const chipTitle = rowChip?.title ?? chipLabel;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -657,41 +734,142 @@ export function ModelPicker(props: ModelPickerProps) {
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
-  return (
-    <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
-      <PickerButton
-        ref={trigger}
-        type="button"
-        className="acpmux-picker-button"
-        data-menu={modelText}
-        aria-label={modelText}
-        title={usage ? `${chipLabel} · ${usage}` : undefined}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        keyboard={(event) => {
-          if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
-            event.preventDefault();
-            setQuery(event.key);
-            setActive(0);
-            setAddChosen(false);
-            search.current?.focus();
-          } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-            event.preventDefault();
-            show();
-          }
-        }}
-        {...press}
+  const chipFace = (
+    <>
+      <AgentMark agent={chipHarness} size={15} />
+      <span
+        className="acpmux-model-name"
+        {...(chipShort
+          ? { "data-short": "" }
+          : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
       >
-        <AgentMark agent={chipHarness} size={15} />
-        <span className="acpmux-model-name">{chipLabel}</span>
-        <ChevronIcon />
-      </PickerButton>
+        {chipName}
+      </span>
+      {/* The row's forms are drawn, not written: the chip's text stays the model's name. */}
+      {chipShort && (
+        <span
+          className="acpmux-model-short acpmux-fit-label"
+          data-fit-part="model"
+          data-fit-forms={chipFamily ? "full" : "full family"}
+          data-label={chipShort}
+        />
+      )}
+      {chipFamily && (
+        <span
+          className="acpmux-model-short acpmux-fit-label"
+          data-fit-part="model"
+          data-fit-forms="family"
+          data-label={chipFamily}
+        />
+      )}
+    </>
+  );
+  return (
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-model"
+      style={{ position: "relative" }}
+      // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
+      {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
+    >
+      {quick ? (
+        // The compact menu's chip is its Base UI menu button (submenus need one); a press while
+        // the full picker is open only closes it.
+        <QuickModelMenu
+          open={quickOpen}
+          onOpenChange={(next) => {
+            // A close is only ever the compact menu's own; a press on the chip while the full
+            // picker is open closes that one instead.
+            if (!next) setQuickOpen(false);
+            else if (open) close();
+            else setQuickOpen(true);
+          }}
+          trigger={trigger}
+          chip={{
+            "data-menu": modelText,
+            label: modelText,
+            /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+            title: usage ? `${chipLabel} · ${usage}` : chipLabel,
+          }}
+          menu={{
+            ...quick,
+            // This harness's top models, the running one among them; a signed-out harness lists none.
+            models:
+              current && loginFor(current) === undefined
+                ? shownSections(current, props.model)
+                    .latest.filter((model) => !model.unavailable)
+                    .slice(0, 9)
+                : [],
+            current: props.model,
+            onModel: (id) => onLand(id),
+            ...(quickFamilies
+              ? {
+                  families: {
+                    list: quickFamilies,
+                    current: current?.id,
+                    onPick: pickQuick,
+                    ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
+                  },
+                }
+              : {}),
+          }}
+          onMore={more}
+        >
+          {chipFace}
+          {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
+          {detail && (
+            <span
+              className="acpmux-model-detail"
+              data-fit-part="effort"
+              data-fit-forms={detailShort ? "full" : "full short"}
+            >
+              {detail}
+            </span>
+          )}
+          {detail && detailShort && (
+            <span
+              className="acpmux-model-detail acpmux-fit-label"
+              data-fit-part="effort"
+              data-fit-forms="short"
+              data-label={detailShort}
+            />
+          )}
+        </QuickModelMenu>
+      ) : (
+        <PickerButton
+          ref={trigger}
+          type="button"
+          className="acpmux-picker-button"
+          data-menu={modelText}
+          aria-label={modelText}
+          /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+          title={usage ? `${chipLabel} · ${usage}` : chipLabel}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          keyboard={(event) => {
+            if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+              event.preventDefault();
+              setQuery(event.key);
+              setActive(0);
+              setAddChosen(false);
+              search.current?.focus();
+            } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+              event.preventDefault();
+              show();
+            }
+          }}
+          {...press}
+        >
+          {chipFace}
+          <ChevronIcon />
+        </PickerButton>
+      )}
       {open && (
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           // The anchor's room above or below the chip, between the picker's minimum and maximum
@@ -777,7 +955,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     <AgentMark agent={entry.mark ?? entry.id} size={16} />
                   ) : (
                     // A harness without a mark: its initial, never an empty tab.
-                    <span aria-hidden="true" className="text-control font-medium">
+                    <span aria-hidden="true" className="text-control font-semibold">
                       {entry.name.trim().charAt(0).toUpperCase()}
                     </span>
                   )}
@@ -794,7 +972,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 type="search"
                 // The picker opens with focus here; its row shows the focus, not a ring inside it.
                 data-focus-ring="none"
-                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-body text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
                 aria-label={searchText}
                 aria-autocomplete="list"
                 aria-controls={`${menuId}-models`}
@@ -988,4 +1166,14 @@ export function ModelPicker(props: ModelPickerProps) {
       )}
     </span>
   );
+}
+
+/** A model name as the chip shows it, without the vendor its mark already draws ("Claude Opus 5.5"
+ * under Claude's mark reads "Opus 5.5"; Leo 2026-10-13: the footer "tells too much"). Only Claude's
+ * names lead with a vendor word that says nothing else ("Gemini 2.5 Pro" would read as a bare
+ * number), and another harness's mark (a gateway's) does not say the vendor. The title keeps the
+ * full name. */
+export function withoutVendor(name: string, mark?: string): string {
+  if (!mark?.toLowerCase().startsWith("claude")) return name;
+  return name.replace(/^Claude\s+(?=\S)/, "");
 }

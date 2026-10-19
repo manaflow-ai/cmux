@@ -115,7 +115,6 @@ ${tooltips}
 <div class="acpmux-context-pop" id="context-pop">Context</div>
 <div class="acpmux-slash-menu" id="slash">/compact</div>
 <div class="ui-popup ui-picker-popup acpmux-mp" id="model-picker">Models</div>
-<div class="acpmux-mp-cascade"><div class="acpmux-mp-sub" id="model-sub">Older</div></div>
 <div class="acpmux-changes"><div class="acpmux-file-menu-list" id="file-menu">Open</div></div>
 </div>
 <div class="ui-positioner"><div class="ui-popup" id="popup">Menu</div></div>
@@ -124,7 +123,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="acpmux-shell"><div class="acpmux-summary-card" id="summary">Summary</div></div>
+<div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
     surfaces: [
@@ -132,7 +131,6 @@ ${tooltips}`,
       "context-pop",
       "slash",
       "model-picker",
-      "model-sub",
       "file-menu",
       "popup",
       "context-menu",

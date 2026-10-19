@@ -644,6 +644,43 @@
   line-height: 16px;
   color: var(--page-text-3);
 }
+/* A Chief's run streams (chief-live-v1): the end of its reply, then what it works on, one line
+   each; the whole row opens the run sheet. */
+.lg-typing.live {
+  height: auto;
+  min-height: 16px;
+}
+.lg-live {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.lg-live-text,
+.lg-live-activity {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-live-text {
+  color: var(--page-text-2);
+}
+.lg-live-text strong {
+  color: var(--page-text);
+  font-weight: 600;
+}
+.lg-live:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: 1px;
+}
 .lg-page .hc-composer:not(.hc-edit) {
   margin: 0;
 }
@@ -1066,6 +1103,56 @@
 
 /* ---------- Agent runs: an inline disclosure under a Chief's reply (no frame; its steps on an
    indented rail), the run sheet over the timeline ---------- */
+.lg-goal-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px var(--lg-pad) 4px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lg-goal-strip.failed {
+  border-color: color-mix(in srgb, var(--hc-danger) 48%, transparent);
+  background: color-mix(in srgb, var(--hc-danger) 10%, transparent);
+}
+.lg-goal-strip.stalled {
+  border-color: color-mix(in srgb, var(--lg-warn) 42%, transparent);
+  background: color-mix(in srgb, var(--lg-warn) 9%, transparent);
+}
+.lg-goal-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+.lg-goal-state,
+.lg-goal-detail {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+}
+.lg-goal-title {
+  overflow: hidden;
+  color: var(--page-text);
+  font-size: var(--text-detail);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-goal-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-goal-open {
+  flex: none;
+  min-height: 26px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-goal-strip { transition: none; }
+}
 .lg-run {
   /* The label's column (after the status mark) and the rail's place (under the first glyph). */
   --lg-run-lead: 16px;
@@ -1162,6 +1249,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A running run's reply as it streams (chief-live-v1): its end, in the label's column. */
+.lg-run-live {
+  margin: -2px 0 4px;
+  margin-inline-start: var(--lg-run-lead);
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+}
 /* The rail: under the first glyph's center, the steps in the label's column. */
 .lg-run-steps {
   margin-inline-start: var(--lg-run-rail);
@@ -1227,6 +1322,18 @@
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);
+}
+/* A thought in the run sheet: folded under "Thought". */
+.lg-run-block.thought {
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+}
+.lg-run-block.thought > summary {
+  cursor: default;
+}
+.lg-run-block.thought > p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
 }
 .lg-run-links,
 .lg-run-files {
@@ -1776,6 +1883,30 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* Placing a still in the Chief's circle (backgrounds plan phase 4). */
+.lg-picture-crop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lg-picture-crop-view {
+  position: relative;
+  overflow: hidden;
+  border-radius: 50%;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 0 0 1px var(--lg-line);
+}
+.lg-picture-crop-view:active {
+  cursor: grabbing;
+}
+.lg-picture-crop-view img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
 }
 .lg-chief-names {
   display: flex;

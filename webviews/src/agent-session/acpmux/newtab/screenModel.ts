@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { sessionEntry, sessionMark } from "../sessionList";
+import { listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -25,7 +25,12 @@ export type ScreenRow =
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "history"; url: string; title?: string; icon?: string }
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
-  | { type: "ask"; text: string; harness: string; agent: string; model?: string };
+  | { type: "ask"; text: string; harness: string; agent: string; model?: string }
+  /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
+  | { type: "create"; kind: CreateKind };
+
+/// What a create row opens, in the order the rows list them.
+export type CreateKind = "terminal" | "browser" | "chat";
 
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
@@ -59,7 +64,17 @@ export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: strin
 /// matching open tabs, workspaces and visited pages, a web search (none for a local file) and Ask.
 /// Other text: Ask first, a web search, then the matches. One row per page: a page an open tab
 /// shows is that tab ("Switch to tab"), and addresses compare without their tracking parameters.
+/// The `create` actions end every list (Leo 2026-10-18), outside the cap.
 export function screenRows(
+  text: string,
+  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; create?: readonly CreateKind[] },
+): ScreenRow[] {
+  const rows = navigationRows(text, context);
+  if (!rows.length) return rows;
+  return [...rows, ...(context.create ?? []).map((kind): ScreenRow => ({ type: "create", kind }))];
+}
+
+function navigationRows(
   text: string,
   context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk },
 ): ScreenRow[] {
@@ -83,6 +98,20 @@ export function screenRows(
 /// prompt (no agent to ask: Return says so instead of searching).
 export function defaultSelection(rows: readonly ScreenRow[]): number {
   return rows[0] && rows[0].type !== "search" ? 0 : -1;
+}
+
+/// The inline address completion accepted by Right or End. Only a top row that is an address and
+/// extends the typed prefix qualifies: an open result (the typed address or a top site) or a visited
+/// page (history, as Chrome's omnibox completes it). Prompt, search, tab and workspace rows stay
+/// explicit picks. Accepting only fills the field; Enter or Send still opens it. Keeping this pure
+/// lets the New Tab field and its tests share the same safety rule.
+export function inlineCompletion(text: string, rows: readonly ScreenRow[]): string | undefined {
+  const query = text.trim();
+  const row = rows[0];
+  const completion = row?.type === "open" ? row.text : row?.type === "history" ? canonicalAddress(row.url) : undefined;
+  if (!query || !completion || completion.length <= query.length) return undefined;
+  if (!completion.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return undefined;
+  return completion;
 }
 
 /// Whether Return on `text` with no row is an address (it never becomes a prompt).
@@ -293,12 +322,18 @@ export type ChatCard = {
   /// A device chat from the acpmux chat index (`harness:sessionId`): opens through the host's
   /// shared Open Chat path (`chats.open`), not as an acpmux session.
   chatKey?: string;
+  /// The harness chat's own id (a session's agent session id, a device chat key's `harness:` tail):
+  /// the same chat under either source, so a session replacing its device row is not a new row.
+  chatId?: string;
   title: string;
   harness?: string;
   age: string;
   message?: string;
   /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
   state: "idle" | "input" | "running" | "failed" | "error" | "unread";
+  /// The chats its agent started (acpmux `spawnedBy`, a device chat's `parent`), newest first:
+  /// listed under it, never on their own.
+  children?: ChatCard[];
 };
 
 /// The newest chats, the ones waiting on the user first; a dropped chat is an error card. acpmux's
@@ -306,46 +341,108 @@ export type ChatCard = {
 /// index (the sidebar's All chats source) fills the rest, newest first, without a chat a session
 /// card shows: the same harness chat (its `harness:id` key holds the session's agent session id,
 /// Leo 2026-10-13: each lane showed twice, once by name and once by its first prompt), or the
-/// same title.
+/// same title. With `fold` (the list layout) a chat another chat's agent started lists under that
+/// chat's card (`children`); the card grid has no room for that, so there every chat has a card.
 export function recentChatCards(
   sessions: AcpmuxSnapshot["sessions"],
   now = Date.now(),
   t: Translate = translate,
   device: DeviceChat[] = [],
   count = CHAT_CARD_COUNT,
+  fold = true,
 ): ChatCard[] {
-  const live = liveChatCards(sessions, now, t, count);
+  const live = liveChatCards(sessions, now, t, count, fold);
   const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
   // Every session's, an archived one's too: its transcript must not come back as a device chat.
   const agents = new Set(
     sessions.flatMap((session) => {
-      const id = sessionEntry(session as Parameters<typeof sessionEntry>[0]).agentSessionId;
+      const id = normalizedSessionEntry(session as Parameters<typeof normalizedSessionEntry>[0]).agentSessionId;
       return id ? [id] : [];
     }),
   );
   const fill = [...device]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .filter((chat) => !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key))
+    .filter((chat) => !(fold && chat.parent) && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
     .slice(0, Math.max(0, count - live.length))
     .map((chat): ChatCard => ({
       sessionId: chat.key,
       chatKey: chat.key,
+      chatId: chat.key.slice(chat.key.indexOf(":") + 1),
       title: chat.title ?? t("sidebar.newChat"),
       harness: chat.harness,
       age: ageLabel(chat.updatedAt, now, t),
       state: "idle",
     }));
-  return [...live, ...fill];
+  const cards = [...live, ...fill];
+  if (!fold) return cards;
+  const children = indexChildren(sessions, device, now, t);
+  return cards.map((card) => withChildren(card, children));
 }
 
-function liveChatCards(sessions: AcpmuxSnapshot["sessions"], now: number, t: Translate, count: number): ChatCard[] {
-  return recentSessions(sessions, count).map((session) => ({
+function liveChatCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  count: number,
+  fold: boolean,
+): ChatCard[] {
+  return recentSessions(sessions, count, fold).map((session) => sessionCard(session, now, t));
+}
+
+function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): ChatCard {
+  return {
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
+    ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
     age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
-  }));
+  };
+}
+
+/// Child rows indexed once per snapshot, so each visible card does not rescan every session.
+type ChildCard = { parent: string; at: number; card: ChatCard };
+
+function indexChildren(
+  sessions: AcpmuxSnapshot["sessions"],
+  device: DeviceChat[],
+  now: number,
+  t: Translate,
+): Map<string, ChildCard[]> {
+  const indexed = new Map<string, ChildCard[]>();
+  for (const raw of sessions) {
+    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
+    if (!session.spawnedBy || !listed(session) || sessionMark(session, false) === "input") continue;
+    const child = { parent: session.spawnedBy, at: session.updatedAt ?? 0, card: sessionCard(session, now, t) };
+    indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
+  }
+  for (const chat of device) {
+    if (!chat.parent) continue;
+    const child = {
+      parent: chat.parent,
+      at: chat.updatedAt,
+      card: {
+        sessionId: chat.key,
+        chatKey: chat.key,
+        chatId: chat.key.slice(chat.key.indexOf(":") + 1),
+        title: chat.title ?? t("sidebar.newChat"),
+        harness: chat.harness,
+        age: ageLabel(chat.updatedAt, now, t),
+        state: "idle",
+      } satisfies ChatCard,
+    };
+    indexed.set(chat.parent, [...(indexed.get(chat.parent) ?? []), child]);
+  }
+  return indexed;
+}
+
+function withChildren(card: ChatCard, indexed: Map<string, ChildCard[]>): ChatCard {
+  const parents = [...new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)))];
+  const children = parents
+    .flatMap((parent) => indexed.get(parent) ?? [])
+    .sort((a, b) => b.at - a.at || a.card.sessionId.localeCompare(b.card.sessionId))
+    .map((child) => child.card);
+  return children.length > 0 ? { ...card, children } : card;
 }

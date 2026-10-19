@@ -39,17 +39,17 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Keyboard Shortcuts, Passwords), instead of a find bar.
     public let ownsSearchField: Bool
     /// A first click in an inactive window reaches the page (``PageWKWebView``), as on the native
-    /// controls. False for a page with a one-click destructive or granting control and no host
-    /// confirmation sheet (Settings: browsing-data Clear; the agent pane: permission cards, Push,
-    /// Apply, Remove; the diff page: Push) and for app pages (``appPage(id:resource:namespaces:)``),
-    /// so a click that only meant to bring the window forward cannot run it; such a page keeps
-    /// WebKit's own answer.
+    /// controls. Off by default (fail closed): a page opts in only when no control on it acts on one
+    /// click without a host confirmation sheet, so a click that only meant to bring the window
+    /// forward cannot run one (Settings' browsing-data Clear, the agent pane's permission cards,
+    /// Push, Apply and Remove, an app page's own content; those also say false explicitly, so a
+    /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
     public let acceptsFirstMouse: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = true) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -108,7 +108,8 @@ public nonisolated struct PageNativeOp {
     public static let clipboardWrite = "cmux.app.clipboard.write"
     /// Runs `{command}` (`cut`, `copy`, `paste`, `pasteAsPlainText`) as the page view's own
     /// responder action, for a page's own text-field menu: the page never reads the pasteboard.
-    /// Only on the person's click or key in the page view, like ``clipboardWrite``.
+    /// Only on the person's click or key in the page view, each spent once. Served by the page's own
+    /// route (the Channels page's `PageEditProvider`), not the shared `cmux.app.` provider.
     public static let edit = "cmux.app.edit"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.

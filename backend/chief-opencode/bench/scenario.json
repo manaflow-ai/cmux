@@ -1,0 +1,16 @@
+{
+  "name": "cloud-chief-compare-v1",
+  "note": "One scripted conversation for both Cloud Chief brains (P pi-durable, O opencode). Kinds: short, fact, medium, tool, recall. Gaps are seconds after the previous reply.",
+  "turns": [
+    { "kind": "short", "gap": 0, "text": "Reply with exactly one word: OK" },
+    { "kind": "fact", "gap": 15, "text": "Name three prime numbers above 100 on one line." },
+    { "kind": "medium", "gap": 15, "text": "In two sentences: what do you do for me as a Chief?" },
+    { "kind": "tool", "gap": 15, "text": "Use the chiefs tool to list my Chiefs, then tell me how many there are in one sentence." },
+    { "kind": "tool", "gap": 15, "text": "Post a short progress note with the post tool that says 'checking', then reply with exactly: DONE" },
+    { "kind": "recall", "gap": 15, "text": "What was the very first word you replied in this conversation? Answer with that word only." },
+    { "kind": "short", "gap": 15, "text": "Reply with exactly one word: OK" },
+    { "kind": "fact", "gap": 15, "text": "Name the capital of Japan in one word." },
+    { "kind": "short", "gap": 15, "text": "Reply with exactly one word: DONE" }
+  ],
+  "crash": { "text": "Write about 250 words on why durable execution matters for agents.", "kill_after_ms": 1500 }
+}

@@ -52,7 +52,33 @@ credentials, host-write access, network access or writable caches shared with
 release jobs. The verification scripts do not provide that sandbox. A local pass
 is not a supply-chain safety attestation and does not replace required CI.
 
+### Reviewed fork PRs
+
+A reviewed checkout can come from a fork. After reviewing the exact source that
+merged-tree checks execute, run `scripts/gh-merge-green OWNER/REPO#NUMBER
+--trust-fork-head FULL_SHA --squash` from the trusted helper checkout. The flag
+records source trust for that commit only; a different current head is refused.
+It does not waive CI, frozen paths, mergeability, or merged-tree validation.
+No coordinator acknowledgement or duplicate upstream PR is needed solely because
+the branch is in a fork. Leave unfamiliar code untrusted.
+
 ## PR check progression
+
+Treat a check result as evidence about one exact commit, not a property of a
+branch name: a push supersedes earlier results. Classify each non-green result
+before changing source:
+
+| Result | Action |
+| --- | --- |
+| Changed-file defect | Repair the changed file or its focused test. |
+| Same finding on the parent/base | Link the base run in a PR comment; it does not block. Route the fix to its owner. |
+| Derived wrapper | Follow the root check; do not debug the wrapper separately. |
+| Cancelled, queued, or coordinator-blocked | Retry the same head after capacity or coordinator state recovers. |
+
+Required source, compile, security, and repository gate checks block a merge
+when the failure is the PR's own. Screenshot/gallery and full webview jobs are useful retained evidence
+when they run, but should stay advisory unless the change explicitly promotes
+them.
 
 PR workflows run Fast static checks beside workflow guards and routed Linux checks.
 Applicable macOS compile admission and native checks wait for the static checks and

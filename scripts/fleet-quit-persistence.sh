@@ -287,7 +287,7 @@ w=json.load(open('$out/ee-ws.json')); sys.exit(0 if [x.get('extra',{}).get('kind
 rpc_ok action.run '{"id":"quit","args":{"endSessions":true}}' >/dev/null || true
 wait_exit "$APP_PID" 70 || log "app $APP_PID still running"
 acp session cancel qp-agent >/dev/null 2>&1 || true
-acp daemon shutdown >/dev/null 2>&1 || true
+acp daemon shutdown --end-agents >/dev/null 2>&1 || true
 sleep 3
 left=""
 for p in "$APP_PID" "$TUI_PID" "$ACP_PID" "$SHELL_PID" "$LOOP_PID" "$AGENT_CLI_PID"; do alive "$p" && left="$left $p"; done

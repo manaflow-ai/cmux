@@ -10,6 +10,14 @@ A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-lev
 
 `host.ts` lists the ops and streams the native host (diff-host.md S6) implements: `cmux.markdown.config`, `cmux.markdown.save {path, text, baseHash}` (refused with `cmux.markdown.conflict` on a hash mismatch), `cmux.markdown.open` (also for followed links), `cmux.markdown.openLink`, `cmux.markdown.resolveLinks`, `cmux.markdown.listFiles`, the page commands `save`, `back`, `forward` and `link`, the streams `cmux.markdown.changes` and `cmux.markdown.look`, the `save` page command (Cmd-S), and same-origin resources for images (`assetBase`, the file's folder only) and the diagram libraries (`libBase`: `mermaid.js`, `vega.js`). The page runs under the strict PageCSP: Vega uses `vega-interpreter`, code highlighting the Shiki JavaScript engine.
 
+## Editable everywhere
+
+Every markdown file opens editable, whoever opened it (Open File..., `cmux open`, an agent, a link) and in any workspace, Home included. The host sends `readOnly` with a `readOnlyReason` only for a real reason, and the page names it: `encoding` (not UTF-8), `binary`, `permission` (the file is not writable) or `transcript` (a chat transcript the host opens read only). A change on disk reloads the page when it has no unsaved edits and raises the conflict banner when it has.
+
+## Text size
+
+Cmd-= (also Cmd-Shift-=, Cmd-+) and Cmd-- are the app key dispatcher's `zoomIn` and `zoomOut` page commands: one pixel per step, 8 to 40, in rich and source mode. Cmd-0 (`zoomReset`) goes back to the default, `markdown.font.size` (Settings > Appearance > Markdown Viewer > Default Font Size, 16 when unset). The page applies the size as `--cmux-md-zoom` (size over the default) on the body and code sizes (`fontZoom.ts`); a viewer keeps its size across a page reload, and a viewer at the default follows a new default.
+
 ## Links
 
 A plain click on a link places the caret; Cmd-click follows it (the cursor turns into a pointer while Cmd is held), and in a read-only file a click follows. Hovering shows a card with the full URL or the resolved path, how the link opens, and "Not found" for a relative target that does not exist (also marked with a wavy underline). Where a followed link goes (`linkRouter.ts`):
@@ -26,6 +34,14 @@ A plain click on a link places the caret; Cmd-click follows it (the cursor turns
 Reference links and autolinks resolve the same way. Relative targets are checked through `cmux.markdown.resolveLinks`, batched per tick and cached per file.
 
 Editing: the `link` page command (Cmd-K) opens a link field on the selection or the link at the caret, completing `#headings` of this file and workspace paths (`cmux.markdown.listFiles`); Enter applies, Escape cancels, an empty URL removes the link. Pasting one URL over a selection links it; pasting a URL alone inserts an autolink. A reference link keeps its reference when its text or URL changes: a new URL rewrites its definition (and every link using it), and a shortcut `[text]` whose text changes is written as `[new text][label]`. Only the edited blocks change in the file.
+
+## Reading Settings
+
+The toolbar's **Aa** button opens the Reading Settings popover (`ReadingSettings.tsx`): text width (a slider in characters, and Full Width), font size, font (System, Serif, Mono), line height, paragraph spacing, code size, wide tables (Scroll or Wrap) and theme (App, Light, Dark), and Reset to Defaults. Each row is one `markdown.*` key below (`settings.ts` `MARKDOWN_READING`), also a row in Settings > Appearance > Markdown Viewer and a key in `cmux.json`. A change shows at once and goes through `cmux.markdown.setPreference {key, value}` (value null resets the key), the one settings write path, 250 ms after the last change of a slider drag; every open viewer follows the new look. A new font size is the default size (`markdown.font.size`), so the viewer drops its own Cmd-= / Cmd-- size.
+
+## Wide tables and code
+
+A table wider than the column scrolls sideways in its own box (the editor's `.tableWrapper`), as a long code line does in its block: trackpad swipes, Shift-wheel and the scrollbar move that box, `overscroll-behavior-x: contain` keeps the swipe from reaching the page at either end, and a vertical wheel over it scrolls the page. The page itself scrolls only up and down. `markdown.tables: "wrap"` fits tables to the column instead.
 
 ## Customizing the look
 
@@ -45,8 +61,11 @@ Lengths given as numbers are pixels (`em` where noted); strings are CSS values. 
 | ------------------------------ | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `markdown.defaultMode`         | `"rich"`                           | The mode a file opens in: `"rich"` or `"source"`.                                                                 |
 | `markdown.toolbar`             | `true`                             | Show the toolbar (file, save status, mode switch).                                                                |
+| `markdown.tables`              | `"scroll"`                         | Wide tables: `"scroll"` sideways in their own box, or `"wrap"` to the column.                                     |
+| `markdown.theme`               | `"app"`                            | The page's colors: `"app"`, or always `"light"` or `"dark"`.                                                      |
+| `markdown.font.preset`         | `"system"`                         | The body font when `font.family` is unset: `"system"`, `"serif"` or `"mono"` (the code font).                     |
 | `markdown.font.family`         | system UI font                     | `--cmux-md-font-family`                                                                                           |
-| `markdown.font.size`           | `16`                               | `--cmux-md-font-size`                                                                                             |
+| `markdown.font.size`           | `16`                               | `--cmux-md-font-size`; the default text size (Settings row; Cmd-0 returns to it)                                  |
 | `markdown.font.weight`         | `400`                              | `--cmux-md-font-weight`                                                                                           |
 | `markdown.font.lineHeight`     | `1.6`                              | `--cmux-md-line-height`                                                                                           |
 | `markdown.headings.family`     | the body font                      | `--cmux-md-heading-font-family`                                                                                   |
@@ -61,9 +80,11 @@ Lengths given as numbers are pixels (`em` where noted); strings are CSS values. 
 | `markdown.code.lineHeight`     | `1.55`                             | `--cmux-md-code-line-height`                                                                                      |
 | `markdown.code.background`     | text at 5%                         | `--cmux-md-code-background`                                                                                       |
 | `markdown.code.theme`          | `"terminal"`                       | Code colors: `"terminal"` (the terminal palette, as the diff viewer), a Shiki theme name, or `{"light", "dark"}`. |
+| `markdown.layout.width`        | `72`                               | The text width in characters (40 to 160); wins over `maxWidth`.                                                   |
+| `markdown.layout.fullWidth`    | `false`                            | Text fills the pane; wins over `width` and `maxWidth`.                                                            |
 | `markdown.layout.maxWidth`     | `"72ch"`                           | `--cmux-md-content-width`                                                                                         |
 | `markdown.layout.padding`      | `32`                               | `--cmux-md-page-padding`                                                                                          |
-| `markdown.spacing.paragraph`   | `"1em"`                            | `--cmux-md-paragraph-spacing`                                                                                     |
+| `markdown.spacing.paragraph`   | `1` (em)                           | `--cmux-md-paragraph-spacing`; a number is in em (it scales with the text), a string is a CSS length.             |
 | `markdown.spacing.list`        | `"0.25em"`                         | `--cmux-md-list-spacing`                                                                                          |
 | `markdown.spacing.listIndent`  | `"1.8em"`                          | `--cmux-md-list-indent`                                                                                           |
 | `markdown.colors.text`         | the page text color                | `--cmux-md-text-color`                                                                                            |

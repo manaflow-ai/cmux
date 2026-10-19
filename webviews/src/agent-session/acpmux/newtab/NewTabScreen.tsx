@@ -6,7 +6,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
-import { isAgentHome } from "../sessionList";
+import { isAgentHome, mostRecentProject } from "../sessionList";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -20,14 +20,17 @@ import {
   canonicalAddress,
   defaultSelection,
   isAddress,
+  inlineCompletion,
   recentChatCards,
   screenRows,
   shellEntry,
   shortHost,
   stepSelection,
+  type CreateKind,
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
+import { WidgetCards } from "./WidgetCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
@@ -38,13 +41,15 @@ import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
+import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  onAsk(harness: string, text: string, cwd?: string, model?: string): void;
+  /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
+  onAsk(harness: string, text: string, cwd?: string, model?: string, noProject?: boolean): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -80,6 +85,9 @@ type Props = NewTabScreenActions & {
   location?: string;
   lastAgent?: string;
   home?: string;
+  /// The host's project folders (`project.list` and the page's own list), so a deleted or removed
+  /// folder never becomes the start project. Absent, every local chat folder counts.
+  knownProjects?: readonly string[];
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
@@ -99,6 +107,8 @@ type Props = NewTabScreenActions & {
   focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
   template?: ScreenTemplate;
+  /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
+  widgets?: boolean;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -121,11 +131,35 @@ export function NewTabScreen(props: Props) {
   const [touched, setTouched] = useState(false);
   // The highlighted row; -1 is none (Enter is the prompt's).
   const [selected, setSelected] = useState<number | undefined>(undefined);
+  // Whether the highlight was moved by the keyboard (Down, Up, Tab): only then does Tab step it.
+  const [keyboardPick, setKeyboardPick] = useState(false);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
-  const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
+  const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
+  // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
+  // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
+  const [picked, setPicked] = useState(false);
+  // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
+  const [none, setNone] = useState(false);
+  const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
+  const candidate = useMemo(
+    () =>
+      !picked && folderless && !props.startCwd
+        ? mostRecentProject(snapshot.sessions, home, props.knownProjects)
+        : undefined,
+    [picked, folderless, props.startCwd, snapshot.sessions, home, props.knownProjects],
+  );
+  // The first one found once the host's list has landed stays: a chat updating elsewhere must not
+  // move the chip while the user types. Before the list lands the newest chat folder shows, so a
+  // prompt sent at once still starts in a project.
+  const [latched, setLatched] = useState<string | undefined>(undefined);
+  const listed = props.knownProjects === undefined || props.knownProjects.length > 0;
+  if (latched === undefined && candidate !== undefined && listed) setLatched(candidate);
+  const recent = !picked && folderless && !props.startCwd ? (latched ?? candidate) : undefined;
+  const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
   const wholeSelection = useRef(false);
+  const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -143,11 +177,18 @@ export function NewTabScreen(props: Props) {
     [snapshot.catalog],
   );
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
+  const chatFolder = none
+    ? undefined
+    : project && project !== props.cwd
+      ? project
+      : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
-  const askFolder = project && project !== props.cwd ? project : props.startCwd;
+  const askFolder = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
+  // A prompt's chat, in no project when that was the pick.
+  const askChat = (agent: string, prompt: string, cwd?: string, model?: string) =>
+    none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -167,23 +208,33 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
+  // The create actions the buttons under the field offer, at the end of the rows too.
+  const creates = useMemo(
+    (): CreateKind[] => [
+      ...(props.onCreate ? (["terminal", "browser"] as const) : []),
+      ...(harness ? (["chat"] as const) : []),
+    ],
+    [props.onCreate, harness],
+  );
   const suggested = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, omnibar, home, ask],
+    () => (touched && !shell ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, omnibar, home, ask, creates],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
   const chrome = useComposerChrome();
+  // A press outside an open chip menu only closes it (menuPressGuard.ts).
+  useMenuPressGuard();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent),
-    [snapshot.sessions, at, t, device, sections.recent],
+    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
+    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
@@ -264,6 +315,13 @@ export function NewTabScreen(props: Props) {
     node.scrollTop = typingAtEnd ? node.scrollHeight : top;
   }, []);
   useLayoutEffect(fitField, [fitField, text, shell, template]);
+  useLayoutEffect(() => {
+    const caret = inlineCaret.current;
+    if (caret === undefined) return;
+    inlineCaret.current = undefined;
+    field.current?.focus();
+    field.current?.setSelectionRange(caret, caret);
+  }, [text]);
   useEffect(() => {
     const node = field.current;
     const view = node?.ownerDocument.defaultView;
@@ -311,7 +369,9 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
-        return props.onAsk(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
+        return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
+      case "create":
+        return row.kind === "chat" ? startChat() : create(row.kind);
     }
   };
   const edit = (next: string) => {
@@ -326,6 +386,7 @@ export function NewTabScreen(props: Props) {
     }
     setText(next);
     setSelected(undefined);
+    setKeyboardPick(false);
   };
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
@@ -335,7 +396,7 @@ export function NewTabScreen(props: Props) {
     if (!prompt || isAddress(prompt, home)) return;
     // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
     if (!harness) return;
-    props.onAsk(harness, prompt, project, chipModel);
+    askChat(harness, prompt, project, chipModel);
   };
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
@@ -353,7 +414,7 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    props.onAsk(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
+    askChat(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
   };
   const send = () => {
     touch();
@@ -449,9 +510,28 @@ export function NewTabScreen(props: Props) {
     }
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    const completion =
+      plain && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
+        ? inlineCompletion(text, rows)
+        : undefined;
+    if ((event.key === "ArrowRight" || event.key === "End") && completion) {
+      event.preventDefault();
+      inlineCaret.current = completion.length;
+      edit(completion);
+      return;
+    }
+    if (event.key === "Tab" && plain && keyboardPick && current >= 0 && current < rows.length) {
+      // Tab advances a highlight the keyboard already moved; Enter still performs the action.
+      // Otherwise Tab is the browser's, so it moves focus on to Send.
+      event.preventDefault();
+      setSelected(stepSelection(current, 1, rows.length));
+      return;
+    }
     const step = listStep(event);
     if (step && rows.length) {
       event.preventDefault();
+      setKeyboardPick(true);
       setSelected(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
@@ -469,8 +549,10 @@ export function NewTabScreen(props: Props) {
       else input.blur();
     }
   };
-  const pickProject = (cwd: string) => {
+  const pickProject = (cwd?: string) => {
     touch();
+    setPicked(true);
+    setNone(cwd === undefined);
     setProject(cwd);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
@@ -499,8 +581,8 @@ export function NewTabScreen(props: Props) {
     >
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
-          chat starts in heads it, a tab on its top edge (ComposerContext, the composer's own; hq#1957
-          composer location strip). */}
+          chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
+          composer location strip; newtab/screen.css). */}
       <div className="nt-composer">
         {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
             composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}
@@ -517,6 +599,8 @@ export function NewTabScreen(props: Props) {
             {...(props.machineName ? { localName: props.machineName } : {})}
             projectChoices={props.projects ?? []}
             onProject={(cwd) => pickProject(cwd)}
+            onNoProject={() => pickProject(undefined)}
+            noProject={none}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
           />
         </div>
@@ -614,7 +698,11 @@ export function NewTabScreen(props: Props) {
                 aria-selected={index === current}
                 data-type={row.type}
                 className={index === current ? "nt-row is-selected" : "nt-row"}
-                onMouseMove={() => index !== current && setSelected(index)}
+                onMouseMove={() => {
+                  if (index === current) return;
+                  setKeyboardPick(false);
+                  setSelected(index);
+                }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
@@ -623,7 +711,7 @@ export function NewTabScreen(props: Props) {
                 {rowFavicon(row) ? (
                   <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
                 ) : (
-                  <RowGlyph kind={row.type} />
+                  <RowGlyph kind={rowGlyph(row)} />
                 )}
                 <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
@@ -676,6 +764,18 @@ export function NewTabScreen(props: Props) {
             <span>{nt("create.chat")}</span>
           </button>
         </div>
+      )}
+      {props.widgets && (
+        <WidgetCards
+          sessions={snapshot.sessions}
+          projects={props.projects ?? []}
+          {...(askFolder ? { folder: askFolder } : {})}
+          {...(props.cwd ? { inherited: props.cwd } : {})}
+          attention={!allChats}
+          {...(props.machineName ? { machineName: props.machineName } : {})}
+          onProject={pickProject}
+          onOpen={openCard}
+        />
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
@@ -740,9 +840,17 @@ function rowKey(row: ScreenRow): string {
       return `open:${row.url}`;
     case "workspace":
       return `workspace:${row.id}`;
+    case "create":
+      return `create:${row.kind}`;
     default:
       return row.type;
   }
+}
+
+/// A create row draws its button's icon; the others their type's.
+function rowGlyph(row: ScreenRow) {
+  if (row.type !== "create") return row.type;
+  return row.kind === "chat" ? "agent" : row.kind;
 }
 
 /// A tab's or visited page's favicon (cx-d0d.8): it takes the glyph's place when the host sent one.
@@ -763,6 +871,8 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
     case "tab":
     case "workspace":
       return row.title;
+    case "create":
+      return nt(`create.${row.kind}`);
   }
 }
 
@@ -795,5 +905,7 @@ function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
       return t("newTabPage.row.tab");
     case "history":
       return t("newTabPage.row.history");
+    case "create":
+      return t("newTabPage.row.open");
   }
 }

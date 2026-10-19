@@ -1,12 +1,15 @@
 /* The composer's attachment row (Composer.tsx AttachmentChip), laid out like a native chat composer:
-   the row sits inside the composer at the text's own inset, the attachments keep a gap between them
-   and above the text, and each thumbnail's corners nest in the composer's (inner radius = the
-   composer's radius minus the inset). The row is its own band above the prompt, so the caret never
+   the row sits inside the composer at the text's own side inset and close under its top, the
+   attachments keep a small gap between them and above the text (Leo 2026-10-18: compact, like the
+   Claude desktop composer's 64 px tiles), and each thumbnail's radius is the composer's minus the
+   side inset. The row is its own band above the prompt, so the caret never
    draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
    the chip is hovered or focused. Theme tokens only. */
 .acpmux-composer-box {
   --acpmux-attach-inset: 16px;
-  --acpmux-attach-gap: 8px;
+  --acpmux-attach-top: 8px;
+  --acpmux-attach-gap: 6px;
+  --acpmux-attach-height: 64px;
   --acpmux-attach-radius: max(4px, calc(var(--acpmux-composer-radius, 22px) - var(--acpmux-attach-inset)));
 }
 .acpmux-attachments {
@@ -20,12 +23,20 @@
   align-items: center;
   gap: var(--acpmux-attach-gap);
   margin: 0;
-  /* The text's inset on every side but the bottom; the field's own 15px top inset
-     (markdownField.css, which also places the placeholder) is the gap to the text. */
-  padding: var(--acpmux-attach-inset) var(--acpmux-attach-inset) 0;
+  /* The text's side inset and a short top one; the field below drops its own top inset to the gap
+     (the rule after this one), so the text starts just under the strip. */
+  padding: var(--acpmux-attach-top) var(--acpmux-attach-inset) 0;
   border: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+/* Under the strip, the prompt, its placeholder and the shell field (with its glyph) start one gap
+   down instead of the field's own top inset, so entering shell mode still moves nothing. */
+.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-field, .acpmux-shell-field) {
+  padding-top: var(--acpmux-attach-gap);
+}
+.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
+  top: var(--acpmux-attach-gap);
 }
 .acpmux-attachment {
   position: relative;
@@ -35,9 +46,10 @@
   background: var(--agent-control);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
 }
+/* As tall as a few lines of text and as wide as the image's own shape (within bounds), so a wide
+   screenshot shows as itself, not a sliver of its text (Leo, 2026-10-14). */
 .acpmux-attachment-image {
-  width: 56px;
-  height: 56px;
+  height: var(--acpmux-attach-height);
 }
 .acpmux-attachment-open {
   display: block;
@@ -55,8 +67,11 @@
 }
 .acpmux-attachment-image img {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: auto;
+  min-width: 48px;
+  max-width: 128px;
+  /* Its own height, not a percentage, so WebKit sizes the width from the image's shape too. */
+  height: var(--acpmux-attach-height);
   object-fit: cover;
   border-radius: var(--acpmux-attach-radius);
   /* A neutral checker under the image, so a transparent one still reads as a thumbnail. */
@@ -65,10 +80,11 @@
       transparent 0 50%
     )
     0 0 / 8px 8px;
-  /* The hairline edge draws over the image (an outline paints above it), so a screenshot as dark
-     or light as the composer still shows where it ends (Leo, 2026-10-13: dark ones looked missing). */
-  outline: var(--cmux-hairline, 0.5px) solid var(--agent-border-strong);
-  outline-offset: calc(-1 * var(--cmux-hairline, 0.5px));
+  /* The edge draws over the image (an outline paints above it) in the text's color, so a
+     screenshot as dark or light as the composer still shows where it ends (Leo, 2026-10-13 and
+     -14: dark ones looked missing behind a hairline of the border color). */
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
 }
 .acpmux-attachment-file {
   display: flex;
@@ -142,7 +158,7 @@
   color: var(--agent-accent, var(--agent-text));
   /* Part of the sheet drawing: it scales with the sheet, from the body step. */
   font-size: calc(var(--text-body) * 6 / 13);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.03em;
 }
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-mark {
@@ -180,6 +196,8 @@
   border-radius: 12px;
   background: var(--agent-page-bg);
   color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   box-shadow: var(--elevation-2);
 }
 .acpmux-pdf-viewer-bar {
@@ -190,7 +208,8 @@
   padding: 0 10px 0 14px;
   border-bottom: 0.5px solid var(--agent-border);
 }
-.acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; font-weight: var(--weight-emphasis); }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-count { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .acpmux-pdf-viewer-preview {
   display: grid;
   place-items: center;

@@ -308,14 +308,14 @@ def pane_daemon(app, home):
 
 def acpmux_shutdown(app, home):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
+    subprocess.run([app.acpmux, "daemon", "shutdown", "--end-agents"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
 
 
 def cleanup(app, home):
     """The Chief of `home`: its acpmux daemon and router, then brain and owner (documented stop)."""
     acpmux_home = os.path.join(home, "acpmux")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": acpmux_home}, capture_output=True, timeout=30)
+    subprocess.run([app.acpmux, "daemon", "shutdown", "--end-agents"], env={**env, "ACPMUX_HOME": acpmux_home}, capture_output=True, timeout=30)
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(5)

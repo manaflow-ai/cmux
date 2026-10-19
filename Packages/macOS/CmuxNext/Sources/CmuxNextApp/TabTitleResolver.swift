@@ -25,10 +25,11 @@ struct TabTitleResolver {
     /// An incognito browser tab's live title (its daemon record is a placeholder).
     var incognitoTitle: @MainActor (TabModel) -> String?? = { _ in nil }
 
-    /// The app's live sources.
-    init(services: AppServices) {
+    /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
+    /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
+    init(services: AppServices, workspace: WorkspaceHandle? = nil) {
         let agentTabs = services.agentTabs
-        showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0) } ?? false }
+        showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0, workspace: workspace) } ?? false }
         newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, $0) } }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in

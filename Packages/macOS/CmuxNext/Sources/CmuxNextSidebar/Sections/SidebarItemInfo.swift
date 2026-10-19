@@ -28,6 +28,11 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var brand: String?
     /// One emoji the item draws as its glyph (a workspace's emoji icon), before `brand` and `icon`.
     public var emoji: String?
+    /// A workspace's favicon (its page's or the user's stored image), drawn untinted before `emoji`.
+    public var favicon: SidebarFavicon?
+    /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
+    /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
+    public var textOnly = false
     /// An unread dot instead of a count, in every look (What's New after an update).
     public var unreadDot = false
     /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU

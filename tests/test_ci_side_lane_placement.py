@@ -28,6 +28,10 @@ FALLBACK = "blacksmith-6vcpu-macos-26"
 # The GUI suites take the owned pool's gui label, never the generic side label.
 GUI = "glaeda-gui-std-xcode-26.6"
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
+# glaeda#1530: jobs that need a logged-in session but not the console gui token. They take the
+# session label while an online runner carries it, else the gui label exactly as before.
+SESSION = "glaeda-session-std-xcode-26.6"
+SESSION_JOBS = ("daemon-test", "generated-files")
 
 
 def on(name: str, label: str) -> str:
@@ -90,6 +94,53 @@ class Decide(unittest.TestCase):
     def test_route_keeps_side_label_when_any_online_runner_carries_it(self):
         self.assertEqual(placement.route_label(SIDE, [runner("mini-a-glaeda")]), SIDE)
 
+    def test_gui_route_requires_an_online_runner_with_the_gui_label(self):
+        self.assertEqual(placement.gui_route_label(SIDE, []), "")
+        self.assertEqual(placement.gui_route_label(SIDE, None), "")
+        self.assertEqual(placement.gui_route_label(SIDE, [runner("mini-a-glaeda")]), "")
+        self.assertEqual(
+            placement.gui_route_label(SIDE, [runner("mini-a-glaeda", labels=(STD, SIDE, GUI))]),
+            GUI,
+        )
+
+    def test_a_light_side_lane_borrows_the_std_gui_runners(self):
+        # The light minis run no GUI runner, so a light side lane's GUI suites take the std minis'
+        # live GUI label instead of the Blacksmith fallback; a live light GUI label still wins.
+        light_side, light_gui = "glaeda-side-light-xcode-26.6", "glaeda-gui-light-xcode-26.6"
+        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-26.6", light_side))
+        std_gui = runner("mini-a-glaeda-4", labels=(STD, GUI))
+        self.assertEqual(placement.gui_route_label(light_side, [light, std_gui]), GUI)
+        self.assertEqual(placement.gui_route_label(light_side, [light]), "")
+        self.assertEqual(placement.gui_route_label(light_side, [light, runner("mini-a-glaeda-4", labels=(STD, GUI),
+                                                                              status="offline")]), "")
+        live_light = runner("light-b-glaeda-4", labels=("glaeda-light-xcode-26.6", light_gui))
+        self.assertEqual(placement.gui_route_label(light_side, [light, live_light, std_gui]), light_gui)
+
+    def test_session_route_requires_an_online_runner_with_the_session_label(self):
+        gui = runner("mini-a-glaeda-4", labels=(STD, GUI, SESSION))
+        gui_only = runner("mini-a-glaeda-4", labels=(STD, GUI))
+        session = runner("mini-b-glaeda-5", labels=(SESSION,))
+        self.assertEqual(placement.session_route_label(SIDE, None), "")
+        self.assertEqual(placement.session_route_label(SIDE, []), "")
+        self.assertEqual(placement.session_route_label(SIDE, [runner("mini-a-glaeda")]), "")
+        # Before the fleet rollout no runner carries the session label: the gui route, as today.
+        self.assertEqual(placement.session_route_label(SIDE, [gui_only]), GUI)
+        self.assertEqual(placement.session_route_label(
+            SIDE, [gui_only, runner("mini-b-glaeda-5", labels=(SESSION,), status="offline")]), GUI)
+        # Once one online runner carries it, the session jobs take it.
+        self.assertEqual(placement.session_route_label(SIDE, [gui]), SESSION)
+        self.assertEqual(placement.session_route_label(SIDE, [gui_only, session]), SESSION)
+        # A session runner can run them while the console gui runner is offline.
+        self.assertEqual(placement.session_route_label(SIDE, [session]), SESSION)
+        # Light side lanes borrow the std minis' session runners, as they do the gui runners.
+        light_side = "glaeda-side-light-xcode-26.6"
+        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-26.6", light_side))
+        self.assertEqual(placement.session_route_label(light_side, [light, gui]), SESSION)
+        self.assertEqual(placement.session_route_label(light_side, [light, gui_only]), GUI)
+        # Not an owned side label, or an AWS one: no session route.
+        for label in ("", FALLBACK, STD, "glaeda-aws-side-std-xcode-26.6"):
+            self.assertEqual(placement.session_route_label(label, [gui, session]), "", label)
+
     def test_attempt_2_and_later_are_unchanged(self):
         # Attempt 2+ keeps its own route (the workflow's expression sends it to the fallback): no decision.
         idle = [runner(f"mini-{host}-glaeda-3") for host in "abc"]
@@ -124,6 +175,8 @@ class Decide(unittest.TestCase):
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
             self.assertEqual(lines["fallback_jobs"], "")
             self.assertEqual(lines["runner"], SIDE)
+            self.assertEqual(lines["gui_runner"], "")
+            self.assertEqual(lines["session_runner"], "")
             self.assertEqual(lines["watch"], "true")
             # Every job on the fallback: no owned job for the rescue to watch.
             output.write_text("")
@@ -140,6 +193,21 @@ class Decide(unittest.TestCase):
                 placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual((lines["fallback_jobs"], lines["runner"], lines["watch"]), ("", "", "true"))
+            self.assertEqual((lines["gui_runner"], lines["session_runner"]), ("", ""))
+            # A live gui runner without the session label: session_runner is the gui label.
+            output.write_text("")
+            fake.runners.side_effect = None
+            fake.runners.return_value = [runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
+            with mock.patch.object(placement.pool, "GitHub", return_value=fake):
+                placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual((lines["gui_runner"], lines["session_runner"]), (GUI, GUI))
+            output.write_text("")
+            fake.runners.return_value = [runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI, SESSION))]
+            with mock.patch.object(placement.pool, "GitHub", return_value=fake):
+                placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual((lines["gui_runner"], lines["session_runner"]), (GUI, SESSION))
 
 
 class CmuxNextWiring(unittest.TestCase):
@@ -161,7 +229,8 @@ class CmuxNextWiring(unittest.TestCase):
                                  event={"pull_request": {"head": {"repo": {"full_name": head}},
                                                          "labels": [{"name": "full-ci"}]}})
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner,
-                                                    "gui_runner": GUI if runner else ""}
+                                                    "gui_runner": GUI if runner else "",
+                                                    "session_runner": GUI if runner else ""}
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
@@ -207,16 +276,50 @@ class CmuxNextWiring(unittest.TestCase):
                                                                  triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
-    def test_a_bot_attempt_4_leaves_the_placement_label_for_blacksmith(self):
-        # A re-run keeps attempt 1's placement output, so bot attempt 3 stays on
-        # the minis; the rescue re-runs a refusal there as attempt 4, which must
-        # leave the minis (#18147, 2026-10-07 02:23Z).
+    def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
+        jobs = self.workflow()["jobs"]
+        context = self.context(runner=STD)
+        # With no online gui or session runner, placement writes both empty.
+        context["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="")
+        for name in GUI_JOBS:
+            self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+
+    def test_session_jobs_take_a_live_session_label_and_otherwise_keep_the_gui_label(self):
         jobs = self.workflow()["jobs"]
         bot = "github-actions[bot]"
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), on(name, STD))
+                # No online session runner (placement wrote the gui label), or a trusted base whose
+                # placement predates the output: every job keeps today's label.
+                context = self.context(runner=STD)
+                self.assertEqual(evaluate(runs_on, context), on(name, STD))
+                del context["needs"][self.PLACEMENT]["outputs"]["session_runner"]
+                self.assertEqual(evaluate(runs_on, context), on(name, STD))
+                # A live session label moves only the session jobs.
+                live = self.context(runner=STD)
+                live["needs"][self.PLACEMENT]["outputs"]["session_runner"] = SESSION
+                self.assertEqual(evaluate(runs_on, live), SESSION if name in SESSION_JOBS else on(name, STD))
+                # The rescue's attempt 3 still drops the placement for Blacksmith.
+                live["github"].update(run_attempt="3", triggering_actor=bot)
+                self.assertEqual(evaluate(runs_on, live), FALLBACK)
+                # No placement (a person's re-run): the session label only once CI_SESSION_LABEL is 1.
+                rerun = self.context("2")
+                rerun["needs"][self.PLACEMENT] = {"outputs": {}}
+                self.assertEqual(evaluate(runs_on, rerun), on(name, SIDE))
+                rerun["vars"]["CI_SESSION_LABEL"] = "1"
+                self.assertEqual(evaluate(runs_on, rerun), SESSION if name in SESSION_JOBS else on(name, SIDE))
+                self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+
+    def test_a_bot_attempt_3_leaves_the_placement_label_for_blacksmith(self):
+        # A rescue attempt 3 must drop the stale placement output and use the
+        # hosted fallback; later bot attempts remain hosted as well.
+        jobs = self.workflow()["jobs"]
+        bot = "github-actions[bot]"
+        for name in JOBS:
+            runs_on = jobs[name]["runs-on"]
+            with self.subTest(job=name):
+                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
                 # A person's re-run stays minis-first at any attempt.
