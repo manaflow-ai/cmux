@@ -14,6 +14,7 @@ extension TerminalNotificationStore {
         subtitle: String = "",
         origin: TerminalNotificationOrigin = .local
     ) async {
+        guard !GhosttyDesktopNotificationRequest.isMachinePayload(title: title, body: body) else { return }
         guard let appDelegate = AppDelegate.shared,
               let initialTarget = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
