@@ -104,6 +104,7 @@ import Foundation
     /// Applies a pending intent again after a daemon apply. A created tab the daemon already
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
+        if pending.closeWhenCreated { return CancelledCreation.hide(pending, in: store) }
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil { return nil }
         // The daemon's pane under the split's public pane id replaces the provisional one
         // (ProvisionalSplit.apply places it until the daemon's layout does).
@@ -143,6 +144,8 @@ import Foundation
             guard let tab = store.tabsBySurface[surface] else { return }
             tab.update(previous)
             if let pane = store.pane(holding: tab) { store.index.insert(tab, in: pane) }
+        case .hiddenTab, .hiddenPane:
+            CancelledCreation.unhide(undo, in: store)
         case .splitPane(let screen, let layout, let columns, let pane):
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
         case .createdTab(let surface, let pane):

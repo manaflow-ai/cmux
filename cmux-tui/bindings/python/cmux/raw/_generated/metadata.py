@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb'
+IR_SHA256 = '84cd4c3f33af065e3de184ef0e7620f0a5ee2060ef94477fadee1b71ca92da36'
 
 
 @dataclass(frozen=True)
@@ -638,6 +638,18 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
             'limit': CommandFieldMetadata(None, None),
             'root': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-typing': CommandMetadata(
+        'cloud-conversation-typing',
+        'local-admin',
+        12,
+        'cloud-conversation-typing-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'on': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-conversation-unsubscribe': CommandMetadata(

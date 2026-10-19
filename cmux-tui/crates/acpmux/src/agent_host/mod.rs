@@ -369,7 +369,7 @@ pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<Unrea
                     .get("socket")
                     .and_then(Value::as_str)
                     .map(Path::new)
-                    .is_some_and(|path| expected_socket(path))
+                    .is_some_and(&expected_socket)
         });
         let reason = match serde_json::from_slice::<HostRecord>(&bytes) {
             Ok(r)
