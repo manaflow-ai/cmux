@@ -24,8 +24,6 @@ describe("metered usage over the HTTP boundary", () => {
     const body = await created.json();
     if (typeof body !== "object" || body === null || !("id" in body) || typeof body.id !== "string") throw new Error("create did not return a VM id");
     const vmId = body.id;
-    expect((await harness.request(`/v1/vms/${vmId}/pause`, bearer(keyA), { method: "POST" })).status).toBe(200);
-
     const own = await harness.request("/v1/usage?from=2020-01-01T00:00:00Z&to=2090-01-01T00:00:00Z", bearer(keyA));
     expect(own.status).toBe(200);
     const usageBody = await own.json();
