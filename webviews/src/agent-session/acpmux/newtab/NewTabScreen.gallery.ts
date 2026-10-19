@@ -294,7 +294,11 @@ export default agentPaneEntry({
         // The card settled: its fade-in ended, so the capture shows the solid card, not a ghost.
         await ctx.waitFor(() => {
           const card = ctx.document.querySelector<HTMLElement>(".nt-hovercard");
-          return !!card && !card.hasAttribute("data-starting-style") && ctx.document.defaultView?.getComputedStyle(card).opacity === "1";
+          return (
+            !!card &&
+            !card.hasAttribute("data-starting-style") &&
+            ctx.document.defaultView?.getComputedStyle(card).opacity === "1"
+          );
         });
         const row = ctx.document.querySelector(".nt-suggest-chat .nt-stage-text")!.getBoundingClientRect();
         const card = ctx.document.querySelector(".nt-hovercard")!.getBoundingClientRect();
