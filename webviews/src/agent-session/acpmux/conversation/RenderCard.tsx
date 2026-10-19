@@ -299,7 +299,8 @@ export function RenderCard({
           className={panel ? "acpmux-artifact-frame" : "acpmux-render-card-frame"}
           src={live && !canRender() ? (devServer() ? devRenderFrameURL(location.href) : undefined) : RENDER_FRAME_URL}
           srcDoc={live && !canRender() && !devServer() ? LIVE_RENDER_FRAME_DOC : undefined}
-          title={title}
+          // The name for assistive tech; `title` would also float as a hover tooltip over the render.
+          aria-label={title}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
           style={

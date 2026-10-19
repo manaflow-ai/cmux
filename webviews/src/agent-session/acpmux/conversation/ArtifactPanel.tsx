@@ -245,7 +245,7 @@ function RunningFrame({ html, title }: { html: string; title: string }) {
       ref={frame}
       className="acpmux-artifact-frame"
       src={RENDER_FRAME_URL}
-      title={title}
+      aria-label={title}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
     />
