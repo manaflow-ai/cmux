@@ -247,7 +247,11 @@ fn a_manual_restart_waits_for_the_old_host_of_a_kept_process_exit() {
         .find(|(_, record)| record.terminal_id == terminal_id)
         .expect("the restarted terminal has no host record");
     assert_eq!(new_record.incarnation, new_incarnation);
-    assert_ne!(new_record.host_pid, old_record.host_pid, "the old host serves the restart");
+    // A new host incarnation (a shared host may run it in the same process).
+    assert_ne!(
+        new_record.host_start_nonce, old_record.host_start_nonce,
+        "the old host serves the restart"
+    );
     let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0]["cause"], "user_restart");
