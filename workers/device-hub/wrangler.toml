@@ -26,9 +26,10 @@ enabled = true
 invocation_logs = false
 
 [vars]
-# Stack Auth project accepted by /v1/auth/stack (cmux prod, same as cmux iOS).
-STACK_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
-# Comma list of Stack user ids on the paid plan (v1 plan gating).
+# Stack Auth projects accepted by /v1/auth/stack (comma list; STACK_PROJECT_ID
+# is the fallback when this is empty). Production: cmux prod only.
+STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+# Comma list of paid hub user ids, each "<stackProjectId>:<stackUserId>".
 PAID_USER_IDS = ""
 # Optional public origin used in signalURL (e.g. https://hub.example). Empty:
 # derived from the request URL.
@@ -62,7 +63,8 @@ enabled = true
 invocation_logs = false
 
 [env.dev.vars]
-STACK_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+# cmux prod and the Stack development project used by DEBUG/tagged builds.
+STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845e-4ce5b0cd9895"
 PAID_USER_IDS = ""
 PUBLIC_BASE_URL = ""
 

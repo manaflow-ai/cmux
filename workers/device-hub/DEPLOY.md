@@ -51,14 +51,17 @@ invalidates tickets that are less than 60 s old. Neither touches stored data.
 
 ### Paid users
 
-`PAID_USER_IDS` is a plain var (comma-separated Stack user ids). Set it in
-`[env.dev.vars]` and redeploy, or pass it for one deploy:
+`PAID_USER_IDS` is a plain var: a comma list of hub user ids, each
+`<stackProjectId>:<stackUserId>` (the `userId` that `/v1/auth/stack` and
+`/v1/me` return). Set it in `[env.dev.vars]` and redeploy.
 
-```bash
-npx wrangler deploy --env dev --var PAID_USER_IDS:<id1>,<id2>
-```
+### Stack projects
 
-A later deploy without `--var` resets it to the value in `wrangler.toml`.
+`STACK_PROJECT_IDS` lists the Stack Auth projects whose tokens the hub
+accepts. Dev accepts cmux prod (`9790718f-…`) and the Stack development
+project (`454ecd03-…`) that DEBUG/tagged builds sign in to; production
+accepts prod only. Users are keyed by project, so the same Stack user id in
+two projects is two hub users.
 
 ## Checks before a deploy
 

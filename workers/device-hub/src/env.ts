@@ -1,7 +1,9 @@
 export interface Env {
   USER_DO: DurableObjectNamespace;
   SESSION_DO: DurableObjectNamespace;
-  /** Stack Auth project accepted by /v1/auth/stack. */
+  /** Stack Auth projects accepted by /v1/auth/stack (comma list). */
+  STACK_PROJECT_IDS?: string;
+  /** Fallback single project when STACK_PROJECT_IDS is empty. */
   STACK_PROJECT_ID?: string;
   /** Override for tests and self-hosted Stack; default https://api.stack-auth.com. */
   STACK_API_URL?: string;

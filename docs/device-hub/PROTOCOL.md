@@ -23,7 +23,13 @@ host-signed allow lists are later work.
 ## Identity
 
 - **Account**: the app's Stack Auth access token is exchanged once:
-  `POST /v1/auth/stack {token}` → `{session, userId, expiresAt}`. `session` is a
+  `POST /v1/auth/stack {token}` → `{session, userId, stackUserId, projectId,
+  expiresAt}`. The hub accepts tokens from the Stack projects in
+  `STACK_PROJECT_IDS` (dev: cmux prod and the Stack development project used by
+  DEBUG/tagged builds; production: prod only). The project is the token's
+  `aud`; it must name exactly one accepted project, and the token is verified
+  against that project's JWKS and issuer. `userId` is `"<projectId>:<sub>"`, so
+  the same Stack user in two projects is two hub users. `session` is a
   JWT (ES256, `iss: device-hub`, `sub: userId`, 1 h). Send it as
   `Authorization: Bearer <session>` on every call.
 - **Device key**: each device has two P-256 keys in its Secure Enclave

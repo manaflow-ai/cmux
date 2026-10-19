@@ -1,7 +1,7 @@
 import { signEs256, verifyEs256Jws } from "./crypto";
 import { ORIGIN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound, unauthorized } from "./errors";
-import { STACK_API, verifyStackAccessToken } from "./stack";
+import { STACK_API, allowedStackProjects, verifyStackAccessToken } from "./stack";
 
 // The main module may export only handlers and Durable Object classes.
 
@@ -33,11 +33,13 @@ async function authStack(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
   if (typeof body.token !== "string" || !body.token) throw badRequest("token is required");
   const now = Date.now();
-  const userId = await verifyStackAccessToken(body.token, env.STACK_PROJECT_ID, env.STACK_API_URL || STACK_API, now);
+  const { projectId, sub } = await verifyStackAccessToken(body.token, allowedStackProjects(env), env.STACK_API_URL || STACK_API, now);
+  // Namespaced so users of different Stack projects (prod, dev) never share a User DO.
+  const userId = `${projectId}:${sub}`;
   const iat = Math.floor(now / 1000);
   const exp = iat + SESSION_TTL_S;
   const session = await signEs256(env.SESSION_KEY, { iss: SESSION_ISSUER, sub: userId, iat, exp });
-  return json({ session, userId, expiresAt: exp * 1000 });
+  return json({ session, userId, stackUserId: sub, projectId, expiresAt: exp * 1000 });
 }
 
 /** Verifies `Authorization: Bearer <session>` and returns the user id. */
