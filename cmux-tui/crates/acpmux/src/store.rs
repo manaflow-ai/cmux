@@ -842,4 +842,18 @@ mod permission_tests {
         let store = LocalStore::new(root, 64 * 1024).unwrap();
         assert!(store.list().is_err());
     }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn local_store_refuses_a_state_root_with_an_extended_acl() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        let status = std::process::Command::new("/bin/chmod")
+            .args(["+a", "group:staff allow read", root.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(LocalStore::new(root, 64 * 1024).is_err());
+    }
 }
