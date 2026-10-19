@@ -1,16 +1,26 @@
-//! Whether a harness session is live outside acpmux: a process whose command
-//! line names it (`claude --resume <id>`, `codex resume <id>`,
-//! `sr claude proxy --resume <id>`), or a transcript written in the last
-//! minutes (a harness started without the id in its arguments). Adopting
-//! such a chat runs two harnesses on one conversation, which forks it.
+//! Whether a harness session is open outside acpmux, by the holder the
+//! harness itself records, never by guessing from what else runs:
+//! - Codex: its thread writer lock (`<CODEX_HOME>/thread-writer-locks/<id>.lock`,
+//!   an exclusive `flock` a writer holds while it runs). The kernel releases it
+//!   when the writer exits, so a `codex exec` that finished holds nothing,
+//!   though its lock file stays on disk.
+//! - Claude Code: its session registry (`<CLAUDE_CONFIG_DIR>/sessions/<pid>.json`,
+//!   pid, session id, start time). Claude Code removes the entry when it quits;
+//!   a crash leaves it, so an entry counts only while its pid runs and that
+//!   process started before the entry (a reused pid is another process).
+//! - OpenCode records no holder; a process whose command line names the
+//!   session is the only signal (`named_use`, cx-t2sqm.2).
+//!
+//! A transcript written moments ago is no holder: the run that wrote it may
+//! have ended (hq#2569 item 7: every finished CLI session opened behind "still
+//! open in another process").
+//!
+//! Adopting a chat that is open elsewhere runs two harnesses on one
+//! conversation, which forks it.
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::time::{Duration, SystemTime};
-
-/// A transcript written this recently belongs to a running harness.
-pub const RECENT_WRITE: Duration = Duration::from_secs(120);
 
 /// One row of the process table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,13 +30,15 @@ pub struct Proc {
     pub command: String,
 }
 
-/// How a session is live elsewhere.
+/// How a session is open elsewhere.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LiveUse {
-    /// A process outside acpmux whose command line names the session.
+    /// A process outside acpmux whose command line names the session (OpenCode).
     Process { pid: u32, command: String },
-    /// Its transcript was written `ago` ago.
-    RecentWrite { ago: Duration },
+    /// A running Claude Code registered the session (`sessions/<pid>.json`).
+    Registered { pid: u32 },
+    /// A running Codex holds the thread's writer lock.
+    WriterLock,
 }
 
 impl LiveUse {
@@ -41,9 +53,8 @@ impl LiveUse {
             Self::Process { pid, command } => {
                 format!("is open in another process (pid {pid}: {command})")
             }
-            Self::RecentWrite { ago } => {
-                format!("was written {}s ago by a harness outside cmux", ago.as_secs())
-            }
+            Self::Registered { pid } => format!("is open in another process (pid {pid})"),
+            Self::WriterLock => "is open in another process (its writer lock is held)".to_owned(),
         };
         format!("{family} session {id} {held}; {ways}")
     }
@@ -55,11 +66,118 @@ impl LiveUse {
             Self::Process { pid, command } => {
                 json!({"signal": "process", "pid": pid, "command": command, "canFork": can_fork})
             }
-            Self::RecentWrite { ago } => {
-                json!({"signal": "recentWrite", "agoSeconds": ago.as_secs(), "canFork": can_fork})
+            Self::Registered { pid } => {
+                json!({"signal": "registry", "pid": pid, "canFork": can_fork})
             }
+            Self::WriterLock => json!({"signal": "writerLock", "canFork": can_fork}),
         }
     }
+}
+
+/// The holder of `family` session `id` in the harness store at `store`
+/// (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), if one still runs.
+pub fn holder(family: &str, id: &str, store: &Path) -> Option<LiveUse> {
+    match family {
+        "claude" => claude_holder(store, id),
+        "codex" => codex_holder(store, id),
+        _ => None,
+    }
+}
+
+/// A running Claude Code that registered session `id` in `<config>/sessions`.
+fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
+    std::fs::read_dir(config.join("sessions")).ok()?.flatten().find_map(|entry| {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            return None;
+        }
+        let record: Value = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
+        if record["sessionId"].as_str() != Some(id) {
+            return None;
+        }
+        let pid = u32::try_from(record["pid"].as_u64()?).ok()?;
+        registered_runs(pid, record["startedAt"].as_u64())
+            .then_some(LiveUse::Registered { pid })
+    })
+}
+
+/// Whether the process a registry entry names still runs: `pid` exists and,
+/// where its start time can be read, started no later than the entry's
+/// `startedAt` (milliseconds since the epoch), so a pid reused by a later
+/// process does not stand in for the ended one.
+fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
+    /// Clock granularity between the process start and the time it records.
+    const SLACK_MS: u64 = 1_000;
+    if !pid_exists(pid) {
+        return false;
+    }
+    match (started_at_ms, pid_start_ms(pid)) {
+        (Some(recorded), Some(started)) => started <= recorded.saturating_add(SLACK_MS),
+        _ => true,
+    }
+}
+
+#[cfg(unix)]
+fn pid_exists(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    if pid <= 1 {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
+    unsafe { libc::kill(pid, 0) == 0 }
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn pid_exists(_pid: u32) -> bool {
+    false
+}
+
+/// When `pid` started, in milliseconds since the epoch (macOS).
+#[cfg(target_os = "macos")]
+fn pid_start_ms(pid: u32) -> Option<u64> {
+    let (sec, usec) = crate::cua_v2::start_time(libc::pid_t::try_from(pid).ok()?)?;
+    Some(sec.saturating_mul(1000).saturating_add(usec / 1000))
+}
+
+/// Elsewhere the registry's pid decides alone.
+#[cfg(not(target_os = "macos"))]
+fn pid_start_ms(_pid: u32) -> Option<u64> {
+    None
+}
+
+/// A running Codex that holds thread `id`'s writer lock. Probed as Codex
+/// probes it before it publishes a thread: under the home's coordination lock
+/// (every writer takes it before its thread lock), a non-blocking exclusive
+/// `flock` on the thread lock, released at once. No lock file: no writer.
+#[cfg(unix)]
+fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
+    use std::os::fd::AsRawFd;
+    let dir = home.join("thread-writer-locks");
+    let thread = std::fs::File::open(dir.join(format!("{id}.lock"))).ok()?;
+    let coordination = std::fs::File::open(dir.join(".coordination.lock")).ok();
+    if let Some(file) = &coordination {
+        // A writer holds it only while it opens its thread lock; wait briefly, never forever.
+        for _ in 0..50 {
+            // SAFETY: flock on an open descriptor this function owns.
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    // SAFETY: as above.
+    let held = unsafe { libc::flock(thread.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
+        && std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK);
+    // Closing both descriptors (end of scope) releases what was taken.
+    drop(thread);
+    drop(coordination);
+    held.then_some(LiveUse::WriterLock)
+}
+
+#[cfg(not(unix))]
+fn codex_holder(_home: &Path, _id: &str) -> Option<LiveUse> {
+    None
 }
 
 /// The process table (`ps`); empty when it cannot be read.
@@ -90,7 +208,9 @@ pub fn parse_ps(text: &str) -> Vec<Proc> {
 
 /// A process outside acpmux that names session `id` on its command line.
 /// The only liveness signal for a store every session writes (OpenCode's
-/// database), where a recent write says nothing about this session.
+/// database), which records no holder. Processes under an `acpmux` process
+/// (the daemon, its agent hosts and their harnesses) are acpmux's own and
+/// never count.
 pub fn named_use(id: &str, procs: &[Proc]) -> Option<LiveUse> {
     let ours = acpmux_tree(procs);
     let p = procs.iter().find(|p| {
@@ -99,58 +219,6 @@ pub fn named_use(id: &str, procs: &[Proc]) -> Option<LiveUse> {
     })?;
     let command: String = p.command.chars().take(120).collect();
     Some(LiveUse::Process { pid: p.pid, command })
-}
-
-/// How session `id` is live outside acpmux, if it is. Processes under an
-/// `acpmux` process (the daemon, its agent hosts and their harnesses) are
-/// acpmux's own and never count.
-/// `cwd`: the conversation's recorded folder; a recent write counts as live only while a harness
-/// runs in it (or, when the folders cannot be read, while any harness runs).
-pub fn live_use(
-    id: &str,
-    transcript: &Path,
-    cwd: Option<&Path>,
-    procs: &[Proc],
-    now: SystemTime,
-) -> Option<LiveUse> {
-    if let Some(named) = named_use(id, procs) {
-        return Some(named);
-    }
-    let ours = acpmux_tree(procs);
-    // A recent write means live only while a harness process (outside acpmux) runs at all: a
-    // transcript touched minutes ago by a process that has ended is not open anywhere (the
-    // freshly written chat showed "still open in another process", Lawrence P0 2026-10-11).
-    let harnesses: Vec<u32> = procs
-        .iter()
-        .filter(|p| {
-            !ours.contains(&p.pid) && {
-                let command = p.command.to_ascii_lowercase();
-                command.split_whitespace().take(2).any(|t| {
-                    Path::new(t)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.contains("claude") || n.contains("codex"))
-                })
-            }
-        })
-        .map(|p| p.pid)
-        .collect();
-    // Only a harness in the conversation's folder can hold it open (another chat's Claude Code
-    // does not). Folders that cannot be read count every harness (fail closed).
-    let harness_runs = match cwd {
-        Some(cwd) if !harnesses.is_empty() => match process_cwds(&harnesses) {
-            Some(cwds) => cwds.values().any(|dir| same_dir(dir, cwd)),
-            None => true,
-        },
-        _ => !harnesses.is_empty(),
-    };
-    // An empty process list (`ps` failed) keeps the recent-write rule: fail closed.
-    if !harness_runs && !procs.is_empty() {
-        return None;
-    }
-    let written = std::fs::metadata(transcript).and_then(|m| m.modified()).ok()?;
-    let ago = now.duration_since(written).unwrap_or_default();
-    (ago < RECENT_WRITE).then_some(LiveUse::RecentWrite { ago })
 }
 
 /// Every pid in the subtree of a process whose executable is `acpmux`.
@@ -174,31 +242,4 @@ fn acpmux_tree(procs: &[Proc]) -> HashSet<u32> {
         }
     }
     tree
-}
-
-/// The working directory of each of `pids` (`lsof -a -d cwd -Fn -p ...`); None when lsof fails.
-fn process_cwds(pids: &[u32]) -> Option<HashMap<u32, std::path::PathBuf>> {
-    let list = pids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
-    let out = std::process::Command::new("lsof")
-        .args(["-b", "-w", "-n", "-a", "-d", "cwd", "-Fn", "-p", &list])
-        .output()
-        .ok()?;
-    let mut cwds = HashMap::new();
-    let mut pid = None;
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
-        if let Some(p) = line.strip_prefix('p') {
-            pid = p.parse::<u32>().ok();
-        } else if let (Some(n), Some(p)) = (line.strip_prefix('n'), pid) {
-            cwds.insert(p, std::path::PathBuf::from(n));
-        }
-    }
-    (!cwds.is_empty()).then_some(cwds)
-}
-
-fn same_dir(a: &Path, b: &Path) -> bool {
-    a == b
-        || std::fs::canonicalize(a)
-            .ok()
-            .zip(std::fs::canonicalize(b).ok())
-            .is_some_and(|(x, y)| x == y)
 }
