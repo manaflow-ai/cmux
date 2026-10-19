@@ -5504,6 +5504,7 @@ function AcpmuxPane() {
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
+              {...(newTab.widgets ? { widgets: true } : {})}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
