@@ -22,6 +22,11 @@
       "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Frameworks/MediaRemoteAdapter.framework/*",
+      "what": "ungive/mediaremote-adapter (Objective-C, vendor/mediaremote-adapter; bundle-mediaremote-adapter.sh), loaded by /usr/bin/perl for Now Playing",
+      "notices": ["section:manual-mediaremote-adapter-now-playing"]
+    },
+    {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
       "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
       "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
