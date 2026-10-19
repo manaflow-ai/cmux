@@ -6505,8 +6505,11 @@ jobs:
       - name: Launch on macOS 15 and open each tab kind
         run: |
           set -euo pipefail
-          home="$RUNNER_TEMP/scratch-home"; mkdir -p "$home"
-          HOME="$home" OS_SMOKE_LAUNCH_DEADLINE=180 OS_SMOKE_TAB_DEADLINE=120 \
+          # The runner's own HOME, as on the Tart VMs: a release build keeps
+          # Chromium's cookie key in the login keychain, and an empty HOME has
+          # none (the key's first write waits on a dialog; no page loads).
+          # The probe gives the app a scratch config of its own.
+          OS_SMOKE_LAUNCH_DEADLINE=180 OS_SMOKE_TAB_DEADLINE=120 \
             /usr/bin/python3 -I scripts/cmux-next/os-smoke/guest-probe.py "$APP" "$OUT/probe"
       - name: Upload screenshots, crash reports and logs
         if: always()
