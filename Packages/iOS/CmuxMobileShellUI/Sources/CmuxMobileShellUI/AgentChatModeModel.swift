@@ -273,13 +273,17 @@ final class AgentChatModeModel {
         guard let sessionID = selectedSessionID,
               let source,
               renamingSessionIDs.insert(sessionID).inserted else { return }
-        defer { renamingSessionIDs.remove(sessionID) }
+        let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration {
+                renamingSessionIDs.remove(sessionID)
+            }
+        }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             errorMessage = "Enter a name for this session."
             return
         }
-        let generation = sourceGeneration
         do {
             try await source.rename(sessionID: sessionID, title: trimmed)
             guard !Task.isCancelled, generation == sourceGeneration else { return }
@@ -300,8 +304,12 @@ final class AgentChatModeModel {
         guard let sessionID = selectedSessionID,
               let source,
               deletingSessionIDs.insert(sessionID).inserted else { return }
-        defer { deletingSessionIDs.remove(sessionID) }
         let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration {
+                deletingSessionIDs.remove(sessionID)
+            }
+        }
         do {
             try await source.delete(sessionID: sessionID)
             guard !Task.isCancelled, generation == sourceGeneration else { return }
@@ -319,8 +327,12 @@ final class AgentChatModeModel {
         guard let sessionID = selectedSessionID,
               let source,
               exportingSessionIDs.insert(sessionID).inserted else { return nil }
-        defer { exportingSessionIDs.remove(sessionID) }
         let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration {
+                exportingSessionIDs.remove(sessionID)
+            }
+        }
         do {
             let transcript = try await source.exportTranscript(sessionID: sessionID)
             guard !Task.isCancelled, generation == sourceGeneration else { return nil }
@@ -358,8 +370,12 @@ final class AgentChatModeModel {
         guard let sessionID = selectedSessionID,
               let source,
               launchingSessionIDs.insert(sessionID).inserted else { return }
-        defer { launchingSessionIDs.remove(sessionID) }
         let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration {
+                launchingSessionIDs.remove(sessionID)
+            }
+        }
         do {
             let result: ChatSessionLaunchResult
             switch action {
@@ -618,6 +634,9 @@ final class AgentChatModeModel {
         retryingSessionIDs = []
         regeneratingSessionIDs = []
         launchingSessionIDs = []
+        renamingSessionIDs = []
+        deletingSessionIDs = []
+        exportingSessionIDs = []
         pendingLaunchSelections = [:]
         updatingControlsSessionIDs = []
         reviewingMessageKeys = []
@@ -760,11 +779,15 @@ final class AgentChatModeModel {
         guard let sessionID = selectedSessionID, let source,
               selectedSession?.state != .ended,
               updatingControlsSessionIDs.insert(sessionID).inserted else { return }
-        defer { updatingControlsSessionIDs.remove(sessionID) }
+        let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration {
+                updatingControlsSessionIDs.remove(sessionID)
+            }
+        }
         // Invalidate a controls read that may have started during selection.
         // The host acknowledgement below is newer than that snapshot.
         controlsRequestTokens[sessionID, default: 0] &+= 1
-        let generation = sourceGeneration
         do {
             let acknowledged = try await source.updateControls(controls, sessionID: sessionID)
             guard !Task.isCancelled, generation == sourceGeneration else { return }
