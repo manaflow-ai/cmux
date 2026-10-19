@@ -202,6 +202,15 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                 bash.run(" true")
                 bash.run("gh pr close 456")
                 bash.run(" true")
+                # Re-enabling reporting must not replay commands run while disabled.
+                for flag in ("CMUX_NO_PR_WATCH", "CMUX_NO_GIT_WATCH"):
+                    bash.run(f"export {flag}=1")
+                    bash.run("gh pr merge 999")
+                    bash.run("gh pr close 456")
+                    bash.run(f" unset {flag}")
+                bash.run("unset CMUX_SOCKET_PATH")
+                bash.run("gh pr close 456")
+                bash.run(f" export CMUX_SOCKET_PATH={shlex.quote(str(socket_path))}")
                 bash.run("gh pr merge 123")
                 bash.run(" true")
                 bash.run("cd ..")
