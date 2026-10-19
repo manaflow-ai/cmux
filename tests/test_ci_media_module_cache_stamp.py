@@ -12,9 +12,14 @@ The build step now runs scripts/ci/media_module_cache_stamp.py around each
 reload.sh: `clear` removes the precompiled module dirs when the binary pins
 differ from the stamp of the tag's last good build, and `record` stamps it.
 
+Each tour now builds in the slot it claims on the Mac (scripts/ci/
+media_tag_lock.py claim, DerivedData/cmux-ci-media-slot<N>-{base,head}), reused
+by whichever pull request tours next, so each slot dir has its own stamp and a
+pin change clears each slot's modules on that slot's own next build.
+
 This checks the script on a fake source tree and DerivedData, then runs the
-workflow's build step twice with a stand-in reload.sh that fails like Xcode
-did when a module precompiled from an older pin is still there.
+workflow's build step with a stand-in reload.sh that fails like Xcode did
+when a module precompiled from an older pin is still there.
 """
 
 import os
@@ -183,24 +188,38 @@ def scenario_workflow_step():
             GITHUB_WORKSPACE=workspace,
             RUNNER_TEMP=runner_temp,
             GITHUB_OUTPUT=os.path.join(tmp, "output"),
-            TOUR_TAG="ci-media-pr-9",
         )
 
-        def tour():
-            result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace, env=env,
-                                    capture_output=True, text=True)
+        def tour(slot=0):
+            result = subprocess.run(["bash", "-c", step["run"]], cwd=workspace,
+                                    env=dict(env, TOUR_TAG=f"ci-media-slot{slot}"), capture_output=True, text=True)
             print(result.stdout + result.stderr)
             return result
 
+        def head_pin(slot=0):
+            pcm = os.path.join(home, f"Library/Developer/Xcode/DerivedData/cmux-ci-media-slot{slot}-head",
+                               MODULES, "GhosttyNextKit.pcm")
+            with open(pcm) as handle:
+                return handle.read().strip()
+
         _check(tour().returncode == 0, "a cold tour builds base and head")
         _check(tour().returncode == 0, "a warm tour with the same pins builds")
-        # The pull request's next head moves the GhosttyNextKit pin.
+        # The next pull request toured in this slot moves the GhosttyNextKit pin.
         set_pin(workspace, PIN_B)
         _check(tour().returncode == 0, "a warm tour after a GhosttyNextKit pin change builds")
-        pcm = os.path.join(home, "Library/Developer/Xcode/DerivedData/cmux-ci-media-pr-9-head",
-                           MODULES, "GhosttyNextKit.pcm")
-        with open(pcm) as handle:
-            _check(handle.read().strip() == PIN_B, "the head's module is rebuilt from the new pin")
+        _check(head_pin() == PIN_B, "the head's module is rebuilt from the new pin")
+
+        # A concurrent tour builds slot 1 at the old pin; the next pin change
+        # reaches slot 1 first, then slot 0.
+        set_pin(workspace, PIN_A)
+        _check(tour(1).returncode == 0, "a cold slot 1 builds base and head")
+        _check(head_pin(1) == PIN_A and head_pin(0) == PIN_B, "slot 1 builds into its own DerivedData")
+        set_pin(workspace, PIN_B)
+        _check(tour(1).returncode == 0, "slot 1 rebuilds its modules after its own pin change")
+        _check(head_pin(1) == PIN_B, "slot 1's module now has the new pin")
+        set_pin(workspace, PIN_A)
+        _check(tour(0).returncode == 0, "slot 0 clears its modules on its own pin change")
+        _check(head_pin(0) == PIN_A and head_pin(1) == PIN_B, "clearing slot 0 leaves slot 1 warm")
 
 
 def main():

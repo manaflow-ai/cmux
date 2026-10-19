@@ -27,6 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "scripts", "ci", "prune_media_derived_data.py")
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-next-media.yml")
 STEP_NAME = "Bound the tour DerivedData on this Mac"
+CLAIM_STEP = "Claim a tour slot on this Mac"
 HOUR = 3600
 FAILURES = []
 
@@ -193,6 +194,42 @@ def scenario_held_tag():
         _check("cmux-ci-media-pr-2-base" not in names, "still removes an idle unheld tag")
 
 
+def scenario_slots():
+    """Tours build in the slot they claim (media_tag_lock.py claim, tags ci-media-slot<N>). Slots below
+    --slots are the warm pairs the next tours reuse, so they stay however idle; an overflow slot at or above
+    K goes once idle unless a tour holds it, and so do the old per-pull-request dirs."""
+    lock = os.path.join(ROOT, "scripts", "ci", "media_tag_lock.py")
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside, \
+            tempfile.TemporaryDirectory() as locks:
+        build_tree(root, outside)
+        for slot, hours in ((0, 200), (1, 300), (2, 100), (3, 400)):
+            make_dir(root, f"cmux-ci-media-slot{slot}-base", hours * HOUR)
+            make_dir(root, f"cmux-ci-media-slot{slot}-head", hours * HOUR)
+        held = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-slot3", "--lock-dir", locks,
+                               "--wait", "0", "--max-hold", "60"], capture_output=True, text=True)
+        _check(held.returncode == 0, "a tour holds overflow slot 3")
+        child = hold_open(os.path.join(root, "cmux-ci-media-pr-3-base"))
+        try:
+            result = subprocess.run([sys.executable, SCRIPT, "--root", root, "--keep-tag", "ci-media-slot1-base",
+                                     "--keep-tag", "ci-media-slot1-head", "--slots", "2", "--keep-others", "0",
+                                     "--lock-dir", locks], capture_output=True, text=True)
+        finally:
+            child.kill()
+            child.wait()
+        print(result.stdout + result.stderr)
+        _check(result.returncode == 0, "--slots 2 exits 0")
+        names = remaining(root)
+        for side in ("base", "head"):
+            _check(f"cmux-ci-media-slot0-{side}" in names, f"keeps idle warm slot 0's {side}")
+            _check(f"cmux-ci-media-slot1-{side}" in names, f"keeps this tour's slot 1 {side}")
+            _check(f"cmux-ci-media-slot2-{side}" not in names, f"removes idle overflow slot 2's {side}")
+            _check(f"cmux-ci-media-slot3-{side}" in names, f"keeps held overflow slot 3's {side}")
+        for name in ("cmux-ci-media-pr-1-base", "cmux-ci-media-pr-2-head"):
+            _check(name not in names, f"removes the old per-pull-request {name}")
+        _check("cmux-ci-media-pr-3-base" in names and "cmux-ci-media-pr-4-head" in names,
+               "an open or freshly built old dir still stays")
+
+
 def scenario_tag_held_while_removing():
     """The prune holds a dir's tag lock until its rmtree finishes. A tour that asks for the tag mid-delete
     (media_tag_lock.py hold --wait 0) is refused, so it never builds into a dir that is being removed."""
@@ -258,7 +295,7 @@ def scenario_workflow_step():
         root = os.path.join(home, "Library", "Developer", "Xcode", "DerivedData")
         os.makedirs(root)
         build_tree(root, outside)
-        env = dict(os.environ, HOME=home, TOUR_TAG="ci-media-pr-9")
+        env = dict(os.environ, HOME=home, TOUR_TAG="ci-media-pr-9", CMUX_MEDIA_TOUR_SLOTS="2")
         child = hold_open(os.path.join(root, "cmux-ci-media-pr-3-base"))
         try:
             result = subprocess.run(
@@ -274,16 +311,18 @@ def scenario_workflow_step():
         expect_kept_everywhere(root, outside, names)
 
 
-def scenario_old_head_prunes_with_the_lock():
-    """A pull request branched before the tag lock checks out a head whose prune ignores held tags. The hold
-    step takes both scripts from the run's commit then, so the prune step keeps a tag another tour holds."""
+def scenario_old_head_prunes_with_the_lock(head_kind):
+    """A pull request branched before the slots checks out a head with no lock script (head_kind "no-lock")
+    or one that can only `hold` a tag ("hold-only"), and a prune that ignores held tags. The claim step takes
+    both scripts from the run's commit then, so the tour claims a slot and the prune step keeps a tag another
+    tour holds."""
     import shutil
 
     lock = os.path.join(ROOT, "scripts", "ci", "media_tag_lock.py")
     steps = workflow["jobs"]["tour"]["steps"] if (workflow := yaml.safe_load(open(WORKFLOW))) else []
     by_name = {step.get("name"): step for step in steps}
-    hold_step, prune_step = by_name.get("Hold this tour's tag"), by_name.get(STEP_NAME)
-    _check(hold_step is not None and prune_step is not None, "the tour holds its tag, then prunes")
+    hold_step, prune_step = by_name.get(CLAIM_STEP), by_name.get(STEP_NAME)
+    _check(hold_step is not None and prune_step is not None, "the tour claims a slot, then prunes")
     if hold_step is None or prune_step is None:
         return
     with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as outside, \
@@ -298,7 +337,11 @@ def scenario_old_head_prunes_with_the_lock():
             handle.write("import glob, os, shutil, sys\n"
                          "for path in glob.glob(os.path.expanduser('~/Library/Developer/Xcode/DerivedData/cmux-ci-media-*')):\n"
                          "    if os.path.isdir(path) and not os.path.islink(path) and not os.path.basename(path).startswith('cmux-ci-media-pr-9'):\n"
-                         "        shutil.rmtree(path)\n")
+                         "        shutil.rmtree(path)\n"
+                         "# (it took --lock-dir and kept a held tag's dirs, but knew no slots)\n")
+        if head_kind == "hold-only":
+            with open(os.path.join(head, "scripts", "ci", "media_tag_lock.py"), "w") as handle:
+                handle.write("import sys\n# hold --tag only\nsys.exit(0 if sys.argv[1:2] == ['hold'] else 2)\n")
         # git fetch is a no-op and git show reads this checkout: the run's commit is the one under test.
         bin_dir = os.path.join(temp, "bin")
         os.makedirs(bin_dir)
@@ -307,7 +350,7 @@ def scenario_old_head_prunes_with_the_lock():
         os.chmod(os.path.join(bin_dir, "git"), 0o755)
         github_env = os.path.join(temp, "github_env")
         open(github_env, "w").close()
-        env = dict(os.environ, HOME=home, TOUR_TAG="ci-media-pr-9", GITHUB_SHA="0" * 40, RUNNER_TEMP=temp,
+        env = dict(os.environ, HOME=home, CMUX_MEDIA_TOUR_SLOTS="2", GITHUB_SHA="0" * 40, RUNNER_TEMP=temp,
                    GITHUB_ENV=github_env, PATH=bin_dir + os.pathsep + os.environ["PATH"])
         other = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-pr-1", "--lock-dir", locks,
                                 "--wait", "0", "--max-hold", "60"], capture_output=True, text=True)
@@ -316,10 +359,11 @@ def scenario_old_head_prunes_with_the_lock():
             held = subprocess.run(["bash", "-c", hold_step["run"]], cwd=head, env=env, capture_output=True,
                                   text=True, timeout=120)
             print(held.stdout + held.stderr)
-            _check(held.returncode == 0, "the hold step holds this tour's tag")
+            _check(held.returncode == 0, f"{head_kind}: the claim step claims a slot")
             for line in open(github_env).read().splitlines():
                 key, _, value = line.partition("=")
                 env[key] = value
+            _check(env.get("TOUR_TAG") == "ci-media-slot0", f"{head_kind}: the tour builds in slot 0")
             pruned = subprocess.run(["bash", "-c", prune_step["run"]], cwd=head, env=env, capture_output=True,
                                     text=True, timeout=120)
             print(pruned.stdout + pruned.stderr)
@@ -328,8 +372,8 @@ def scenario_old_head_prunes_with_the_lock():
             subprocess.run(["pkill", "-f", temp], check=False)
         names = remaining(root)
         _check("cmux-ci-media-pr-1-base" in names and "cmux-ci-media-pr-1-head" in names,
-               "an old head's tour keeps the tag another tour holds")
-        _check("cmux-ci-media-pr-2-base" not in names, "an old head's tour still prunes an idle unheld tag")
+               f"{head_kind}: an old head's tour keeps the tag another tour holds")
+        _check("cmux-ci-media-pr-2-base" not in names, f"{head_kind}: an old head's tour still prunes an idle unheld tag")
         shutil.rmtree(locks, ignore_errors=True)
 
 
@@ -338,7 +382,9 @@ def main():
     scenario_keep_zero()
     scenario_held_tag()
     scenario_tag_held_while_removing()
-    scenario_old_head_prunes_with_the_lock()
+    scenario_slots()
+    scenario_old_head_prunes_with_the_lock("no-lock")
+    scenario_old_head_prunes_with_the_lock("hold-only")
     scenario_workflow_step()
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
