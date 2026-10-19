@@ -71,8 +71,7 @@ on:
     # Lane branches deploy the preview Worker (decision V6). The preview
     # environment admits only feat-cmux-vm-* refs, which a pull_request run
     # (refs/pull/N/merge) never is, so preview deploys run on push.
-    # Agent implementation branches run checks; only feat-cmux-vm-* deploy previews.
-    branches: [main, feat-cmux-next, "feat-cmux-vm-*", "codex/vm-api-*"]
+    branches: [main, feat-cmux-next, "feat-cmux-vm-*"]
     paths:
       - workers/cmux-vm/**
       # The Stack webhook signature check shared with the cmux-next API Worker.
@@ -155,9 +154,9 @@ jobs:
       # Breaking changes to the published contract against the PR's base.
       # Add the label cmux-vm-breaking-change-ok to accept them deliberately.
       - name: openapi.json has no breaking change against the base branch
-        if: ${{ !cancelled() && (github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/codex/vm-api-'))) }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref || 'feat-cmux-next' }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           ACCEPT_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'cmux-vm-breaking-change-ok') }}
         run: bash scripts/openapi-breaking.sh "$BASE_REF"
       - name: Upstream coverage (every upstream operation wrapped, planned or denied)
