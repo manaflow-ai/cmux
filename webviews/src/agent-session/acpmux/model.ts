@@ -501,10 +501,10 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
   // A turn's started chats (started/StartedSessionCard.tsx): one card, its 1px edges, a 34px row
-  // for each, 48px with its status line, 1px hairlines between, in 8px of margins.
+  // for each, 50px with its status line, 1px hairlines between, in 8px of row padding.
   if (row.kind === STARTED_SESSIONS && row.started)
     return (
-      8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 48 : 34), 0) + (row.started.length - 1)
+      8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1)
     );
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;

@@ -1,14 +1,16 @@
 /* The chats a turn started (StartedSessionCard.tsx), as Claude Code's Changes card lists pull
    requests: one card at the end of the turn, a hairline edge, compact rows split by hairlines, each
-   the title in the body step over a detail line, and one chevron. The card is as wide as a reading
-   column, never edge to edge. Sizes are the type scale's steps (desktop.css). */
+   the title in the body step over a detail line 2px under it, and one chevron. The card fits its
+   rows, from 360px up to the user bubble's 78% of the column, never edge to edge. Sizes are the type
+   scale's steps (desktop.css). */
 .acpmux-started {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: min(100%, 520px);
-  min-width: 0;
-  margin: 4px 0;
+  width: fit-content;
+  min-width: min(100%, 360px);
+  max-width: 78%;
+  margin: 0;
   border: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
   border-radius: 10px;
   overflow: hidden;
@@ -21,7 +23,7 @@
   width: 100%;
   min-width: 0;
   min-height: 34px;
-  padding: 7px 10px 7px 12px;
+  padding: 7px 12px 7px 14px;
   border: 0;
   background: none;
   color: var(--agent-text);
@@ -45,6 +47,7 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 .acpmux-started-title {
@@ -106,8 +109,9 @@
 .acpmux-session-status[data-status="open"] {
   color: var(--agent-success, var(--acpmux-add, #3fb950));
 }
+/* The theme's magenta, a quarter toward the text colour, so it reads as clearly as the red. */
 .acpmux-session-status[data-status="merged"] {
-  color: var(--agent-ansi-5, #a371f7);
+  color: color-mix(in srgb, var(--agent-ansi-5, #a371f7) 75%, var(--agent-text));
 }
 .acpmux-session-status-spinner {
   flex: none;
