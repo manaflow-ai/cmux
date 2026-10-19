@@ -61,3 +61,45 @@ test("a title cut with an ellipsis is made whole from its summary", () => {
   expect(item?.title).toBe(long);
   expect(item?.summary).toBe("");
 });
+
+// The digest of a new pipeline carries a shortened title and the rest of its line as the summary;
+// an older one carries the whole line. Either way the row reads the line once.
+test("a summary that continues its title shows only what it adds", () => {
+  const view = releaseView(
+    notes([
+      entry(
+        "summary-0",
+        "Terminals in the keep-alive band keep drawing",
+        "Terminals in the keep-alive band keep drawing, so a column scrolled in is never blank",
+      ),
+    ]),
+    "en",
+  );
+  expect(summaries(view)).toEqual({ "summary-0": "So a column scrolled in is never blank" });
+});
+
+// A reviewed entry is a person's words: product names, a "Word:" lead and a long title stay, and
+// a real summary is never replaced by the tail of a shortened title.
+test("a reviewed entry keeps its words and its summary", () => {
+  const view = releaseView(
+    notes([
+      entry("signin", "cmux NEXT: GitHub sign-in works on macOS (cx-8w027.3)", "Uses the iCloud Keychain."),
+      entry("shortcut", "New shortcut: Cmd-K opens the palette", ""),
+      entry(
+        "restore",
+        "Restore the sidebar width, the window frame, and the selected tab after a relaunch",
+        "Everything comes back where you left it.",
+      ),
+    ]),
+    "en",
+  );
+  const items = view.groups.flatMap((g) => g.items);
+  expect(items.map((i) => [i.title, i.summary])).toEqual([
+    ["GitHub sign-in works on macOS", "Uses the iCloud Keychain."],
+    ["New shortcut: Cmd-K opens the palette", ""],
+    [
+      "Restore the sidebar width, the window frame, and the selected tab after a relaunch",
+      "Everything comes back where you left it.",
+    ],
+  ]);
+});
