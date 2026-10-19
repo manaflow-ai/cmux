@@ -12,7 +12,6 @@ import { ApiKeyStore } from "../db/stores.ts";
 import type { Principal } from "../domain/principal.ts";
 import { SESSION_SCOPES, scopeSetOf } from "../domain/scopes.ts";
 import { Forbidden, type ServiceUnavailable, Unauthorized, unavailable } from "../errors.ts";
-import { verifierAccessTokenProof } from "../proofs/access-token-allows.ts";
 import { serviceMayActFor, servicePrincipal } from "../proofs/service-may-act-for.ts";
 import { ServiceKeys, type ServiceKey } from "./service-keys.ts";
 import {
@@ -115,19 +114,7 @@ export const authenticationLayer = Layer.effect(
       if (Option.isNone(accessTokens)) return Effect.fail(unavailable());
       return Effect.gen(function* () {
         const verified = yield* accessTokens.value.verify(Redacted.make(token), now);
-        const principal: Principal = {
-          tenantId: verified.tenantId,
-          actor: { kind: "access-token", tokenId: verified.id, principal: verified.principal },
-          scopes: scopeSetOf([
-            ...(verified.scopes.includes("exec") ? ["vm:exec" as const] : []),
-            ...(verified.scopes.includes("pty") ? ["vm:terminal" as const] : []),
-            ...(verified.scopes.includes("files:read") || verified.scopes.includes("files:write") ? ["vm:files" as const] : []),
-          ]),
-          resourceAllowlist: new Set(verified.vmIds),
-          credentialExpiresAt: verified.expiresAt,
-        };
-        const proof = yield* verifierAccessTokenProof(principal, verified.id, verified.tenantId, verified.principal, verified.vmIds, verified.scopes, verified.linuxUser);
-        return Object.assign(principal, { accessTokenProof: proof });
+        return verified.authenticatedPrincipal;
       }).pipe(
         Effect.catchTags({
           AccessTokenRejected: () => Effect.fail(unauthorized()),

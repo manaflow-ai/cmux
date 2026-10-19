@@ -90,6 +90,7 @@ export interface VerifiedAccessToken {
   readonly issuedAt: Date;
   readonly expiresAt: Date;
   readonly proof: AccessTokenAllows<Principal>;
+  readonly authenticatedPrincipal: Principal;
 }
 
 interface Claims {
@@ -222,7 +223,7 @@ export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, lim
           credentialExpiresAt: expiresAt,
         };
         const proof = yield* verifierAccessTokenProof(principal, claims.jti, claims.tenant, claims.principal, claims.vmIds, claims.scopes, claims.linuxUser);
-        return { id: claims.jti, tenantId: claims.tenant, principal: claims.principal, vmIds: claims.vmIds, scopes: claims.scopes, linuxUser: claims.linuxUser, issuedAt: new Date(claims.iat * 1000), expiresAt, proof };
+        return { id: claims.jti, tenantId: claims.tenant, principal: claims.principal, vmIds: claims.vmIds, scopes: claims.scopes, linuxUser: claims.linuxUser, issuedAt: new Date(claims.iat * 1000), expiresAt, proof, authenticatedPrincipal: Object.assign(principal, { accessTokenProof: proof }) };
       }),
   };
 };
