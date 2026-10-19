@@ -1294,7 +1294,10 @@ class MergedHeadChecksRegression(unittest.TestCase):
         bun.write_text(
             "#!/bin/sh\n"
             "printf 'bun %s\\n' \"$*\" >> \"$CHECK_LOG\"\n"
-            "if [ \"$1 $2 $3\" = 'x vp check' ] && ls BAD*.tsx >/dev/null 2>&1; then echo 'error: Formatting issues found'; ls BAD*.tsx; exit 1; fi\n"
+            "if [ \"$1 $2 $3\" = 'x vp check' ] && [ -f vite.config.ts ] && [ ! -f ../config/vite-plus/check.ts ]; then\n"
+            "  echo \"[UNRESOLVED_IMPORT] Could not resolve '../config/vite-plus/check' in $PWD/vite.config.ts\"; exit 1\n"
+            "fi\n"
+            "if [ \"$1 $2 $3\" = 'x vp check' ] && ls BAD*.tsx >/dev/null 2>&1; then echo 'error: Formatting issues found'; for f in BAD*.tsx; do echo \"$PWD/$f\"; done; exit 1; fi\n"
         )
         bun.chmod(0o755)
         return work, head, directory / "bin"
@@ -1464,6 +1467,19 @@ class MergedHeadChecksRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("BAD2.tsx", result.stderr)
+
+    def test_vp_check_sees_the_shared_config_outside_webviews(self):
+        # webviews/vite.config.ts imports ../config/vite-plus/check; without it
+        # in the materialized tree vp check fails for every webviews PR.
+        shared = {
+            "webviews/vite.config.ts": "import { cmuxCheckConfig } from '../config/vite-plus/check';\n",
+            "config/vite-plus/check.ts": "export const cmuxCheckConfig = {};\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"webviews/Good.tsx": "x\n"}, base_files=shared)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("bun x vp check", log)
 
     def test_a_clean_webviews_change_merges_after_vp_check(self):
         with tempfile.TemporaryDirectory() as directory:
