@@ -183,8 +183,7 @@ struct PageFactory {
                                                           currentChoices: { SettingsWindowService.backdrops.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
-                                                              await SettingsIconAssets.png(icon, owner: services?.machines.local)
-                                                          })
+                                                              await SettingsIconAssets.png(icon, owner: services?.machines.local) })
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
