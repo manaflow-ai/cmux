@@ -9,7 +9,7 @@ import { Schema } from "effect";
 import { BadRequest, Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
 import { InstallPublicKey, Nonce, Signature, SignedAt } from "../mesh/signed-request.ts";
 import { DeviceId, MeshId, TenantId, TunnelId, VmId } from "../lib/ids.ts";
-import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders } from "./common.ts";
+import { describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders } from "./common.ts";
 
 const EXPERIMENT = "Experiment: answers 404 unless the mesh experiment is enabled for the team.";
 
@@ -379,6 +379,17 @@ const MemberPath = Schema.Struct({ meshId: Schema.String, vmId: Schema.String })
 
 /** Endpoints without the Authentication middleware; src/api.ts applies it. */
 export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
+  .add(
+    HttpApiEndpoint.post("createMeshIntent", "/v1/mesh-creations")
+      .setPayload(CreateMeshRequest)
+      .setHeaders(GroupCreationKeyHeaders)
+      .addSuccess(Mesh, { status: 201 })
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(PaymentRequired)
+      .addError(QuotaExceeded)
+      .annotateContext(describe("Create a mesh with durable replay", "mesh:write", `Requires an Idempotency-Key and a team admin for sessions. Reuses the original mesh across retries, conflicts on changed intent and never recreates a deleted mesh. Older servers without this route refuse it before allocation. ${EXPERIMENT}`)),
+  )
   .add(
     HttpApiEndpoint.post("createMesh", "/v1/meshes")
       .setPayload(CreateMeshRequest)

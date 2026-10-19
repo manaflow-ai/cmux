@@ -34,7 +34,7 @@ export interface RawCloudDriver {
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
   create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
   /** Native Cloud provisioning only: pin the team mesh before allocating, then verify the owned VM's membership. */
-  prepareNetwork?(): Promise<CloudNetworkTarget>
+  prepareNetwork?(active?: () => boolean): Promise<CloudNetworkTarget>
   attachNetwork?(id: string, tag: VmTag, target: CloudNetworkTarget): Promise<typeof CloudVmNetwork.Type>
   delete(id: string): Promise<void>
   /** Pause (memory kept) or start a VM (Freestyle `POST /v5/vms/{id}/pause` and `/start`). */
@@ -156,7 +156,7 @@ export class GuardedCloudDriver {
     return { id: created.id }
   }
 
-  async prepareNetwork(): Promise<CloudNetworkTarget | undefined> { return this.raw.prepareNetwork?.() }
+  async prepareNetwork(active?: () => boolean): Promise<CloudNetworkTarget | undefined> { return this.raw.prepareNetwork?.(active) }
 
   async attachNetwork(name: string, tag: VmTag, target: CloudNetworkTarget | undefined): Promise<typeof CloudVmNetwork.Type | undefined> {
     if (!target) return undefined

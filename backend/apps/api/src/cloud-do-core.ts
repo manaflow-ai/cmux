@@ -387,7 +387,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
             const fromSnapshot = m?.from_snapshot
             const edgeRule = await this.edge.ruleForCreate(row.machine, m?.creator, Date.now() + this.skewMs)
-            const target = await driver.prepareNetwork()
+            const target = await driver.prepareNetwork(() => { const current = this.ledger(row.key); return current !== undefined && !current.cancel })
             if (this.ledger(row.key)?.cancel) continue
             const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0, ...(fromSnapshot ? { snapshot: fromSnapshot } : {}), ...(edgeRule ? { edgeRules: [edgeRule] } : {}) })).id
             if (this.ledger(row.key)?.cancel) continue

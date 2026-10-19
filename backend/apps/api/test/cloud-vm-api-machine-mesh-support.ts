@@ -8,7 +8,7 @@ import { DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 export const MESH = "mesh_" + "0".repeat(26), OTHER_MESH = "mesh_" + "2".repeat(26), VM = "vm_" + "1".repeat(26)
 export const mesh = (id = MESH) => ({ id, ipv4Cidr: "10.128.0.0/20", displayName: "Cloud", createdAt: "2026-10-19T00:00:00Z" })
-export interface MeshOptions { lostCreate?: boolean; lostAttach?: boolean; lostMeshCreate?: boolean; badVmLookup?: boolean; member?: Record<string, unknown>; meshes?: Array<ReturnType<typeof mesh>> }
+export interface MeshOptions { lostCreate?: boolean; lostAttach?: boolean; lostMeshCreate?: boolean; meshCreateStatus?: number; meshReadStatus?: number; meshReceipt?: Record<string, unknown>; badVmLookup?: boolean; member?: Record<string, unknown>; meshes?: Array<ReturnType<typeof mesh>> }
 
 /** Real owner, ledger, guard, Native client and bind. Only external Native HTTP is replaced. */
 export const withMeshMachine = async (options: MeshOptions, run: (world: {
@@ -17,6 +17,8 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
   connect: () => Promise<unknown>; owner: () => CloudDO; pendingMachine: () => Promise<string>; remove: (id: string) => ReturnType<CloudDO["submit"]>;
   setMeshes: (values: Array<ReturnType<typeof mesh>>) => void; setNetworkHook: (hook: () => Promise<void>) => void; setAttachHook: (hook: () => Promise<void>) => void;
   meshKeys: string[];
+  meshIntent: () => Record<string, unknown> | undefined; replaceMeshIntent: (value: unknown) => void;
+  setMeshCreateHook: (hook: () => Promise<void>) => void;
 }) => Promise<void>) => {
   const t = await mirroredTeam("Cloud machine mesh")
   const e = { ...(env as Env), CLOUD_ALLOWED_TEAMS: t.team, CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-machine-mesh-key", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
@@ -24,6 +26,7 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
   let vm: Record<string, any> | undefined, bind: Record<string, any> | undefined, creates = 0, attaches = 0
   let meshes = options.meshes ?? [mesh()]
   const meshKeys: string[] = [], meshCreations = new Map<string, ReturnType<typeof mesh>>()
+  let meshCreateHook: (() => Promise<void>) | undefined
   let networkHook: (() => Promise<void>) | undefined, attachHook: (() => Promise<void>) | undefined
   const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const r = new Request(input, init), url = new URL(r.url)
@@ -36,16 +39,18 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       const key = r.headers.get("idempotency-key")
       expect(key).toBeTruthy()
       meshKeys.push(key!)
+      if (options.meshCreateStatus) return new Response(null, { status: options.meshCreateStatus })
       const body = await r.json() as { displayName: string }
       const created = meshCreations.get(key!) ?? { ...mesh(), displayName: body.displayName }
       meshCreations.set(key!, created)
       if (!meshes.some((m) => m.id === created.id)) meshes.push(created)
+      const hook = meshCreateHook; meshCreateHook = undefined; await hook?.()
       if (options.lostMeshCreate && meshKeys.length === 1) throw new Error("lost mesh creation reply")
-      return Response.json(created, { status: 201 })
+      return Response.json({ ...created, ...options.meshReceipt }, { status: 201 })
     }
     if (url.pathname === "/v1/meshes" || (r.method === "GET" && url.pathname.startsWith("/v1/meshes/"))) {
       const hook = networkHook; networkHook = undefined; await hook?.()
-      if (url.pathname === "/v1/meshes") return Response.json({ items: meshes })
+      if (url.pathname === "/v1/meshes") return options.meshReadStatus ? new Response(null, { status: options.meshReadStatus }) : Response.json({ items: meshes })
       const found = meshes.find((m) => url.pathname === `/v1/meshes/${m.id}`)
       return found ? Response.json(found) : new Response(null, { status: 404 })
     }
@@ -77,6 +82,13 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       await initialize()
       const submit = (op: string, params: unknown) => owner.submit(t.team, p, { t: "op", op, params, idempotency_key: crypto.randomUUID(), origin: "user" })
       await run({ team: t.team, tenant: t.stackTeam, calls, meshKeys, creates: () => creates, bindFile: () => bind,
+        meshIntent: () => {
+          if (!state.storage.sql.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_mesh_creation'").toArray().length) return undefined
+          const row = state.storage.sql.exec<{ data: string }>("SELECT data FROM cloud_mesh_creation WHERE id=1").toArray()[0]
+          return row ? JSON.parse(row.data) : undefined
+        },
+        replaceMeshIntent: (value) => { state.storage.sql.exec("UPDATE cloud_mesh_creation SET data=? WHERE id=1", JSON.stringify(value)) },
+        setMeshCreateHook: (hook) => { meshCreateHook = hook },
         create: () => submit("cloud.machine.create", { size: { memory_mb: 4096 } }),
         retry: async () => { await owner.fakeControl({ advance_ms: 60_000 }); await owner.alarm() },
         restart: async (change = {}) => { owner = new CloudDO(state, { ...e, ...change }); await initialize() },

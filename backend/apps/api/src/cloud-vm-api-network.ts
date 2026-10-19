@@ -6,9 +6,9 @@ import { meshCidr, readNetworkMesh, type NetworkMesh } from "./network-mesh-read
 import { networkBody } from "./network-policy-read.ts"
 import type { Http } from "./team-domain-external.ts"
 import { DriverError } from "./team-vm-driver.ts"
+import { CloudMeshCreation, type CloudMeshRoute as Route } from "./cloud-vm-api-mesh-create.ts"
 
 export interface CloudNetworkTarget extends NetworkMesh { readonly tenant: string }
-interface Route { readonly team: string; readonly tenant: string; readonly project: string; readonly origin: string }
 type Pin = Route & NetworkMesh
 const unavailable = (message: string, final = false) => new DriverError("cloud.provider.unavailable", `VM API network: ${message}`, final)
 const same = (a: Pin, b: Pin) => a.team === b.team && a.tenant === b.tenant && a.project === b.project && a.origin === b.origin && a.mesh === b.mesh && a.ipv4_cidr === b.ipv4_cidr
@@ -37,21 +37,37 @@ class CloudMeshPin {
 /** Confirmed provider membership; the install/peer policy and service handshake remain independent. */
 export class VmApiCloudNetwork {
   private readonly pin: CloudMeshPin
+  private readonly creation: CloudMeshCreation
   constructor(private readonly connection: VmApiConnection, private readonly route: Route, sql: SqlStore,
               private readonly http: Http, private readonly current: () => Promise<boolean>) {
     this.pin = new CloudMeshPin(sql, route)
+    this.creation = new CloudMeshCreation(sql, route, connection, http)
   }
 
-  async prepare(): Promise<CloudNetworkTarget> {
+  async prepare(active: () => boolean = () => true): Promise<CloudNetworkTarget> {
+    const guard = async () => {
+      if (!active() || !await this.current() || !active()) throw unavailable("the creation or owner route is no longer active", true)
+    }
+    const finish = (value: NetworkMesh): CloudNetworkTarget => {
+      const target = { ...this.route, ...value }
+      this.pin.pin(target)
+      return { tenant: target.tenant, mesh: target.mesh, ipv4_cidr: target.ipv4_cidr }
+    }
     const prior = this.pin.read()
+    await guard()
+    if (!prior && this.creation.read()) return finish(await this.creation.create(guard))
     const read = await readNetworkMesh(this.http, this.connection, this.route.tenant, prior?.mesh)
+    await guard()
+    if (!prior) {
+      // Decide synchronously: a pinned mesh and a creation intent cannot race into two selections.
+      if (this.pin.read()) return this.prepare(active)
+      if (this.creation.read() || (!read.ok && read.empty)) return finish(await this.creation.create(guard))
+    }
     if (!read.ok) throw unavailable(read.message, read.code !== "owner.unreachable")
-    if (!await this.current()) throw unavailable("the owner route changed", true)
     const target = { ...this.route, ...read.value }
     if (prior && !same(prior, target)) throw unavailable("the Cloud mesh changed", true)
     // The selected identity lands before the VM is allocated or an attach can be sent.
-    this.pin.pin(target)
-    return { tenant: target.tenant, mesh: target.mesh, ipv4_cidr: target.ipv4_cidr }
+    return finish(read.value)
   }
 
   async attach(vm: string, target: CloudNetworkTarget): Promise<typeof CloudVmNetwork.Type> {

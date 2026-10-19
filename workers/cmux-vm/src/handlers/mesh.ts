@@ -796,6 +796,12 @@ export const meshEnrollHandlers = HttpApiBuilder.group(CmuxVmApi, "meshEnroll", 
 
 export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =>
   handlers
+    .handle("createMeshIntent", ({ payload, headers }) =>
+      withMeshCaller("mesh:write", "write", (caller, scope) => audited("mesh.create", null, Effect.gen(function* () {
+        yield* requireAdmin(caller.value, "mesh:write");
+        return yield* createMeshWithKey(caller, scope, headers["idempotency-key"], payload);
+      }), (mesh) => mesh.id)),
+    )
     .handle("createMesh", ({ payload, headers }) =>
       withMeshCaller("mesh:write", "write", (caller, scope) =>
         audited(

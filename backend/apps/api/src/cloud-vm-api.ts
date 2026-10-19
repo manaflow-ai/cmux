@@ -83,9 +83,9 @@ export class VmApiCloudDriver implements RawCloudDriver {
     return { id: r.id, tag: null }
   }
   async delete(id: string): Promise<void> { this.empty(await this.request(() => this.client.DELETE("/v1/vms/{vmId}", { params: { path: { vmId: id } } }))) }
-  async prepareNetwork(): Promise<CloudNetworkTarget> {
+  async prepareNetwork(active?: () => boolean): Promise<CloudNetworkTarget> {
     if (!this.network) throw unavailable("network routing is not configured", true)
-    return this.network.prepare()
+    return this.network.prepare(active)
   }
   async attachNetwork(id: string, tag: VmTag, target: CloudNetworkTarget) {
     const vm = await this.vm(id)
