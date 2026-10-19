@@ -2523,7 +2523,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access, serve_websocket_with_pages,
+    serve_websocket_with_access, serve_websocket_with_keepalive, serve_websocket_with_pages,
 };
 
 #[cfg(test)]
