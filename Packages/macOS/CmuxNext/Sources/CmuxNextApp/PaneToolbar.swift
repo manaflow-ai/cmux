@@ -16,7 +16,7 @@ import os
 @MainActor
 final class PaneToolbar {
     /// What the selected tab is, for its own actions; nil is a chat: no "…".
-    enum Kind: Equatable, Sendable {
+    enum Kind: Hashable, Sendable {
         case newTab, terminal, browser, other
     }
 
@@ -122,7 +122,8 @@ final class PaneToolbar {
     static let zoom: ActionID = "toggleSplitZoom"
 
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit while the pane is zoomed.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = []) {
+    /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
+    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = []) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
