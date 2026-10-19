@@ -44,6 +44,8 @@ GIF_WIDTHS = (720, 560, 440)
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 # A step's main-window shot, or one of its other windows (tour.py: <shot>--w<window number>).
 SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?(?:--w[0-9]{1,9})?\.png")
+# Other-window shots one tour uploads at most (each is a commit on pr-media).
+MAX_WINDOW_SHOTS = 20
 WINDOW_KIND = re.compile(r"[A-Za-z0-9._-]{1,40}")
 STATUS_TEXT = {"ok": "ok", "failed": "**failed**", "unavailable": "unavailable"}
 
@@ -320,12 +322,13 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
     name = directory.name
     folder = f"{args.pr}/{args.sha[:8]}/next-{name}"
     files: dict[str, Path] = {}
+    window_files: dict[str, Path] = {}
     for step in manifest["steps"]:
         for key in [step.get("shot")] + [window["shot"] for window in step.get("windows") or []]:
             shot = shot_file(directory, key)
             if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
                     and pr_media.family_of_content(shot) == "png":
-                files[key] = shot
+                (files if key == step.get("shot") else window_files)[key] = shot
     into = scratch / name
     into.mkdir()
     mp4, gif = make_video(directory, manifest, into, pr_media)
@@ -333,6 +336,8 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
         if local:
             files[local.name] = local
     urls = {}
+    # The main shots and the video first; a window shot that fails to upload is
+    # dropped on its own, so it never costs the tour its other media.
     for key, local in files.items():
         remote = f"{folder}/{key}"
         if not args.dry_run:
@@ -340,6 +345,16 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
             # timeline, one entry per uploaded file (scripts/pr-media.py writes PR N the same way).
             pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
                               f"PR {args.pr} cmux-next tour media at {args.sha[:8]}")
+        urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
+    for key, local in list(window_files.items())[:MAX_WINDOW_SHOTS]:
+        remote = f"{folder}/{key}"
+        try:
+            if not args.dry_run:
+                pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
+                                  f"PR {args.pr} cmux-next tour media at {args.sha[:8]}")
+        except Exception as error:  # noqa: BLE001 - one window's upload must not end the tour
+            print(f"warning: {key}: {error}", file=sys.stderr)
+            continue
         urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
     return tour_section(manifest, urls)
 

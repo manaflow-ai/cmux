@@ -24,13 +24,16 @@ class FakePrMedia:
     BRANCH = "pr-media"
     INLINE_MAX_BYTES = 10_000_000
 
-    def __init__(self):
+    def __init__(self, fail=()):
         self.puts = []
+        self.fail = fail
 
     def family_of_content(self, path):
         return "png" if path.read_bytes().startswith(b"\x89PNG") else "other"
 
     def put_file(self, repo, branch, remote, local, message):
+        if any(remote.endswith(name) for name in self.fail):
+            raise RuntimeError("secondary rate limit")
         self.puts.append(remote)
 
     def raw_url(self, repo, branch, remote):
@@ -75,6 +78,22 @@ class PublishWindowsTests(unittest.TestCase):
         self.assertLess(main, text.index("shots/01-open-the-pet--w7.png"))
         self.assertIn('alt="Open the pet (chiefPet)"', text)
         self.assertIn("shots/01-open-the-pet--w9.png", text)
+
+    def test_a_failed_window_upload_drops_only_that_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "agent-pane"
+            (directory / "shots").mkdir(parents=True)
+            for name in ("01-open-the-pet.png", "01-open-the-pet--w7.png", "01-open-the-pet--w9.png"):
+                (directory / "shots" / name).write_bytes(PNG)
+            scratch = Path(tmp) / "scratch"
+            scratch.mkdir()
+            manifest = {"title": "Agent pane", "steps": [publish.clean_step(STEP)], "frames": []}
+            fake = FakePrMedia(fail=("--w7.png",))
+            args = argparse.Namespace(pr=21672, sha="a" * 40, repo="manaflow-ai/cmux", dry_run=False)
+            text = publish.publish_tour(directory, manifest, args, fake, scratch)
+        self.assertIn("shots/01-open-the-pet.png", text)
+        self.assertIn("shots/01-open-the-pet--w9.png", text)
+        self.assertNotIn("--w7.png", text)
 
 
 if __name__ == "__main__":

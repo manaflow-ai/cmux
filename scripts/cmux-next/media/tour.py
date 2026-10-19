@@ -67,6 +67,8 @@ STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "optional", "expect", "w
 # sheets), at most this many, each at least this big in points.
 MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
+# All of a step's other-window shots share this many seconds.
+OTHER_WINDOWS_BUDGET = 20.0
 TOUR_KEYS = {"title", "steps", "settings"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
@@ -683,12 +685,18 @@ def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]]
     """Every other visible window of the app beside the main window's shot: a
     floating panel, popover or sheet is its own window, which the main window's
     snapshot leaves out unless it is a child window. `debug.window_list` names
-    them and `debug.window_snapshot` takes any window's number. An app without
-    the list (an older base build) gets no extra shots and no error."""
+    them and `debug.window_snapshot` takes any window's number. A child window
+    of another window (a Chromium page, the overlay panel) is skipped: the
+    main shot composites it. A sheet is shot. An app without the list (an
+    older base build) gets no extra shots and no error. The shots share
+    OTHER_WINDOWS_BUDGET seconds and stop at the first failure past it."""
+    deadline = time.monotonic() + OTHER_WINDOWS_BUDGET
     try:
-        listed = app.request("debug.window_list", timeout=SNAPSHOT_TIMEOUT)
+        listed = app.request("debug.window_list", timeout=min(SNAPSHOT_TIMEOUT, OTHER_WINDOWS_BUDGET))
     except TourError as error:
-        return [], None if "unknown method" in str(error) else f"debug.window_list: {error}"
+        text = str(error).lower()
+        unknown = "unknown method" in text or "method_not_found" in text
+        return [], None if unknown else f"debug.window_list: {error}"
     except (OSError, ValueError) as error:
         return [], f"debug.window_list: {error}"
     windows = listed.get("windows") if isinstance(listed, dict) else None
@@ -699,8 +707,10 @@ def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]]
             break
         if not isinstance(window, dict) or window.get("kind") == "main" or window.get("visible") is not True:
             continue
+        if window.get("parent") is not None and window.get("kind") != "sheet":
+            continue
         number, frame, alpha = window.get("id"), window.get("frame") or {}, window.get("alpha", 1)
-        if not isinstance(number, int) or isinstance(number, bool) or not isinstance(frame, dict):
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0 or not isinstance(frame, dict):
             continue
         if not isinstance(alpha, (int, float)) or alpha <= 0:
             continue
@@ -708,10 +718,14 @@ def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]]
         if not all(isinstance(v, (int, float)) for v in (width, height)) \
                 or width < MIN_OTHER_WINDOW[0] or height < MIN_OTHER_WINDOW[1]:
             continue
+        left = deadline - time.monotonic()
+        if left <= 1:
+            problems.append("out of time for the other windows")
+            break
         path = main_shot.with_name(f"{main_shot.stem}--w{number}.png")
         try:
             done = app.request("debug.window_snapshot", {"window": number, "path": str(path)},
-                               timeout=SNAPSHOT_TIMEOUT)
+                               timeout=min(SNAPSHOT_TIMEOUT, left))
         except (OSError, ValueError, TourError) as error:
             problems.append(f"window {number}: {error}")
             continue

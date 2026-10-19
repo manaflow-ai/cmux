@@ -265,6 +265,14 @@ WINDOWS = [
     {"id": 9, "kind": "popover", "visible": True, "alpha": 1, "frame": {"x": 0, "y": 0, "width": 4, "height": 4}},
     {"id": 10, "kind": "sheet", "visible": True, "alpha": 0, "frame": {"x": 0, "y": 0, "width": 300, "height": 200}},
     {"id": 11, "kind": "quickReply", "visible": True, "alpha": 1, "frame": {"x": 10, "y": 10, "width": 360, "height": 120}},
+    # Child windows the main shot already composites: the overlay panel and a Chromium page.
+    {"id": 12, "kind": "panel", "class": "OverlayHostPanel", "parent": 1, "visible": True, "alpha": 1,
+     "frame": {"x": 0, "y": 0, "width": 800, "height": 600}},
+    {"id": 14, "kind": "NSWindow", "parent": 1, "visible": True, "alpha": 1,
+     "frame": {"x": 0, "y": 0, "width": 600, "height": 400}},
+    # A sheet is not composited into its parent's shot.
+    {"id": 13, "kind": "sheet", "parent": 1, "visible": True, "alpha": 1,
+     "frame": {"x": 200, "y": 100, "width": 400, "height": 300}},
 ]
 WINDOW_LIST = (
     '        if method == "debug.window_list":\n'
@@ -297,13 +305,14 @@ class EveryWindowCaptureTests(AppWindowCaptureTests):
             self.assertEqual(step["windows"], [
                 {"id": 7, "kind": "chiefPet", "shot": f"{stem}--w7.png"},
                 {"id": 11, "kind": "quickReply", "shot": f"{stem}--w11.png"},
+                {"id": 13, "kind": "sheet", "shot": f"{stem}--w13.png"},
             ])
             for window in step["windows"]:
                 self.assertEqual((out / window["shot"]).read_bytes(), PNG)
         requests = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
         numbered = {request["params"].get("window") for request in requests
                     if request["method"] == "debug.window_snapshot" and "window" in request["params"]}
-        self.assertEqual(numbered, {7, 11})
+        self.assertEqual(numbered, {7, 11, 13})
 
     def test_an_app_without_a_window_list_shoots_the_main_window_only(self) -> None:
         executable(self.app / "Contents/MacOS/fakeapp", FAKE_APP)
