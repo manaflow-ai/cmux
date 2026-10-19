@@ -66,6 +66,12 @@ pub(crate) fn harness_command(
     }
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
+    // The daemon's own prompt-cache switches are never the agent's (a
+    // daemon started from inside a Claude Code turn can carry them); the
+    // login env and the profile env below may still set them.
+    for k in crate::config::inherited_prompt_cache_keys() {
+        cmd.env_remove(k);
+    }
     // Startup files changed since the last read: refresh in the background.
     crate::login_env::refresh_if_changed();
     // The login shell's allow-list for this harness's family (login_env.rs).
