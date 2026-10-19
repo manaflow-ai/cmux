@@ -80,7 +80,8 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.focus());
   expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
-  expect(calls).toEqual([
+  // The chip's passive site icon request (labs sourceIcons) is not an action.
+  expect(calls.filter(({ method }) => method !== "link.favicon")).toEqual([
     { method: "browser.open", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
   ]);
   await act(async () => {
