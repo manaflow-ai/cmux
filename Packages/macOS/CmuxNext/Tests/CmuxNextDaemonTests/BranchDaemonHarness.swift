@@ -17,7 +17,8 @@ struct BranchDaemonHarness {
         daemonEnvironment: [String: String]? = nil,
         terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
         sessionEvents: Bool = false,
-        terminalReapGraceSeconds: UInt32? = nil
+        terminalReapGraceSeconds: UInt32? = nil,
+        installKey: FrontendInstallKey? = nil
     ) async throws -> BranchDaemonHarness {
         let binary = try #require(RealBinary.url)
         let id = UUID().uuidString.prefix(8).lowercased()
@@ -26,12 +27,14 @@ struct BranchDaemonHarness {
         let base = ProcessInfo.processInfo.environment
         let environment = daemonEnvironment ?? LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
         var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
-                                                         stateDirectory: root.appendingPathComponent("state"))
+                                                         stateDirectory: root.appendingPathComponent("state"), installKey: installKey)
         if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
         let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
+        var connectionConfiguration = Self.configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents)
+        if let installKey { connectionConfiguration.clientHello = .init(installKey: installKey) }
         let connection = DaemonConnection(
-            configuration: Self.configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents),
+            configuration: connectionConfiguration,
             endpointProvider: launcher.endpointProvider)
         let identity = try await connection.start()
         let store = await DaemonStore()
@@ -100,10 +103,12 @@ struct BranchDaemonHarness {
         terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
         sessionEvents: Bool = false,
         terminalReapGraceSeconds: UInt32? = nil,
+        installKey: FrontendInstallKey? = nil,
         _ body: (BranchDaemonHarness) async throws -> Void
     ) async throws {
         let harness = try await start(daemonEnvironment: daemonEnvironment, terminalEnvironment: terminalEnvironment,
-                                      sessionEvents: sessionEvents, terminalReapGraceSeconds: terminalReapGraceSeconds)
+                                      sessionEvents: sessionEvents, terminalReapGraceSeconds: terminalReapGraceSeconds,
+                                      installKey: installKey)
         do {
             try await body(harness)
         } catch {

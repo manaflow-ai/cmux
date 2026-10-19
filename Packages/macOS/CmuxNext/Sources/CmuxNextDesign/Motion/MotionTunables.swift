@@ -11,8 +11,8 @@ public nonisolated enum MotionTunables {
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        .zoom: (SpringParameters(response: 0.32, dampingFraction: 0.9), "A pane zooming to fill its screen."),
-        .exit: (SpringParameters(response: 0.12, dampingFraction: 1), "The panes a zoom leaves fading out, the farthest first."),
+        .zoom: (SpringParameters(response: 0.30, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A pane closing: its neighbours and dividers covering its space."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
