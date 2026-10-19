@@ -12,6 +12,7 @@ import { ApiKeyStore } from "../db/stores.ts";
 import type { Principal } from "../domain/principal.ts";
 import { SESSION_SCOPES, scopeSetOf } from "../domain/scopes.ts";
 import { Forbidden, type ServiceUnavailable, Unauthorized, unavailable } from "../errors.ts";
+import { verifierAccessTokenProof } from "../proofs/access-token-allows.ts";
 import { serviceMayActFor, servicePrincipal } from "../proofs/service-may-act-for.ts";
 import { ServiceKeys, type ServiceKey } from "./service-keys.ts";
 import {
@@ -66,7 +67,7 @@ export const authenticationLayer = Layer.effect(
           Effect.mapError(() => unavailable()),
         );
         if (Option.isNone(record)) return yield* Effect.fail(unauthorized());
-        const principal: Principal = {
+        const principal = {
           tenantId: record.value.tenantId,
           actor: { kind: "api_key", keyId: record.value.id },
           scopes: scopeSetOf(record.value.scopes),
@@ -125,7 +126,8 @@ export const authenticationLayer = Layer.effect(
           resourceAllowlist: new Set(verified.vmIds),
           credentialExpiresAt: verified.expiresAt,
         };
-        return { ...principal, accessTokenProof: verified.proof };
+        const proof = yield* verifierAccessTokenProof(principal, verified.id, verified.tenantId, verified.principal, verified.vmIds, verified.scopes, verified.linuxUser);
+        return Object.assign(principal, { accessTokenProof: proof });
       }).pipe(
         Effect.catchTags({
           AccessTokenRejected: () => Effect.fail(unauthorized()),
