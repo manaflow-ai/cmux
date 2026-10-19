@@ -87,9 +87,11 @@ extension HomeCloudChiefs {
                 // The fixed key makes one Hosted Chief across devices; when it replays a chief that
                 // is now placed or archived (not in the list as hosted), a fresh key makes a new one.
                 for key in ["chief-hosted-default", "chief-hosted-\(UUID().uuidString.lowercased())"] where hosted(in: chiefs) == nil {
-                    guard CloudChief.parse(try await op("chief.create", key, ["display_name": HomeStrings.chiefName, "is_default": true])) != nil else {
-                        throw HostedChiefError.badReply
-                    }
+                    let reply = try await call("v1/ops", ["op": "chief.create", "origin": "user", "idempotency_key": key,
+                                                          "params": ["display_name": HomeStrings.chiefName, "is_default": true]])
+                    guard let created = CloudChief.parse(try okValue(reply)) else { throw HostedChiefError.badReply }
+                    // Only a chief this create made gets its brain turned on; a replay is a chief that may be off on purpose.
+                    if reply["replayed"] as? Bool != true { createdHere(created.id, true) }
                     chiefs = try await list(call: call)
                 }
                 if let mini = placed(in: chiefs), [HomeStrings.chiefName, "Chief", ""].contains(mini.displayName) {
@@ -109,6 +111,21 @@ extension HomeCloudChiefs {
         }
         throw HostedChiefError.owner(code: "revision.conflict", message: "the chief changed on another device; try again")
     }
+
+    /// Hosted Chiefs that this Mac's Home created and whose brain it has not
+    /// turned on yet. Kept across launches: a quit before the enable still
+    /// turns it on at the next connect. Never set for a chief that existed.
+    static func createdHere(_ chief: String) -> Bool {
+        UserDefaults.standard.stringArray(forKey: createdKey)?.contains(chief) == true
+    }
+
+    static func createdHere(_ chief: String, _ value: Bool) {
+        var ids = Set(UserDefaults.standard.stringArray(forKey: createdKey) ?? [])
+        if value { ids.insert(chief) } else { ids.remove(chief) }
+        UserDefaults.standard.set(ids.sorted(), forKey: createdKey)
+    }
+
+    private static let createdKey = "home.chief.hosted.created"
 
     /// The ops envelope's value; a refusal (`_tag` and `code`) throws.
     static func okValue(_ reply: [String: Any]) throws -> Any? {

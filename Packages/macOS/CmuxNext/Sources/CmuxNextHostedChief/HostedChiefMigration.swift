@@ -188,17 +188,21 @@ public final class HostedChiefMigration {
                 }
                 settle()
             }
-            // 3. The brain answers from now on: turned on once for a new Hosted Chief, or after this run turned it
-            // off or copied into it. Never a silent dead Chief: a brain still off shows a notice in Home.
+            // 3. The brain answers from now on: turned on only for a Hosted Chief this Home just created, or after
+            // this run turned it off or copied into it. A brain the user turned off stays off, and Home says so:
+            // never a silent dead Chief.
             var enabled = try await copy.brainEnabled()
             brainRead = true
             try current()
-            if !enabled, copy.brainTurnedOff || copied || !ledger.done(.brain, chief: chiefID) {
+            if !enabled, copy.brainTurnedOff || copied || HomeCloudChiefs.createdHere(chiefID) {
                 try await copy.setBrain(enabled: true)
                 enabled = true
                 try current()
             }
-            if enabled { ledger.mark(.brain, chief: chiefID) }
+            if enabled {
+                ledger.mark(.brain, chief: chiefID)
+                HomeCloudChiefs.createdHere(chiefID, false)
+            }
             ledger.clearFailures(chief: chiefID)
             set(notice: enabled ? nil : HomeCloudChiefs.brainOff, brainOn: enabled)
         } catch {
