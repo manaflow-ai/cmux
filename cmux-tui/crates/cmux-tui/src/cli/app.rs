@@ -538,8 +538,8 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
     };
     let messages = &crate::localization::catalog().app_control;
     let path = socket.path.display().to_string();
-    let mut stream =
-        connect_for_uid(&socket.path, cmux_tui_core::platform::effective_uid()).map_err(|error| {
+    let mut stream = connect_for_uid(&socket.path, cmux_tui_core::platform::effective_uid())
+        .map_err(|error| {
             let message = messages
                 .explicit_unreachable
                 .replace("{path}", &path)
