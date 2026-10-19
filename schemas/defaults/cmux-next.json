@@ -351,6 +351,7 @@
     "setting.browser.passwords.offerToSave": true,
     "setting.browser.remoteLocalhost": true,
     "setting.browser.searchEngine": "google",
+    "setting.browser.showAgentCursor": true,
     "setting.browser.showBookmarksBar": false,
     "setting.browser.toolbar.back": true,
     "setting.browser.toolbar.downloads": true,
