@@ -51,7 +51,13 @@ export type Enforcement = {
   policy: string;
 } & Record<string, unknown>;
 
+export interface HarnessUpdatePlanParams {
+  cli: string;
+}
+
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
+
+export type InventoryRefreshParams = Record<string, never>;
 
 export interface InventoryWatchParams {
   enabled: boolean;
@@ -349,10 +355,14 @@ export type SessionSummary = {
   agentSessionId?: (string | null);
   /** Attached clients. */
   attached: number;
+  /** Its sub-sessions that are not closed. */
+  children: number;
   createdAt: number;
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
+  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  depth: number;
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -391,6 +401,11 @@ export type SessionSummary = {
   pendingPermissions: number;
   policy?: (string | null);
   preview?: (string | null);
+  /**
+   * The pull request URLs its `gh pr create` calls printed, oldest first;
+   * absent from a peer on an older acpmux.
+   */
+  pullRequests?: string[];
   queue: QueuedPromptSummary[];
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
@@ -398,6 +413,8 @@ export type SessionSummary = {
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
+  /** Its name among its parent's sub-sessions; null for a root. */
+  shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
   /**
@@ -405,6 +422,13 @@ export type SessionSummary = {
    * only while that parent is listed; one level.
    */
   spawnedBy?: (string | null);
+  /**
+   * The session whose agent started this one with its `start_session`
+   * tool (`hub/subsessions.rs`); null for a session a person or client
+   * started. Kept when the parent is closed or gone, so a client draws
+   * the tree from these links at any depth.
+   */
+  startedBy?: (string | null);
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;

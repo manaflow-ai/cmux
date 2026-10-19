@@ -68,7 +68,7 @@ grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
 # The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
 cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
+cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
 # changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"

@@ -53,6 +53,41 @@ const withAllChats = <V extends object>(variants: Record<string, V>) =>
     Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
 
+/// The widget view's fixtures: projects as the host sends them, and chats where three need the user.
+const WIDGET_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/src/manaflow"];
+const widgetSessions = () => [
+  session({
+    sessionId: "widget-failed",
+    title: "Composer + picker polish: no Tonka toys",
+    indicator: "failed",
+    preview: "Hit an error while running the gallery checks.",
+    cwd: "/Users/you/src/cmux",
+    updatedAt: minutesAgo(2),
+  }),
+  session({
+    sessionId: "widget-input",
+    title: "Ship the release notes for 0.64",
+    status: "waiting",
+    pendingPermissions: 1,
+    indicator: "input",
+    cwd: "/Users/you/src/cmux-web",
+    updatedAt: minutesAgo(12),
+  }),
+  session({
+    sessionId: "widget-lost",
+    title: "Index the docs site",
+    indicator: "lost",
+    cwd: "/Users/you/src/manaflow",
+    updatedAt: minutesAgo(40),
+  }),
+  ...manySessions(6).map((entry) => ({
+    ...entry,
+    indicator: "done" as const,
+    status: "idle" as const,
+    pendingPermissions: 0,
+  })),
+];
+
 type GalleryNativeCall = { method: string; params?: Record<string, unknown> };
 
 function galleryNativeCalls(document: Document): GalleryNativeCall[] {
@@ -104,6 +139,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
+    "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
@@ -182,6 +218,38 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
         if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
           throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
+      },
+    },
+    // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
+    // actions, from the page's own data. Projects: this Mac, then its recent projects, the one a chat
+    // starts in checked. Needs you: the chats asking for input or that hit an error, each with ×.
+    widgets: {
+      note: "Widget view on (Debug Settings newTab.widgets): a Projects card with this Mac and its recent projects, the picked one checked; a Needs you card with the chats waiting on you or that hit an error, each dismissable. Then the calm chat rows.",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.click({ text: "cmux" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-widget-row[aria-pressed="true"]') !== null);
+      },
+    },
+    "widgets-off": {
+      note: "The same chats and projects with the widget view off (the default): no cards, only the calm chat rows.",
+      ready: newTab({ projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length > 0);
+        if (ctx.document.querySelector(".nt-widgets")) throw new Error("widget cards show with the widget view off");
+      },
+    },
+    "widgets-hover": {
+      note: "Widget view, a pointer over a Needs you chat: a hover card with its whole title and why it needs you (its last line).",
+      ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
     "no-harness-installed": {
@@ -393,7 +461,7 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed prompt: Ask first (Return's, highlighted) and a web search in the popover over the cards; the cards stay where they were.",
+      note: "A typed prompt: Ask first (Return's, highlighted), a web search, then New terminal, New browser tab and New chat in the popover over the cards; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -422,9 +490,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Ask, the search, two tabs, the workspace and a page: five presses from Ask end on the
-        // last row, and three more wrap round to the first tab.
-        for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
+        // Ask, the search, two tabs, the workspace, a page and the three create actions: eight
+        // presses from Ask end on the last row, and three more wrap round to the first tab.
+        for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");

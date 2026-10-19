@@ -118,4 +118,17 @@ extension PaletteStrings {
     static var optionCancel: String { ShortcutRecorderStrings.optionCancel }
     static var optionRemove: String { ShortcutRecorderStrings.optionRemove }
     static var optionRestoreDefault: String { ShortcutRecorderStrings.optionRestoreDefault }
+    // Cmd-P and Cmd-Shift-P rows for a typed path or web address (GoToPaletteRows).
+    static var sectionGoTo: String { String(localized: "palette.section.goTo", defaultValue: "Go To", bundle: .module) }
+    static var kindFolder: String { String(localized: "palette.kind.folder", defaultValue: "Folder", bundle: .module) }
+    static func goToOpen(_ place: String) -> String { String(localized: "palette.goTo.open", defaultValue: "Open \(place)", bundle: .module) }
+    static var goToFolderHint: String { String(localized: "palette.goTo.folderHint", defaultValue: "New terminal tab in this folder", bundle: .module) }
+    static var goToAskCommand: String { String(localized: "palette.goTo.askCommand", defaultValue: "Ask Agent", bundle: .module) }
+    static func goToAsk(_ place: String) -> String { String(localized: "palette.goTo.ask", defaultValue: "Ask Agent about \(place)", bundle: .module) }
+    static func goToAskWithPrompt(_ place: String, _ prompt: String) -> String {
+        String(localized: "palette.goTo.askWithPrompt", defaultValue: "Ask Agent about \(place): \(prompt)", bundle: .module)
+    }
+    static var goToAskHint: String { String(localized: "palette.goTo.askHint", defaultValue: "New agent chat; type your prompt", bundle: .module) }
+    static var goToAskSendsHint: String { String(localized: "palette.goTo.askSendsHint", defaultValue: "New agent chat; sends this prompt", bundle: .module) }
+    static var goToCopyURL: String { String(localized: "palette.goTo.copyURL", defaultValue: "Copy URL", bundle: .module) }
 }

@@ -66,6 +66,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// unread mark and attention state (no second line, no counts or badges,
     /// no tab rows), and section headers become thin lines (the `lines` look).
     public var minimal = false
+    /// `sidebar.detailedStatusIcons`: a workspace row's badge draws each state apart (working,
+    /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
+    /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
+    public var detailedStatusIcons = false
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact

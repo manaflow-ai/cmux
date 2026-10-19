@@ -14,7 +14,7 @@ import CmuxNextWakeups
 /// card hides; nothing is sampled while no card is pending or shown.
 final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
-    /// Hover time before a card shows: Chrome's tab hover card delay, or
+    /// Hover time before a card shows: `HoverCardTiming.showDelay`, or
     /// `sidebar.hoverCards.delay` (cx-23e1f), so a sweep down the list shows
     /// none and leaving a row cancels its pending card. Once a card shows,
     /// moving down the list slides it over at once.
@@ -63,7 +63,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window,
               let id = list.hoverCardWorkspace(at: list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)),
-              let anchor = list.hoverCardAnchor(for: id)
+              let anchor = list.hoverCardAnchor(for: id),
+              !Self.onPullRequestBadge((list.rowViews[.workspace(id)] as? WorkspaceRowView)?.pullRequests, window: window, screenPoint: screenPoint)
         else { return nil }
         return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay), anchor: anchor)
     }
@@ -72,8 +73,19 @@ final class WorkspaceHoverCardController: HoverCardSource {
         workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
     }
 
+    /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
+    /// shows there instead.
+    static func onPullRequestBadge(_ badge: SidebarPullRequestBadgeView?, window: NSWindow, screenPoint: CGPoint) -> Bool {
+        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false, SidebarPullRequestCardController.isEnabled
+        else { return false }
+        return window.convertToScreen(badge.convert(badge.bounds, to: nil)).contains(screenPoint)
+    }
+
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
         guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
+        // One card beside the row at a time: the pull requests' card leaves for the workspace's.
+        let pullRequestCard = SidebarPullRequestCardController.shared
+        if pullRequestCard.isPresented { pullRequestCard.dismiss() }
         let body = body ?? WorkspaceHoverCardView()
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }

@@ -20,8 +20,12 @@
 //! against events with other causes, which arrive on the provider's or the
 //! CDP reader's thread.
 //!
-//! An event carries where an input lands and never what it types: no text,
-//! key value or URL field.
+//! An event carries where an input lands. Type and key events also carry
+//! what the agent types (`typing`), so the app can show it next to the
+//! cursor (user, 2026-10-18: "a small keystroke overlay showing typed
+//! text/keys"); the gate masks it (`Typing::masked`) for a secret, a
+//! password field and any field it cannot see into, and the text never
+//! holds a secret's value. No URL field.
 
 use crate::driver::EventSink;
 use crate::protocol::DriverEvent;
@@ -72,6 +76,47 @@ pub enum Space {
     Window,
 }
 
+/// What a type or key event types, as the app shows it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Typing {
+    /// The typed text (type), or the text a key press types (key). When
+    /// `masked`, one `•` per character (eight for a secret, whose length
+    /// is not shown); at most `MAX_TYPED_CHARS` characters, the end kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// The DOM key value of a key event (`Enter`, `a`); absent for a
+    /// masked printable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Held modifiers of a key event (`Alt`, `Control`, `Meta`, `Shift`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modifiers: Vec<String>,
+    /// The text is hidden: a secret, a password field, or a field the
+    /// host cannot see into (a cross-origin frame).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub masked: bool,
+    /// The text replaces the field's value (`locator.fill`) instead of
+    /// adding to it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replace: bool,
+}
+
+/// The most characters of typed text one event carries.
+pub const MAX_TYPED_CHARS: usize = 64;
+
+impl Typing {
+    /// `text` as the event carries it: at most `MAX_TYPED_CHARS` characters
+    /// (the end kept), or that many `•` when masked.
+    pub fn shown(text: &str, masked: bool) -> String {
+        let count = text.chars().count();
+        if masked {
+            return "•".repeat(count.min(MAX_TYPED_CHARS));
+        }
+        text.chars().skip(count.saturating_sub(MAX_TYPED_CHARS)).collect()
+    }
+}
+
 /// One `automation.input` event, schema v1.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +135,9 @@ pub struct AutomationInputEvent {
     pub to: Option<Point>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zoom: Option<f64>,
+    /// Type and key events: what is typed (see `Typing`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typing: Option<Typing>,
     pub t_ms: f64,
 }
 
@@ -100,6 +148,9 @@ pub struct Planned {
     pub kind: Kind,
     pub point: Option<Point>,
     pub to: Option<Point>,
+    /// The focused element a type or key event goes to, when measured.
+    pub rect: Option<Rect>,
+    pub typing: Option<Typing>,
 }
 
 /// A press that has not been released yet.
@@ -130,6 +181,20 @@ fn point_of(params: &Value) -> Option<Point> {
     Some(Point { x, y })
 }
 
+/// The marker `locator.fill` passes after a secret's stand-in value
+/// (runtime-core.js), so the stand-in is not shown as typed.
+pub const FILL_STAND_IN: &str = "cmux-secret-stand-in";
+
+/// A page-agent `fill` (`frame.evaluate` in the agent world with args
+/// `["fill", handle, value]`) that is not a secret's stand-in.
+pub fn is_agent_fill(params: &Value) -> bool {
+    let args = params.get("args").and_then(Value::as_array);
+    params.get("world").and_then(Value::as_str) == Some("agent")
+        && args.and_then(|a| a.first()).and_then(Value::as_str) == Some("fill")
+        && args.and_then(|a| a.get(2)).is_some_and(Value::is_string)
+        && args.and_then(|a| a.get(3)).and_then(Value::as_str) != Some(FILL_STAND_IN)
+}
+
 /// Publishes one session's inputs on its event sink.
 pub struct InputEmitter {
     session_id: String,
@@ -158,10 +223,21 @@ impl InputEmitter {
     /// dispatched call.
     pub fn plan(&self, method: &str, params: &Value) -> Option<Planned> {
         let target_id = params.get("targetId").and_then(Value::as_str).filter(|t| !t.is_empty())?;
-        let planned =
-            |kind, point, to| Some(Planned { target_id: target_id.to_owned(), kind, point, to });
+        let planned = |kind, point, to| {
+            Some(Planned {
+                target_id: target_id.to_owned(),
+                kind,
+                point,
+                to,
+                rect: None,
+                typing: None,
+            })
+        };
         match method {
             "input.insertText" => planned(Kind::Type, None, None),
+            // `locator.fill`'s value, set by the page agent (not a secret's
+            // stand-in, which the host's secret typing follows).
+            "frame.evaluate" if is_agent_fill(params) => planned(Kind::Type, None, None),
             "input.key" => match params.get("type").and_then(Value::as_str) {
                 Some("up") => None,
                 _ => planned(Kind::Key, None, None),
@@ -238,9 +314,10 @@ impl InputEmitter {
             kind: planned.kind,
             space: Space::Viewport,
             point: planned.point,
-            rect: None,
+            rect: planned.rect,
             to: planned.to,
             zoom: None,
+            typing: planned.typing,
             t_ms: now_ms(),
         };
         let Ok(payload) = serde_json::to_value(&event) else { return };

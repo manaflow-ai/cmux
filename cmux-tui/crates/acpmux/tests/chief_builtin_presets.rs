@@ -440,9 +440,9 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
         (Some(format!("optchat-chief-codex-{id}")), vec!["cmux"]),
         (
             Some(format!("optchat-sub-{id}")),
-            vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"],
+            vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"],
         ),
-        (None, vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"]),
+        (None, vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux"]),
     ] {
         let mut params = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
         if let Some(name) = &preset {
@@ -456,6 +456,15 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
         let r = chief.call("session/new", params).await;
         assert!(r.get("error").is_none(), "{preset:?}: {r}");
         let session = r["result"]["sessionId"].as_str().unwrap().to_owned();
-        assert_eq!(servers(chief.prompt_text(&session, "mcp").await), want, "{preset:?}");
+        let text = chief.prompt_text(&session, "mcp").await;
+        assert_eq!(servers(text.clone()), want, "{preset:?}");
+        // A Chief turn's cmux server gets the Chief's tool list (it lists
+        // only those and refuses `cmux_exec`); a subagent or plain session
+        // gets code mode.
+        let list: Value = serde_json::from_str(&text).unwrap();
+        let cmux = list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap();
+        let scoped = cmux["env"].to_string().contains("agents_wait,render");
+        let turn = preset.as_deref().is_some_and(|name| name.starts_with("optchat-chief-"));
+        assert_eq!(scoped, turn, "{preset:?}: {cmux}");
     }
 }
