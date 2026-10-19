@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sessions.allowFullAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Full-Access Modes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بأوضاع الوصول الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli načine punog pristupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad tilstande med fuld adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriffsmodi erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acceso total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les modes d’accès complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti le modalità con accesso completo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルアクセスモードを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតរបៀបចូលប្រើពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 접근 모드 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat moduser med full tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwalaj na tryby pełnego dostępu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acesso total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить режимы полного доступа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตโหมดสิทธิ์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam erişim modlarına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити режими повного доступу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép chế độ toàn quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许完全访问模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許完整存取模式"
+          }
+        }
+      }
+    },
+    "settings.sessions.allowFullAccess.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off, cmux won't switch an agent into a mode that skips approvals."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، لن يحوّل cmux أي وكيل إلى وضع يتخطى الموافقات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, cmux neće prebaciti agenta u način koji preskače odobrenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, skifter cmux ikke en agent til en tilstand, der springer godkendelser over."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeschaltet versetzt cmux keinen Agenten in einen Modus, der Freigaben überspringt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, cmux no cambiará un agente a un modo que omite las aprobaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, cmux ne fait passer aucun agent dans un mode qui ignore les approbations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, cmux non passa un agente a una modalità che salta le approvazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、cmux は承認をスキップするモードにエージェントを切り替えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបដែលរំលងការអនុម័តទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 cmux는 승인을 건너뛰는 모드로 에이전트를 전환하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er av, bytter ikke cmux en agent til en modus som hopper over godkjenninger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po wyłączeniu cmux nie przełączy agenta w tryb pomijający zatwierdzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado, o cmux não muda um agente para um modo que pula aprovações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, cmux не переключит агента в режим без подтверждений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดที่ข้ามการอนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken cmux bir ajanı onayları atlayan bir moda geçirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, cmux не перемкне агента в режим без підтверджень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, cmux sẽ không chuyển tác tử sang chế độ bỏ qua phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，cmux 不会将智能体切换到跳过审批的模式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後，cmux 不會將代理切換到略過核准的模式。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
