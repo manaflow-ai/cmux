@@ -563,10 +563,7 @@ impl Driver {
                 self.decided_for = Some(identity);
             }
             self.was_online = false;
-            let ended = match self.connect_once(&lease) {
-                Ok(Ended::Blocked(phase)) => Err(phase),
-                other => other,
-            };
+            let ended = self.connect_once(&lease);
             if self.was_online {
                 backoff = self.inner.options.backoff_min;
             }
@@ -574,13 +571,12 @@ impl Driver {
                 Ok(Ended::Purged | Ended::LeaseChanged) => {
                     backoff = self.inner.options.backoff_min;
                 }
-                Ok(Ended::Blocked(_)) => unreachable!("mapped above"),
                 Ok(Ended::Dropped(why)) => {
                     self.inner.set_phase(Phase::Backoff, Some(why));
                     self.inner.wait(seen, Some(backoff));
                     backoff = (backoff * 2).min(self.inner.options.backoff_max);
                 }
-                Err(blocked) => {
+                Ok(Ended::Blocked(blocked)) | Err(blocked) => {
                     // Wait for a new lease (or a clear) before trying again. A purge
                     // of a host this install may no longer reach has nothing to keep:
                     // a refused or removed host's replica is the backend's to drop.
