@@ -32,7 +32,7 @@ export function mentionQuery(markdown: string, at: number): { start: number; que
 /// `shown` is what the person sees, for the caret.
 export function mentionText(path: string): { markdown: string; shown: string } {
   const shown = `@${/\s/.test(path) ? `"${path}"` : path} `;
-  return { markdown: shown.replace(/[\\`*_[\]~<]/g, "\\$&"), shown };
+  return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };
 }
 
 export type MentionState =

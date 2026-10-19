@@ -128,5 +128,5 @@ export function mentionItems({
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
   if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
   const shown = `cmux session "${item.title}" (${item.sessionId}) `;
-  return { markdown: shown.replace(/[\\`*_[\]~<]/g, "\\$&"), shown };
+  return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };
 }

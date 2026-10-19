@@ -118,10 +118,11 @@ export const COMPOSER_LABELS = {
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
 
-/// The refusals a moved chat's upload can take instead (a file of another type, or past the size an attachment takes).
-/// The @ picker's files in a chat whose folder cannot be searched (a remote chat): none.
+/// The @ picker's files in a chat whose folder cannot be searched (a remote chat): none, and no
+/// "type to search" hint.
 const NO_FILES: MentionState = { kind: "done", results: [] };
 
+/// The refusals a moved chat's upload can take instead (a file of another type, or past the size an attachment takes).
 const UPLOADABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge"]);
 
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
@@ -573,8 +574,8 @@ export function Composer({
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
   const mentionSearch = useMentionSearch(searchFiles, mentionAt?.query);
-  // A chat whose folder cannot be searched still lists chats; it says no file matches.
-  const mentionState = searchFiles || !mentionAt?.query.trim() ? mentionSearch : NO_FILES;
+  // A chat whose folder cannot be searched still lists chats; it never hints at a file search.
+  const mentionState = searchFiles ? mentionSearch : NO_FILES;
   const mentionFiles = mentionResults(mentionState);
   const chatId = snapshot.summary?.sessionId;
   const mentionWord = mentionAt?.query;
