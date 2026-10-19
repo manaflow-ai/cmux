@@ -62,6 +62,17 @@ public struct SidebarDocMachines {
         return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle)
     }
 
+    /// Places `ids` at list `position` of `model` on the document (a new
+    /// workspace's slot, a drop from another window), and shows it in the
+    /// same turn: called before the sidebar first lists a new workspace, so
+    /// its row never draws in the unplaced tail (after every group) and then
+    /// jumps to its slot. False: the document is not active (the older path places it).
+    public func place(_ ids: [WorkspaceID], at position: DropPosition, model: SidebarModel) -> Bool {
+        guard let store = SidebarDocStore.current, let drag = drag(), store.place(ids, at: position, model: model, drag: drag) else { return false }
+        store.reshow(live: liveRefs())
+        return true
+    }
+
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows
     /// the live workspaces (`connectedRemotes`: the sessions of the connected remote machines) after each document or
     /// live-set change; `shown` gets the band layout it shows.

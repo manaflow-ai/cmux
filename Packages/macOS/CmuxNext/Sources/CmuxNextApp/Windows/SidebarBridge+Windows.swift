@@ -34,7 +34,9 @@ extension SidebarBridge {
     /// personal state, else reorder commands to the owning daemon. The rows
     /// show there at once, as after a drag, until the store holds the move:
     /// a new workspace is never drawn at its daemon slot first (cx-f6i7).
+    /// On the sidebar document the document takes it: it orders the rows there, not the personal order.
     func place(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
+        if SidebarDocWiring.docMachines(services.machines).place(ids, at: position, model: model) { return }
         let edit = rows.add(.reorder(ids, to: position))
         if usesPersonalOrganization {
             placePersonal(ids, at: position, in: sections, edit: edit)
