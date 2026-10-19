@@ -178,30 +178,31 @@ struct Mcp {
 /// (`TurnBinding` below: turn prefix `optchat-lead-`).
 const LEAD_TURN: &str = "optchat-lead-1";
 
-/// The binding of the test Chief hosts: a `/bin/sh` stands in for the acpmux
-/// agent host, so a caller started by [`under_agent`] runs under a session.
+/// The binding of the test Chief hosts: a `/bin/bash` stands in for the
+/// acpmux agent host (not `/bin/sh`: on macOS it runs `/bin/bash` in the
+/// same pid), so a caller started by [`under_agent`] runs under a session.
 fn binding() -> optchat_chief::turn_caller::TurnBinding {
     optchat_chief::turn_caller::TurnBinding {
         turn_prefix: "optchat-lead-".to_owned(),
         subagent_prefix: "optchat-sub-lead-".to_owned(),
-        agent_parent: std::fs::canonicalize("/bin/sh").ok(),
+        agent_parent: std::fs::canonicalize("/bin/bash").ok(),
     }
 }
 
-/// `command` run as the acpmux agent of session `session`: a `/bin/sh` agent
+/// `command` run as the acpmux agent of session `session`: a `/bin/bash` agent
 /// host stays its parent, and the agent has the name acpmux sets.
 fn under_agent(command: &Command, session: &str) -> Command {
-    let mut sh = Command::new("/bin/sh");
-    sh.args(["-c", "\"$@\"; status=$?; exit $status", "sh"])
+    let mut sh = Command::new("/bin/bash");
+    sh.args(["-c", "\"$@\"; status=$?; exit $status", "bash"])
         .arg(command.get_program())
-        .args(command.get_args())
-        .env("ACPMUX_SESSION_NAME", session);
+        .args(command.get_args());
     for (key, value) in command.get_envs() {
         match value {
             Some(value) => sh.env(key, value),
             None => sh.env_remove(key),
         };
     }
+    sh.env("ACPMUX_SESSION_NAME", session);
     if let Some(dir) = command.get_current_dir() {
         sh.current_dir(dir);
     }

@@ -4,7 +4,7 @@
 //! spawned, and terminals that shell opened keep it).
 //!
 //! Each caller is the real `optchat-chief chiefs` launcher. An acpmux agent
-//! is stood in for by a `/bin/sh` "agent host" whose child is the caller,
+//! is stood in for by a `/bin/bash` "agent host" whose child is the caller,
 //! with the session name acpmux sets on an agent (`ACPMUX_SESSION_NAME`).
 
 mod common;
@@ -31,7 +31,7 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
             turn: Some(optchat_chief::turn_caller::TurnBinding {
                 turn_prefix: "optchat-home-".to_owned(),
                 subagent_prefix: "optchat-sub-home-".to_owned(),
-                agent_parent: std::fs::canonicalize("/bin/sh").ok(),
+                agent_parent: std::fs::canonicalize("/bin/bash").ok(),
             }),
         },
     )
@@ -39,7 +39,7 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
     socket
 }
 
-/// `optchat-chief chiefs` with `env`, as the child of a `/bin/sh` agent
+/// `optchat-chief chiefs` with `env`, as the child of a `/bin/bash` agent
 /// host (`under_host`) or of this test process.
 fn chiefs(socket: &Path, env: &[(&str, &str)], under_host: bool) -> Output {
     let exe = env!("CARGO_BIN_EXE_optchat-chief");
@@ -52,8 +52,8 @@ fn chiefs(socket: &Path, env: &[(&str, &str)], under_host: bool) -> Output {
     .map(str::to_owned);
     let mut command = if under_host {
         // The shell stays the caller's parent: it runs the caller, then exits.
-        let mut sh = Command::new("/bin/sh");
-        sh.args(["-c", "\"$@\"; status=$?; exit $status", "sh", exe])
+        let mut sh = Command::new("/bin/bash");
+        sh.args(["-c", "\"$@\"; status=$?; exit $status", "bash", exe])
             .args(&args);
         sh
     } else {
@@ -82,8 +82,13 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
     let tools = Arc::new(ChiefTools::none());
     let seal = tools.turn_key().to_owned();
     let socket = serve(&dir.path().join("chief"), tools);
-    // A subagent and a compactor of this Chief, each with the leaked seal.
-    for name in ["optchat-sub-home-a75", "optchat-compact-home-2068+1"] {
+    // A subagent, a compactor and an acpmux sub-session of the turn, each
+    // with the leaked seal.
+    for name in [
+        "optchat-sub-home-a75",
+        "optchat-compact-home-2068+1",
+        "optchat-home-2079/x1",
+    ] {
         let out = chiefs(
             &socket,
             &[(TURN_KEY_ENV, &seal), ("ACPMUX_SESSION_NAME", name)],
@@ -103,7 +108,7 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
     );
     assert!(refused(&out), "orphan: {out:?}");
     // The turn session itself, with the seal: past the check (this Chief
-    // has no registry, so the call itself then fails for that reason).
+    // has no record, so its grant then refuses the tool, for that reason).
     let out = chiefs(
         &socket,
         &[
@@ -112,7 +117,12 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
         ],
         true,
     );
-    assert!(!refused(&out), "turn: {out:?}");
+    assert!(
+        !refused(&out)
+            && String::from_utf8_lossy(&out.stderr)
+                .contains("has not given this Chief the chiefs tool"),
+        "turn: {out:?}"
+    );
     // The turn session without the seal, or with a wrong one: refused.
     for key in ["", &"0".repeat(64)] {
         let out = chiefs(

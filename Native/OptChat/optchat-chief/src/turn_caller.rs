@@ -11,8 +11,10 @@
 //!   or the daemon itself without hosts): that process is the agent;
 //! - the agent's own environment, which acpmux set when it spawned it
 //!   (`ACPMUX_SESSION_NAME`, agent/command.rs), names its session;
-//! - the session is a turn when its name is `<turn prefix>-…`, a subagent
-//!   when it is `<subagent prefix>-…`; anything else, or no acpmux agent
+//! - the session is a turn when its name is `<turn prefix><message id>`
+//!   (and acpmux's `-<n>` for a taken name), a subagent when it starts with
+//!   `<subagent prefix>`; anything else (a turn's acpmux sub-session
+//!   `<turn>/<short>` included), or no acpmux agent
 //!   among the parents (an orphaned terminal host's shell), is neither.
 //!
 //! The role comes from that binding, never from the caller's own
@@ -64,10 +66,21 @@ impl TurnBinding {
             return Role::Other;
         };
         match agent_session_name(pid, parent_exe) {
-            Some(name) if name.starts_with(&self.turn_prefix) => Role::Turn,
+            Some(name) if self.is_turn_name(&name) => Role::Turn,
             Some(name) if name.starts_with(&self.subagent_prefix) => Role::Subagent,
             _ => Role::Other,
         }
+    }
+}
+
+impl TurnBinding {
+    /// `<turn prefix><digits>`, then any `-<digits>` acpmux adds to a taken
+    /// name (`hub/new_request.rs` `unique_name_among`); nothing else.
+    fn is_turn_name(&self, name: &str) -> bool {
+        name.strip_prefix(&self.turn_prefix).is_some_and(|rest| {
+            rest.split('-')
+                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        })
     }
 }
 
