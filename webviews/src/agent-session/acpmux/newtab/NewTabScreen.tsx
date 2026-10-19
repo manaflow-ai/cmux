@@ -613,7 +613,7 @@ export function NewTabScreen(props: Props) {
                   {nt("mode.hint")}
                 </span>
                 {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
-                <output className="ui-sr-only" aria-live="polite">
+                <output className="nt-mode-status" aria-live="polite">
                   {nt(mode === "search" ? "mode.search" : "mode.ask")}
                 </output>
                 <span className="nt-mode-track">
