@@ -13,7 +13,7 @@ final class WorkspaceStatusView: NSView {
     private var reservesBar = false
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// `reservesBar`: the row has a progress bar, drawn between the log line and the label.
     func configure(_ status: SidebarWorkspaceStatus, reservesBar: Bool) {
