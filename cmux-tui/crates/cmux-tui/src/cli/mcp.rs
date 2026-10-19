@@ -455,7 +455,9 @@ impl<B: Backend> Server<B> {
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(&params, self.list_changed, self.code_mode)),
+            "initialize" => {
+                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+            }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();

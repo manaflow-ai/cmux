@@ -69,8 +69,9 @@ pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
 /// A session env key passed to the `cmux` server: the comma-separated cmux
 /// MCP tools the session may use (the Chief's turn presets). `cmux mcp
 /// serve` then lists only those and refuses every other call; unset, it
-/// speaks code mode. Only the session's own env sets it, never the
-/// daemon's (`scoped`).
+/// speaks code mode. Only a preset sets it (a session's own env may
+/// not, `session_env`); the daemon's own value never reaches an agent
+/// (`agent::command`).
 pub const MCP_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
 
 /// The cmux MCP tools of a Chief turn, for the built-in turn presets

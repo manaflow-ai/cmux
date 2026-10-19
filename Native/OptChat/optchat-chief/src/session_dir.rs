@@ -352,16 +352,17 @@ fn deny_rules(names: Vec<String>) -> Vec<String> {
 const PENDING: &str = "cmux-tools-pending.json";
 
 /// Deny rules for every cmux MCP tool of `env`'s CLI not in
-/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, none: the turn keeps
-/// every tool (behind ToolSearch) and host.log says so. When the app's
+/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, only the code-mode
+/// tools: the turn keeps every other tool (behind ToolSearch) and host.log
+/// says so. When the app's
 /// action tools were not in the list, `session` gets the pending marker.
 pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<String> {
     let pending = session.join(".claude").join(PENDING);
     let Some((names, app)) = cmux_tool_names(env) else {
         crate::log::log(
-            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool",
+            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool but cmux_exec and cmux_docs",
         );
-        return Vec::new();
+        return deny_rules(Vec::new());
     };
     if app {
         let _ = std::fs::remove_file(&pending);

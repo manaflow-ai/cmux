@@ -58,6 +58,8 @@ impl Default for Limits {
 const MAX_CALLS: usize = 2_000;
 /// Calls a result lists one by one; the rest are only counted.
 const MAX_CALL_RECORDS: usize = 200;
+/// The longest tool name a script may call (the longest real one is under 60).
+const MAX_TOOL_NAME_BYTES: usize = 128;
 /// Console text kept per script (each line counts one more byte, so empty
 /// lines count too); later lines are dropped and counted.
 const MAX_LOG_BYTES: usize = 64 << 10;
@@ -388,6 +390,12 @@ fn fit(mut value: Value) -> Value {
         logs.truncate(keep);
         value["logs_truncated"] = json!(true);
     }
+    if size(&value) > budget
+        && let Some(records) = value["call_log"].as_array_mut()
+    {
+        records.clear();
+        value["call_log_truncated"] = json!(true);
+    }
     value
 }
 
@@ -507,6 +515,9 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             .set(
                 "call",
                 Function::new(ctx.clone(), move |name: String, arguments: String| -> String {
+                    if name.len() > MAX_TOOL_NAME_BYTES {
+                        return failure("usage.invalid", "no tool has a name that long");
+                    }
                     let arguments = match serde_json::from_str::<Value>(&arguments) {
                         Ok(Value::Object(arguments)) => arguments,
                         _ => return failure("usage.invalid", "tool arguments must be an object"),
@@ -583,7 +594,13 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             Ok(false) => break,
             Err(error) => {
                 if let Ok(mut logs) = logs.try_borrow_mut() {
-                    logs.0.push(format!("[error] job: {error}"));
+                    let line = format!("[error] job: {error}");
+                    if logs.2 + line.len() + 1 > MAX_LOG_BYTES {
+                        logs.1 += 1;
+                    } else {
+                        logs.2 += line.len() + 1;
+                        logs.0.push(line);
+                    }
                 }
             }
         }
