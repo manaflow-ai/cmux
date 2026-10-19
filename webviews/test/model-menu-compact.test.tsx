@@ -412,6 +412,22 @@ test("typing keeps keyboard focus in the menu when the focused row goes away", a
   expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“ha”");
 });
 
+// Greptile on #22005: the composer hands the menu a new families object on every render, and a
+// streaming reply re-renders it. A row the keyboard moved to stays focused, so Enter picks it.
+test("a filtered row the keyboard moved to keeps focus as the composer re-renders", async () => {
+  const { rerender } = await mount({ routes: [] });
+  await open();
+  for (const letter of "gpt") await key(letter);
+  await settle();
+  const rows = modelRows(menu()!);
+  expect(rows.length).toBeGreaterThan(1);
+  await act(async () => rows[1]!.focus());
+  const name = rows[1]!.querySelector(".acpmux-menu-label")?.textContent;
+  await rerender();
+  await settle();
+  expect((doc().activeElement as HTMLElement | null)?.querySelector(".acpmux-menu-label")?.textContent).toBe(name);
+});
+
 test("while filtering, a digit narrows the list instead of picking a row", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
