@@ -21,8 +21,10 @@ struct PaneArrival: Equatable {
     /// shrank inside its old frame and ends beside the new pane, on the side it
     /// gave up (a column inserted mid-strip pushes its neighbor along instead).
     static func of(target: CGRect, previous: [PaneID: CGRect], next: [PaneID: CGRect]) -> PaneArrival? {
-        let slack: CGFloat = 1
+        let slack: CGFloat = 1, gap: CGFloat = 32
         func across(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat) -> Bool { min(b, d) - max(a, c) > slack }
+        // Beside: at most a pane gap apart (a pane further along the chain shrinks too).
+        func beside(_ near: CGFloat, _ far: CGFloat) -> Bool { far >= near - slack && far - near <= gap }
         let shrank = previous.compactMap { pane, before -> (before: CGRect, after: CGRect)? in
             guard let after = next[pane], before.insetBy(dx: -slack, dy: -slack).contains(after),
                   after.width * after.height < before.width * before.height - 1 else { return nil }
@@ -36,21 +38,21 @@ struct PaneArrival: Equatable {
                 let rows = across(after.minY, after.maxY, target.minY, target.maxY)
                 let columns = across(after.minX, after.maxX, target.minX, target.maxX)
                 switch side {
-                case 0 where rows && target.minX >= after.maxX - slack && before.maxX > after.maxX + slack:
+                case 0 where rows && beside(after.maxX, target.minX) && before.maxX > after.maxX + slack:
                     // From the old right edge, the gap to the split pane kept, so both edges and the
                     // divider between them keep one distance in every frame.
                     let x = before.maxX + (target.minX - after.maxX)
                     return PaneArrival(seed: CGRect(x: x, y: target.minY, width: 0, height: target.height),
                                        edgeOffset: CGVector(dx: before.maxX - after.maxX, dy: 0))
-                case 1 where columns && target.minY >= after.maxY - slack && before.maxY > after.maxY + slack:
+                case 1 where columns && beside(after.maxY, target.minY) && before.maxY > after.maxY + slack:
                     let y = before.maxY + (target.minY - after.maxY)
                     return PaneArrival(seed: CGRect(x: target.minX, y: y, width: target.width, height: 0),
                                        edgeOffset: CGVector(dx: 0, dy: before.maxY - after.maxY))
-                case 2 where rows && target.maxX <= after.minX + slack && before.minX < after.minX - slack:
+                case 2 where rows && beside(target.maxX, after.minX) && before.minX < after.minX - slack:
                     let x = before.minX - (after.minX - target.maxX)
                     return PaneArrival(seed: CGRect(x: x, y: target.minY, width: 0, height: target.height),
                                        edgeOffset: CGVector(dx: before.minX - after.minX, dy: 0))
-                case 3 where columns && target.maxY <= after.minY + slack && before.minY < after.minY - slack:
+                case 3 where columns && beside(target.maxY, after.minY) && before.minY < after.minY - slack:
                     let y = before.minY - (after.minY - target.maxY)
                     return PaneArrival(seed: CGRect(x: target.minX, y: y, width: target.width, height: 0),
                                        edgeOffset: CGVector(dx: 0, dy: before.minY - after.minY))
