@@ -7,10 +7,12 @@ import Foundation
 /// goes through `MarkdownLinkPolicy`, so `javascript:`, `data:` and the like never link. Bare
 /// GitHub numbers are not linked: the text names no repository (the Chief's prompt links them).
 extension HomeMarkdown {
-    /// One bare link found in plain text: its UTF-16 range and the link it opens.
+    /// One bare link found in plain text: its UTF-16 range, the link it opens and the short
+    /// label Home shows in its place (``shortLabel(_:)``).
     struct AutoLink: Equatable {
         var range: NSRange
         var link: String
+        var label: String
     }
 
     /// The bare links in `text`, left to right, each one accepted by the link policy.
@@ -25,10 +27,28 @@ extension HomeMarkdown {
                   ".,:;!?".unicodeScalars.contains(last) {
                 range.length -= 1
             }
-            guard let link = destination(ns.substring(with: range)) else { continue }
-            found.append(AutoLink(range: range, link: link))
+            let raw = ns.substring(with: range)
+            guard let link = destination(raw) else { continue }
+            found.append(AutoLink(range: range, link: link, label: shortLabel(raw)))
         }
         return found
+    }
+
+    /// The label a bare link shows (Lawrence 2026-10-19: a raw `cmux://workspace/ws_…` broke
+    /// across two lines): a short path as written (the home folder as `~`), a long one as its
+    /// file name; a cmux link or id as its id, cut after 8 characters (`ws_9166682e…`). Short
+    /// and without spaces, so the link wraps as one unit.
+    static func shortLabel(_ raw: String) -> String {
+        if raw.hasPrefix("/") || raw.hasPrefix("~/") {
+            let home = NSHomeDirectory()
+            let path = raw.hasPrefix(home + "/") ? "~" + raw.dropFirst(home.count) : raw
+            return path.utf16.count <= 40 ? path : (path as NSString).lastPathComponent
+        }
+        let id = raw.split(separator: "/").last.map(String.init) ?? raw
+        if let underscore = id.firstIndex(of: "_"), id.distance(from: underscore, to: id.endIndex) > 9 {
+            return String(id[...id.index(underscore, offsetBy: 8)]) + "…"
+        }
+        return id.count > 16 ? String(id.prefix(12)) + "…" : id
     }
 
     /// `raw` as the link Home opens: a path as a path link, a bare cmux id as its app link,
@@ -59,8 +79,8 @@ extension HomeMarkdown {
 }
 
 extension HomeMarkdown.Output {
-    /// Appends plain text, linking each bare path, cmux id and cmux link in it
-    /// (``HomeMarkdown/autoLinks(in:)``).
+    /// Appends plain text, each bare path, cmux id and cmux link in it shown as its short
+    /// label and linked (``HomeMarkdown/autoLinks(in:)``).
     mutating func appendLinkingBare(_ s: String, _ styles: [String]) {
         let links = HomeMarkdown.autoLinks(in: s)
         guard !links.isEmpty else { return append(s, styles) }
@@ -68,7 +88,7 @@ extension HomeMarkdown.Output {
         var at = 0
         for found in links {
             append(ns.substring(with: NSRange(location: at, length: found.range.location - at)), styles)
-            append(ns.substring(with: found.range), styles, link: found.link)
+            append(found.label, styles, link: found.link)
             at = found.range.location + found.range.length
         }
         append(ns.substring(from: at), styles)

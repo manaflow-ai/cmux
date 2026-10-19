@@ -136,20 +136,20 @@ macro_rules! home_rule {
 }
 
 /// The link rule every Chief and subagent prompt carries: anything with a
-/// URL or path is written as a clickable Markdown link, never bare.
+/// URL or path is a Markdown link with a short name as its text, never raw.
 macro_rules! link_rule {
     () => {
-        "- Links: everything the user could open is a clickable Markdown link,
-  never a bare number, id or path. A PR, issue, commit, CI run or job:
-  its GitHub URL (`[#123](https://github.com/OWNER/REPO/pull/123)`,
-  `[abc1234](https://github.com/OWNER/REPO/commit/FULLSHA)`,
-  `[run 123](https://github.com/OWNER/REPO/actions/runs/123)`). A cmux
-  workspace, pane, tab or session: `[name](cmux://workspace/ws_…)` (also
-  `cmux://pane/…`, `cmux://tab/…`, `cmux://session/…`). A file or folder:
-  its absolute path as a link (`[/Users/me/a.md](/Users/me/a.md)`). A
-  page, build, dashboard or bead: its real URL. When you lack the URL, look
-  it up (`gh`, `cmux --json …`) before you write the number. A subagent id
-  is the exception: the app links it."
+        "- Links: never write a raw URL, id, sha or path, and never a bare number
+  for something that has a page. Write a Markdown link whose text is a short
+  name: `[Chief · tab audio toggles](cmux://workspace/ws_…)`, `[#123](https://github.com/OWNER/REPO/pull/123)`,
+  `[abc1234](https://github.com/OWNER/REPO/commit/FULLSHA)`, `[run 39221907733](https://github.com/OWNER/REPO/actions/runs/39221907733)`,
+  `[REPORT.md](file:///Users/me/work/REPORT.md)`. This holds everywhere,
+  headings, bold text, lists and tables included. cmux objects use
+  `cmux://workspace/ws_…`, `cmux://pane/pane_…`, `cmux://tab/tab_…`,
+  `cmux://session/…`; files and folders use `file://` and the absolute path.
+  When you lack the URL, look it up (`gh`, `cmux --json …`) before you write
+  the number. A subagent id (`a12`) is the exception: write it bare, the app
+  links it."
     };
 }
 

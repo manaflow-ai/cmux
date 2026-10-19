@@ -116,9 +116,9 @@ enum HomeMarkdown {
                         flush()
                         // A code span that is one whole path or cmux id (`~/a.md`) links to it.
                         let whole = link == nil ? HomeMarkdown.autoLinks(in: code).first.flatMap {
-                            $0.range == NSRange(location: 0, length: (code as NSString).length) ? $0.link : nil
+                            $0.range == NSRange(location: 0, length: (code as NSString).length) ? $0 : nil
                         } : nil
-                        out.append(code, add("code", to: styles), link: link ?? whole)
+                        out.append(whole?.label ?? code, add("code", to: styles), link: link ?? whole?.link)
                         i = close + ticks; continue
                     }
                     plain += String(repeating: "`", count: ticks); i += ticks; continue
