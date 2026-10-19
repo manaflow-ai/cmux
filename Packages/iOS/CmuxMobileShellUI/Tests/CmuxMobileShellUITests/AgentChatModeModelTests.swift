@@ -71,6 +71,100 @@ import Testing
         #expect(!model.isLaunchingSelectedSession)
     }
 
+    @Test func staleLaunchCannotSelectAReplacementSourceSession() async {
+        let oldSource = FakeAgentChatSource(
+            sessions: [descriptor(id: "parent", agent: .codex, title: "Old parent")],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(oldSource)
+        await settle()
+
+        let launchGate = await oldSource.holdLaunches()
+        await oldSource.setLaunchResult(
+            ChatSessionLaunchResult(
+                action: .fork,
+                parentSessionID: "parent",
+                sessionID: "shared-child",
+                workspaceID: "old-workspace",
+                terminalID: "old-terminal"
+            ),
+            adding: descriptor(id: "shared-child", agent: .codex, title: "Old side chat")
+        )
+        let launchTask = Task { await model.forkSelectedSession() }
+        await oldSource.waitForLaunchStart()
+
+        let replacementSource = FakeAgentChatSource(sessions: [
+            descriptor(id: "replacement", agent: .claude, title: "Replacement", activity: 20),
+            // The replacement Mac happens to use the same session ID. A stale
+            // launch acknowledgement must not select this unrelated session.
+            descriptor(id: "shared-child", agent: .claude, title: "Unrelated", activity: 10),
+        ], pages: [:])
+        model.updateSource(replacementSource)
+        await settle()
+        #expect(model.selectedSessionID == "replacement")
+
+        await launchGate.open()
+        await launchTask.value
+        await settle()
+
+        #expect(model.sessions.map(\.id) == ["replacement", "shared-child"])
+        #expect(model.selectedSessionID == "replacement")
+    }
+
+    @Test func staleControlsFetchCannotMutateAReplacementSource() async {
+        let old = descriptor(
+            id: "session",
+            agent: .codex,
+            title: "Old",
+            controls: ChatSessionControls(modelID: "old-model")
+        )
+        let oldSource = FakeAgentChatSource(sessions: [old], pages: [:])
+        let controlsGate = await oldSource.holdControls()
+        let model = AgentChatModeModel()
+        model.updateSource(oldSource)
+        await oldSource.waitForControlsStart()
+
+        let replacement = descriptor(
+            id: "session",
+            agent: .claude,
+            title: "Replacement",
+            controls: ChatSessionControls(modelID: "replacement-model")
+        )
+        let replacementSource = FakeAgentChatSource(sessions: [replacement], pages: [:])
+        model.updateSource(replacementSource)
+        await settle()
+
+        await controlsGate.open()
+        await settle()
+
+        #expect(model.sessions.map(\.id) == ["session"])
+        #expect(model.selectedSessionID == "session")
+        #expect(model.selectedSession?.title == "Replacement")
+        #expect(model.selectedControls.modelID == "replacement-model")
+    }
+
+    @Test func staleControlsReadCannotOverwriteAnAcknowledgedUpdate() async {
+        let session = descriptor(
+            id: "session",
+            agent: .codex,
+            controls: ChatSessionControls(modelID: "old-model")
+        )
+        let source = FakeAgentChatSource(sessions: [session], pages: [:])
+        let controlsGate = await source.holdControls()
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await source.waitForControlsStart()
+
+        let updated = ChatSessionControls(modelID: "new-model")
+        await model.updateSelectedControls(updated)
+        await controlsGate.open()
+        await settle()
+
+        #expect(model.selectedControls == updated)
+        #expect(model.selectedSession?.controls == updated)
+    }
+
     @Test func providerFilterReconcilesSelectedDetailSession() async {
         let source = FakeAgentChatSource(sessions: [
             descriptor(id: "claude", agent: .claude, title: "Claude", activity: 10),
@@ -1138,7 +1232,8 @@ import Testing
         id: String,
         agent: ChatAgentKind,
         title: String? = nil,
-        activity: TimeInterval = 0
+        activity: TimeInterval = 0,
+        controls: ChatSessionControls = ChatSessionControls()
     ) -> ChatSessionDescriptor {
         ChatSessionDescriptor(
             id: id,
@@ -1146,7 +1241,8 @@ import Testing
             title: title,
             state: .idle,
             lastActivityAt: Date(timeIntervalSince1970: activity),
-            version: 1
+            version: 1,
+            controls: controls
         )
     }
 
@@ -1211,9 +1307,10 @@ import Testing
         id: String,
         agent: ChatAgentKind,
         title: String? = nil,
-        activity: TimeInterval = 0
+        activity: TimeInterval = 0,
+        controls: ChatSessionControls = ChatSessionControls()
     ) -> ChatSessionDescriptor {
-        Self.descriptor(id: id, agent: agent, title: title, activity: activity)
+        Self.descriptor(id: id, agent: agent, title: title, activity: activity, controls: controls)
     }
 
     private func page(_ message: ChatMessage) -> ChatHistoryPage {
@@ -1277,6 +1374,9 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     private var answerReleaseGate: TestAsyncGate?
     private var answerStarted = 0
     private var answerStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var controlsReleaseGate: TestAsyncGate?
+    private var controlsStarted = 0
+    private var controlsStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var hostContinuation: AsyncStream<ChatSessionEventFrame>.Continuation?
     private(set) var hostSubscriptionCount = 0
     private var pendingHostEvents: [ChatSessionEventFrame] = []
@@ -1351,6 +1451,43 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
             throw FakeError.missingSession
         }
         return descriptor
+    }
+
+    func controls(sessionID: String) async throws -> ChatSessionControls {
+        guard let descriptor = sessionDescriptors.first(where: { $0.id == sessionID }) else {
+            throw FakeError.missingSession
+        }
+        let controls = descriptor.controls
+        controlsStarted += 1
+        let waiters = controlsStartWaiters
+        controlsStartWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if let controlsReleaseGate {
+            await controlsReleaseGate.wait()
+            self.controlsReleaseGate = nil
+        }
+        return controls
+    }
+
+    func updateControls(_ controls: ChatSessionControls, sessionID: String) async throws -> ChatSessionControls {
+        guard let index = sessionDescriptors.firstIndex(where: { $0.id == sessionID }) else {
+            throw FakeError.missingSession
+        }
+        sessionDescriptors[index].controls = controls
+        return controls
+    }
+
+    func holdControls() -> TestAsyncGate {
+        let gate = TestAsyncGate()
+        controlsReleaseGate = gate
+        return gate
+    }
+
+    func waitForControlsStart() async {
+        guard controlsStarted == 0 else { return }
+        await withCheckedContinuation { continuation in
+            controlsStartWaiters.append(continuation)
+        }
     }
 
     func sessionEvents() async -> AsyncStream<ChatSessionEventFrame> {
