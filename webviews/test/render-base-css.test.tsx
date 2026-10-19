@@ -92,7 +92,7 @@ async function frameMessage(theme: typeof LIGHT, html: string): Promise<{ html: 
   act(() => root?.unmount());
   root = createRoot(host);
   act(() => root!.render(<RenderCard call={{ html, title: "Report" }} />));
-  act(() => [...host.querySelectorAll("button")].find((element) => element.textContent === "Run")!.click());
+  act(() => [...host.querySelectorAll("button")].find((element) => element.textContent === "Show preview")!.click());
   const frame = host.querySelector("iframe")!.contentWindow!;
   const sent: unknown[] = [];
   frame.postMessage = ((message: unknown) => sent.push(message)) as never;

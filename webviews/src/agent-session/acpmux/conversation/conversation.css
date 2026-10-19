@@ -2118,7 +2118,7 @@ pre.cv-math-source {
   color: var(--agent-text);
   font: inherit;
   font-weight: 500;
-  cursor: default;
+  cursor: pointer;
 }
 .acpmux-render-card-gate:hover { background: color-mix(in srgb, currentColor 5%, transparent); }
 .acpmux-render-card-gate:focus-visible { outline: 2px solid var(--agent-accent); outline-offset: -2px; }

@@ -323,7 +323,7 @@ export function RenderCard({
           <span className="acpmux-render-card-gate-icon" aria-hidden="true">
             <PlayTriangle size={12} />
           </span>
-          {t("render.run")}
+          {t("render.showPreview")}
         </button>
       )}
       {running && !stopped && (

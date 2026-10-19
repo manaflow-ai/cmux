@@ -73,7 +73,7 @@ test("a waiting page has one large Run and no Open preview; preview comes once i
   expect(host.querySelector("iframe")).toBeNull();
   expect(preview()).toBeNull();
   const gate = host.querySelector<HTMLButtonElement>(".acpmux-render-card-gate");
-  expect(gate?.textContent).toBe("Run");
+  expect(gate?.textContent).toBe("Show preview");
   // The title line carries no second, small Run.
   expect(host.querySelector(".acpmux-render-card-head button")).toBeNull();
   act(() => gate!.click());
