@@ -16,22 +16,26 @@ public final class TerminalHostView: NSView, LayerParkable {
     /// hidden; the surface stops drawing, observing and taking input as when hidden. Any move to
     /// another superview unparks it (parking never moves a view), so a view taken elsewhere shows.
     /// Every set applies the layer (an AppKit unhide shows the layer again); only a change notifies.
-    public var isParked = false {
+    public private(set) var isParked = false {
         didSet {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.isHidden = isParked || isHidden
-            CATransaction.commit()
+            applyParkedLayer()
             if isParked != oldValue { notifyOutOfSightChange() }
         }
+    }
+
+    private func applyParkedLayer() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.isHidden = isParked || isHidden
+        CATransaction.commit()
     }
 
     /// Whether the host can park by its layer: only while it shows no control of its own (the find
     /// bar, Restart or Retry), whose cursor rects and key views AppKit would keep live in a parked
     /// view. A host that shows one parks by AppKit's hidden state.
-    /// A find bar counts once built: it shows and hides itself with find.
+    /// A find bar counts while it shows (it shows and hides itself with find; `layout()` re-checks).
     public var parksByLayer: Bool {
-        restartButton.isHidden && retryButton.isHidden && !subviews.contains { $0 is TerminalFindBarView }
+        restartButton.isHidden && retryButton.isHidden && !subviews.contains { $0 is TerminalFindBarView && !$0.isHidden }
     }
 
     /// Parks hidden or by layer, whichever `parksByLayer` allows now (`park(_:)` sets the mode at
@@ -228,6 +232,7 @@ public final class TerminalHostView: NSView, LayerParkable {
         let strip = scroller.strip(in: bounds)
         if scroller.frame != strip { scroller.frame = strip }
         layoutOverlays()
+        reparkIfNeeded() // a find bar that shows while parked
     }
 
     /// The status banner centered 12 pt above the bottom (at most the width
@@ -283,6 +288,12 @@ public final class TerminalHostView: NSView, LayerParkable {
 
     /// The host roots its terminal's scope, so the panes' repaint stops here: it listens to the
     /// scope it sits in, whose colors decide whether its own theme shows (`paintBackground`).
+    /// AppKit may rebuild the layer's state for a new window: a parked host keeps its layer hidden.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyParkedLayer()
+    }
+
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         isParked = false

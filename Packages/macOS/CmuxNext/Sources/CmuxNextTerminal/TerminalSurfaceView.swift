@@ -186,6 +186,8 @@ public final class TerminalSurfaceView: NSView {
         if isOutOfSight {
             observeWindow(false)
             updateOcclusion()
+            // Off-grid, as on an exit: a link hovered when the tab left clears (a parked view gets no exit).
+            if let surface { ghostty_surface_mouse_pos(surface, -1, -1, GHOSTTY_MODS_NONE) }
         } else {
             syncWindowState()
         }

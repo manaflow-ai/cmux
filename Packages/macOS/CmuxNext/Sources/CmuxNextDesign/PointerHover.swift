@@ -95,7 +95,7 @@ public final class PointerHover: NSObject {
     fileprivate var viewWindow: NSWindow? { view?.window }
 
     private func computeHovering() -> Bool {
-        guard let view, let window = view.window, !view.isHiddenOrHasHiddenAncestor, isHoverable(),
+        guard let view, let window = view.window, !view.isOutOfSight, isHoverable(),
               let pointer = Self.pointer(in: window, requireKey: requiresKeyWindow) else { return false }
         let local = view.convert(pointer, from: nil)
         let rect = (region?(view) ?? view.bounds).intersection(view.visibleRect)

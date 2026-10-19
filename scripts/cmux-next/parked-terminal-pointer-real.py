@@ -7,7 +7,7 @@
 Input host only (real mouse-moved, press, drag and release events through `pointer-probe.swift`, the
 copy key through cua-driver). A pane holds two terminal tabs, A and B; each prints its own marker on
 its first row. B opens last, so its parked view stays above A's in the pane (a switch moves no view,
-cx-8w027.19). With A shown and B parked, then with B shown and A parked:
+cx-8w027.19). With A shown and B parked above it, then with B shown and A parked:
 
   1. the real pointer over the shown terminal shows the I-beam, also right after the switch with a
      still pointer;
@@ -212,7 +212,10 @@ try:
     quiet_wait(lambda: (lambda p: p and marker_row(p, MARKERS["A"]) is None and p)(shown_terminal()), 30)
     action("terminal.sendText", {"text": f"clear; printf '{MARKERS['B']}\\n'\r"})
     quiet_wait(lambda: marker_row(shown_terminal() or {}, MARKERS["B"]) is not None, 15)
-    action("nextSurface")  # back to A; B stays parked above it
+    pane_b = shown_terminal() or {}
+    if pane_b.get("grid"):  # the still-pointer check after the switch: the pointer rests over the pane
+        real_move(*to_screen(cell(pane_b["grid"], 6, 3)))
+    action("prevSurface")  # back to A (tabs: the launch's, A, B); B, opened last, stays parked above A
     checks("A", "B")
     action("nextSurface")
     checks("B", "A")

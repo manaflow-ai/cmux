@@ -201,7 +201,7 @@ public final class TooltipPresenter {
     }
 
     static func stillShows(_ tracker: TooltipTracker) -> Bool {
-        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor,
+        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isOutOfSight,
               WindowPlacement.noActivate || NSApp.isActive, let anchor = tracker.screenRect,
               let pointer = PointerHover.pointer(in: window) else { return false }
         // `PointerHover`: the real pointer, or DEBUG's synthesized one (a recording on a headless host).
