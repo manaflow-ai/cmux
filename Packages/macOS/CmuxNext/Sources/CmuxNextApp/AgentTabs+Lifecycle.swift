@@ -99,7 +99,7 @@ extension AgentTabStore {
                                                                                           splitID: sendsSplitID ? $0.1.splitID : nil) })
                 // Closed first (CancelledCreation): nothing moves to the store's tab, which the store
                 // hides and closes; the page's view state goes.
-                let cancelled = store.creationCancelled(transaction)
+                let cancelled = store.creations.wasCancelled(transaction)
                 if !cancelled { tabCreated(key, as: created) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
@@ -110,7 +110,7 @@ extension AgentTabStore {
                 return created
             } catch {
                 // A cancelled creation stays in the log until the store's close of its tab commits.
-                if !(error is CancellationError) || !store.creationCancelled(transaction) { store.rejectIntent(transaction) }
+                if !(error is CancellationError) || !store.creations.wasCancelled(transaction) { store.rejectIntent(transaction) }
                 self?.release(key)
                 throw error
             }

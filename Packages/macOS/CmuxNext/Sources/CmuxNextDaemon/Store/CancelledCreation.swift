@@ -115,8 +115,10 @@ import Foundation
         }
     }
 
-    /// Tabs a cancelled creation's overlay took out of the visible records (the conservation check).
-    static func hiddenTabs(_ undo: IntentUndo?) -> Int {
+    /// Tabs the cancelled creations' overlays took out of the visible records (the conservation check).
+    static func hiddenTabs(in log: IntentLog) -> Int { log.entries.reduce(0) { $0 + hiddenTabs($1.undo) } }
+
+    private static func hiddenTabs(_ undo: IntentUndo?) -> Int {
         switch undo {
         case .hiddenTab?: 1
         case .hiddenPane(let hidden)?: hidden.pane.tabs.count

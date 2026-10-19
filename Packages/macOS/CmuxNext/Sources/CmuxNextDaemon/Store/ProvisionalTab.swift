@@ -42,7 +42,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         if store.tabsBySurface[surface] != nil, !store.overlayLifted, store.applyDepth == 0 {
             store.withOverlayLifted(writer: "intent created") {}
         }
-        store.requestCancelledCloses()
+        CancelledCreation.requestCloses(in: store)
     }
 
     /// The daemon's tab of a create intent arrived carrying the intent's transaction (the event

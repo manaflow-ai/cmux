@@ -77,7 +77,7 @@ extension DaemonStore {
         guard let entry = intentLog.entries.first(where: { $0.transaction == transaction }) else { return }
         // A split's `pane-added` echo comes before the `layout-changed` that places the pane:
         // it stays until the records place it (cx-ry0y), as when its reply settles it.
-        if awaitsRecords(entry) { return intentLog.awaitRecords(transaction) }
+        if ProvisionalSplit.awaitsRecords(entry, in: self) { return intentLog.awaitRecords(transaction) }
         if needsResync {
             if let sequence { intentLog.settle(transaction, at: sequence) }
             return
@@ -107,7 +107,7 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: awaitsRecords) {
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
         }
         releaseSettledProvisionalPanes()
@@ -123,17 +123,8 @@ extension DaemonStore {
         let settled = intentSettlements
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
-        requestCancelledCloses()
+        CancelledCreation.requestCloses(in: self)
         return result
-    }
-
-    /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the
-    /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
-    /// the split before them showed the pane unsplit for one turn.
-    private func awaitsRecords(_ intent: PendingIntent) -> Bool {
-        if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: self) }
-        guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
-        return !ProvisionalSplit.daemonPlaces(provisional, in: self)
     }
 
     /// The pane model of a split that left the log (settled or refused) is no longer provisional.

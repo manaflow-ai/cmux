@@ -49,8 +49,8 @@ public struct PaneSplitCommand: Sendable {
             try await connection.split(pane, direction: direction, options: sent)
         }
         guard let created else { throw PaneSplitFailure() }
-        daemon.store.noteCreationReply(transaction, surface: created.surface)
-        guard !daemon.store.creationCancelled(transaction) else { throw PaneSplitCancelled() }
+        daemon.store.creations.noteReply(transaction, surface: created.surface)
+        guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
         return created
     }
 
