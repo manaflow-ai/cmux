@@ -4,7 +4,8 @@
 //   the composer as a chip named for it, a folder's with a trailing slash;
 // - the next prompt carries them as ACP resource_link blocks (file:// URIs), after its text, so
 //   any harness reads them where they are;
-// - a chat on another machine has no +: this computer's files are not that machine's.
+// - a chat on another machine (a peer, or a host not marked local) has no +: this computer's files
+//   are not that machine's.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux;
 // the host's panel is a stand-in that answers with two picks.
 //
@@ -188,6 +189,16 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
 
   test("a chat on another machine has no +", async () => {
     session = { ...local, peer: "devbox" };
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await open(page);
+    expect(await attach(page).count()).toBe(0);
+    await context.close();
+    session = local;
+  });
+
+  test("a chat whose host is set and not marked local has no +", async () => {
+    session = { ...local, host: "build-box" };
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     await open(page);
