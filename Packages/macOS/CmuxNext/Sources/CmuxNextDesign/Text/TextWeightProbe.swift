@@ -27,10 +27,15 @@ public struct TextWeightProbe {
     /// `<ink>.<font>.label` and `<ink>.<font>.layer`: coverage over stock; `scale`: the backing scale.
     public func measure() async -> [String: Double] {
         let background = Self.color(dark ? 0x1E1E2E : 0xEFF1F5)
-        let inks: [(String, NSColor)] = dark
+        let baseInks: [(String, NSColor)] = dark
             ? [("text", Self.color(0xCDD6F4)), ("subtext", Self.color(0xA6ADC8)), ("overlay", Self.color(0x6C7086)), ("label", .labelColor)]
             : [("text", Self.color(0x4C4F69)), ("subtext", Self.color(0x6C6F85)), ("overlay", Self.color(0x9CA0B0)), ("label", .labelColor)]
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua) ?? NSAppearance.currentDrawing()
+        // PROBE ONLY (perf-polish item 4): labelColor resolved to a static color, and a plain ink at alpha 0.5.
+        var resolved = NSColor.labelColor
+        appearance.performAsCurrentDrawingAppearance { resolved = NSColor.labelColor.usingColorSpace(.sRGB) ?? .labelColor }
+        let inks: [(String, NSColor)] = baseInks + [("labelstatic", resolved), ("half", (dark ? Self.color(0xCDD6F4) : Self.color(0x4C4F69)).withAlphaComponent(0.5)),
+                           ("labelopaque", resolved.withAlphaComponent(1))]
         var rows: [(key: String, ink: NSColor)] = []
         for (inkName, ink) in inks {
             for (fontName, _) in Self.fonts {
