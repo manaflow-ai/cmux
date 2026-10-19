@@ -1,12 +1,14 @@
 // A chat this chat's agent started, as a card in the transcript (Claude Code desktop's linked
 // session card, cmux-design-references apps/claude/live/transcript-linked-session-card.png):
 // `title / what it does now  [PR 2 Ready]  •  ›`. The whole card opens the chat. Its name in a
-// reply draws as a chip that opens it too (StartedSessionChip). Behind the
+// reply draws as a chip that opens it too (StartedSessionChip). Both show its hover card
+// (SessionHoverCard.tsx). Behind the
 // `started-session-cards` experiment (startedSessions.ts).
 import { createContext, useContext } from "react";
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey, type Translate } from "../i18n";
 import type { SessionMention, StartedPullRequests, StartedSession } from "./startedSessions";
+import { useSessionHover } from "./SessionHoverCard";
 import "./startedSessions.css";
 
 const PR_WORDS: Record<StartedPullRequests["tone"], StringKey | undefined> = {
@@ -50,22 +52,27 @@ export function StartedSessionCards({
 export function StartedSessionCard({ child, onOpen }: { child: StartedSession; onOpen(sessionId: string): void }) {
   const t = useT();
   const line = startedLine(t, child);
+  const { trigger, card } = useSessionHover(child.sessionId);
   return (
-    <button
-      type="button"
-      className="acpmux-started-card"
-      data-state={child.state}
-      data-unread={child.unread || undefined}
-      onClick={() => onOpen(child.sessionId)}
-    >
-      <span className="acpmux-started-text">
-        <span className="acpmux-started-title">{child.title}</span>
-        {line && <span className="acpmux-started-line">{line}</span>}
-      </span>
-      {child.pullRequests && <PullRequestBadge pullRequests={child.pullRequests} />}
-      <span className="acpmux-started-dot" aria-hidden="true" />
-      <Icon name="disclosure.collapsed" size={12} className="acpmux-started-chevron" />
-    </button>
+    <>
+      <button
+        {...trigger}
+        type="button"
+        className="acpmux-started-card"
+        data-state={child.state}
+        data-unread={child.unread || undefined}
+        onClick={() => onOpen(child.sessionId)}
+      >
+        <span className="acpmux-started-text">
+          <span className="acpmux-started-title">{child.title}</span>
+          {line && <span className="acpmux-started-line">{line}</span>}
+        </span>
+        {child.pullRequests && <PullRequestBadge pullRequests={child.pullRequests} />}
+        <span className="acpmux-started-dot" aria-hidden="true" />
+        <Icon name="disclosure.collapsed" size={12} className="acpmux-started-chevron" />
+      </button>
+      {card}
+    </>
   );
 }
 
@@ -80,14 +87,15 @@ function PullRequestBadge({ pullRequests }: { pullRequests: StartedPullRequests 
   );
 }
 
-/// What a reply's name chips link: the chats the open chat started, and how to open one. Empty
+/// What a reply's name chips link: the chats the open chat started (by title and id) and every
+/// other listed session (by its full id, sessionHover.ts `withSessionIds`), and how to open one. Empty
 /// with started session cards off, so a reply draws as it always did.
 export type StartedMentions = { mentions: readonly SessionMention[]; open(sessionId: string): void };
 export const NO_MENTIONS: StartedMentions = { mentions: [], open: () => undefined };
 export const StartedMentionsContext = createContext<StartedMentions>(NO_MENTIONS);
 export const useStartedMentions = () => useContext(StartedMentionsContext);
 
-/// A started chat's name in a reply: a chip that opens it.
+/// A session's name or id in a reply: a chip that opens it, with its hover card.
 export function StartedSessionChip({
   mention,
   text,
@@ -97,15 +105,19 @@ export function StartedSessionChip({
   text: string;
   onOpen(sessionId: string): void;
 }) {
+  const { trigger, card } = useSessionHover(mention.sessionId);
   return (
-    <button
-      type="button"
-      className="acpmux-started-chip"
-      data-state={mention.state}
-      title={mention.title}
-      onClick={() => onOpen(mention.sessionId)}
-    >
-      {text}
-    </button>
+    <>
+      <button
+        {...trigger}
+        type="button"
+        className="acpmux-started-chip"
+        data-state={mention.state}
+        onClick={() => onOpen(mention.sessionId)}
+      >
+        {text}
+      </button>
+      {card}
+    </>
   );
 }

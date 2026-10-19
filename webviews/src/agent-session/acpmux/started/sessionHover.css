@@ -1,0 +1,104 @@
+/* A session reference's hover card (SessionHoverCard.tsx): the state pill, project and age on one
+   line, the title under them. The whole card is one button that opens the session. */
+.acpmux-session-hover-card.ui-card {
+  padding: 0;
+}
+.acpmux-session-hover {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 260px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-control);
+  line-height: 18px;
+  text-align: start;
+  cursor: pointer;
+}
+.acpmux-session-hover:hover {
+  background: var(--acpmux-pill-fill);
+}
+.acpmux-session-hover:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.acpmux-session-hover-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.acpmux-session-hover-project {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-session-hover-age {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-session-hover-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+/* The state pill: an outline, never a fill, so the running spinner has nothing behind it. */
+.acpmux-session-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 7px 0 5px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 9px;
+  background: none;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.acpmux-session-pill[data-state="running"] {
+  color: var(--agent-accent);
+}
+.acpmux-session-pill[data-state="waiting"] {
+  color: var(--acpmux-warning);
+}
+.acpmux-session-pill[data-state="failed"] {
+  color: var(--agent-danger);
+}
+.acpmux-session-pill[data-state="unread"] {
+  color: var(--agent-text);
+}
+.acpmux-session-pill[data-state="done"] {
+  color: var(--agent-success, var(--acpmux-add, #3fb950));
+}
+.acpmux-session-pill-spinner {
+  flex: none;
+  background: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-pill-spinner {
+    animation: acpmux-session-pill-spin 800ms linear infinite;
+  }
+  .acpmux-session-hover {
+    transition: background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
+  }
+}
+@keyframes acpmux-session-pill-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
