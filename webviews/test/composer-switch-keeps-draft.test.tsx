@@ -72,7 +72,7 @@ function Chips() {
   return null;
 }
 
-async function render(sessionId: string | undefined, props: { draft?: string; switching?: boolean } = {}) {
+async function render(sessionId: string, props: { draft?: string; switching?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const snapshot = noChat(
@@ -105,13 +105,31 @@ test("a harness switch keeps the typed prompt through the new session", async ()
   await render("chat-a", { draft: "compare these cars" });
   expect(prompt()).toBe("compare these cars");
   // The pick: the old chat is hidden while the new session starts, then it arrives.
-  await render(undefined, { switching: true });
+  await render("", { switching: true });
   expect(prompt()).toBe("compare these cars");
   await render("chat-b", { switching: true });
   expect(prompt()).toBe("compare these cars");
-  // The switch settles on the new session.
+  // The switch settles on the new session; a later move to another chat shows that chat's draft.
   await render("chat-b");
   expect(prompt()).toBe("compare these cars");
+  await render("chat-c");
+  expect(prompt()).toBe("");
+});
+
+test("a switch that ends in the same render as its session change still keeps the prompt", async () => {
+  await render("chat-a", { draft: "compare these cars" });
+  await render("", { switching: true });
+  // The intent clears in the batch that brings the new session.
+  await render("chat-b");
+  expect(prompt()).toBe("compare these cars");
+});
+
+test("moving to a chat with its own draft mid-switch keeps that chat's draft", async () => {
+  const { writePersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
+  writePersistedDraft("chat-d", "my other draft");
+  await render("chat-a", { draft: "compare these cars" });
+  await render("chat-d", { switching: true });
+  expect(prompt()).toBe("my other draft");
 });
 
 test("moving to another chat shows that chat's draft, not the typed prompt", async () => {
