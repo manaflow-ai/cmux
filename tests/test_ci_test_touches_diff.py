@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """test_touches_diff: per-file verdicts from a bun metafile, and a real bundle when bun is present."""
+import http.server
 import importlib.util
 import shutil
 import socket
+import threading
 import subprocess
 import sys
 import tempfile
@@ -45,6 +47,11 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(repo["verdict"], "imported")
         self.assertEqual(repo["chain"], ["tests/vm-route-deadlines.test.ts", "services/vms/routeHelpers.ts",
                                          "services/vms/repository.ts"])
+
+    def test_test_paths(self):
+        self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
+        self.assertEqual(touches.test_path("./tests/a.test.ts"), "web/tests/a.test.ts")
+        self.assertEqual(touches.test_path("web/tests/a.test.ts"), "web/tests/a.test.ts")
 
     def test_runner_files_reach_every_test(self):
         files = touches.verdicts(["web/bun.lock", "web/bunfig.toml"], EDGES, SIZES, ENTRIES)
@@ -144,11 +151,25 @@ class FailClosed(unittest.TestCase):
         "BOM as whitespace": 'import { b } from "./m"\ufeffwith\ufeff{ type: "macro" };',
         "NBSP as whitespace": 'import { b } from "./m"\u00a0with {type:"macro"};',
         "CRLF lines": 'import { b } from "./m"\r\nwith\r\n{ type: "macro" };',
+        # Any second argument to import() is refused, however far or however punctuated.
+        "dynamic past a semicolon": 'const m = await import("./m", { x: ";", with: { type: "macro" } });',
+        "dynamic far away": 'const m = await import("./m", {' + " " * 500 + 'with: { type: "macro" } });',
+        "dynamic computed key": 'const k = "with";\nconst m = await import("./m", { [k]: { type: "macro" } });',
+        "dynamic options variable": "const m = await import('./m', options);",
+        "dynamic nested": 'const m = await import(String(import("./m", o)));',
+        "dynamic unterminated": 'const m = await import("./m"',
     }
     SAFE = {
         "doc comment": "/** Rejects with {@link VmModelPlaneError}; the workflow fails. */\nexport const a = 1;",
         "plain import": 'import { b } from "./m";\nconst o = { with: 1 };',
         "dynamic": "const m = await import(pathToFileURL(resolve(root, path)).href);",
+        # The shapes web/ uses today.
+        "dynamic template": "const messages = (await import(`../messages/${locale}.json`)).default;",
+        "dynamic nested template": "await import(`../messages/${f(`x${a}`, [1, {b: 2}])}.json`);",
+        "dynamic identifier": "const mod = await import(ssrLayoutEffectPath);",
+        "dynamic trailing comma": 'const m = await import(\n  "./m",\n);',
+        "dynamic with comment": 'const m = await import(/* webpackChunkName: "m" */ "./m");',
+        "type query": 'type M = typeof import("./m").default;',
     }
 
     def reasons(self, files):
@@ -181,7 +202,6 @@ class FailClosed(unittest.TestCase):
     def test_a_crafted_file_cannot_make_the_scan_slow(self):
         # A backtracking scanner would hang on this input; the thread join is a
         # hang guard, not a latency budget (a linear scan finishes in well under 1s).
-        import threading
         crafted = '"' + "/*" + "*" * 200_000 + ' with x' * 20_000
         worker = threading.Thread(target=self.reasons, args=({"lib/a.ts": crafted},), daemon=True)
         worker.start()
@@ -196,13 +216,23 @@ class FailClosed(unittest.TestCase):
 @unittest.skipUnless(touches.can_sandbox() and shutil.which("bun"), "needs Linux user namespaces and bun")
 class Sandbox(unittest.TestCase):
     def test_bun_sees_no_home_directory_and_no_network(self):
-        home = str(Path.home())
-        script = ("const fs = require('fs');"
-                  f"console.log(fs.readdirSync({home!r}).length);"
-                  "try { await fetch('https://api.github.com'); console.log('net'); } catch { console.log('no-net'); }")
-        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
-            result = touches.run_bun(["-e", script], Path(tmp), Path(tmp), sandbox=True)
+        # A server on this host's loopback, which a sandbox with its own network namespace can't reach.
+        server = http.server.HTTPServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/"
+            home = str(Path.home())
+            script = ("const fs = require('fs');"
+                      f"console.log(fs.readdirSync({home!r}).length);"
+                      f"try {{ await fetch({url!r}); console.log('net'); }} catch {{ console.log('no-net'); }}")
+            with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+                result = touches.run_bun(["-e", script], Path(tmp), Path(tmp), sandbox=True)
+                unsandboxed = touches.run_bun(["-e", script], Path(tmp), Path(tmp), sandbox=False)
+        finally:
+            server.shutdown()
+            server.server_close()
         self.assertEqual(result.stdout.split(), ["0", "no-net"], result.stderr)
+        self.assertEqual(unsandboxed.stdout.split()[-1], "net", unsandboxed.stderr)  # the server was reachable
 
     def test_bun_can_write_only_in_the_work_directory(self):
         # Root inside the namespace tries to undo the read-only mounts first, then to write.
@@ -252,10 +282,23 @@ class Sandbox(unittest.TestCase):
             self.assertFalse(planted.exists())
 
 
-    def test_test_paths(self):
-        self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
-        self.assertEqual(touches.test_path("./tests/a.test.ts"), "web/tests/a.test.ts")
-        self.assertEqual(touches.test_path("web/tests/a.test.ts"), "web/tests/a.test.ts")
+@unittest.skipUnless(shutil.which("git"), "needs git")
+class ChangedLines(unittest.TestCase):
+    def test_a_deletion_only_hunk_still_names_its_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            run = lambda *args: subprocess.run(["git", "-C", tmp, *args], check=True, capture_output=True)
+            run("init", "-q", "-b", "main")
+            run("config", "user.email", "t@example.com")
+            run("config", "user.name", "t")
+            (repo / "a.ts").write_text("function f() {\n  guard();\n  await work();\n  return 1;\n}\n")
+            run("add", "-A")
+            run("commit", "-qm", "base")
+            (repo / "a.ts").write_text("function f() {\n  return 1;\n}\n")  # deletes lines 2-3 only
+            run("commit", "-qam", "head")
+            lines = touches.changed_lines(repo, "HEAD~1", "HEAD", "a.ts")
+        # The lines on either side of the deletion, so the block that lost them is still checked.
+        self.assertEqual(lines, {1, 2})
 
 
 # The fixture repositories below are this test's own, so it vouches for them where
