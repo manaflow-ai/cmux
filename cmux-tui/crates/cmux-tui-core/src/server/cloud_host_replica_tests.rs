@@ -27,6 +27,10 @@ fn writer() -> MessageWriter {
 }
 
 fn replica_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
+    replica_mux_with(HostReplicaOptions::default())
+}
+
+fn replica_mux_with(defaults: HostReplicaOptions) -> (Arc<Mux>, u64, Arc<FakeBackend>) {
     let mux = Mux::new_for_test("host-replica", crate::SurfaceOptions::default());
     let backend = Arc::new(FakeBackend::default());
     let options = HostReplicaOptions {
@@ -36,7 +40,7 @@ fn replica_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
         settle: Duration::from_millis(5),
         max_delay: Duration::from_millis(50),
         purge_timeout: Duration::from_secs(5),
-        ..HostReplicaOptions::default()
+        ..defaults
     };
     assert!(install_host_replica(&mux, HostReplica::with_options(backend.clone(), options)));
     let client = mux.control_clients.register(ClientTransport::Unix, writer());
@@ -420,4 +424,31 @@ fn the_daemon_asks_for_a_new_token_in_time_and_a_renewal_keeps_the_socket() {
     wait_until("the unauthenticated ask", || {
         needed(&events, &mut seen).iter().any(|e| e["reason"] == "unauthenticated")
     });
+}
+
+#[test]
+fn a_refused_token_is_asked_for_again_until_a_new_lease_comes() {
+    let (mux, client, backend) =
+        replica_mux_with(HostReplicaOptions { reask: Duration::from_millis(50), ..HostReplicaOptions::default() });
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let wire = connect_again(&backend, json!({}));
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+    wait_frame(&wire, "online", |f| f["snapshot"].is_object());
+
+    // The cloud refuses the token while no app connection listens: that ask is missed.
+    wire.push_close(Some(4401));
+    wait_until("unauthenticated", || status(&mux, client)["state"] == "unauthenticated");
+
+    // An app connection that subscribes later still hears the ask.
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    wait_until("the ask again", || {
+        needed(&events, &mut seen).iter().any(|e| e["reason"] == "unauthenticated")
+    });
+
+    // A new lease connects again.
+    let again = connect_again(&backend, json!({}));
+    lease(&mux, client, &INSTALL_TOKEN.replace(".sig", ".sig2")).unwrap();
+    wait_frame(&again, "online again", |f| f["snapshot"].is_object());
 }

@@ -126,6 +126,8 @@ pub struct HostReplicaOptions {
     /// How long before the lease ends the daemon asks for a new one
     /// (`cloud-host-replica-needed` with `expiring`).
     pub refresh_lead: Duration,
+    /// How long before an unanswered ask is sent again.
+    pub reask: Duration,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
     /// Platform reported at enrollment.
@@ -142,6 +144,7 @@ impl Default for HostReplicaOptions {
             max_delay: Duration::from_secs(2),
             purge_timeout: Duration::from_secs(10),
             refresh_lead: Duration::from_secs(120),
+            reask: Duration::from_secs(30),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
