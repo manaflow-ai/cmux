@@ -49,13 +49,9 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
             if machine_start.is_none() && section.kind.machine() == Some(local.as_str()) {
                 machine_start = Some(ids.len());
             }
-            for item in doc.list(&section.id, None) {
+            // Each group's members in place, nested groups' too.
+            for item in doc.section_items(&section.id) {
                 push(&mut ids, item);
-                if item.body.is_group() {
-                    for member in doc.list(&section.id, Some(item.id.as_str())) {
-                        push(&mut ids, member);
-                    }
-                }
             }
         }
         let machine_start = machine_start.unwrap_or(ids.len());

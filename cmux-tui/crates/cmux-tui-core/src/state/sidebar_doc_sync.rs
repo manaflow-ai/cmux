@@ -77,6 +77,9 @@ pub(crate) fn create_triggers(transaction: &Transaction<'_>) -> anyhow::Result<(
              OR OLD.icon IS NOT NEW.icon OR OLD.pinned IS NOT NEW.pinned
              OR OLD.top_position IS NOT NEW.top_position OR OLD.position IS NOT NEW.position
          BEGIN INSERT OR IGNORE INTO sidebar_doc_dirty(kind, a) VALUES('group', NEW.group_id); END;
+         CREATE TRIGGER IF NOT EXISTS sidebar_doc_group_parent
+           AFTER UPDATE OF parent_id ON personal_groups WHEN OLD.parent_id IS NOT NEW.parent_id
+         BEGIN INSERT OR IGNORE INTO sidebar_doc_dirty(kind, a) VALUES('group', NEW.group_id); END;
          CREATE TRIGGER IF NOT EXISTS sidebar_doc_group_delete AFTER DELETE ON personal_groups
          BEGIN INSERT OR IGNORE INTO sidebar_doc_dirty(kind, a) VALUES('group', OLD.group_id); END;
          CREATE TRIGGER IF NOT EXISTS sidebar_doc_flag_insert AFTER INSERT ON workspace_presentation
@@ -380,8 +383,18 @@ fn sync_row(
         Some(neighbor) => neighbor_item(connection, doc, local, neighbor)?,
         None => None,
     };
-    let anchor_item = anchor.as_deref().and_then(|id| doc.item(id)).cloned();
-    let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), neighbor.is_some());
+    let mut anchor_item = anchor.as_deref().and_then(|id| doc.item(id)).cloned();
+    // The first workspace of a group goes after its nested groups (they
+    // come first inside a parent, `workspace-group-nest-v1`).
+    let mut has_neighbor = neighbor.is_some();
+    if let Some(parent) = parent.as_deref()
+        && anchor_item.is_none()
+    {
+        anchor_item =
+            doc.list(&section, Some(parent)).filter(|child| child.body.is_group()).last().cloned();
+        has_neighbor |= anchor_item.is_some();
+    }
+    let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), has_neighbor);
     match placed {
         Some(item) if already_at(doc, &item, &target) => {}
         Some(item) => try_apply(batch, Op::Move { items: vec![item.id], to: target }),
@@ -409,12 +422,15 @@ struct GroupRow {
     pinned: bool,
     top_position: Option<i64>,
     position: i64,
+    /// `workspace-group-nest-v1`: the old id of the group it sits in.
+    parent: Option<String>,
 }
 
 fn group_row(connection: &Connection, id: &str) -> anyhow::Result<Option<GroupRow>> {
     Ok(connection
         .query_row(
-            "SELECT name, color, icon, collapsed, profile_id, pinned, top_position, position
+            "SELECT name, color, icon, collapsed, profile_id, pinned, top_position, position,
+                    parent_id
              FROM personal_groups WHERE group_id = ?1",
             [id],
             |r| {
@@ -429,6 +445,7 @@ fn group_row(connection: &Connection, id: &str) -> anyhow::Result<Option<GroupRo
                     pinned: r.get::<_, i64>(5)? != 0,
                     top_position: r.get(6)?,
                     position: r.get(7)?,
+                    parent: r.get(8)?,
                 })
             },
         )
@@ -494,6 +511,40 @@ fn sync_group(
             try_apply(batch, Op::GroupUpdate { id: item.id.clone(), patch });
         }
     }
+    // A nested group sits in its parent's item, after its previous sibling
+    // group (first when none); it follows the parent wherever that is.
+    if let Some(parent) = group.parent.as_deref() {
+        let Some(parent_item) = group_item(batch.doc(), parent).cloned() else { return Ok(()) };
+        let previous: Option<String> = connection
+            .query_row(
+                "SELECT group_id FROM personal_groups
+                 WHERE parent_id = ?1 AND position < ?2 ORDER BY position DESC LIMIT 1",
+                params![parent, group.position],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let doc = batch.doc();
+        let anchor = previous.and_then(|previous| group_item(doc, &previous)).cloned();
+        let target = anchored(&parent_item.section, Some(&parent_item.id), anchor.as_ref(), false);
+        if !already_at(doc, &item, &target) {
+            try_apply(batch, Op::Move { items: vec![item.id], to: target });
+        }
+        return Ok(());
+    }
+    if let Some(old_parent) = item.parent.clone() {
+        // Back to the top level: after the group it was in.
+        let section = item.section.clone();
+        let top = batch.doc().ancestors(&item.id).last().map(|top| top.id.clone());
+        let after = top.unwrap_or(old_parent);
+        try_apply(
+            batch,
+            Op::Move {
+                items: vec![item.id.clone()],
+                to: Target { section, after: Some(after), ..Target::default() },
+            },
+        );
+    }
+    let Some(item) = group_item(batch.doc(), id).cloned() else { return Ok(()) };
     let in_pinned = item.section == PINNED_SECTION_ID;
     if group.pinned && !in_pinned {
         try_apply(batch, Op::Pin { items: vec![item.id] });
@@ -599,8 +650,18 @@ pub(crate) fn sync_from_legacy(transaction: &Transaction<'_>) -> anyhow::Result<
     }
     transaction.execute("DELETE FROM sidebar_doc_dirty", [])?;
     let local = local_registry_id(transaction)?;
-    let groups: Vec<&str> =
+    let mut groups: Vec<&str> =
         dirty.iter().filter(|(kind, ..)| kind == "group").map(|(_, a, _)| a.as_str()).collect();
+    // Parents before the groups nested in them.
+    let parents: std::collections::HashMap<String, Option<String>> =
+        crate::workspace_registry::personal_store::read_groups(transaction)?
+            .into_iter()
+            .map(|group| (group.id, group.parent))
+            .collect();
+    groups.sort_by_cached_key(|group| {
+        crate::workspace_registry::personal_mutations::group_parent::ancestors_in(&parents, group)
+            .len()
+    });
     let mut rows = Vec::new();
     for (_, session, key) in dirty.iter().filter(|(kind, ..)| kind == "ws") {
         if let Some(row) = row(transaction, session, key)? {
@@ -743,20 +804,67 @@ pub(crate) fn write_back(
             .query_row("SELECT 1 FROM personal_groups WHERE group_id = ?1", [&id], |_| Ok(()))
             .optional()?
             .is_some();
+        // `workspace-group-nest-v1`: the group it sits in, by old id.
+        let parent = item.parent.as_deref().map(legacy_group_id);
         if exists {
             transaction.execute(
                 "UPDATE personal_groups SET name = ?2, color = ?3, icon = ?4, collapsed = ?5,
-                   profile_id = ?6, pinned = ?7 WHERE group_id = ?1",
-                params![id, name, color, icon, i64::from(*collapsed), profile, i64::from(pinned)],
+                   profile_id = ?6, pinned = ?7, parent_id = ?8 WHERE group_id = ?1",
+                params![
+                    id,
+                    name,
+                    color,
+                    icon,
+                    i64::from(*collapsed),
+                    profile,
+                    i64::from(pinned),
+                    parent
+                ],
             )?;
         } else {
             transaction.execute(
-                "INSERT INTO personal_groups(group_id, profile_id, name, color, collapsed, position, icon, pinned)
-                 VALUES(?1, ?2, ?3, ?4, ?5, (SELECT COALESCE(MAX(position) + 1, 0) FROM personal_groups), ?6, ?7)",
-                params![id, profile, name, color, i64::from(*collapsed), icon, i64::from(pinned)],
+                "INSERT INTO personal_groups(group_id, profile_id, name, color, collapsed, position, icon, pinned, parent_id)
+                 VALUES(?1, ?2, ?3, ?4, ?5, (SELECT COALESCE(MAX(position) + 1, 0) FROM personal_groups), ?6, ?7, ?8)",
+                params![id, profile, name, color, i64::from(*collapsed), icon, i64::from(pinned), parent],
             )?;
         }
         wrote = true;
+    }
+    // The order of each changed group among its sibling groups: the
+    // siblings swap their old positions into document order.
+    for item in &changed {
+        if !item.body.is_group() {
+            continue;
+        }
+        let siblings: Vec<String> = after
+            .list(&item.section, item.parent.as_deref())
+            .filter(|sibling| sibling.body.is_group())
+            .map(|sibling| legacy_group_id(&sibling.id))
+            .collect();
+        let mut positions = Vec::with_capacity(siblings.len());
+        for sibling in &siblings {
+            if let Some(position) = transaction
+                .query_row(
+                    "SELECT position FROM personal_groups WHERE group_id = ?1",
+                    [sibling],
+                    |r| r.get::<_, i64>(0),
+                )
+                .optional()?
+            {
+                positions.push((sibling.clone(), position));
+            }
+        }
+        let mut sorted: Vec<i64> = positions.iter().map(|(_, position)| *position).collect();
+        sorted.sort_unstable();
+        for ((sibling, old), new) in positions.iter().zip(sorted) {
+            if *old != new {
+                transaction.execute(
+                    "UPDATE personal_groups SET position = ?2 WHERE group_id = ?1",
+                    params![sibling, new],
+                )?;
+                wrote = true;
+            }
+        }
     }
     for id in &applied.changes.deleted_items {
         let was_group = applied
