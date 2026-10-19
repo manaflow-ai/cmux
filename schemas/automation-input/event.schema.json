@@ -69,6 +69,10 @@
       "exclusiveMinimum": 0,
       "description": "Page zoom factor at emit time (viewport space only), so the app does not race a later zoom change. Absent means 1."
     },
+    "typing": {
+      "$ref": "#/$defs/typing",
+      "description": "type and key only: what the agent types, for the app's keystroke overlay. The browser host's gate fills it before a secret resolves: a secret, a password field (type, autocomplete, -webkit-text-security) or a field it cannot see into (a cross-origin frame) is masked, and the text never holds a secret's value."
+    },
     "t_ms": {
       "type": "number",
       "minimum": 0,
@@ -194,6 +198,42 @@
         "h": {
           "type": "number",
           "minimum": 0
+        }
+      }
+    },
+    "typing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Typed text (type) or the text a key types (key); one • per character when masked (eight for a secret); at most 64 characters, the end kept."
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "DOM key value of a key event (Enter, a); absent for a masked key that types a character."
+        },
+        "modifiers": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "Alt",
+              "Control",
+              "Meta",
+              "Shift"
+            ]
+          },
+          "description": "Modifiers held during a key event."
+        },
+        "masked": {
+          "type": "boolean",
+          "description": "The text is hidden."
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "The text replaces the field's value (locator.fill) instead of adding to it."
         }
       }
     }
