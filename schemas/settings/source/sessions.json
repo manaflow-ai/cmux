@@ -164,6 +164,31 @@
             "battery",
             "power"
           ]
+        },
+        {
+          "key": "phone.cloudReplica",
+          "name": "cloudReplica",
+          "note": "On: the daemon publishes a narrow copy of this Mac's workspace list to the Cloud service (cloud-host-replica-v1, plans/cmux-next/object-sync/DESIGN.md phase 3), so a phone reads it while the Mac is offline and renames through it while the Mac is online. Off: the copy is deleted (replica.purge) and nothing is published. Opt-in until the default is decided (#13742).",
+          "title": {
+            "key": "settings.phone.cloudReplica",
+            "text": "Show This Mac's Workspaces on Your Phone While It's Off"
+          },
+          "help": {
+            "key": "settings.phone.cloudReplica.help",
+            "text": "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. No folders, titles or terminal output. Turning this off deletes the copy."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "iphone",
+            "mobile",
+            "phone",
+            "cloud",
+            "offline",
+            "workspaces",
+            "sync",
+            "privacy"
+          ]
         }
       ]
     }
