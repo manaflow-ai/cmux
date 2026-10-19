@@ -469,7 +469,7 @@ extension DockSplitStore {
             terminalSnapshot.resumeBinding?.kind ?? terminalSnapshot.agent?.kind.rawValue
         let capturedAgentSessionID = restorableAgent?.sessionId ?? approvedResumeBinding?.checkpointId ??
             terminalSnapshot.resumeBinding?.checkpointId ?? terminalSnapshot.agent?.sessionId
-        let legacySubrouterResumeInput = legacySubrouterBinding
+        let legacySubrouterResumeInput = legacySubrouterBinding && shouldAutoResumeAgent
             ? Workspace.legacySubrouterResumeStartupInput(
                 kind: terminalSnapshot.resumeBinding?.kind ?? capturedAgentKind,
                 sessionID: terminalSnapshot.resumeBinding?.checkpointId ?? capturedAgentSessionID,
@@ -573,7 +573,8 @@ extension DockSplitStore {
         let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
         let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
         var restoredEnvironment = replayEnvironment
-        if legacySubrouterResumeInput != nil {
+        if legacySubrouterResumeInput != nil,
+           capturedAgentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue {
             // Subrouter uses a local sentinel to satisfy Codex's provider
             // credential lookup. It is not an account credential and must be
             // present before either codex resume or cmux restore runs.

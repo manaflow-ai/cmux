@@ -1928,7 +1928,7 @@ extension Workspace {
                 persistedResumeBinding?.kind ?? snapshot.terminal?.agent?.kind.rawValue
             let capturedAgentSessionID = restorableAgent?.sessionId ?? effectiveResumeBindingForStartup?.checkpointId ??
                 persistedResumeBinding?.checkpointId ?? snapshot.terminal?.agent?.sessionId
-            let legacySubrouterResumeInput = legacySubrouterBinding
+            let legacySubrouterResumeInput = legacySubrouterBinding && shouldAutoResumeAgent
                 ? Self.legacySubrouterResumeStartupInput(
                     kind: persistedResumeBinding?.kind ?? capturedAgentKind,
                     sessionID: persistedResumeBinding?.checkpointId ?? capturedAgentSessionID,
@@ -2167,7 +2167,8 @@ extension Workspace {
             let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
             var restoredEnvironment = replayEnvironment
-            if legacySubrouterResumeInput != nil {
+            if legacySubrouterResumeInput != nil,
+               capturedAgentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue {
                 restoredEnvironment["SUBROUTER_CODEX_DUMMY_API_KEY"] = "subrouter"
             }
             // Reuse the persisted surface id so the restored terminal keeps
