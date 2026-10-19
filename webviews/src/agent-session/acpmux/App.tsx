@@ -885,6 +885,8 @@ const RowFrame = React.memo(function RowFrame({
   report,
   enter,
   onEntered,
+  older,
+  onOlderShown,
   active,
   selected,
   tabStop,
@@ -910,6 +912,10 @@ const RowFrame = React.memo(function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  /// The row came in on a page of older history and has not been in view yet: it fades in once,
+  /// the first time it comes into view (OlderRowFade).
+  older: OlderRowFade | undefined;
+  onOlderShown: (id: string) => void;
   active: boolean;
   selected: boolean;
   tabStop: boolean;
@@ -929,6 +935,7 @@ const RowFrame = React.memo(function RowFrame({
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
+  const [olderFade] = useState(older);
   const [copied, setCopied] = useState(false);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
@@ -939,6 +946,13 @@ const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || !olderFade) return;
+    return olderFade.watch(node, () => onOlderShown(row.id));
+    // Only the first mount fades.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
@@ -962,7 +976,7 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -1056,6 +1070,60 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
 const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
+
+/// Rows from a page of older history fade in once, the first time they come into view: a page
+/// lands above the view (prefetched well before the top), so the fade waits for the reader to
+/// scroll the row in at the top edge. Opacity only (conversation.css `.acpmux-row--older`), so
+/// nothing measured moves; Reduce Motion draws the row in full ink at once.
+class OlderRowFade {
+  private readonly pending = new Set<string>();
+  private readonly waiting = new Map<Element, () => void>();
+  private intersections: IntersectionObserver | undefined;
+  constructor(private readonly root: () => HTMLElement | null) {}
+  add(id: string) {
+    this.pending.add(id);
+  }
+  has(id: string) {
+    return this.pending.has(id);
+  }
+  shown(id: string) {
+    this.pending.delete(id);
+  }
+  clear() {
+    this.pending.clear();
+  }
+  /// Starts the row's fade when it first intersects the view; returns the unwatch.
+  watch(node: HTMLElement, shown: () => void): () => void {
+    if (typeof IntersectionObserver === "undefined") {
+      shown();
+      return () => {};
+    }
+    this.intersections ??= new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const target = entry.target as HTMLElement;
+          target.dataset.olderShown = "true";
+          this.intersections?.unobserve(target);
+          this.waiting.get(target)?.();
+          this.waiting.delete(target);
+        }
+      },
+      { root: this.root() },
+    );
+    this.waiting.set(node, shown);
+    this.intersections.observe(node);
+    return () => {
+      this.waiting.delete(node);
+      this.intersections?.unobserve(node);
+    };
+  }
+  disconnect() {
+    this.intersections?.disconnect();
+    this.intersections = undefined;
+    this.waiting.clear();
+  }
+}
 /// How far around the last mounted range a row whose drawn height changed is looked for; farther
 /// (a jump), the whole transcript is placed again.
 const DRAWN_SEARCH_ROWS = 64;
@@ -1279,21 +1347,36 @@ export function VirtualTranscript({
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
-  if (knownRows.current === null) knownRows.current = new Set(rows.map((row) => row.id));
+  const olderRows = useRef<OlderRowFade | undefined>(undefined);
+  olderRows.current ??= new OlderRowFade(() => ref.current);
+  // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
+  if (sessionChanged) olderRows.current.clear();
+  // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
+  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map((row) => row.id));
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
     const previous = knownFor.current ?? [];
     let from = 0;
     while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    // A page of older history lands above the first row that was already there (a date divider
+    // moves up to the page's first turn, so the first known row, not the first row): those rows fade
+    // in as they are first seen, and never take a live row's entrance.
+    const oldFirst = rows.findIndex((row) => knownRows.current!.has(row.id));
     const arrived: AcpmuxRow[] = [];
-    for (let index = from; index < rows.length; index += 1)
-      if (!knownRows.current.has(rows[index]!.id)) arrived.push(rows[index]!);
-    for (const row of arrived) knownRows.current.add(row.id);
+    for (let index = from; index < rows.length; index += 1) {
+      const row = rows[index]!;
+      if (knownRows.current.has(row.id)) continue;
+      if (index < oldFirst) olderRows.current.add(row.id);
+      else arrived.push(row);
+      knownRows.current.add(row.id);
+    }
     if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
+  useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight) => {
       // Zero is a row not laid out (hidden, or no layout at all), not a height.
@@ -2216,6 +2299,8 @@ export function VirtualTranscript({
                       report={reportDrawn}
                       enter={enteringRows.current.has(row.id)}
                       onEntered={onEntered}
+                      older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
+                      onOlderShown={onOlderShown}
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
