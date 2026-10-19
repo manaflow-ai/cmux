@@ -6,7 +6,8 @@ public import Observation
 /// bookmarks, history, sign-ins (cookies) and passwords. A browser whose
 /// profile folder cmux has no grant for is listed by name; Allow Access
 /// explains the grant (`explainingAccess`), then Continue opens the open
-/// panel at that folder, and only a granted folder is read. With passwords
+/// panel at that folder; this step reads only granted folders (the bookmark
+/// and cookie importers outside onboarding still detect directly). With passwords
 /// checked, Import first shows the Keychain explainer (`confirmingPasswords`):
 /// one line naming the Keychain item macOS will ask about, and nothing is
 /// read until Begin Importing. Import then runs it in place, row
@@ -85,16 +86,21 @@ public final class ImportStepModel {
     public func askAccess(_ browser: ImportBrowser) {
         guard canEditSelection || isFinished, awaitingAccess.contains(browser) else { return }
         accessNotGranted = false
+        accessReturnPhase = phase
         phase = .explainingAccess(browser)
     }
 
-    /// Cancel on the explainer: back to the list.
+    /// Where Cancel on the explainer returns: the list, or a finished import's summary.
+    private var accessReturnPhase: Phase = .ready
+
+    /// Cancel on the explainer: back to the list, or to the finished import it came from.
     public func cancelAccess() {
         guard explainingAccess != nil else { return }
         accessRequest += 1
         requestingAccess = false
         accessNotGranted = false
-        phase = .ready
+        phase = accessReturnPhase
+        accessReturnPhase = .ready
     }
 
     /// Continue on the explainer: the open panel at the browser's folder; a

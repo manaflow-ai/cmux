@@ -74,8 +74,11 @@ public final class OnboardingModel {
         step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
     }
 
-    /// Skip (Escape): ends the window; a running import finishes.
+    /// Skip (Escape): ends the window; a running import finishes. Skip
+    /// Importing on the Keychain explainer reads nothing, even when Touch ID
+    /// answers after the window is gone.
     public func skipStep() {
+        if step == .importData, importer.isConfirmingPasswords { importer.backFromConsent() }
         finish(completed: false)
     }
 
