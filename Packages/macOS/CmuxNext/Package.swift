@@ -257,11 +257,11 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The sidebar's Now Playing card source (cx-ouoxo): the playing browser tab,
-        // the pick it shares with macOS Now Playing, and the card's feed. Wiring stays in the App.
+        // The Now Playing sources (cx-ouoxo): the playing browser tab, cmux's player, other apps
+        // through macOS Now Playing, the card's feed, and the New Tab page's player (AgentPane).
         .target(
             name: "CmuxNextNowPlaying",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
