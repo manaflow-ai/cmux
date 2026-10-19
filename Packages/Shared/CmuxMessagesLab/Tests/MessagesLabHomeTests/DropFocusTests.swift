@@ -23,7 +23,7 @@ import Testing
         func threadMovedByUser() {}
         func messageLink(_ id: ID) -> String? { nil }
         func send() -> String? { nil }
-        func react(_ ref: PartRef, _ kind: Reaction.Kind) {}
+        func react(_ ref: MessagesLabHome.PartRef, _ kind: MessagesLabHome.Reaction.Kind) {}
         var canReact: Bool { false }
         var canReply: Bool { false }
         func pickAttachments() {}
@@ -35,12 +35,12 @@ import Testing
         func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { takes }
         func statusLineClicked(_ rect: CGRect, in view: NSView) {}
         func draftChanged() {}
-        func linkTapped(_ ref: PartRef, url: String) {}
+        func linkTapped(_ ref: MessagesLabHome.PartRef, url: String) {}
         func canCancelSend(_ message: ID) -> Bool { false }
         func cancelSend(_ message: ID) {}
         func openAttachment(_ message: ID, _ attachment: ID) {}
-        func toggleVideo(_ ref: PartRef, _ attachment: ID) {}
-        func videoState(_ ref: PartRef) -> HomeVideoState { .poster }
+        func toggleVideo(_ ref: MessagesLabHome.PartRef, _ attachment: ID) {}
+        func videoState(_ ref: MessagesLabHome.PartRef) -> HomeVideoState { .poster }
         func scrolled() {}
         func rowsPlaced() {}
     }
