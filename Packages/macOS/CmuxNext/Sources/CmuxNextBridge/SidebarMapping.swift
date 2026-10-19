@@ -324,8 +324,7 @@ public struct SidebarMapping {
         return (["~"] + parts.dropFirst(3)).joined(separator: "/")
     }
 
-    /// `path` with the home directory as `~` (a tab's address line).
-    public func abbreviate(_ path: String) -> String {
+    func abbreviate(_ path: String) -> String {
         let home = NSHomeDirectory()
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }

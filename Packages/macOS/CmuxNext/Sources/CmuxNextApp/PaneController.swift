@@ -178,7 +178,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A new tab page is "New Tab", with the new-tab icon, until it
         // becomes a chat (then the chat's title and icon).
         let isNewTabPage = titles.isNewTabPage(tab)
-        var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage)
+        var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage, restarting: daemon.restartsKeptTab(tab))
         // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
         // content, when the app becomes available after the tree arrived.
         // An app or page tab names and badges itself like the page it shows.
@@ -196,14 +196,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
         } else if tab.kind != .browser {
             item.machineBadge = machine
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
-            // A kept tab this launch restarts draws as the running terminal it becomes, from the
-            // first frame (the app shows its own intent): the terminal icon, no failure mark, the
-            // directory its new shell starts in. Its item stays the same when the new shell runs.
-            if daemon.restartsKeptTab(tab) {
-                if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
-                if item.status == .failure { item.status = .none }
-                if item.subtitle == nil, let cwd = tab.relaunch?.cwd { item.subtitle = SidebarMapping.shared.abbreviate(cwd) }
-            }
         } else {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
