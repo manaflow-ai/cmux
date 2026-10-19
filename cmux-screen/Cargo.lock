@@ -172,6 +172,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-screen-proto",
+ "cmux-tailnet",
  "core-graphics",
  "futures-util",
  "libwebrtc",
@@ -193,6 +194,17 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]
