@@ -55,6 +55,40 @@ struct ErrorJournalTests {
         #expect(disk.contains("request failed"))
     }
 
+    @Test func prefixedCredentialAssignmentsNeverReachTheJournal() async throws {
+        let journal = ErrorJournal(directory: directory)
+        let values = ["ordinarySecret123", "ordinary-api-value", "ordinary-password"]
+        await journal.record(event(
+            "failed AWS_SECRET_ACCESS_KEY=\(values[0]) MY_API_KEY=\(values[1]) the_password=\(values[2])"
+        ))
+        await journal.flush()
+
+        let entry = try #require(await journal.entries().first)
+        for value in values {
+            #expect(!entry.sample.contains(value))
+        }
+    }
+
+    @Test func journalArtifactsAreOwnerOnly() async throws {
+        struct CursorSource: ErrorHarvestSource {
+            let id = "cursor"
+            func collect(after cursor: String?) async throws -> ErrorHarvest {
+                ErrorHarvest(events: [], cursor: "next")
+            }
+        }
+
+        let journal = ErrorJournal(directory: directory)
+        await journal.record(event("private diagnostic"))
+        await journal.flush()
+        _ = await journal.harvest([CursorSource()])
+
+        #expect(try permissions(of: directory) == 0o700)
+        let artifacts = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        for artifact in artifacts where artifact.pathExtension == "ndjson" || artifact.lastPathComponent == "cursors.json" {
+            #expect(try permissions(of: artifact) == 0o600, "\(artifact.lastPathComponent) was not owner-only")
+        }
+    }
+
     @Test func aNewLaunchReadsWhatTheLastOneKept() async {
         let first = ErrorJournal(directory: directory)
         await first.record(event("socket closed 3 times"))
@@ -148,5 +182,10 @@ struct ErrorJournalTests {
         #expect(await journal.entries(ErrorQuery(sources: ["journal"])).count == 1)
         // The cursor was saved: a second harvest finds nothing new.
         #expect(await ErrorJournal(directory: directory).harvest([Fixed()])["fixed"] == 0)
+    }
+
+    private func permissions(of url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
     }
 }
