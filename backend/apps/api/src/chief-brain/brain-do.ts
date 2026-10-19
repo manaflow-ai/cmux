@@ -57,6 +57,8 @@ export const HOST = "cloud-chief"
  * unsummarized messages whole (Memory.turnInput, not fresh).
  */
 export const SETTLE_MS = 5_000
+/** A millisecond setting (CHIEF_BRAIN_SETTLE_MS, CHIEF_BRAIN_PREFIX_WAIT_MS), else `d`. */
+export const msOr = (v: string | undefined, d: number): number => (v !== undefined && /^\d{1,9}$/.test(v.trim()) ? Number(v.trim()) : d)
 /** A turn that runs longer is stopped and recorded failed. */
 export const TURN_MS = 10 * 60_000
 const DEFAULT_DAILY_TURNS = 300
@@ -189,7 +191,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA]) this.sql.exec(q)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
-    const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL))
+    const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
       memory: this.memory,
       deps: () => {
@@ -500,6 +502,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
    * turn boundary (startTurnHands): after new_sandbox or pairing, the next turn has the full tools.
    */
   installHands(): void {
+    // Hands off on this deployment (HANDS_ENABLED): no hands tools at all.
+    if (this.env.HANDS_ENABLED !== "1") return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
     // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
@@ -516,6 +520,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** Checks for a hand (one list call) and records it; true when it found the first one now. The full tools come at the next pi turn, never inside one. */
   async refreshHands(): Promise<boolean> {
+    if (this.env.HANDS_ENABLED !== "1") return false
     if (this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1") return false
     if (!(await hasHand(this.env, () => ({ ...this.config() })))) return false
     writeConfig(this.sql, { hands_full: "1" })
