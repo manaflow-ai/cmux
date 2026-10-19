@@ -64,7 +64,6 @@ final class CookieImportConsentPanel {
         let reference = NSButton(title: request.requester.reference, target: self, action: #selector(showRequester))
         reference.isBordered = false
         reference.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
-        reference.contentTintColor = Palette.accent
         reference.isEnabled = onShowRequester != nil
         reference.setAccessibilityIdentifier(Self.accessibilityID + ".requester")
         var requesterViews: [NSView] = [Self.caption(CookieImportStrings.requestedBy), reference]
@@ -121,7 +120,10 @@ final class CookieImportConsentPanel {
             latest.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -36).isActive = true
         }
         body.addSubview(stack)
-        body.onThemeChange = { [weak title] in title?.textColor = Palette.textPrimary }
+        body.onThemeChange = { [weak title, weak reference] in
+            title?.textColor = Palette.textPrimary
+            reference?.contentTintColor = Palette.accent
+        }
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: body.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: body.trailingAnchor),
