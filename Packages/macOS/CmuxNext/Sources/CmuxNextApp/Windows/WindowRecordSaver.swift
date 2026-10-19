@@ -128,15 +128,15 @@ final class WindowRecordSaver {
         }
     }
 
+    /// Front first by the registry's recency (`WindowManager.windowDidOrder`): a save never asks the
+    /// window server (`NSApp.orderedWindows` is a synchronous query, cx-8w027.25).
     func currentRecords() -> [WindowRecord] {
-        let ordered = NSApp.orderedWindows
         let value = manager.registry.value
         let states = manager.states
+        let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
         return value.windows.compactMap { window in
             let controller = manager.controller(for: window.id)
-            let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
-                ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
-            var record = value.record(window.id, state: states[window.id], order: order,
+            var record = value.record(window.id, state: states[window.id], order: order[window.id] ?? order.count,
                                       isFullScreen: controller?.window?.styleMask.contains(.fullScreen) == true
                                           || states[window.id]?.restoresFullScreen == true,
                                       selectedTabs: selectedTabs(window: window))
@@ -150,7 +150,7 @@ final class WindowRecordSaver {
     private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
         guard let state = manager.states[window.id] else { return [:] }
         let focus = state.focus.state
-        var panes = focus.remembered
+        var panes = state.focus.rememberedPanes()
         if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
         let listed = Set(window.workspaceIDs)
         return panes.filter { listed.contains($0.key) }

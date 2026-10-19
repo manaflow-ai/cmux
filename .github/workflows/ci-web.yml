@@ -321,15 +321,44 @@ jobs:
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
         run: ../scripts/ci/run-webviews-tests.sh
 
-      - name: React Doctor
+  # React Doctor is independent of the per-file browser tests. Keep it on its
+  # own required lane so the long-running shard 1 does not serialize this
+  # diagnostic after the test suite.
+  react-doctor:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
         working-directory: webviews
-        if: matrix.shard == 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: React Doctor
         run: bun run react-doctor:ci
 
   # Keep one stable required check name for branch protection while the test work
   # itself runs in independent file shards above.
   react-apps-check:
-    needs: [web-subarea-scope, react-apps-check-shard]
+    needs: [web-subarea-scope, react-apps-check-shard, react-doctor]
     if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -347,14 +376,19 @@ jobs:
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
-          result = needs["react-apps-check-shard"]["result"]
-          if required and result != "success":
-              print(f"react-apps-check-shard: {result}", file=sys.stderr)
+          required_jobs = ("react-apps-check-shard", "react-doctor")
+          allowed = {"success"} if required else {"success", "skipped"}
+          bad = {
+              name: needs[name]["result"]
+              for name in required_jobs
+              if needs[name]["result"] not in allowed
+          }
+          if bad:
+              for name, result in bad.items():
+                  print(f"{name}: {result}", file=sys.stderr)
               sys.exit(1)
-          if not required and result not in {"success", "skipped"}:
-              print(f"react-apps-check-shard: {result}", file=sys.stderr)
-              sys.exit(1)
-          print(f"react-apps-check-shard: required={str(required).lower()} result={result}")
+          for name in required_jobs:
+              print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
 
   diff-sidecar-check:

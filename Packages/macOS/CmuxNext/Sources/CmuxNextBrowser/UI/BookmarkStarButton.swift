@@ -83,7 +83,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         hover?.refresh()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         // A redraw during a hover fade leaves the fade running.

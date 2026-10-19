@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextFocus
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,
 /// the app-wide event tap into the journal, the invariant monitor and its
@@ -77,27 +78,46 @@ final class InputVerificationService {
         let journal = InputJournal.shared
         let monitor = self.monitor
         let services = self.services
-        var sinceCheckpoint = Int.max
+        var sinceCheckpoint = Int.max - 1
+        // The notification and location-trail observers act on the settled
+        // keyboard target: each runs only when what it reads changed. The
+        // trail also reads the active window, a shown top page and the
+        // selected workspace (a settle it skipped under a top page records
+        // once the page hides).
+        var notified: FocusState.SettleKey?
+        var trailed: TrailSettleKey?
         controller.focus.settledObserver = { [weak services, weak controller] state in
-            services?.notifications.focusDidSettle(state)
             services?.keyRouter.focusDidSettle(state, in: controller?.window)
-            if let controller {
-                services?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
+            guard let controller else { return }
+            services?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
+            let key = state.settleKey
+            if key != notified {
+                notified = key
+                services?.notifications.focusDidSettle(state, in: controller)
+            }
+            let trail = TrailSettleKey(focus: key, active: services?.windows.active === controller,
+                                       topPage: controller.shownTopPage != nil, workspace: controller.state.workspaceID)
+            if trail != trailed {
+                trailed = trail
                 services?.locationTrail.focusDidSettle(state, in: controller)
             }
         }
-        controller.focus.observer = { [weak state = controller.state] observation in
-            monitor?.noteChange()
+        controller.focus.observer = { [weak state = controller.state, weak focus = controller.focus] observation in
+            // A no-op reduction (a responder report of the focus the window
+            // already has) changes nothing the monitor checks.
+            if case .reduced(_, _, _, false) = observation {} else { monitor?.noteChange() }
             guard journal.isEnabled else { return }
             let window = state?.id
             switch observation {
-            case .reduced(let event, let previous, let next):
-                if sinceCheckpoint >= InputJournal.checkpointInterval {
-                    sinceCheckpoint = 0
-                    journal.append(window: window, .focusCheckpoint(previous))
-                }
-                sinceCheckpoint += 1
+            case .reduced(let event, _, let next, _):
                 journal.append(window: window, .focus(event, after: FocusDigest(next)))
+                sinceCheckpoint += 1
+                // The state after this event (the machine holds only the
+                // current one): replay starts from it with the next event.
+                if sinceCheckpoint >= InputJournal.checkpointInterval, let focus {
+                    sinceCheckpoint = 0
+                    journal.append(window: window, .focusCheckpoint(focus.checkpoint()))
+                }
             case .suppressedResponder(let responder):
                 journal.append(window: window, .responder(responder, suppressed: true))
             case .refusedByRun:
@@ -106,4 +126,13 @@ final class InputVerificationService {
             }
         }
     }
+}
+
+/// What `LocationTrailService.focusDidSettle` reads: the focus and the
+/// window facts it skips on.
+private struct TrailSettleKey: Hashable {
+    var focus: FocusState.SettleKey
+    var active: Bool
+    var topPage: Bool
+    var workspace: String?
 }

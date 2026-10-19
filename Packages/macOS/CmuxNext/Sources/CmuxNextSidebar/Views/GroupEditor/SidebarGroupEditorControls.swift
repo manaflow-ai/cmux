@@ -85,8 +85,8 @@ final class SidebarGroupEditorRow: NSView {
     var onPress: (() -> Void)?
     let item: SidebarGroupEditorItem
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
-    private let shortcut = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
+    private let shortcut = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(_ item: SidebarGroupEditorItem) {

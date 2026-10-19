@@ -97,21 +97,24 @@ public struct LayoutMapping {
                             role: dock.role.map { _ in .agentChat })
     }
 
-    /// Converts one daemon layout node. Nil when nothing in it can be shown.
+    /// Converts one daemon layout node. Nil when nothing in it can be shown. A split is keyed by
+    /// its public id (`split-client-split-id-v1`), which an optimistic split and the daemon's echo
+    /// share, so the echo maps to the tree already shown.
     public func node(_ node: LayoutNode, paneIDs: [DaemonPaneID: LayoutPaneID],
-                            handles: inout LayoutHandleMap) -> SplitNode? {
+                     handles: inout LayoutHandleMap) -> SplitNode? {
         switch node {
         case .leaf(let pane):
             return paneIDs[pane].map(SplitNode.leaf)
         case .stack(let panes, let expanded):
             let shown = paneIDs[expanded] ?? panes.lazy.compactMap { paneIDs[$0] }.first
             return shown.map(SplitNode.leaf)
-        case .split(let splitHandle, let direction, let ratio, let a, let b):
+        case .split(let splitHandle, let resourceID, let direction, let ratio, let a, let b):
             let first = self.node(a, paneIDs: paneIDs, handles: &handles)
             let second = self.node(b, paneIDs: paneIDs, handles: &handles)
             guard let first else { return second }
             guard let second else { return first }
-            let id = LayoutHandleMap.splitID(splitHandle, firstPane: first.panes.first)
+            let id = LayoutHandleMap.splitID(resourceID, handle: splitHandle, firstPane: first.panes.first)
+            // A provisional split has no handle: its divider sends nothing until the daemon's split arrives.
             if let splitHandle { handles.splits[id] = splitHandle }
             let axis: SplitAxis = direction == .right ? .horizontal : .vertical
             let clamped = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)

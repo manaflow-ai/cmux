@@ -74,7 +74,7 @@ open class PopupRowView: NSView {
             label.font = font
             label.ink = ink
             label.lineBreakMode = .byTruncatingTail
-            label.cell?.truncatesLastVisibleLine = true
+            label.truncatesLastVisibleLine = true
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
         subtitleLabel.isHidden = subtitle?.isEmpty ?? true

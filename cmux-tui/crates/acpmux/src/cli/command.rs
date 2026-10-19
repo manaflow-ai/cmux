@@ -730,6 +730,11 @@ pub struct NewArgs {
     /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
     #[arg(long)]
     pub policy: Option<String>,
+    /// The harness mode to start in (e.g. `auto`). One that does not ask needs the
+    /// person in cmux NEXT, a preset the person approved, or this command running
+    /// inside a session that is in that mode.
+    #[arg(long)]
+    pub mode: Option<String>,
     /// HARNESS[/MODEL]: a family or profile name (`claude`, `codex`, `omp`), optionally with a model
     /// (`claude/opus`, `codex/gpt-5.5`, `opencode/zai/glm-5.1`). Omitted: the default harness and its defaults.
     #[arg(long, short)]

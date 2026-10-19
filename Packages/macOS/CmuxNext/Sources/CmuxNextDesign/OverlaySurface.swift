@@ -128,7 +128,7 @@ public final class OverlaySurfaceView: NSView {
         // Content colors may depend on the material (a veil that only
         // glass needs): the content re-resolves them like on a theme change.
         let content = contentView
-        ThemeRepaint.request(content, roots: { () -> [NSView] in [content] }, scope: nil, animated: false, layout: true)
+        ThemeRepaint.request(content, roots: { () -> [NSView] in [content] }, scope: nil, animated: false, layout: true, lazy: false)
     }
 
     private func applyShape() {

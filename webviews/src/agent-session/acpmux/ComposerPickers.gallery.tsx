@@ -265,6 +265,10 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "pill-rail": {
+      note: "The 400 px composer rail keeps the model, effort, and access controls as rounded tonal pills before any menu opens.",
+      props: {},
+    },
     "model-menu": { props: {}, play: openModel },
     "model-focus": {
       note: "The model search owns focus while open; Escape closes it and restores focus to Model.",

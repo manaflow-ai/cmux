@@ -12,6 +12,9 @@ import QuartzCore
 /// drag image is a static snapshot. Here layout is a pure function
 /// (`SidebarLayout`), so every change is "compute new frames, animate to them",
 /// and only rows near the viewport get views (see `realizationRect`).
+// Keep implementation extensions in a separate checker namespace.
+typealias SidebarListViewComponents = SidebarListView
+
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
@@ -24,6 +27,14 @@ final class SidebarListView: NSView {
     var blocks: SidebarListBlocks? {
         // A held drag hit-tests a geometry built at its begin: new blocks rebuild it at the next move.
         didSet { if blocks != oldValue { drag?.docGeometry = nil } }
+    }
+    /// The selected top item, drawn active in its block (`SidebarRegionView.activeItem`): a selection
+    /// change repaints the old and new item only, with no list reload (perf-speed-of-light I6).
+    var activeTopItem: LayoutItemID? {
+        didSet {
+            guard oldValue != activeTopItem else { return }
+            for view in rowViews.values { (view as? SidebarBlockRowView)?.region.activeItem = activeTopItem }
+        }
     }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
@@ -53,6 +64,9 @@ final class SidebarListView: NSView {
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
     var hoverFollowsScroll = false
+    /// Bulk projection applies update many rows before the next frame. Hover
+    /// paint remains valid, but marquee/layout work must wait for that frame.
+    var suppressHoverEffects = false
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
@@ -190,7 +204,7 @@ final class SidebarListView: NSView {
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
     /// layer-backed view this tall (1,000 rows) gets a visible-rect backing that AppKit marks for
     /// display on every scroll frame; with updateLayer it keeps no bitmap, so a scroll draws nothing here.
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }

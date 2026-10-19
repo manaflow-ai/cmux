@@ -126,6 +126,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
+                // What this Mac does while agents work (keep awake).
+                group("settings.group.sessions"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.
@@ -168,7 +170,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(
-            id: "accounts", title: section(.accounts), symbol: "person.crop.circle", groups: [],
+            id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
+            // Phone access sits beside the account it signs in with and the machines list.
+            groups: [group("settings.group.phone")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
