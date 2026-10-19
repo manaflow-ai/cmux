@@ -8,6 +8,7 @@ import { claimNextRunAttempt, renewRunAttemptLease, checkpointRunAttempt, finish
 import { normalizeRunSpec } from "./spec";
 import { parseSourceVerificationReceipt, sourceVerificationCommand } from "./sourceVerification";
 import { storeRunArtifact } from "./repository";
+import { withVariantExecution } from "./agentCommand";
 
 const LEASE_MS = 90_000;
 const quote = (text: string) => `'${text.replace(/'/g, `'"'"'`)}'`;
@@ -59,10 +60,9 @@ async function executeClaim(attempt: ClaimedRunAttempt, client: RunCloudClient) 
   const marker = `${attempt.runId}:${attempt.attemptId}:completed`;
   const source = sourceVerificationCommand(spec, marker);
   const instruction = spec.variants[attempt.ordinal]?.instruction;
-  const work = instruction ? `\ncodex exec --json --full-auto ${quote(instruction)} >/tmp/cmux-agent-output-${attempt.attemptId}.jsonl\n` : "";
   // Source/setup verifier owns the workspace and inserts the optional recipe
   // before its final receipt; no deployment token is passed to guest commands.
-  const script = source.replace("# CMUX_VARIANT_EXECUTION", work);
+  const script = withVariantExecution(source, instruction, attempt.attemptId);
   const command = replaySafeGuestCommand(attempt.attemptId, script);
   const response = await client("POST", `/api/vm/${encodeURIComponent(providerVmId)}/exec`, { command, timeoutMs: spec.resources.wallTimeoutMs });
   if (response.exitCode === 75) throw new RunPending("Guest command remains active");
