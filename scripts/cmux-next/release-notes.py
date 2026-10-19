@@ -63,11 +63,12 @@ INTERNAL_WORDS = re.compile(
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
-    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?)\b", re.I)
+    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|squash(?:ed|es)?)\b", re.I)
 # Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
 BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
-# Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
+# Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks, a PR number,
+# a tool name of three or more hyphenated parts) are internal.
+CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}|(?:^|\s)#(?:\d+|N)\b|\b(?![\w-]*-(?:to|by|of|and|in|the|a|an|on|for|or|at|with)(?:-|\b))[A-Za-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b")
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".

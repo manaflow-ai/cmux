@@ -61,16 +61,17 @@ const INTERNAL_WORDS = new RegExp(
     String.raw`frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|` +
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
-    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?)\b`,
+    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|squash(?:ed|es)?)\b`,
   "i",
 );
 /** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */
 const BRANDS =
   /\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
 /** Code-looking text: backticks, dotted names, snake_case, versioned ids, bead ids, camelCase,
-    {placeholders}. */
+    {placeholders}, a PR number ("#21369", "#N") and a tool name of three or more hyphenated parts
+    ("export-backdrop-art"; "up-to-date" and "drag-and-drop" join with a short word and stay). */
 const CODE_LIKE =
-  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}/;
+  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}|(?:^|\s)#(?:\d+|N)\b|\b(?![\w-]*-(?:to|by|of|and|in|the|a|an|on|for|or|at|with)(?:-|\b))[A-Za-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b/;
 const CONVENTIONAL = /^(?<type>[A-Za-z-]+)(?:\((?<scope>[^)]*)\))?!?:\s*(?<rest>.+)$/;
 /** "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …". */
 const LABEL = /^(?<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?<scope>[^)]*)\))?!?:\s+(?<rest>\S.*)$/;

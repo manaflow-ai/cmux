@@ -153,10 +153,8 @@ test("the popup and the card read notes published before the readable rules as t
     ),
   );
   const items = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.textContent);
-  expect(items).toEqual([
-    "1Export-backdrop-art reads each entry's subject box and exports it",
-    "2Keep the Mac awake while agents work",
-  ]);
+  // The perf-fanout line and the export-backdrop-art tool line are internal work.
+  expect(items).toEqual(["1Keep the Mac awake while agents work"]);
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
@@ -164,8 +162,6 @@ test("the popup and the card read notes published before the readable rules as t
       <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
     ),
   );
-  expect(host.querySelector(".wn-card-headline")?.textContent).toBe(
-    "Export-backdrop-art reads each entry's subject box and exports it",
-  );
-  expect(host.querySelector(".wn-card-line")?.textContent).toBe("+1 more");
+  expect(host.querySelector(".wn-card-headline")?.textContent).toBe("Keep the Mac awake while agents work");
+  expect(host.querySelector(".wn-card-line")).toBeNull();
 });

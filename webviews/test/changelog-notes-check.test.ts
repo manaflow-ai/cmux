@@ -22,6 +22,15 @@ function withEntries(notes: ReleaseNotes, entries: WhatsNewEntry[]): ReleaseNote
   return { ...notes, whatsNew: { ...notes.whatsNew!, entries } };
 }
 
+/** 3917159104301 as the current pipeline writes it: its first entry under Fixed, and no
+    tool-name summary line (export-backdrop-art is internal work). */
+function clean(notes: ReleaseNotes): ReleaseNotes {
+  return {
+    ...withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]),
+    summary: (notes.summary ?? []).filter((line) => !line.title.startsWith("Export-backdrop-art")),
+  };
+}
+
 test("3917159104301 as published fails on its cut digest title and its tool-name line", () => {
   const { notes, previous } = at("3917159104301");
   const defects = checkNightlyNotes(notes, previous).map((d) => `${d.where} ${d.kind} ${d.text}`);
@@ -32,10 +41,7 @@ test("3917159104301 as published fails on its cut digest title and its tool-name
 
 test("notes as the current pipeline writes them pass, alone and with the nine nightlies before them", () => {
   const { notes, previous } = at("3917159104301");
-  const fixed = {
-    ...withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]),
-    summary: (notes.summary ?? []).filter((line) => !line.title.startsWith("Export-backdrop-art")),
-  };
+  const fixed = clean(notes);
   expect(checkNightlyNotes(fixed, previous)).toEqual([]);
 });
 
@@ -80,7 +86,7 @@ test("a reviewed entry the page would show twice, or with its title as its descr
 
 test("a defect only an older nightly has is not this build's to fix", () => {
   const { notes, previous } = at("3917159104301");
-  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  const fixed = clean(notes);
   const older = previous.map((n, i) =>
     i === 0 ? { ...n, highlights: [{ id: "old", title: "An old highlight cut short…", body: "" }] } : n,
   );
@@ -96,7 +102,7 @@ test("every one of the 50 published nightlies shows clean on the page and the ca
 
 test("a summary line that starts with a brand passes, as the pipeline published it", () => {
   const { notes, previous } = at("3917159104301");
-  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  const fixed = clean(notes);
   const branded: ReleaseNotes = {
     ...fixed,
     summary: [...(fixed.summary ?? []), { group: "fixed", title: "MacOS 26 window shadows match the system" }],
@@ -108,7 +114,7 @@ test("a summary line that starts with a brand passes, as the pipeline published 
 // whose body opens with its title is not a title repeated as its description.
 test("a highlight whose multi-line body opens with its title passes", () => {
   const { notes, previous } = at("3917159104301");
-  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  const fixed = clean(notes);
   const highlighted: ReleaseNotes = {
     ...fixed,
     highlights: [
@@ -135,7 +141,7 @@ test("the command fails with one annotation per defect, and passes clean notes",
   expect(bad.stdout.toString()).toContain(
     "::error title=Release notes::3917159104301 notes: a cut title: Export-backdrop-art reads each entry's subject box and…",
   );
-  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  const fixed = clean(notes);
   writeFileSync(files[0]!, JSON.stringify(fixed));
   const good = Bun.spawnSync([process.execPath, script, ...files]);
   expect([good.exitCode, good.stdout.toString()]).toEqual([
