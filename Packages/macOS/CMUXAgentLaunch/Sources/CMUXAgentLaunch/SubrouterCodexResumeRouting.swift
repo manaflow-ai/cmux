@@ -225,7 +225,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         ) != nil else {
             return sanitizedArguments
         }
-        if launchArgumentsContainSubrouterProvider(sanitizedArguments, launcher: nil) {
+        if launchArgumentsContainSubrouterProvider(sanitizedArguments, launcher: launcher) {
             return sanitizedArguments
         }
 
@@ -297,15 +297,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         _ arguments: [String],
         launcher: String?
     ) -> Bool {
-        let evidence: SubrouterCodexProviderEvidence
-        if launcher == "codex" {
-            // The captured launcher kind is authoritative for managed custom
-            // Codex paths whose basename is not literally `codex`.
-            evidence = providerEvidenceFromAssignments(in: arguments)
-        } else {
-            evidence = providerEvidence(in: arguments)
-        }
-        return evidence == .provider("subrouter")
+        providerEvidence(in: arguments, launcher: launcher) == .provider("subrouter")
     }
 
     private func isCodexInvocation(_ arguments: [String]) -> Bool {

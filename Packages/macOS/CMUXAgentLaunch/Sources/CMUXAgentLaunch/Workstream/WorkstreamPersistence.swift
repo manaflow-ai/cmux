@@ -239,7 +239,11 @@ public actor WorkstreamPersistence {
         }
         let paged = try loadPage(limit: limit, deadlineNanoseconds: deadline)
         let page = paged.exceededBudget
-            ? Page(items: [], hasMoreBefore: false, startOffset: nil)
+            ? Page(
+                items: latest.items,
+                hasMoreBefore: (latest.startOffset ?? 0) > 0,
+                startOffset: latest.startOffset
+            )
             : paged.page
         let revision = try loadRevision()
         let elapsed = DispatchTime.now().uptimeNanoseconds - started

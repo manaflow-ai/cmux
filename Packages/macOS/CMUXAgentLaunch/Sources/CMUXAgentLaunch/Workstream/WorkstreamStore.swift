@@ -97,8 +97,8 @@ public final class WorkstreamStore {
     ///   - startupBudgetNanoseconds: Optional wall-clock diagnostic threshold
     ///     for the bounded startup persistence pass.
     ///   - startupHardBudgetNanoseconds: Optional wall-clock cutoff for startup
-    ///     persistence work. When reached, the store publishes no cursor for
-    ///     older history so restore cannot continue an over-budget scan.
+    ///     persistence work. When reached, the store retains the bounded latest
+    ///     rows and publishes their cursor for a later explicit history page.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
@@ -349,13 +349,18 @@ public final class WorkstreamStore {
     /// applied them (latest version of an item wins on restart).
     private var persistenceTail: Task<Void, Never>?
     private var revisionPersistenceTail: Task<Void, Never>?
+    private var pendingPersistedRevision: Int?
 
     private func persistRevision() {
         guard let persistence else { return }
+        let alreadyScheduled = pendingPersistedRevision != nil
+        pendingPersistedRevision = revision
+        guard !alreadyScheduled else { return }
         let previous = revisionPersistenceTail
-        let value = revision
-        revisionPersistenceTail = Task { [persistence] in
+        revisionPersistenceTail = Task { [weak self, persistence] in
             await previous?.value
+            guard let value = self?.pendingPersistedRevision else { return }
+            self?.pendingPersistedRevision = nil
             try? await persistence.recordRevision(value)
         }
     }

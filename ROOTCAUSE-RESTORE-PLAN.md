@@ -593,8 +593,10 @@ Codex crash recovery now always uses structured `cmux restore`, preventing a
 captured launcher prefix from bypassing provider routing and writer-lock
 admission. A proven Subrouter marker paired with a mismatched or malformed
 Codex executable now rejects rather than falling through to direct restore.
-The focused CMUXAgentLaunch suites pass 44 tests in 4 suites, including these
-negative controls.
+The focused CMUXAgentLaunch suites pass 34 tests in 2 suites, and the full
+CMUXAgentLaunch package passes 888 tests in 100 suites. The full
+CmuxComputerUse package passes 37 tests in 9 suites, including the helper
+lease coverage and its negative controls.
 
 These changes reduce the known duplicate-helper and provider-mismatch paths;
 they do not by themselves prove that WindowServer will never fail. The crash
