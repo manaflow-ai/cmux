@@ -19,7 +19,8 @@ self-hosted-runner:
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - warp-ubuntu-latest-x64-4x
-    # GitHub-hosted, not self-hosted. actionlint 1.7.7 shipped a fixed list of
+    # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
+    # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of
     # hosted labels and macos-15-intel postdates it, so the only way to say
     # "this label is real" is here. It is: run 34656982146's
     # `compat-tests (macos-15-intel, ...)` job was served by "GitHub Actions

@@ -26,7 +26,7 @@ asset_name="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
 # The manaflow-ai fork publishes the pinned build (rhysd/actionlint has no
 # release with the shellcheck stdin deadlock fix yet).
 release_url="https://github.com/manaflow-ai/actionlint/releases/download/v${ACTIONLINT_VERSION}/${asset_name}"
-# The asset ID is immutable for the lifetime of a GitHub release asset. This
+# The asset ID names one upload of the release asset (a re-upload gets a new ID). This
 # endpoint is a separate GitHub API path from the browser download redirect;
 # the SHA-256 below still authenticates the bytes before they are extracted.
 api_url="https://api.github.com/repos/manaflow-ai/actionlint/releases/assets/${ACTIONLINT_ASSET_ID}"

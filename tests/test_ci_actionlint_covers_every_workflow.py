@@ -97,6 +97,20 @@ def main() -> int:
             f"{path} is suppressed in actionlint.yaml and still exists",
         )
 
+    # The nightly.yml ignore hides every constant `if: false` there, so pin
+    # them to the two retired approval jobs it documents.
+    nightly_disabled = []
+    job = None
+    for line in (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8").splitlines():
+        if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
+            job = line.strip().rstrip(":")
+        elif line.strip() == "if: false":
+            nightly_disabled.append(job)
+    check(
+        nightly_disabled == ["await-release-surface-ack", "promote-nightly-next-acked"],
+        f"only the two retired approval jobs use `if: false` in nightly.yml (found {nightly_disabled})",
+    )
+
     if failures:
         print(f"\n{len(failures)} failure(s)")
         return 1
