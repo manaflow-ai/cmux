@@ -1085,6 +1085,7 @@ jobs:
         run: |
           python3 tests/test_update_release_tag.py
           python3 tests/test_nightly_next_computer_use_helper.py
+          python3 tests/test_nightly_next_post_publish.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
