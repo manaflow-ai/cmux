@@ -22,10 +22,12 @@ extension ChatController {
         case #selector(NSResponder.moveDown(_:)): direction = .newer
         default: return false
         }
-        let browsingUnedited = composerHistory.shown == field.string
-        if !browsingUnedited {
-            guard direction == .older, field.caretLine.first else { return false }
+        // A browse owns the arrows: past the oldest entry Up changes nothing (no caret jump to the start).
+        if composerHistory.shown == field.string {
+            stepHistory(direction, in: field)
+            return true
         }
+        guard direction == .older, field.caretLine.first else { return false }
         return stepHistory(direction, in: field)
     }
 
