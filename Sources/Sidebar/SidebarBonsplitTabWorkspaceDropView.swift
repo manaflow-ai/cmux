@@ -17,7 +17,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     /// destination by registered type and geometry, not `hitTest`, and a
     /// workspace row drag also carries the Bonsplit pane-merge capability, so
     /// this view receives row reorders and hands them to that destination.
-    weak var reorderDestination: NSView?
+    weak var reorderDestination: SidebarWorkspaceReorderDropView?
     var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var updateAutoscroll: () -> Void = {}
     var setWorkspaceDropTargetCollectionActive: (Bool) -> Void = { _ in }
@@ -36,7 +36,9 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     override var acceptsFirstResponder: Bool { false }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        if let reorder = reorderDestination(for: sender) { return reorder.draggingEnded(sender) }
+        // The reorder view does not implement `draggingEnded:`; forwarding it
+        // would raise an unrecognized selector.
+        if reorderDestination(for: sender) != nil { return }
         ownershipFeedback.clear()
     }
 
@@ -361,7 +363,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     /// The reorder destination when the drag is a sidebar workspace row.
-    private func reorderDestination(for sender: (any NSDraggingInfo)?) -> NSView? {
+    private func reorderDestination(for sender: (any NSDraggingInfo)?) -> SidebarWorkspaceReorderDropView? {
         guard let reorderDestination else { return nil }
         let types = (sender?.draggingPasteboard ?? NSPasteboard(name: .drag)).types
         return DragOverlayRoutingPolicy.hasSidebarTabReorder(types) ? reorderDestination : nil

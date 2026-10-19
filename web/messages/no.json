@@ -33,12 +33,27 @@
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
       "message": "Denne maskinen svarte ikke i tide, så forespørselen kunne ikke fullføres.",
-      "action": "Sett maskinen på pause, gjenoppta den, og prøv igjen. I Mac-appen velger du Sett maskin på pause og deretter Gjenoppta maskin. I en terminal kjører du cmux vm pause '<machine>' og deretter cmux vm resume '<machine>'."
+      "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
+    },
+    "inProgress": {
+      "title": "Fortsatt i gang",
+      "message": "Skyleverandøren har ikke fullført denne endringen ennå. Den kan fortsatt bli fullført.",
+      "action": "Sjekk maskinens status med cmux vm ls eller i maskinlisten før du prøver igjen."
     },
     "providerTimeout": {
       "title": "Skyleverandøren er treg",
       "message": "Skyleverandøren svarte ikke i tide.",
       "action": "Prøv igjen om et øyeblikk."
+    },
+    "providerCapacity": {
+      "title": "Ingen Cloud-kapasitet akkurat nå",
+      "message": "Cloud-tjenesten har ikke plass til denne maskinen akkurat nå. Ingenting ble endret.",
+      "action": "Prøv igjen om et minutt."
+    },
+    "stateConflict": {
+      "title": "Maskinen er opptatt",
+      "message": "Denne maskinen starter, settes på pause eller kjører ikke, så den kan ikke gjøre dette nå.",
+      "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux vm ls, og gjenoppta den først hvis den er satt på pause."
     },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
@@ -98,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan}-regnekvoten er brukt opp",
+      "computeMessage": "{plan}-planen din har brukt sine {included} regnetimer i denne faktureringsperioden. En regnetime er 1 vCPU med 2 GB minne i én time. Maskinene dine kan starte igjen {resetDate}.",
+      "computeAction": "Pausede maskiner beholder filene sine. Kontakt support hvis du trenger mer regnekraft før {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-diskkvoten er brukt opp",
+      "storageMessage": "{plan}-planen din inkluderer {included} GB disk totalt for alle lagrede maskiner. Lagrede maskiner bruker {used} GB, og denne forespørselen trenger {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Ikke nok Cloud VM-ressurser",
@@ -499,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Gjenoppta planen for å endre den.",
           "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "grantedNoCancel": "Tildelt av cmux, så det er ingenting å si opp.",
+          "paymentFailed": "Oppdater betalingsmåten før du bytter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Bare teamadministratorer kan endre planen."
         },
         "names": {
@@ -541,6 +569,7 @@
       "change": {
         "title": "Bytte til {plan}?",
         "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "upgradeBodyYearly": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per år.",
         "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
         "confirm": "Bytt til {plan}",
         "keep": "Behold nåværende plan",
@@ -553,6 +582,8 @@
         "title": "Avslutte {plan}?",
         "body": "Du beholder {plan} til {date}. Etter det mister du:",
         "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "foundersBody": "{plan}-abonnementet ditt avsluttes {date}. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "{plan}-abonnementet ditt avsluttes ved slutten av denne faktureringsperioden. Etter det har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
         "otherPlaceholder": "Fortell oss mer (valgfritt)",
         "confirm": "Avslutt plan",
@@ -2227,6 +2258,7 @@
           "currentLineHighlight": "Farg raden der markøren står når ingenting er markert.",
           "tabWidth": "Hvor mange kolonner ett tabulatorstopp dekker. Innrykkslinjene bruker samme avstand."
         },
+        "actions": "Gjenbrukbare handlinger for kommandopaletten, snarveier, knapper på fanelinjen og menyen til plussknappen. Støtter builtin, command, agent, workspaceCommand, workspace, setting, settingPreset og text. Teksthandlinger limer inn i terminalen med fokus og bevarer linjeskift; submit: true trykker Enter. Innstillingshandlinger krever global konfigurasjon.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3256,12 +3288,13 @@
       "apiKeyScope": "En organisasjons API-nøkkel bruker bare teamets delte kontoer. En nøkkel i ditt personlige team kan også bruke de private kontoene dine. CodeRouter betjener OpenAI Responses API, ikke Chat Completions.",
       "apiKeyLogin": "På en maskin som ikke kan åpne en nettleser, logger cr login --api-key inn cr med en nøkkel, og CODEROUTER_API_KEY gir en nøkkel for én enkelt kommando. Tilbakekall en nøkkel i dashbordet, eller kjør cr logout på maskinen som bruker den.",
       "cloudTitle": "På cmux Cloud-maskiner",
-      "cloudDesc": "Cloud-maskiner trenger ikke oppsett. Maskinens miljø peker OPENAI_BASE_URL og ANTHROPIC_BASE_URL mot en privat CodeRouter-adresse, og cmux skriver hver agents konfigurasjon første gang et skall eller agenten starter:",
-      "cloudClaude": "Claude Code leser ANTHROPIC_BASE_URL og en plassholder-ANTHROPIC_API_KEY fra miljøet. Spørsmålene ved første kjøring er allerede besvart.",
+      "cloudDesc": "Cloud-maskiner trenger ikke oppsett. Hver agent bruker teamets CodeRouter-kontoer via en privat CodeRouter-adresse, og cmux skriver konfigurasjonen dens første gang et skall eller agenten starter:",
+      "cloudClaude": "Claude Code får ANTHROPIC_BASE_URL og en plassholder-ANTHROPIC_API_KEY hver gang den starter, ikke fra hvert skall, så de aldri går foran din egen innlogging. Spørsmålene ved første kjøring er allerede besvart.",
       "cloudCodex": "Codex får en cmux-modelleverandør i ~/.codex/config.toml.",
       "cloudPi": "Pi får en leverandøroverstyring i ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode laster ned leverandørlisten sin fra CodeRouter første gang den starter, og lagrer den i ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode laster ned leverandørlisten sin fra CodeRouter første gang den starter, lagrer den i ~/.config/cmux/opencode-team.json og legger den til i din egen konfigurasjon ved hver kjøring.",
       "cloudYours": "cmux skriver hver fil bare når den mangler, så endringene dine beholdes. En Codex-konfigurasjon som allerede angir en annen modelleverandør, blir ikke rørt.",
+      "cloudOwnLogin": "For å bruke din egen konto i stedet kjører du cr use own på maskinen og logger deretter inn slik agenten vanligvis gjør: /login i Claude Code, codex login eller opencode auth login. cr use team bytter tilbake, cr use own codex endrer én agent, og cr use viser hvordan hver agent logger inn. Uten et valg bruker en agent du har logget inn i på maskinen, din egen konto, og en agent teamet ditt ikke har en konto for, viser sin vanlige innlogging. En endring gjelder neste gang agenten starter.",
       "cloudRun": "Kjør agenter som vanlig. cmux coderouter agent gjør en ren prompt om til agentens engangsform; inne i en maskin kjører den i gjeldende terminal, og på Mac-en din starter den agenten på maskinen du angir, som cmux vm agent.",
       "cloudAccounts": "Cloud-maskiner bruker kontoene til teamet som eier dem. Hvis en agent melder at ingen konto er tilgjengelig, legger du til en eller deler en eksisterende med det teamet.",
       "modelsTitle": "Modeller",
@@ -3464,7 +3497,10 @@
     "title": "Logget på cmux",
     "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
     "button": "Gå tilbake til cmux",
-    "switchAccountButton": "Bruk en annen konto"
+    "switchAccountButton": "Bruk en annen konto",
+    "rateLimitedTitle": "Innloggingen er opptatt",
+    "rateLimitedBody": "Innloggingstjenesten vår behandler for mange forespørsler. Vent noen sekunder, og fortsett deretter. Du trenger ikke å logge inn på nytt.",
+    "retryButton": "Fortsett innloggingen"
   },
   "landing": {
     "bestTerminal": {
@@ -5499,6 +5535,9 @@
     "switchFailed": "Kunne ikke logge ut. Prøv igjen.",
     "invalidTitle": "Denne invitasjonen er ikke lenger gyldig",
     "invalidBody": "Den er utløpt, tilbakekalt eller allerede brukt. Be en teamadministrator om en ny.",
-    "goToTeams": "Gå til teamene dine"
+    "goToTeams": "Gå til teamene dine",
+    "unavailableTitle": "Vi kunne ikke bekrefte innloggingen din",
+    "unavailableBody": "Innloggingstjenesten vår er opptatt. Vent noen sekunder, og åpne invitasjonen igjen. Du trenger ikke å logge inn på nytt.",
+    "retry": "Prøv igjen"
   }
 }

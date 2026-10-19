@@ -11,16 +11,28 @@ enum CloudWelcomeNextStep: Equatable {
     /// whose own gate decides between Upgrade and Enable.
     case openCloud
 
-    static func resolve(isAuthenticated: Bool, isPlanKnown: Bool, isPro: Bool) -> CloudWelcomeNextStep {
+    /// Stack Auth creates one personal team for a normal account. A free
+    /// account gets shared-team access only when its accepted list contains an
+    /// additional team.
+    static func hasSharedTeamAccess(availableTeamCount: Int) -> Bool {
+        availableTeamCount > 1
+    }
+
+    static func resolve(
+        isAuthenticated: Bool,
+        isPlanKnown: Bool,
+        isPro: Bool,
+        hasCloudTeamAccess: Bool = false
+    ) -> CloudWelcomeNextStep {
         // Signed out reads like Free: Upgrade to Pro (the pricing page signs in).
         guard isAuthenticated else { return .upgrade }
         guard isPlanKnown else { return .openCloud }
-        return isPro ? .enable : .upgrade
+        return isPro || hasCloudTeamAccess ? .enable : .upgrade
     }
 }
 
-/// "Cloud machines for your agents": shown once on the 0.65.1 launch for users who
-/// can use Cloud. A compact introduction above feature clips and the next step.
+/// "Cloud machines for your agents": shown once, on the first launch of a
+/// release in the welcome campaign, for users who can use Cloud. A compact introduction above feature clips and the next step.
 ///
 /// Takes plain values (no app objects) so the same view renders in the app and
 /// in a standalone lab; ``CloudWelcomeWindowController`` feeds it the account.
@@ -28,6 +40,8 @@ struct CloudWelcomeView: View {
     let nextStep: CloudWelcomeNextStep
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
+    /// Whether the account has an accepted team in addition to its personal scope.
+    var hasCloudTeamAccess = false
     /// Where each slide's clip lives (the lab points this at a folder).
     var mediaURL: (CloudWelcomeSlide) -> URL? = CloudWelcomeMediaCarousel.bundledMediaURL
     // Lab toggles while the slider is designed.
@@ -81,7 +95,7 @@ struct CloudWelcomeView: View {
         .accessibilityIdentifier("CloudWelcomeWindow"))
     }
 
-    /// The 0.65.1 launch card: the clip poster (with the title in its band),
+    /// The campaign launch card: the clip poster (with the title in its band),
     /// the five features, then one full-width action with the plan line under
     /// it. The × in the corner (and Escape) is Not Now.
     private var launchBody: some View {
@@ -340,6 +354,12 @@ struct CloudWelcomeView: View {
         )
         switch nextStep {
         case .enable:
+            if hasCloudTeamAccess {
+                return [String(
+                    localized: "cloud.welcome.note.teamIncluded",
+                    defaultValue: "Included through your team’s plan."
+                )]
+            }
             return [String(localized: "cloud.welcome.note.alreadyIncluded", defaultValue: "Already included in your plan.")]
         case .signIn, .upgrade, .openCloud:
             return [available]

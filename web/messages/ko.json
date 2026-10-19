@@ -33,12 +33,27 @@
     "guestUnresponsive": {
       "title": "머신이 응답하지 않음",
       "message": "이 머신이 제시간에 응답하지 않아 요청을 완료할 수 없습니다.",
-      "action": "머신을 일시 정지한 다음 재개하고 다시 시도하세요. Mac 앱에서는 “머신 일시 정지”를 선택한 다음 “머신 재개”를 선택하세요. 터미널에서는 cmux vm pause '<machine>'를 실행한 다음 cmux vm resume '<machine>'을 실행하세요."
+      "action": "새 머신을 만들기 전에 추적 ID를 첨부해 지원팀에 문의하세요."
+    },
+    "inProgress": {
+      "title": "아직 진행 중",
+      "message": "클라우드 제공업체가 아직 이 변경을 완료하지 않았습니다. 이후에 완료될 수 있습니다.",
+      "action": "다시 시도하기 전에 cmux vm ls 또는 머신 목록에서 머신 상태를 확인하세요."
     },
     "providerTimeout": {
       "title": "클라우드 제공업체 응답 지연",
       "message": "클라우드 제공업체가 제시간에 응답하지 않았습니다.",
       "action": "잠시 후 다시 시도하세요."
+    },
+    "providerCapacity": {
+      "title": "지금은 Cloud 용량이 없음",
+      "message": "Cloud 서비스에 지금 이 머신을 위한 공간이 없습니다. 아무것도 변경되지 않았습니다.",
+      "action": "1분 후에 다시 시도하세요."
+    },
+    "stateConflict": {
+      "title": "머신이 사용 중임",
+      "message": "이 머신이 시작 중이거나 일시 정지 중이거나 실행 중이 아니어서 지금은 이 작업을 할 수 없습니다.",
+      "action": "잠시 후 다시 시도하세요. cmux vm ls로 머신 상태를 확인하고, 일시 정지되어 있으면 먼저 재개하세요."
     },
     "networkRuleCapacity": {
       "title": "네트워크 규칙 한도 도달",
@@ -98,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} 컴퓨팅 한도를 모두 사용했습니다",
+      "computeMessage": "{plan} 플랜이 이번 청구 기간의 {included} 컴퓨팅 시간을 모두 사용했습니다. 1 컴퓨팅 시간은 2 GB 메모리의 vCPU 1개를 1시간 실행한 양입니다. 머신은 {resetDate}부터 다시 시작할 수 있습니다.",
+      "computeAction": "일시 중지된 머신의 파일은 유지됩니다. {resetDate} 전에 더 많은 컴퓨팅이 필요하면 지원팀에 문의하세요.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 디스크 한도를 모두 사용했습니다",
+      "storageMessage": "{plan} 플랜에는 저장된 모든 머신을 합쳐 {included} GB의 디스크가 포함됩니다. 저장된 머신이 {used} GB를 사용 중이며 이 요청에는 {requested} GB가 필요합니다.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Cloud VM 리소스가 부족합니다",
@@ -499,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "변경하려면 먼저 요금제를 재개하세요.",
           "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
+          "grantedNoCancel": "cmux에서 부여한 플랜이므로 취소할 항목이 없습니다.",
+          "paymentFailed": "플랜을 변경하기 전에 결제 수단을 업데이트하세요.",
+          "foundersLifetime": "Founder's Edition에는 Pro가 평생 포함됩니다.",
           "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
         },
         "names": {
@@ -541,6 +569,7 @@
       "change": {
         "title": "{plan}(으)로 전환할까요?",
         "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "upgradeBodyYearly": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매년 {price}을(를) 결제합니다.",
         "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
         "confirm": "{plan}(으)로 전환",
         "keep": "현재 요금제 유지",
@@ -553,6 +582,8 @@
         "title": "{plan}을(를) 해지할까요?",
         "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
         "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "foundersBody": "{plan} 구독은 {date}에 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
+        "foundersBodyNoDate": "{plan} 구독은 이번 결제 기간이 끝날 때 종료됩니다. 이후에는 Founder's Edition에 평생 포함된 Pro를 이용합니다.",
         "reasonLabel": "해지하는 이유 (선택)",
         "otherPlaceholder": "자세히 알려 주세요 (선택)",
         "confirm": "요금제 해지",
@@ -2227,6 +2258,7 @@
           "currentLineHighlight": "아무것도 선택하지 않았을 때 캐럿이 있는 줄에 색을 입힙니다.",
           "tabWidth": "탭 정지 하나가 차지하는 열 수입니다. 들여쓰기 가이드도 같은 간격을 사용합니다."
         },
+        "actions": "명령 팔레트, 단축키, 탭 표시줄 버튼, 더하기 버튼 메뉴에서 사용하는 재사용 가능한 동작입니다. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, text를 지원합니다. text 동작은 줄바꿈을 유지하여 포커스된 터미널에 붙여넣으며, submit: true는 Enter를 누릅니다. 설정 동작에는 전역 구성이 필요합니다.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3256,12 +3288,13 @@
       "apiKeyScope": "조직의 API 키는 팀의 공유 계정만 사용합니다. 개인 팀의 키는 비공개 계정도 사용할 수 있습니다. CodeRouter는 Chat Completions가 아닌 OpenAI Responses API를 제공합니다.",
       "apiKeyLogin": "브라우저를 열 수 없는 머신에서는 cr login --api-key로 키를 사용해 cr에 로그인하고, CODEROUTER_API_KEY로 한 번의 명령에 키를 제공할 수 있습니다. 키는 대시보드에서 폐기하거나, 키를 사용하는 머신에서 cr logout을 실행하세요.",
       "cloudTitle": "cmux Cloud 머신에서",
-      "cloudDesc": "Cloud 머신은 설정이 필요 없습니다. 머신 환경이 OPENAI_BASE_URL과 ANTHROPIC_BASE_URL을 CodeRouter 비공개 주소로 지정하고, 셸이나 에이전트가 처음 시작될 때 cmux가 각 에이전트의 설정을 작성합니다:",
-      "cloudClaude": "Claude Code는 환경에서 ANTHROPIC_BASE_URL과 자리 표시자 ANTHROPIC_API_KEY를 읽습니다. 첫 실행 질문에는 이미 답이 입력되어 있습니다.",
+      "cloudDesc": "Cloud 머신은 설정이 필요 없습니다. 각 에이전트는 CodeRouter 비공개 주소를 통해 팀의 CodeRouter 계정을 사용하며, 셸이나 에이전트가 처음 시작될 때 cmux가 해당 설정을 작성합니다:",
+      "cloudClaude": "Claude Code는 모든 셸이 아니라 시작할 때마다 ANTHROPIC_BASE_URL과 자리 표시자 ANTHROPIC_API_KEY를 받으므로, 이 값이 직접 로그인한 계정보다 우선하지 않습니다. 첫 실행 질문에는 이미 답이 입력되어 있습니다.",
       "cloudCodex": "Codex에는 ~/.codex/config.toml에 cmux 모델 제공업체가 설정됩니다.",
       "cloudPi": "Pi에는 ~/.pi/agent/models.json에 제공업체 재정의가 설정됩니다.",
-      "cloudOpencode": "OpenCode는 처음 시작할 때 CodeRouter에서 제공업체 목록을 내려받아 ~/.config/opencode/opencode.json에 저장합니다.",
+      "cloudOpencode": "OpenCode는 처음 시작할 때 CodeRouter에서 제공업체 목록을 내려받아 ~/.config/cmux/opencode-team.json에 저장하고, 실행할 때마다 사용자 설정에 추가합니다.",
       "cloudYours": "cmux는 파일이 없을 때만 작성하므로 직접 수정한 내용은 유지됩니다. 이미 다른 모델 제공업체를 지정한 Codex 설정은 그대로 둡니다.",
+      "cloudOwnLogin": "대신 본인 계정을 사용하려면 머신에서 cr use own을 실행한 다음, 에이전트의 평소 방식대로 로그인하세요: Claude Code에서는 /login, 또는 codex login, opencode auth login. cr use team은 팀 계정으로 되돌리고, cr use own codex는 에이전트 하나만 바꾸며, cr use는 각 에이전트의 로그인 방식을 보여줍니다. 선택하지 않으면 머신에서 로그인한 에이전트는 본인 계정을 사용하고, 팀에 계정이 없는 에이전트는 평소의 로그인 화면을 표시합니다. 변경 사항은 에이전트가 다음에 시작될 때 적용됩니다.",
       "cloudRun": "에이전트는 평소처럼 실행합니다. cmux coderouter agent는 단독 프롬프트를 에이전트의 일회성 실행 형식으로 바꿉니다. 머신 안에서는 현재 터미널에서 실행하고, Mac에서는 cmux vm agent처럼 지정한 머신에서 에이전트를 시작합니다.",
       "cloudAccounts": "Cloud 머신은 머신을 소유한 팀의 계정을 사용합니다. 사용 가능한 계정이 없다고 에이전트가 알리면, 계정을 추가하거나 기존 계정을 해당 팀과 공유하세요.",
       "modelsTitle": "모델",
@@ -3464,7 +3497,10 @@
     "title": "cmux에 로그인했습니다",
     "body": "cmux가 자동으로 열리지 않으면 아래 버튼을 사용하세요.",
     "button": "cmux로 돌아가기",
-    "switchAccountButton": "다른 계정 사용"
+    "switchAccountButton": "다른 계정 사용",
+    "rateLimitedTitle": "로그인이 혼잡합니다",
+    "rateLimitedBody": "로그인 서비스에 요청이 너무 많습니다. 몇 초 기다린 후 계속하세요. 다시 로그인할 필요는 없습니다.",
+    "retryButton": "로그인 계속하기"
   },
   "landing": {
     "bestTerminal": {
@@ -5499,6 +5535,9 @@
     "switchFailed": "로그아웃할 수 없습니다. 다시 시도하세요.",
     "invalidTitle": "이 초대는 더 이상 유효하지 않습니다",
     "invalidBody": "만료되었거나, 취소되었거나, 이미 사용되었습니다. 팀 관리자에게 새 초대를 요청하세요.",
-    "goToTeams": "내 팀으로 이동"
+    "goToTeams": "내 팀으로 이동",
+    "unavailableTitle": "로그인을 확인할 수 없습니다",
+    "unavailableBody": "로그인 서비스가 혼잡합니다. 몇 초 기다린 후 초대를 다시 여세요. 다시 로그인할 필요는 없습니다.",
+    "retry": "다시 시도"
   }
 }

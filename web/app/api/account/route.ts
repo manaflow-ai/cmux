@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lt, not, or, sql } from "drizzle-orm";
+import { deleteStackSessionRevocationsForUser } from "../../../services/vms/stackSessionRevocationStore";
 import * as Effect from "effect/Effect";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -76,10 +77,16 @@ import {
 } from "../../../services/coderouter/repository";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
+import {
+  publishVmOps,
+  publishVmRowsById,
+  vmSyncTeamId,
+  type VmSyncOp,
+} from "../../../services/vms/presencePublisher";
 import { authorizeCronRequest } from "../../../services/cronAuth";
 import { reportError } from "../../../services/observability/report";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
-import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
+import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY, type CloudVmRow } from "../../../services/vms/repository";
 import {
   destroyVm,
   listUserVms,
@@ -1790,7 +1797,7 @@ function isStripeAlreadyInDeletionTargetState(error: unknown, messagePatterns: r
 
 async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readonly string[]): Promise<void> {
   const db = cloudDb();
-  await db.transaction(async (tx) => {
+  const vmSync = await db.transaction(async (tx) => {
     const now = new Date();
     // Acquire the extra VM/team locks in a stable order. The handoff
     // authority helper below uses the same sorted-team rule; keeping this
@@ -1811,6 +1818,8 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     const userVmRows = await tx
       .select({
         id: cloudVms.id,
+        userId: cloudVms.userId,
+        ownerTeamId: cloudVms.ownerTeamId,
         billingTeamId: cloudVms.billingTeamId,
         provider: cloudVms.provider,
         providerVmId: cloudVms.providerVmId,
@@ -1870,6 +1879,8 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
 
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
+    // Stack deletes the user and every session; nothing is left to revoke.
+    await deleteStackSessionRevocationsForUser(tx, userId);
     await tx.delete(irohRelayPreferences).where(eq(irohRelayPreferences.accountId, userId));
     await tx.delete(irohRegistrationChallenges).where(eq(irohRegistrationChallenges.userId, userId));
     await tx.delete(irohEndpointBindings).where(eq(irohEndpointBindings.userId, userId));
@@ -2003,7 +2014,38 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     await tx.delete(vaultCliAuthRequests).where(
       eq(vaultCliAuthRequests.userId, userId),
     );
+    return {
+      deletedRows: personalVmRows,
+      deletedAtMs: now.getTime(),
+      rewrittenIds: sharedTeamVmRows.map((vm) => vm.id),
+    };
   });
+  publishAccountDeletionVmSync(vmSync);
+}
+
+/** Best-effort machines-list publication after the deletion commits; a
+ * failure here must never fail the account deletion. */
+function publishAccountDeletionVmSync(vmSync: {
+  readonly deletedRows: readonly Pick<CloudVmRow, "providerVmId" | "ownerTeamId" | "billingTeamId" | "userId">[];
+  readonly deletedAtMs: number;
+  readonly rewrittenIds: readonly string[];
+}): void {
+  try {
+    // Hard-deleted personal rows: tombstone them at the deletion clock (the
+    // rows are gone, so there is nothing to re-read).
+    const byTeam = new Map<string, VmSyncOp[]>();
+    for (const vm of vmSync.deletedRows) {
+      if (!vm.providerVmId) continue;
+      const teamId = vmSyncTeamId(vm);
+      const op: VmSyncOp = { kind: "delete", id: vm.providerVmId, sourceUpdatedAtMs: vmSync.deletedAtMs };
+      byTeam.set(teamId, [...(byTeam.get(teamId) ?? []), op]);
+    }
+    for (const [teamId, ops] of byTeam) void publishVmOps(teamId, ops);
+    // Shared-team rows keep living with a rewritten creator: re-read and republish.
+    void publishVmRowsById(vmSync.rewrittenIds);
+  } catch (error) {
+    console.error("[account] machines list publication skipped after deletion", error);
+  }
 }
 
 function observedDestroyCleanupFromMetadata(

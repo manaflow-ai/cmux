@@ -33,12 +33,27 @@
     "guestUnresponsive": {
       "title": "Maschine antwortet nicht",
       "message": "Diese Maschine hat nicht rechtzeitig geantwortet, daher konnte die Anfrage nicht abgeschlossen werden.",
-      "action": "Pausiere die Maschine, setze sie dann fort und versuche es erneut. Wähle in der Mac-App „Maschine pausieren“ und dann „Maschine fortsetzen“. Führe im Terminal cmux vm pause '<machine>' und dann cmux vm resume '<machine>' aus."
+      "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine neue Maschine erstellen."
+    },
+    "inProgress": {
+      "title": "Noch in Bearbeitung",
+      "message": "Der Cloud-Anbieter hat diese Änderung noch nicht abgeschlossen. Sie kann noch abgeschlossen werden.",
+      "action": "Prüfe den Status der Maschine mit cmux vm ls oder in der Maschinenliste, bevor du es erneut versuchst."
     },
     "providerTimeout": {
       "title": "Cloud-Anbieter antwortet langsam",
       "message": "Der Cloud-Anbieter hat nicht rechtzeitig geantwortet.",
       "action": "Versuche es gleich noch einmal."
+    },
+    "providerCapacity": {
+      "title": "Gerade keine Cloud-Kapazität",
+      "message": "Der Cloud-Dienst hat im Moment keinen Platz für diese Maschine. Es wurde nichts geändert.",
+      "action": "Versuche es in einer Minute erneut."
+    },
+    "stateConflict": {
+      "title": "Maschine ist beschäftigt",
+      "message": "Diese Maschine startet, pausiert oder läuft nicht und kann das gerade nicht ausführen.",
+      "action": "Warte kurz und versuche es erneut. Prüfe den Status der Maschine mit cmux vm ls und setze sie zuerst fort, falls sie pausiert ist."
     },
     "networkRuleCapacity": {
       "title": "Netzwerkregeln ausgeschöpft",
@@ -98,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan}-Rechenkontingent aufgebraucht",
+      "computeMessage": "Dein {plan}-Plan hat seine {included} Rechenstunden für diesen Abrechnungszeitraum aufgebraucht. Eine Rechenstunde entspricht 1 vCPU mit 2 GB Arbeitsspeicher für eine Stunde. Deine Maschinen können ab dem {resetDate} wieder starten.",
+      "computeAction": "Pausierte Maschinen behalten ihre Dateien. Wende dich an den Support, wenn du vor dem {resetDate} mehr Rechenleistung brauchst.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-Speicherkontingent aufgebraucht",
+      "storageMessage": "Dein {plan}-Plan umfasst insgesamt {included} GB Speicher für alle gespeicherten Maschinen. Gespeicherte Maschinen belegen {used} GB, und diese Anfrage benötigt {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Nicht genug Cloud-VM-Ressourcen",
@@ -499,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Setze deinen Plan fort, um ihn zu ändern.",
           "granted": "Von cmux gewährt. Es gibt nichts zu ändern.",
+          "grantedNoCancel": "Von cmux gewährt, daher gibt es nichts zu kündigen.",
+          "paymentFailed": "Aktualisiere deine Zahlungsmethode, bevor du den Plan wechselst.",
+          "foundersLifetime": "Founder's Edition enthält Pro auf Lebenszeit.",
           "adminOnly": "Nur Team-Admins können den Plan ändern."
         },
         "names": {
@@ -541,6 +569,7 @@
       "change": {
         "title": "Zu {plan} wechseln?",
         "upgradeBody": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Monat.",
+        "upgradeBodyYearly": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Jahr.",
         "downgradeBody": "{plan} beginnt sofort. Der ungenutzte Teil deines aktuellen Plans, {credit}, wird deinen nächsten Rechnungen gutgeschrieben. Deine nächste Rechnung am {date} beträgt {amount}.",
         "confirm": "Zu {plan} wechseln",
         "keep": "Aktuellen Plan behalten",
@@ -553,6 +582,8 @@
         "title": "{plan} kündigen?",
         "body": "Du behältst {plan} bis zum {date}. Danach verlierst du:",
         "bodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach verlierst du:",
+        "foundersBody": "Dein {plan}-Abonnement endet am {date}. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
+        "foundersBodyNoDate": "Dein {plan}-Abonnement endet zum Ende dieses Abrechnungszeitraums. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
         "reasonLabel": "Warum kündigst du? (optional)",
         "otherPlaceholder": "Erzähl uns mehr (optional)",
         "confirm": "Plan kündigen",
@@ -2227,6 +2258,7 @@
           "currentLineHighlight": "Hebt die Zeile mit dem Textcursor farbig hervor, solange nichts ausgewählt ist.",
           "tabWidth": "Wie viele Spalten ein Tabstopp umfasst. Die Einrückungshilfslinien verwenden denselben Abstand."
         },
+        "actions": "Wiederverwendbare Aktionen für die Befehlspalette, Tastenkürzel, Schaltflächen der Tableiste und das Menü der Plus-Schaltfläche. Unterstützt builtin, command, agent, workspaceCommand, workspace, setting, settingPreset und text. Textaktionen fügen Text im fokussierten Terminal ein und erhalten Zeilenumbrüche; submit: true drückt Enter. Einstellungsaktionen erfordern eine globale Konfiguration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3259,12 +3291,13 @@
       "apiKeyScope": "Der API-Schlüssel einer Organisation nutzt nur die geteilten Konten des Teams. Ein Schlüssel in deinem persönlichen Team kann auch deine privaten Konten nutzen. CodeRouter bedient die OpenAI Responses API, nicht Chat Completions.",
       "apiKeyLogin": "Auf einer Maschine ohne Browser meldet cr login --api-key cr mit einem Schlüssel an, und CODEROUTER_API_KEY liefert einen Schlüssel für einen einzelnen Befehl. Widerrufe einen Schlüssel im Dashboard oder führe cr logout auf der Maschine aus, die ihn nutzt.",
       "cloudTitle": "Auf cmux Cloud-Maschinen",
-      "cloudDesc": "Cloud-Maschinen brauchen keine Einrichtung. Die Umgebung der Maschine richtet OPENAI_BASE_URL und ANTHROPIC_BASE_URL auf eine private CodeRouter-Adresse aus, und cmux schreibt die Konfiguration jedes Agenten, sobald zum ersten Mal eine Shell oder der Agent startet:",
-      "cloudClaude": "Claude Code liest ANTHROPIC_BASE_URL und einen Platzhalter-ANTHROPIC_API_KEY aus der Umgebung. Die Fragen beim ersten Start sind bereits beantwortet.",
+      "cloudDesc": "Cloud-Maschinen brauchen keine Einrichtung. Jeder Agent nutzt die CodeRouter-Konten deines Teams über eine private CodeRouter-Adresse, und cmux schreibt seine Konfiguration, sobald zum ersten Mal eine Shell oder der Agent startet:",
+      "cloudClaude": "Claude Code erhält ANTHROPIC_BASE_URL und einen Platzhalter-ANTHROPIC_API_KEY bei jedem Start, nicht aus jeder Shell, sodass sie nie Vorrang vor deiner eigenen Anmeldung haben. Die Fragen beim ersten Start sind bereits beantwortet.",
       "cloudCodex": "Codex erhält einen cmux-Modellanbieter in ~/.codex/config.toml.",
       "cloudPi": "Pi erhält eine Anbieter-Überschreibung in ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode lädt beim ersten Start seine Anbieterliste von CodeRouter herunter und speichert sie in ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode lädt beim ersten Start seine Anbieterliste von CodeRouter herunter, speichert sie in ~/.config/cmux/opencode-team.json und fügt sie bei jedem Start deiner eigenen Konfiguration hinzu.",
       "cloudYours": "cmux schreibt jede Datei nur, wenn sie fehlt. Deine Änderungen bleiben also erhalten. Eine Codex-Konfiguration, die bereits einen anderen Modellanbieter nennt, bleibt unverändert.",
+      "cloudOwnLogin": "Um stattdessen dein eigenes Konto zu nutzen, führe cr use own auf der Maschine aus und melde dich dann so an, wie es der Agent normalerweise vorsieht: /login in Claude Code, codex login oder opencode auth login. cr use team wechselt zurück, cr use own codex ändert einen einzelnen Agenten, und cr use zeigt, wie sich jeder Agent anmeldet. Ohne Auswahl nutzt ein Agent, bei dem du dich auf der Maschine angemeldet hast, dein eigenes Konto, und ein Agent, für den dein Team kein Konto hat, zeigt seine normale Anmeldung. Eine Änderung gilt beim nächsten Start des Agenten.",
       "cloudRun": "Starte Agenten wie gewohnt. cmux coderouter agent macht aus einem einfachen Prompt die Einmal-Form des Agenten. Innerhalb einer Maschine läuft er im aktuellen Terminal, und auf deinem Mac startet er den Agenten auf der Maschine, die du angibst, wie cmux vm agent.",
       "cloudAccounts": "Cloud-Maschinen nutzen die Konten des Teams, dem sie gehören. Meldet ein Agent, dass kein Konto verfügbar ist, füge ein Konto hinzu oder teile ein vorhandenes mit diesem Team.",
       "modelsTitle": "Modelle",
@@ -3467,7 +3500,10 @@
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
     "button": "Zurück zu cmux",
-    "switchAccountButton": "Anderes Konto verwenden"
+    "switchAccountButton": "Anderes Konto verwenden",
+    "rateLimitedTitle": "Anmeldung ist ausgelastet",
+    "rateLimitedBody": "Unser Anmeldedienst verarbeitet zu viele Anfragen. Warte ein paar Sekunden und fahre dann fort. Du musst dich nicht erneut anmelden.",
+    "retryButton": "Anmeldung fortsetzen"
   },
   "landing": {
     "bestTerminal": {
@@ -5502,6 +5538,9 @@
     "switchFailed": "Abmeldung fehlgeschlagen. Versuche es erneut.",
     "invalidTitle": "Diese Einladung ist nicht mehr gültig",
     "invalidBody": "Sie ist abgelaufen, wurde widerrufen oder bereits verwendet. Bitte einen Team-Admin um eine neue.",
-    "goToTeams": "Zu deinen Teams"
+    "goToTeams": "Zu deinen Teams",
+    "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
+    "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
+    "retry": "Erneut versuchen"
   }
 }

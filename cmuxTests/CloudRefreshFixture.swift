@@ -23,7 +23,8 @@ struct CloudRefreshFixture {
         authClient: (any AuthClient)? = nil,
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
-        fixtureTeams: Bool = false
+        fixtureTeams: Bool = false,
+        requestBudget: CloudRequestBudget = .live
     ) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
         let auth = AuthCoordinator(
@@ -53,7 +54,7 @@ struct CloudRefreshFixture {
         return Self(client: VMClient(
             session: session, auth: auth, resourceStats: VMResourceStatsStore(), checkpointRenames: CloudRenameCoordinator(),
             machineCache: CloudMachineCache(defaults: defaults), isDisabledByManagedPolicy: isDisabledByManagedPolicy,
-            readRequests: readRequests, isCloudEnabled: isCloudEnabled
+            readRequests: readRequests, isCloudEnabled: isCloudEnabled, requestBudget: requestBudget
         ), auth: auth, session: session, readRequests: readRequests)
     }
 }

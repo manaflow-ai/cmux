@@ -72,6 +72,7 @@ export async function runBaseRoute(input: {
     imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
       kind: parsed.body.kind,
       memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+      callerUserId: user.id,
     });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {

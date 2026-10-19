@@ -79,6 +79,7 @@ import {
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
+import { createRouteAnswerDeadline } from "../../../services/vms/routeDeadline";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -92,15 +93,29 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
+import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
+import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 
 
-// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
-// run minutes; without an explicit budget the platform default killed them
-// mid-provision. 600s caps a hung provider call well below the 20-minute
-// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
-// uses 1800).
-export const maxDuration = 600;
+// Provisioning can run minutes; without an explicit budget the platform
+// default killed it mid-provision. 960 s leaves a create answered "in
+// progress" (routeDeadline.ts, 25 s) its full 15-minute provider deadline plus
+// failure bookkeeping, well below the 20-minute stuck-provisioning alert. The
+// plan allows more (app/v1/responses/route.ts uses 1800).
+export const maxDuration = 960;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
+
+/** Compute-hours to one decimal, disk in whole GB, and the reset time. */
+function planBudgetLimits(usage: PlanBudgetUsage | null) {
+  if (!usage) return {};
+  return {
+    computeHoursIncluded: usage.includedComputeSeconds / 3600,
+    computeHoursUsed: Math.round(usage.usedComputeSeconds / 360) / 10,
+    computeBudgetResetsAt: usage.periodEnd.toISOString(),
+    storageBudgetGb: usage.storageBudgetMb / 1024,
+    storageUsedGb: Math.ceil(usage.retainedStorageMb / 1024),
+  };
+}
 
 function createResourceFields(resourceReservation: { readonly vcpus: number; readonly memoryMb: number } | null | undefined) {
   if (!resourceReservation) return {};
@@ -146,9 +161,16 @@ export async function GET(request: Request): Promise<Response> {
         throw err;
       }
 
+      // Taken BEFORE the read: the presence Worker tombstones machines missing
+      // from this list as of this instant, so a machine created after it
+      // (newer row clock) survives the replace published below.
+      const listObservedAtMs = Date.now();
       const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
       if (!listed.ok) return listed.response;
       const entries = listed.value;
+      // Converge the realtime `vms` collection on exactly what this list shows;
+      // best-effort after the response, never on the request path.
+      void publishVmOps(billingTeamId || user.id, [vmSyncReplaceOp(entries, listObservedAtMs)]);
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
@@ -244,6 +266,10 @@ export async function GET(request: Request): Promise<Response> {
               .catch(() => null),
             savedVmLimit: GO_SAVED_VM_LIMIT,
           } : {}),
+          // Pro and Max monthly allowance; absent when none applies.
+          ...(isBudgetPlanId(listEntitlements.planId)
+            ? await getPlanBudgetUsage(user.id).then(planBudgetLimits).catch(() => ({}))
+            : {}),
           // The earliest expiry across the caller's machines: what a fleet header
           // counts down to. Null when nothing is on a window.
           freeAccessExpiresAt: vms.reduce<number | null>(
@@ -355,7 +381,7 @@ export async function POST(request: Request): Promise<Response> {
       // provider-specific image ids without a provider field, and the
       // deployment default must not reroute them under the wrong provider.
       const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
-      const selected = resolveCreateImage(provider, body, memoryMb);
+      const selected = resolveCreateImage(provider, body, memoryMb, user.id);
       if (!selected.ok) return selected.response;
       const { imageSelection } = selected;
       const image = imageSelection.image;
@@ -412,6 +438,7 @@ export async function POST(request: Request): Promise<Response> {
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
+        ...createRouteAnswerDeadline(idempotencyKey),
         onError: createErrorResponders(entitlements),
       });
       if (!run.ok) return run.response;
@@ -840,10 +867,10 @@ type CreateImageSelection =
  * The plan's memory picks the snapshot size (one snapshot per size on
  * Freestyle), so the machine boots at its shape with nothing to resize.
  */
-function resolveCreateImage(provider: ProviderId, body: CreateBody, memoryMb: number): CreateImageSelection {
+function resolveCreateImage(provider: ProviderId, body: CreateBody, memoryMb: number, callerUserId: string): CreateImageSelection {
   try {
     assertVmCreateEnabled(provider);
-    const imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
+    const imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb, callerUserId });
     return { ok: true, imageSelection };
   } catch (err) {
     if (isVmCreateDisabledError(err)) {

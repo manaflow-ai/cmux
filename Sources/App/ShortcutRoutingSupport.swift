@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CmuxBrowser
 import Bonsplit
 import CmuxCommandPalette
@@ -309,9 +310,10 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return is submit;
-    // Command-modified Return is reserved for app shortcuts like Toggle Pane Zoom.
-    return browserOmnibarShouldSubmitOnReturn(flags: flags)
+    // Unclaimed Cmd+Return also belongs to the page. Keep Cmd+Shift+Return
+    // (pane zoom) and other modified shortcuts on the app's normal route.
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags.isEmpty || normalizedFlags == [.shift] || normalizedFlags == [.command]
 }
 
 func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
@@ -351,14 +353,16 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
-func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+/// Returns true when a terminal navigation key-equivalent should be sent through keyDown.
+func shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsTerminal: Bool,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    let isArrow = (123...126).contains(keyCode)
+    let isHomeOrEnd = keyCode == UInt16(kVK_Home) || keyCode == UInt16(kVK_End)
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, isArrow || isHomeOrEnd else { return false }
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 

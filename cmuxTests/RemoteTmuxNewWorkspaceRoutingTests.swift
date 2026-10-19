@@ -140,6 +140,46 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
         }
     }
 
+    /// Plain New Workspace stays local on an active mirror when its caller is
+    /// marked local-only, even though the built-in action remains available.
+    @Test func localOnlyNewWorkspaceOnActiveMirrorCreatesLocalWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let appDelegate = try #require(AppDelegate.shared)
+            let controller = appDelegate.remoteTmuxController
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
+            defer { restoreSSH() }
+            let manager = TabManager()
+            let mirrorWorkspace = try mirrorSelectedSession(controller: controller, into: manager)
+            let (windowId, window) = RemoteTmuxRoutingFixture.registerWindowedContext(
+                appDelegate: appDelegate, manager: manager
+            )
+            defer {
+                window.close()
+                manager.window = nil
+                if controller.sessionMirror(host: host, sessionName: "esc") != nil {
+                    controller.detach(host: host, sessionName: "esc")
+                }
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+
+            #expect(manager.selectedTab?.id == mirrorWorkspace.id)
+            let tabsBefore = Set(manager.tabs.map(\.id))
+            #expect(appDelegate.performNewWorkspaceAction(
+                tabManager: manager,
+                debugSource: "test.localOnlyNewWorkspace",
+                localOnly: true
+            ))
+
+            let createdIds = Set(manager.tabs.map(\.id)).subtracting(tabsBefore)
+            #expect(createdIds.count == 1)
+            let created = try #require(manager.tabs.first { createdIds.contains($0.id) })
+            #expect(!created.isRemoteTmuxMirror)
+        }
+    }
+
     /// A configured New Workspace action remains an explicit override on a
     /// mirror. Only the built-in default action is allowed to fall through to
     /// remote tmux routing.

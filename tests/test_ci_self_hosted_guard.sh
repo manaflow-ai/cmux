@@ -505,16 +505,23 @@ check_signing_intermediate_imports() {
 
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Import signing cert/ { in_step=1; next }
+      /- name: Import signing cert$/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
-      in_step && /security import \/tmp\/cert\.p12/ { saw_cert_import=1 }
-      in_step && /\.\/scripts\/import-apple-developer-id-intermediates\.sh build\.keychain/ { saw_intermediates=1 }
-      END { exit !(saw_cert_import && saw_intermediates) }
+      in_step && /\.\/scripts\/ci\/signing-keychain\.sh create/ { saw_create=1 }
+      END { exit !saw_create }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must import Apple Developer ID intermediates into build.keychain after the signing certificate"
+      echo "FAIL: $(basename "$file") must import the signing certificate through scripts/ci/signing-keychain.sh create"
       exit 1
     fi
   done
+  if ! awk '
+    /"\$SECURITY_TOOL" import "\$certificate"/ { saw_cert_import=NR }
+    /import-apple-developer-id-intermediates\.sh" "\$name"/ { saw_intermediates=NR }
+    END { exit !(saw_cert_import && saw_intermediates && saw_cert_import < saw_intermediates) }
+  ' "$ROOT_DIR/scripts/ci/signing-keychain.sh"; then
+    echo "FAIL: scripts/ci/signing-keychain.sh must import Apple Developer ID intermediates after the signing certificate"
+    exit 1
+  fi
 
   echo "PASS: nightly and release signing import Apple Developer ID intermediates"
 }
@@ -792,10 +799,13 @@ check_dmg_signing_uses_build_keychain() {
   fi
   for needle in \
     'CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"' \
-    '"$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"' \
+    '"$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"' \
+    'package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"' \
+    'package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work"' \
+    '"$XCRUN_TOOL" notarytool submit "$FINAL_DMG"' \
     '"$CODESIGN_TOOL" --force --timestamp --keychain build.keychain' \
     '--sign "$APPLE_SIGNING_IDENTITY"' \
-    '"$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"' \
+    '"$CODESIGN_TOOL" --verify --verbose=2 "$out"' \
     '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"'; do
     if ! grep -Fq -- "$needle" "$nightly_helper"; then
       echo "FAIL: nightly notarization helper must sign the DMG through build.keychain before submission: $needle"
@@ -1236,6 +1246,9 @@ check_no_github_hosted_runners() {
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification"
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    # PyPI trusted publishing accepts only GitHub-hosted runners too.
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not.
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
@@ -1244,6 +1257,9 @@ check_no_github_hosted_runners() {
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
     # pull_request_target with a write token (test_ci_fork_runner_routing).
     "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
+    # Registry provenance and trusted publishing accept only GitHub-hosted runners.
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
@@ -1406,6 +1422,9 @@ check_no_self_hosted_fleet_runners() {
     in_options && /^          - glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*$/ { print FNR }
   ' "$E2E_FILE")"
 
+  # Capability is accepted only as the complete NEXT trusted selector.
+  local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
+  local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1415,6 +1434,10 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"$next_trusted_selector"/}"
+      content="${content/"$next_repository_guard"/}"
+    fi
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
