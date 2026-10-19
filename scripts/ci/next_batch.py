@@ -132,8 +132,6 @@ SPEC_JSON = ("cmux-tui/spec/*.json",)
 TUI_PATHS = ("cmux-tui/", "ghostty", "ghostty-next", "scripts/cmux-next/build-layout-reducer-ffi.sh")
 # The cmux-tui tree key's inputs, listed in the stack's own checkout.
 TREE_INPUTS = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
-# The cmux-next job that fails when the stack's cmux-tui tree is not published.
-SAME_TREE_JOB = "same-tree cmux-tui"
 
 
 def touches_tree(changed: list[str], root: Path) -> bool:
@@ -893,6 +891,7 @@ class Controller:
         self.base_probe: threading.Thread | None = None
         self.base_probe_result: dict = {}
         self.base_probe_stop = threading.Event()
+        self.base_tree_waited = False
 
     # git in the trusted checkout. The token goes on the command line of this
     # process only, never into .git/config, which the generators could read.
@@ -984,6 +983,26 @@ class Controller:
         log = self.gh.gh("api", "--allow-escape-sequences", f"repos/{self.args.repo}/actions/jobs/{job_id}/logs",
                          check=False).stdout
         return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
+
+    def wait_base_tree(self) -> None:
+        """Wait (once a batch) for the base's own cmux-tui artifacts runs.
+
+        A stack that changes no tree input shares the base's tree. Pushed
+        while the base still publishes it, the stack branch's artifacts run
+        defers to that publisher and cmux-next reads it as never published
+        (same-tree cmux-tui red, daemon tests and scheme compile skipped)."""
+        if self.base_tree_waited:
+            return
+        self.base_tree_waited = True
+        try:
+            runs = self.gh.runs(TUI_WORKFLOW, f"head_sha={self.base_sha}&per_page=10")
+        except RuntimeError as error:
+            log(f"could not list the base's cmux-tui runs: {error}")
+            return
+        for run in runs:
+            if run.get("head_branch") == BASE and run.get("status") != "completed":
+                log(f"waiting for the base's cmux-tui tree: {run.get('html_url')}")
+                self.wait_run(run["id"], timeout=60 * 60)
 
     def start_base_probe(self) -> None:
         if self.base_probe is None:
@@ -1188,6 +1207,7 @@ class Controller:
         if not stack.included or stack.error:
             validation.seconds = int(time.monotonic() - started)
             return validation
+        self.wait_base_tree()
         self.start_base_probe()
         branch = f"{BRANCH_PREFIX}{self.batch_id}-{len(self.validations)}"
         validation.branch = branch
@@ -1221,12 +1241,6 @@ class Controller:
             time.sleep(30)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
             failed = self.failed_jobs(heavy["id"])
-        if not tree and SAME_TREE_JOB in failed:
-            # The stack's tree is the base's. A push run on the stack branch
-            # that deferred to the base's own publisher reads as "ended without
-            # publishing", which says nothing about the stack.
-            failed = [job for job in failed if job != SAME_TREE_JOB]
-            log(f"{name}: {SAME_TREE_JOB} red, but the stack changes no tree input; not counted")
         inherited = self.failing_on_base(base_sha) if failed else set()
         validation.inherited = sorted(set(failed) & inherited)
         validation.heavy_failed = sorted(set(failed) - inherited)
