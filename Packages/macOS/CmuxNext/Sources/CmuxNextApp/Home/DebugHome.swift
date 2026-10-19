@@ -71,7 +71,7 @@ enum DebugHome {
         ])
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
                         "conversations": .array(conversations), "page": page(services: services), "classic": .bool(home.dock.isClassic),
-                        "dock": dock(services: services),
+                        "dock": dock(services: services), "hosted_chief": hosted(services: services),
                         "migration_notice": home.migrationNotice.map { .string($0) } ?? .null])
     }
 }

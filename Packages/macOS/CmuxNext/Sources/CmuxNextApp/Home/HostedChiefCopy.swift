@@ -208,8 +208,9 @@ final class HostedChiefCopy {
         var reply: [String: Any]
         do {
             reply = try await begin()
-        } catch let FeedServiceError.owner(code, _) {
+        } catch let FeedServiceError.owner(code, _) where Self.skipCodes.contains(code) {
             // The main conversation has its own messages, or the owner refuses the copy: nothing to resume.
+            // Any other error (rate limit, server failure) throws: the next run tries again.
             return .skipped(code)
         }
         if reply["state"] as? String == "active" { return .skipped("already_imported") }
@@ -228,6 +229,9 @@ final class HostedChiefCopy {
                     last = (reply["last_seq"] as? NSNumber)?.uint64Value ?? last
                     continue
                 }
+                // Only a refusal of the content commits a partial copy; a transient error throws and
+                // the next run resumes from the conversation's last_seq (the first call replays it).
+                guard Self.partialCodes.contains(code) else { throw FeedServiceError.owner(code: code, message: "history import") }
                 return try await commit(last, refused: code)
             }
             let moved = (reply["last_seq"] as? NSNumber)?.uint64Value ?? last + UInt64(batch.count)
@@ -236,6 +240,11 @@ final class HostedChiefCopy {
         }
         return try await commit(last, refused: nil)
     }
+
+    /// First-call codes that end the history step for good (conversation.import).
+    nonisolated static let skipCodes: Set<String> = ["conversation_exists", "forbidden"]
+    /// Codes in the middle of an import that commit what is in.
+    nonisolated static let partialCodes: Set<String> = ["invalid_import", "import_stalled"]
 
     private func commit(_ last: UInt64, refused: String?) async throws -> HistoryOutcome {
         _ = try await op("conversation.import.commit", key: "hosted-chief-import-commit-\(run)-\(last)", params: ["id": conversation, "last_seq": last])

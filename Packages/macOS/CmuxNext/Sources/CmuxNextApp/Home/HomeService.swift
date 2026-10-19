@@ -80,8 +80,10 @@ final class HomeService {
     @ObservationIgnored var hostedMigrationRun: UUID?
     /// This service runs Cloud Chief brains (nil: not asked yet this launch).
     @ObservationIgnored var hostedBrains: Bool?
-    /// Shown on the Hosted Chief's conversation while its copy failed.
+    /// Shown on the Hosted Chief's conversation while its copy failed or its brain is off.
     var hostedNotice: String?
+    /// The Hosted Chief's brain is on (nil: not read yet this launch).
+    var hostedBrainOn: Bool?
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.

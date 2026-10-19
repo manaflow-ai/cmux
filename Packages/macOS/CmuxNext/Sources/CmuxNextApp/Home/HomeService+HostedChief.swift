@@ -50,9 +50,11 @@ extension HomeService {
         // Copies by default only from a release build; a DEV build with CMUX_NEXT_HOSTED_CHIEF_COPY=1. One account per Chief home.
         let copies = (!auth.configuration.isDebugBuild || ProcessInfo.processInfo.environment["CMUX_NEXT_HOSTED_CHIEF_COPY"] == "1")
             && ledger.account.map { $0 == user } ?? true
-        hostedPending = copies && !ledger.done(.history, chief: hosted.id)
-        let steps: [HostedChiefLedger.Step] = copies ? [.history, .memory, .brain] : [.brain]
-        guard hostedMigration == nil, steps.contains(where: { !ledger.done($0, chief: hosted.id) }) else { return }
+        // The local Chief keeps the tab until the history and the memory are in (the brain is off while the memory copies).
+        let memoryDue = BundledChiefMemoryTool.bundled() != nil && !ledger.done(.memory, chief: hosted.id)
+        hostedPending = copies && (!ledger.done(.history, chief: hosted.id) || memoryDue)
+        // Runs at every connect, also when every step is done: the brain check shows a notice when the Hosted Chief cannot answer.
+        guard hostedMigration == nil else { return }
         let run = UUID()
         hostedMigrationRun = run
         hostedMigrationUser = user
@@ -68,7 +70,10 @@ extension HomeService {
                                     ledger: HostedChiefLedger, run: UUID) async {
         let feed = services.feed
         let copy = HostedChiefCopy(http: hostedHTTP, ops: { body in try await feed.call("v1/ops", body) }, chief: chiefID, conversation: main)
+        // This run's account token, for the brain restore after a failure (the account can change meanwhile).
+        let token = (try? await services.cloud.auth.tokens().access) ?? ""
         var copied = false
+        var brainStep = false
         func current() throws {
             try Task.checkCancellation()
             guard hostedMigrationRun == run else { throw CancellationError() }
@@ -84,8 +89,6 @@ extension HomeService {
                     if case .copied = outcome { copied = true }
                     if case .partial = outcome { copied = true }
                     ledger.mark(.history, chief: chiefID)
-                    hostedPending = false
-                    refreshChiefTab()
                 }
                 // 2. Memory: the store's own read-only export of this build's Chief home, never its database file.
                 if !ledger.done(.memory, chief: chiefID), let tool = BundledChiefMemoryTool.bundled() {
@@ -104,25 +107,42 @@ extension HomeService {
                     // Not marked: a later build with the tool copies the memory.
                     logger.info("hosted chief memory: not copied, this build bundles no memory tool")
                 }
+                if hostedPending {
+                    hostedPending = false
+                    refreshChiefTab()
+                }
             }
-            // 3. The brain answers from now on: once for a new Hosted Chief, or after this run turned it off or copied into it.
-            if copy.brainTurnedOff || copied || !ledger.done(.brain, chief: chiefID) {
-                if !(try await copy.brainEnabled()) { try await copy.setBrain(enabled: true) }
+            // 3. The brain answers from now on: turned on once for a new Hosted Chief, or after this run turned it
+            // off or copied into it. Never a silent dead Chief: a brain still off shows a notice in Home.
+            brainStep = true
+            var enabled = try await copy.brainEnabled()
+            try current()
+            if !enabled, copy.brainTurnedOff || copied || !ledger.done(.brain, chief: chiefID) {
+                try await copy.setBrain(enabled: true)
+                enabled = true
                 try current()
-                ledger.mark(.brain, chief: chiefID)
             }
-            hostedNotice = nil
+            if enabled { ledger.mark(.brain, chief: chiefID) }
+            hostedBrainOn = enabled
+            hostedNotice = enabled ? nil : HostedChiefLedger.brainOffNotice
         } catch {
             if case FeedServiceError.owner(code: "brain_busy", message: _) = error {
                 logger.info("hosted chief copy: the brain is busy, again on the next connect")
             } else if !(error is CancellationError) {
-                logger.error("hosted chief copy: \(String(describing: error), privacy: .public)")
-                if hostedMigrationRun == run { hostedNotice = HostedChiefLedger.failedNotice }
+                logger.error("hosted chief \(brainStep ? "brain" : "copy", privacy: .public): \(String(describing: error), privacy: .public)")
+                if hostedMigrationRun == run {
+                    // A brain that could not be read or turned on is a Chief that may not answer: say so.
+                    if brainStep { hostedBrainOn = false }
+                    hostedNotice = brainStep ? HostedChiefLedger.brainFailedNotice : HostedChiefLedger.failedNotice
+                }
             }
             // Never leave the brain off: a cancelled run's requests are cancelled too, so this one is its own task.
             if copy.brainTurnedOff {
+                // With this run's account token: after a change of account the new account's token cannot turn it on.
+                let restore = HostedChiefCopy(http: HostedChiefCopy.HTTP(base: copy.http.base, token: { token }), ops: copy.ops,
+                                              chief: copy.chief, conversation: copy.conversation)
                 // task-owner: one brain PUT, ends at once
-                Task { @MainActor in try? await copy.setBrain(enabled: true) }
+                Task { @MainActor in try? await restore.setBrain(enabled: true) }
             }
         }
     }
@@ -180,6 +200,18 @@ struct HostedChiefLedger {
     static func host(session: String) -> String {
         let token = String(String.UnicodeScalarView(session.unicodeScalars.filter { $0.value >= 0x21 && $0.value <= 0x7e }))
         return String(("mac-" + token).prefix(128))
+    }
+
+    static var brainFailedNotice: String {
+        String(localized: "home.chief.hostedBrainFailed",
+               defaultValue: "Your cloud Chief could not be turned on, so it does not answer yet. cmux tries again at the next launch.",
+               table: "Cloud", bundle: .module)
+    }
+
+    static var brainOffNotice: String {
+        String(localized: "home.chief.hostedBrainOff",
+               defaultValue: "Your cloud Chief is turned off, so it does not answer messages.",
+               table: "Cloud", bundle: .module)
     }
 
     static var failedNotice: String {

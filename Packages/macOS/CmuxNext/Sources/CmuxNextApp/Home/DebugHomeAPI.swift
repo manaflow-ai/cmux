@@ -6,7 +6,8 @@ import Foundation
 /// (`HomeService.homeRouter`, docs in Packages/Shared/CmuxHomeCore/README.md)
 /// from the debug socket, so a behavior check goes through the real owners.
 /// `{call: "inbox"}`, `{call: "snapshot", conversation, tail?}`,
-/// `{call: "submit", op: {kind, ...}}`; see `op(_:)` for the kinds.
+/// `{call: "submit", op: {kind, ...}}`; see `op(_:)` for the kinds;
+/// `{call: "chief_switch", choice}` (DebugHome+Hosted.swift).
 enum DebugHomeAPI {
     static func handle(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         let (router, me) = await MainActor.run { (services.home.homeRouter, services.home.homeSource.me.id) }
@@ -25,6 +26,12 @@ enum DebugHomeAPI {
                 let result = try await router.submit(HomeIntent(op: op))
                 return .object(["ok": .bool(true), "rev": JSONValue(Int(result.rev)), "replayed": .bool(result.replayed),
                                 "conversation": result.conversation.map { .string($0.rawValue) } ?? .null])
+            case "chief_switch":
+                guard let choice = params["choice"]?.stringValue.flatMap(HomeChiefChoice.init(rawValue:)) else { return failure("choice must be hosted or placed") }
+                return await MainActor.run {
+                    services.home.switchChief(to: choice)
+                    return DebugHome.hosted(services: services)
+                }
             case "watch_start":
                 return await MainActor.run { DebugHomeWatch.start(router) }
             case "watch_read":
@@ -33,7 +40,7 @@ enum DebugHomeAPI {
                 guard let id = params["conversation"]?.stringValue else { return failure("conversation required") }
                 return await MainActor.run { DebugHomeWatch.store(services.home.homeStore, conversation: ConversationID(id)) }
             default:
-                return failure("call must be inbox, snapshot, submit, watch_start, watch_read or store")
+                return failure("call must be inbox, snapshot, submit, chief_switch, watch_start, watch_read or store")
             }
         } catch {
             return failure(String(describing: error))
