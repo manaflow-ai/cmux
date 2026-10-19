@@ -81,28 +81,41 @@ public final class SidebarSessionTreeFeed {
         return folders + opened
     }
 
-    /// The badge of `asks`' answers: each pull request once, though a folder's branch's and an
-    /// opened one's URL, or two sessions in one folder, name the same.
+    /// The badge of `asks`' answers, with each one's line for the hover card: each pull request
+    /// once, though a folder's branch's and an opened one's URL, or two sessions in one folder,
+    /// name the same.
     static func badge(_ asks: [String], answers: [String: AgentPanePullRequest]) -> SidebarPullRequestBadge? {
         var seen: Set<String> = []
-        let statuses = asks.compactMap { answers[$0] }.filter { seen.insert($0.url).inserted }.compactMap(Self.status)
-        return SidebarPullRequestBadge.combining(statuses)
+        let items = asks.compactMap { answers[$0] }.filter { seen.insert($0.url).inserted }.map(Self.item)
+        return SidebarPullRequestBadge.combining(items: items)
     }
 
     /// The badge color of one pull request; nil for a closed one, which the badge leaves out.
     static func status(_ pullRequest: AgentPanePullRequest) -> SidebarPullRequestBadge.Status? {
-        switch pullRequest.state {
+        item(pullRequest).state.badgeStatus
+    }
+
+    /// One pull request's line in the hover card. An open one with a conflict says so before its
+    /// checks; a pending check reads as passing until it fails.
+    static func item(_ pullRequest: AgentPanePullRequest) -> SidebarPullRequestItem {
+        let state: SidebarPullRequestItem.State = switch pullRequest.state {
         case "merged": .merged
-        case "closed": nil
-        case "draft": .attention
-        default: pullRequest.mergeable == "conflicting" || pullRequest.checks.state == "failing" ? .attention : .passing
+        case "closed": .closed
+        case "draft": .draft
+        default: pullRequest.mergeable == "conflicting" ? .conflict : pullRequest.checks.state == "failing" ? .failing : .passing
         }
+        return SidebarPullRequestItem(url: pullRequest.url, repository: SidebarPullRequestItem.repository(of: pullRequest.url),
+                                      number: pullRequest.number, title: pullRequest.title, state: state,
+                                      additions: pullRequest.additions, deletions: pullRequest.deletions,
+                                      createdAt: pullRequest.createdAt)
     }
 }
 
 /// The pull request of each session folder's branch and of each pull request URL a session opened,
 /// for the sidebar's session tree: read with the chat header's reader (two gh calls at a time, never
-/// prompting), at most once every five minutes per folder or URL, when the tree passes again (a lane or a workspace changed). Nothing else polls. The
+/// prompting), at most once every five minutes per folder or URL, when the tree passes again (a
+/// lane or a workspace changed). A folder is one `gh pr view` there; every stale URL goes in one
+/// batched GraphQL read (`read(urls:)`), never one call per pull request. Nothing else polls. The
 /// chat header's chip shares those two calls, so the sidebar asks seldom and never stalls it.
 @MainActor @Observable
 final class SidebarPullRequestStore {
@@ -121,22 +134,37 @@ final class SidebarPullRequestStore {
     /// Asks again for each of `asks` (a folder, or a pull request's `https://` URL) whose answer is
     /// missing or older than `freshness`.
     func refresh(_ asks: Set<String>) {
-        for key in asks where !asking.contains(key) {
-            if let at = asked[key], ContinuousClock.now - at < freshness { continue }
-            ask(key)
+        let stale = asks.filter { key in
+            !asking.contains(key) && asked[key].map { ContinuousClock.now - $0 >= freshness } ?? true
+        }
+        let urls = stale.filter { $0.hasPrefix("https://") }.sorted()
+        for folder in stale.subtracting(urls).sorted() { ask(folder) }
+        if !urls.isEmpty { ask(urls: urls) }
+    }
+
+    private func ask(_ folder: String) {
+        asking.insert(folder)
+        asked[folder] = .now
+        let reader = reader
+        // task-owner: one gh read per stale folder; its answer lands in `answers`.
+        Task { [weak self] in
+            let answer = await reader.read(in: folder)
+            guard let self else { return }
+            asking.remove(folder)
+            if answers[folder] != answer { answers[folder] = answer }
         }
     }
 
-    private func ask(_ key: String) {
-        asking.insert(key)
-        asked[key] = .now
+    private func ask(urls: [String]) {
+        asking.formUnion(urls)
+        for url in urls { asked[url] = .now }
         let reader = reader
-        // task-owner: one gh read per stale folder or URL; its answer lands in `answers`.
+        // task-owner: one batched gh read for every stale URL; the answers land in `answers`.
         Task { [weak self] in
-            let answer = if key.hasPrefix("https://") { await reader.read(url: key) } else { await reader.read(in: key) }
+            let read = await reader.read(urls: urls)
             guard let self else { return }
-            asking.remove(key)
-            if answers[key] != answer { answers[key] = answer }
+            asking.subtract(urls)
+            for url in urls where answers[url] != read[url] { answers[url] = read[url] }
         }
     }
 }

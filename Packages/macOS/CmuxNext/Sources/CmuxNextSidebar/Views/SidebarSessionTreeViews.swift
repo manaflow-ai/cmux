@@ -3,12 +3,14 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// A row's pull requests in the session tree (Claude desktop's Code tab): the pull request glyph
-/// and the count, both in the status color (green open and passing, orange a draft, a conflict or
-/// a failed check, purple merged). Hidden without pull requests.
+/// and the count, both in the status color (green open and passing, orange a draft or a conflict,
+/// red a failed check, purple merged). Hidden without pull requests. Hovering it opens the
+/// pull requests' card (`SidebarPullRequestCard`, `sidebar.pullRequestCard`).
 final class SidebarPullRequestBadgeView: NSView {
     private let glyph = NSImageView()
     private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private(set) var badge: SidebarPullRequestBadge?
+    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -25,6 +27,7 @@ final class SidebarPullRequestBadgeView: NSView {
     func configure(_ badge: SidebarPullRequestBadge?) {
         self.badge = badge
         isHidden = badge == nil
+        if badge == nil, hoverCard.isPresented, pointedAt { hoverCard.dismiss() }
         guard let badge else { return }
         glyph.image = NSImage.icon(.gitPullrequest, size: Self.glyphSize)
         count.setString(String(badge.count))
@@ -37,6 +40,7 @@ final class SidebarPullRequestBadgeView: NSView {
         switch status {
         case .passing: Palette.success
         case .attention: Palette.attention
+        case .failing: Palette.danger
         case .merged: GroupColor.purple.markColor
         }
     }
@@ -49,6 +53,32 @@ final class SidebarPullRequestBadgeView: NSView {
     }
 
     private static var glyphSize: CGFloat { SidebarStyle.subtitleFont.pointSize }
+
+    // MARK: Hover card (`SidebarPullRequestCard`)
+
+    private var hoverCard: SidebarPullRequestCardController { .shared }
+    private var pointedAt = false
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard let items = badge?.items, !items.isEmpty else { return }
+        pointedAt = true
+        let sidebar = sequence(first: self as NSView, next: \.superview).lazy.compactMap { $0 as? SidebarView }.first
+        hoverCard.badgeEntered(self, items: items) { [weak sidebar] url in sidebar?.model.send(.openUpdateLink(url)) }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard pointedAt else { return }
+        pointedAt = false
+        hoverCard.badgeExited()
+    }
 
     override var intrinsicContentSize: NSSize {
         let text = count.intrinsicContentSize
