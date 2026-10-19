@@ -389,3 +389,28 @@ fn surface_resize_failure_releases_remote_browser_report() {
         }
     )));
 }
+
+// Resize audit (2026-10-19): a remote mirror rebuilds a fresh Terminal from
+// the daemon replay on every `resized` event (remote.rs
+// apply_stream_resize_with_colors), so a viewer reading scrollback is snapped
+// to the live bottom whenever any client changes the shared grid.
+#[test]
+fn resize_audit_remote_resize_keeps_a_scrolled_back_viewport() {
+    let mut server = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+    for index in 0..20 {
+        server.vt_write(format!("shared-{index:02}\r\n").as_bytes());
+    }
+    let surface = test_remote_pty_surface(1, 12, 4, (8, 16));
+    surface.apply_stream_resize(12, 4, Some(&server.vt_replay_bytes().unwrap()), &[]).unwrap();
+    surface.term.lock().unwrap().scroll_delta(-5);
+    assert!(surface.term.lock().unwrap().scrollbar().unwrap().scrolled_back());
+
+    // Another client grows the shared grid by two rows.
+    server.resize(12, 6, 8, 16).unwrap();
+    surface.apply_stream_resize(12, 6, Some(&server.vt_replay_bytes().unwrap()), &[]).unwrap();
+
+    assert!(
+        surface.term.lock().unwrap().scrollbar().unwrap().scrolled_back(),
+        "a shared-grid resize snapped this viewer's scrollback to the bottom"
+    );
+}

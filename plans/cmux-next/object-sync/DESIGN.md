@@ -649,8 +649,18 @@ Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
   Presence changes go to every subscribed reader as `owner.status`. A reader subscribes at most 30
   times in 10 s. Sockets register in the user's UserDO (instant revocation, chief archive) and close
   at token expiry by alarm.
-- Not yet: deleting a host or changing its owner does not yet purge the replica or close its
-  sockets (the next slice wires TeamDO's host removal to `HostDO.purge`).
+- A host that leaves its owner loses its replica (slice 1b): when TeamDO commits `host.remove`,
+  `server.revoke`, or a member cleanup that orphans the member's hosts, it queues the host in its
+  own SQL (`team-host-replica-drop.ts`, backoff per host) and calls `HostDO.dropReplica`. HostDO
+  forgets every stored stream and closes every replica socket (4403). A removed or revoked host is
+  also tombstoned (later upgrades get 410; the same install enrolls again under a new id). An
+  orphaned host is not: it keeps its id, and its former owner may enroll it again after rejoining.
+  The alarm retries a failed call; a replayed op queues nothing. `hostReplicaRole` gives an orphaned
+  host, or a principal that is no longer a team member, no role. Known gap: an upgrade whose role
+  was checked just before an orphaning can still open after the drop (no tombstone to stop it); it
+  lives until its token expires or the install is revoked. A host epoch on the record would close
+  it, when a reassign op exists. Tests: `test/host-replica.test.ts` (host removed) and
+  `test/team-member-remove.test.ts` (owner left the team).
 - Test: `backend/apps/api/test/host-replica.test.ts` drives the real Worker sockets (403 for a
   stranger; publish, live read, gap request, forwarded op and its settle, an op in flight refused
   when the host goes away, offline status, resume from the replica with the host off, offline

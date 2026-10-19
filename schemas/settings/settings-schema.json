@@ -130,6 +130,24 @@
             }
           },
           {
+            "key" : "settings.group.markdownViewer",
+            "rows" : [
+              "markdown.layout.width",
+              "markdown.layout.fullWidth",
+              "markdown.font.size",
+              "markdown.font.preset",
+              "markdown.font.lineHeight",
+              "markdown.spacing.paragraph",
+              "markdown.code.blockSize",
+              "markdown.tables",
+              "markdown.theme"
+            ],
+            "title" : {
+              "key" : "settings.group.markdownViewer",
+              "text" : "Markdown Viewer"
+            }
+          },
+          {
             "key" : "settings.group.files",
             "rows" : [
               "files.textEditor"
@@ -14032,6 +14050,116 @@
     },
     {
       "accepts" : [
+        40,
+        160,
+        100
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 72,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.width.help",
+        "text" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.layout.width",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "width",
+        "max width",
+        "column",
+        "measure",
+        "line length"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "layout",
+        "width"
+      ],
+      "range" : {
+        "max" : 160,
+        "min" : 40,
+        "placeholder" : 72,
+        "step" : 2,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -80,
+        280,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.width",
+        "text" : "Text Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fullWidth.help",
+        "text" : "Text fills the whole pane instead of the text width."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.layout.fullWidth",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "full",
+        "width",
+        "wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "layout",
+        "fullWidth"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fullWidth",
+        "text" : "Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         8,
         40,
         24
@@ -14059,7 +14187,8 @@
         "size",
         "text",
         "zoom",
-        "viewer"
+        "viewer",
+        "reading"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -14085,6 +14214,384 @@
       "title" : {
         "key" : "settings.markdown.fontSize",
         "text" : "Default Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "system",
+        "serif",
+        "mono"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSerif",
+            "text" : "Serif"
+          },
+          "value" : "serif"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontMono",
+            "text" : "Monospaced"
+          },
+          "value" : "mono"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.preset",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "font",
+        "family",
+        "serif",
+        "monospace",
+        "typeface"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "preset"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontPreset",
+        "text" : "Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        2.4,
+        1.7
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1.6,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.lineHeight",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "line height",
+        "leading",
+        "line spacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 2.4,
+        "min" : 1,
+        "placeholder" : 1.6,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.3999999999999999,
+        3.8,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.lineHeight",
+        "text" : "Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.paragraphSpacing.help",
+        "text" : "The gap after each paragraph, as a share of the text size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.spacing.paragraph",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "paragraph",
+        "spacing",
+        "gap",
+        "margin"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "spacing",
+        "paragraph"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.1,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.paragraphSpacing",
+        "text" : "Paragraph Spacing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        8,
+        32,
+        20
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 14,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.blockSize",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "blockSize"
+      ],
+      "range" : {
+        "max" : 32,
+        "min" : 8,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -16,
+        56,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeSize",
+        "text" : "Code Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "scroll",
+        "wrap"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownTablesScroll",
+            "text" : "Scroll Sideways"
+          },
+          "value" : "scroll"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownTablesWrap",
+            "text" : "Wrap to Fit"
+          },
+          "value" : "wrap"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "scroll",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.tables",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "table",
+        "wrap",
+        "scroll",
+        "wide"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "tables"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.tables",
+        "text" : "Wide Tables"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "app",
+        "light",
+        "dark"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeApp",
+            "text" : "Match App"
+          },
+          "value" : "app"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeLight",
+            "text" : "Light"
+          },
+          "value" : "light"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownThemeDark",
+            "text" : "Dark"
+          },
+          "value" : "dark"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "app",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "markdown.theme",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "theme",
+        "light",
+        "dark",
+        "appearance",
+        "paper"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "theme"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.theme",
+        "text" : "Page Theme"
       },
       "validation" : "portable"
     },
@@ -25702,7 +26209,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "5f0fcb94b41f38aa969688085a417717cd4f812f07924194a05be2ca125210c0",
+  "schema_hash" : "82e7fc86acae24094870fdca226d1c99bc81b5cd8223da6de359aebcc4e77e68",
   "sections" : [
     {
       "id" : "general",

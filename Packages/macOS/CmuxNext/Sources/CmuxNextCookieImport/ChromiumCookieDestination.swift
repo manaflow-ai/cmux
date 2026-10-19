@@ -1,14 +1,19 @@
-import CmuxNextBrowser
-import CmuxNextBrowserImport
+public import CmuxNextBrowser
+public import CmuxNextBrowserImport
 import Foundation
 
 /// Imported cookies go to the target profile's Chromium cookie jar
 /// (`CEFEngine.importCookies`, CefCookieManager::SetCookie per cookie). A
 /// target id that is not a browser profile goes to the default profile.
-struct AppCookieDestination: CookieDestination {
+public struct ChromiumCookieDestination: CookieDestination {
     let write: @MainActor @Sendable ([ChromiumCookieWrite], BrowserProfileID) async throws -> ChromiumCookieWriteResult
 
-    func setCookies(_ cookies: [ImportedCookie], profileID: String) async throws -> CookieWriteResult {
+    /// Creates the destination over `write` (the App's `CEFEngine.importCookies`).
+    public init(write: @escaping @MainActor @Sendable ([ChromiumCookieWrite], BrowserProfileID) async throws -> ChromiumCookieWriteResult) {
+        self.write = write
+    }
+
+    public func setCookies(_ cookies: [ImportedCookie], profileID: String) async throws -> CookieWriteResult {
         let profile = BrowserProfileRecord.engineProfile(for: profileID) ?? .default
         let writes = cookies.compactMap(Self.write(for:))
         let result: ChromiumCookieWriteResult
@@ -21,7 +26,7 @@ struct AppCookieDestination: CookieDestination {
     }
 
     /// Nil when the cookie has no usable URL (an empty or invalid domain).
-    nonisolated static func write(for cookie: ImportedCookie) -> ChromiumCookieWrite? {
+    public nonisolated static func write(for cookie: ImportedCookie) -> ChromiumCookieWrite? {
         guard !cookie.host.isEmpty, let url = cookie.url else { return nil }
         let sameSite: ChromiumCookieWrite.SameSite = switch cookie.sameSite {
         case .unspecified: .unspecified
