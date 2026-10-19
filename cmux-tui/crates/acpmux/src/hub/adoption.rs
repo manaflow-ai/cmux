@@ -83,8 +83,20 @@ impl Hub {
         // store walk, the record read and the process table are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
-        let (fam, id, check) =
-            (family.to_owned(), a.agent_session_id.clone(), a.if_live == IfLive::Refuse);
+        if a.watch && !matches!(family, "claude" | "codex") {
+            return Err(RpcError::invalid_params(format!(
+                "only Claude Code and Codex chats can be watched, not {family}"
+            )));
+        }
+        // A watch forks nothing: Take Over chooses that, for a chat still live in its app.
+        if a.watch && a.if_live == IfLive::Fork {
+            return Err(RpcError::invalid_params(
+                "a watched chat is forked by Take Over, not when it opens",
+            ));
+        }
+        // Watching starts nothing on the conversation, so it may watch one that runs elsewhere.
+        let check = a.if_live == IfLive::Refuse && !a.watch;
+        let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
         let ((found, store), live) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;

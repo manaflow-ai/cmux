@@ -24,6 +24,9 @@ pub struct AdoptRequest {
     /// `adopt.cwdMap` (`FROM=TO`): where another machine's folders are here,
     /// for a chat whose recorded folder is gone (`hub/adoption.rs`).
     pub cwd_map: Vec<(PathBuf, PathBuf)>,
+    /// `adopt.watch`: show the conversation and follow its transcript without starting a harness
+    /// on it, until a client takes it over (`hub/watch.rs`).
+    pub watch: bool,
 }
 
 /// `adopt.ifLive`: a chat live in another process is refused (the
@@ -37,7 +40,7 @@ pub enum IfLive {
 }
 
 impl AdoptRequest {
-    /// Reads `{harness, agentSessionId, ifLive?, cwdMap?}`; `None` when
+    /// Reads `{harness, agentSessionId, ifLive?, cwdMap?, watch?}`; `None` when
     /// absent, an error when malformed.
     pub fn from_meta(meta: Option<&Value>) -> Result<Option<Self>, String> {
         let Some(adopt) = meta.and_then(|m| m.get("adopt")) else { return Ok(None) };
@@ -66,7 +69,8 @@ impl AdoptRequest {
                 .collect::<Result<_, _>>()?,
             Some(other) => return Err(format!("adopt cwdMap {other} is not a list of FROM=TO")),
         };
-        Ok(Some(Self { harness, agent_session_id: id.to_owned(), if_live, cwd_map }))
+        let watch = adopt.get("watch").and_then(Value::as_bool).unwrap_or(false);
+        Ok(Some(Self { harness, agent_session_id: id.to_owned(), if_live, cwd_map, watch }))
     }
 }
 

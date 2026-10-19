@@ -26,6 +26,7 @@
     "_acpmux/wait": {"params": {"sessions": "string[]? (empty = every running or waiting session on every host)", "until": "('ready'|'permission'|'closed'|'done'|'running')[]? default ready+permission", "all": "boolean? default false (first to resolve)", "afterSeq": "{sessionId: number}?", "timeoutMs": "number?"}, "result": {"sessions": "SessionSummary[] with resolved: boolean and matched: string[]", "resolved": "SessionSummary[]", "timedOut": "boolean"}},
     "_acpmux/rename": {"params": {"sessionId": "string", "newName": "string"}, "result": "SessionSummary"},
     "_acpmux/kill": {"params": {"sessionId": "string", "purge": "boolean?"}, "result": {"sessionId": "string", "purged": "boolean"}},
+    "_acpmux/watch_take_over": {"params": {"sessionId": "string", "ifLive": "refuse|fork|open? default refuse (adopt.live while the original app runs it)"}, "result": "SessionSummary"},
     "_acpmux/permission_respond": {"params": {"sessionId": "string", "permissionId": "string", "optionId": "string? (omit to cancel)", "answers": "object?"}, "result": {}},
     "_acpmux/set_policy": {"params": {"sessionId": "string", "policy": "ask|approve-reads|approve-edits|approve-all|deny-all"}, "result": "SessionSummary"},
     "_acpmux/set_rules": {"params": {"sessionId": "string", "rules": "{autoApprove?: string[], autoDeny?: string[], ask?: string[], default?: 'approve'|'deny'|'ask'} | null"}, "result": "SessionSummary"},
