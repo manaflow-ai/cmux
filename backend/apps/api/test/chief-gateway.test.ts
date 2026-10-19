@@ -148,7 +148,8 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     await drive(chief.main_conversation, chief.id, async () => (await runsOf(token, chief.id, chief.main_conversation))[0]?.usage !== undefined, "run usage")
     const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
     expect(run).toMatchObject({ model: "claude-sonnet-5-5", status: "done", usage: { input: 12, cache_read: 900, cache_write: 40, output: 6, calls: 1 } })
-    expect(run.cost_usd).toBeGreaterThan(0)
+    // At the Bedrock price (global profile, 1-hour cache writes), not the first-party catalog's: 12 x $2 + 900 x $0.10 + 40 x $4 + 6 x $10 per million.
+    expect(run.cost_usd).toBeCloseTo((12 * 2 + 900 * 0.1 + 40 * 4 + 6 * 10) / 1e6, 10)
     // Timing: the first model request after the run started, the first token after the request.
     expect(run.timing.request_at).toBeGreaterThanOrEqual(run.started_at)
     // The Bedrock region that answered (the route's x-bedrock-region) is on the run.
