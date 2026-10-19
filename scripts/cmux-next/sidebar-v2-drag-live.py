@@ -27,6 +27,9 @@ import argparse, json, os, re, socket, subprocess, sys, tempfile, time, urllib.p
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
+# `--only remove-undo`: only the Remove from Sidebar step and its Cmd-Z, `--repeat` times (a focused rerun).
+parser.add_argument("--only", choices=["remove-undo"])
+parser.add_argument("--repeat", type=int, default=1)
 opts = parser.parse_args()
 APP = os.environ.get("NX_APP")
 TAG = os.environ.get("NX_APP_TAG", "")
@@ -69,6 +72,21 @@ def cli(*args):
 
 
 DOC_ERRORS = set()
+
+
+def doc_operation(operation, **params):
+    """One sidebar document operation through the tagged app's bundled cmux-tui (`raw operation`, its own key): a
+    change from another client as far as the app's own document store is concerned. The reply's JSON, or None."""
+    tui = os.path.join(os.path.dirname(CLI), "cmux-tui")
+    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CMUX_QUIET": "1"}
+    params = {"machine": "current", "session": "current", **params}
+    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", operation, "--params-json", json.dumps(params)],
+                         capture_output=True, text=True, timeout=30, env=env)
+    try:
+        return json.loads(out.stdout)
+    except ValueError:
+        print(operation + ":", (out.stdout + out.stderr)[:300], flush=True)
+        return None
 
 
 def doc_icon_url(host):
@@ -204,10 +222,14 @@ def drag(frm, to, label, indicator=None):
 
 
 def undo(label, check):
-    toast(undo=True)
+    before = toast()
+    shown = [t.get("message") for w in before.get("windows", []) for t in w.get("toasts", []) if t.get("undo")]
+    reply = toast(undo=True)
     time.sleep(1.0)  # test harness: let the inverse land
     ok = bool(check())
-    record(f"{label}: Cmd-Z restores", ok, f"list={list_titles()} pinned={[i.get('ref') for i in section_items('sec_pinned')]}")
+    late = "" if ok else f" later={bool(wait(lambda: bool(check()) or None, 5))}"
+    record(f"{label}: Cmd-Z restores", ok, f"list={list_titles()} pinned={[i.get('ref') for i in section_items('sec_pinned')]}"
+           f" undo_toasts={shown} undo_steps={before.get('undo_steps')} undone={reply.get('undone')}{late}")
     toast(undo=True)  # redo is the next undo toast; the step's result stays for the next step
     time.sleep(1.0)  # test harness: let the redo land
 
@@ -242,6 +264,30 @@ def late_undo(label, undone, redone):
     if not again and undo_toasts():
         toast(undo=True)  # keep the next steps' state; the redo check above stays FAIL
     record(f"{label}: Edit > Redo redoes the late undo", bool(again), f"key={json.dumps(key)[:300]} list={list_titles()}")
+
+
+class FocusedDone(Exception):
+    """The `--only` steps ran; the rest is skipped."""
+
+
+def marked():
+    return [i for i in section_items("sec_pinned") if str(i.get("ref")) == "bookmarks"]
+
+
+def remove_from_sidebar():
+    """A built-in item (sidebar.item.add takes workspaces, apps and built-ins, not links) into Pinned, then Remove from
+    Sidebar: every item that shows it goes, through the document. Cmd-Z comes at once, as a person may press it before
+    the daemon's reply: it must undo the removal, not the step before it."""
+    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "sec_pinned"})
+    added = wait(lambda: next(iter(marked()), None), 5)
+    if added:
+        steps = toast(perform="sidebar.item.removeEverywhere", target_kind="sidebar-item", target_id=added["id"]).get("undo_steps")
+        gone = wait(lambda: not any(str(i.get("ref")) == "bookmarks" for i in items()), 5)
+        record("Remove from Sidebar goes to the document", bool(gone),
+               f"item={added.get('id')} items={[i.get('ref') for i in items()]} undo_steps at the remove={steps}")
+        undo("Remove from Sidebar", lambda: bool(marked()))
+    else:
+        record("Remove from Sidebar goes to the document", False, f"no bookmarks item in Pinned after sidebar.item.add: {[i.get('ref') for i in items()]}")
 
 
 def launch():
@@ -281,6 +327,20 @@ try:
         toast(perform="palette.toggleWorkspacePin", target_kind="workspace", target_id=row_id(by_title(name)))
     time.sleep(1.0)  # test harness: let the pins land
     shot("v2-0-start")
+    if opts.only == "remove-undo":
+        # Focused rerun: the spacing edit, its Cmd-Z and redo (the toasts the full run has just before), then the step.
+        def gap():
+            return next((s for s in window().get("layout_sections", []) if s.get("id") == "sec_pinned"), {}).get("gap")
+        for run in range(opts.repeat):
+            value, was = (12, None) if run == 0 else (16, 12) if run % 2 else (12, 16)
+            toast(perform="sidebar.section.setGap", target_kind="sidebar-section", target_id="sec_pinned", arguments={"gap": value})
+            wait(lambda: gap() == value or None, 5)
+            undo("spacing goes to the document", lambda: gap() == was)
+            remove_from_sidebar()
+            toast(perform="sidebar.item.removeEverywhere", target_kind="sidebar-item", target_id=next(iter(marked()), {}).get("id", ""))
+            wait(lambda: not marked() or None, 5)
+            time.sleep(1.0)  # test harness: let the clean-up land
+        raise FocusedDone
     pinned = section_items("sec_pinned")
     print("pinned before:", [(i.get("ref"), i.get("window_frame")) for i in pinned], flush=True)
 
@@ -570,20 +630,7 @@ try:
     else:
         record("alignment goes to the document", False, f"no sec_pinned in layout_sections={window().get('layout_sections')}")
 
-    # A built-in item (sidebar.item.add takes workspaces, apps and built-ins, not links) into Pinned, then Remove from
-    # Sidebar: every item that shows it goes, through the document.
-    def marked():
-        return [i for i in section_items("sec_pinned") if str(i.get("ref")) == "bookmarks"]
-
-    toast(perform="sidebar.item.add", arguments={"item": "bookmarks", "section": "sec_pinned"})
-    added = wait(lambda: next(iter(marked()), None), 5)
-    if added:
-        toast(perform="sidebar.item.removeEverywhere", target_kind="sidebar-item", target_id=added["id"])
-        gone = wait(lambda: not any(str(i.get("ref")) == "bookmarks" for i in items()), 5)
-        record("Remove from Sidebar goes to the document", bool(gone), f"item={added.get('id')} items={[i.get('ref') for i in items()]}")
-        undo("Remove from Sidebar", lambda: bool(marked()))
-    else:
-        record("Remove from Sidebar goes to the document", False, f"no bookmarks item in Pinned after sidebar.item.add: {[i.get('ref') for i in items()]}")
+    remove_from_sidebar()
 
     # Reset: the default sections again (the bookmarks item in Pinned, the "Work" section and Pinned's alignment and
     # spacing from the steps above go); Cmd-Z brings them back. The undo helper redid the removal, so the item goes in again first.
@@ -658,8 +705,46 @@ try:
                      lambda: close["title"] not in rows() or None)
         else:
             record("long list keeps its first visible row on screen: close one above the view", False, "no row above the view")
+
+        # Scroll reveal (hq-2d DESIGN.md, cx-ml98q): a change from another client that moves the ACTIVE row out of view
+        # never moves the view. Another client (cmux-tui `raw operation`, its own key) moves V100 to its section's top.
+        print("focus V100 again", cli("workspace", made["V100"], "focus")[:120], flush=True)
+        wait(lambda: any(r.get("title") == "V100" and r.get("selected") for r in window().get("rows", [])) or None, 10)
+        time.sleep(1.0)  # test harness: let the reveal scroll apply
+        listed = window().get("rows", [])
+        active = next((r for r in listed if r.get("title") == "V100" and r.get("in_list")), None)
+        keep = next((r for r in sorted(listed, key=lambda r: r["window_frame"]["y"]) if r.get("in_list") and r.get("title")
+                     and r["title"] != "V100" and r["window_frame"]["y"] >= TOP), None)
+        document = doc_operation("sidebar.get") or {}
+        ids = {made["V100"], row_id(active)} if active else {made["V100"]}
+        item = next((i for i in document.get("items", []) if (i.get("body") or {}).get("type") == "workspace"
+                     and ids & {(i["body"].get("ref") or {}).get("workspace_id"), (i["body"].get("ref") or {}).get("workspace_key")}), None)
+        top = item and min((i for i in document.get("items", []) if i.get("section") == item.get("section") and not i.get("parent")
+                            and i["id"] != item["id"]), key=lambda i: i.get("order", ""), default=None)
+        visible = bool(active and active["window_frame"]["y"] >= TOP)
+        if item and top and keep and visible:
+            moved = doc_operation("sidebar.move", items=[item["id"]], to={"section": item["section"], "before": top["id"]})
+            gone = wait(lambda: (next((r for r in window().get("rows", []) if r.get("title") == "V100"), {"window_frame": {"y": 0}})
+                                 ["window_frame"]["y"] < TOP) or None, 10)
+            time.sleep(1.0)  # test harness: a reveal scroll would apply within this
+            after = next((r for r in window().get("rows", []) if r.get("title") == keep["title"]), None)
+            still = bool(after and abs(after["window_frame"]["y"] - keep["window_frame"]["y"]) <= 0.5)
+            selected = [r.get("title") for r in window().get("rows", []) if r.get("selected")]
+            # The move really happened in the document (the check is not trivially true).
+            placed = next((i for i in (doc_operation("sidebar.get") or {}).get("items", []) if i["id"] == item["id"]), {})
+            first = placed.get("order", "") < top.get("order", "")
+            record("another client moves the active row out of view: the view does not move",
+                   bool(gone) and still and first and selected in ([], ["V100"]),  # V100 off screen: its row may not be realized
+                   f"kept={keep['title']} y {keep['window_frame']['y']} -> {after and after['window_frame']['y']} gone={bool(gone)} "
+                   f"selected={selected} first_in_doc={first} reply={str(moved)[:120]}")
+            shot("v2-reveal-other-client")
+        else:
+            record("another client moves the active row out of view: the view does not move", False,
+                   f"setup: item={bool(item)} top={bool(top)} keep={keep and keep.get('title')} active visible={visible}")
     else:
         record("long list keeps its first visible row on screen", False, f"setup: base={base} made={len(made)}")
+except FocusedDone:
+    pass  # `--only`: the focused steps ran
 finally:
     refusals = toast().get("refusals")
     print("refusals:", refusals, flush=True)

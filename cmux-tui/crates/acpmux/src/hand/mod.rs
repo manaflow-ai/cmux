@@ -15,6 +15,7 @@
 
 pub mod agent;
 pub mod config;
+pub mod daemon;
 pub mod exec;
 pub mod fsops;
 pub mod gateway;

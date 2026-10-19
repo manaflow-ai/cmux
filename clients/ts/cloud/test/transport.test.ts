@@ -45,6 +45,28 @@ describe("cloud client transport", () => {
     if (!r.ok) expect(r.error.code).toBe("auth.forbidden")
   })
 
+  it("opens the wire with a ticket only, and never puts the token in a subprotocol (cx-dgsp)", async () => {
+    const opened: Array<{ url: string; protocols: Array<string> }> = []
+    const real = globalThis.WebSocket
+    globalThis.WebSocket = class {
+      constructor(url: string, protocols: Array<string>) {
+        opened.push({ url, protocols })
+      }
+    } as unknown as typeof WebSocket
+    try {
+      const ok = createCloudClient({ baseUrl: "https://api.test", token: () => "tok", fetch: fakeFetch(200, { ticket: "t".repeat(43), expires_at: 1 }, []) })
+      await ok.openWire("user")
+      expect(opened[0]!.protocols).toEqual(["cmux.wire.v1", `ticket.${"t".repeat(43)}`])
+      // A 404 from the ticket route used to mean an old Worker and sent `bearer.<token>`; it is an error now.
+      const old = createCloudClient({ baseUrl: "https://api.test", token: () => "tok", fetch: fakeFetch(404, { code: "not_found" }, []) })
+      await expect(old.openWire("user")).rejects.toBeInstanceOf(CloudHttpError)
+      expect(opened.length).toBe(1)
+      expect(opened.flatMap((o) => o.protocols).some((p) => p.includes("tok") && !p.startsWith("ticket."))).toBe(false)
+    } finally {
+      globalThis.WebSocket = real
+    }
+  })
+
   it("throws CloudHttpError for gateway refusals", async () => {
     const client = createCloudClient({ baseUrl: "https://api.test", token: () => "x", fetch: fakeFetch(401, { code: "auth.unauthenticated" }, []) })
     await expect(client.read("install.list", {})).rejects.toBeInstanceOf(CloudHttpError)

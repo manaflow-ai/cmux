@@ -54,7 +54,7 @@ export class OptChat {
     renderView(store: any): string;
     settled(): boolean;
     /**
-     * The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front}, rerendered, view: [piece],
+     * The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front, unbuilt, cuts}, rerendered, view: [piece],
      * delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
      * blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
      * log's last messages are this turn's new ones (never shown in a re-rendered view).

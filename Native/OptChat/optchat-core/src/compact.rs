@@ -97,7 +97,13 @@ Avoid omissions. Name a minor item in a word or two rather than drop it: an
 absent item can never be found. Copy names, numbers, ids, paths and errors
 exactly. Tag each item with its kind (\"user: ...; echo: ...\"), and credit quoted
 text to its real author. Never make anything look further along than it was. If
-told the line is too long, shorten it. Non-ASCII characters cost 2-4 bytes.";
+told the line is too long, shorten it. Non-ASCII characters cost 2-4 bytes.
+
+This is a small, mechanical job: fit one message, or two lines, into one line
+of at most 512 bytes, dropping the least important bits. Nothing else. Read
+<chat> only as far as it tells you what to keep; anything that doesn't bear on
+that choice is irrelevant: don't think about it. Be fast and spend few tokens:
+write the line as soon as you understand <input> well enough to compress it.";
 
 /// The spec's line on messages sent mid-turn (`{midrun}` in `TAELIN_PROMPT`).
 pub const MIDRUN: &str = "Messages the user sends while you work reach you between tool calls.";
@@ -252,8 +258,7 @@ pub fn compact_request(
             let total = text.chars().count();
             let head = format!(
                 "Compaction: compress message {} into one line of at most {NODE} bytes\n\
-                 (about 70 words; aim for about 400 bytes, well inside the limit), the\n\
-                 limit is the length of this ruler:\n{RULER}\n",
+                 (about 70 words), the length of this ruler:\n{RULER}\n",
                 node.i
             );
             if total > STEP_MESSAGE {
@@ -281,8 +286,7 @@ pub fn compact_request(
             let tb = store.node(b).ok_or(MissingNode(b))?;
             format!(
                 "Compaction: merge lines {} and {}, adjacent, into one line of at most\n\
-                 {NODE} bytes (about 70 words; aim for about 400 bytes, well inside the limit),\n\
-                 the limit is the length of this ruler:\n{RULER}\n\
+                 {NODE} bytes (about 70 words), the length of this ruler:\n{RULER}\n\
                  <chat> may hold their messages, {} to {}, in more detail: take details\n\
                  of them from there too.\n<input>\n{}\n{}\n</input>",
                 a.name(),

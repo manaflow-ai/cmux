@@ -71,6 +71,7 @@ export const activityLine = (line: string): string => {
 export const toolActivity = (name: string, args: unknown): string => {
   const a = (args ?? {}) as Record<string, unknown>
   if (name === "zoom" || name === "date") return "Reading memory"
+  if (name === "spawn") return "Starting subagents"
   if (name === "chiefs") return typeof a.action === "string" ? `Chiefs: ${a.action}` : "Working on Chiefs"
   const target = [a.path, a.file, a.cwd, a.url].find((v): v is string => typeof v === "string" && v.length > 0)
   return target ? `${name} ${target}` : `Running ${name}`
@@ -97,8 +98,16 @@ export class BrainStream {
   }
 
   /** Timing marks of a run: its first model request and its first token (brain-gateway.ts stores them on the run). */
-  onMark: (run: string, mark: "request" | "first_token", at: number) => void = () => undefined
+  onMark: (run: string, mark: "request" | "first_token" | "generation_first_token", at: number) => void = () => undefined
   private firstToken = false
+  private genToken = false
+
+  /** The first model output of the run (text, thinking or a tool call) and of each generation. */
+  private token(): void {
+    if (!this.run) return
+    if (!this.firstToken) [(this.firstToken = true), this.onMark(this.run, "first_token", this.now())]
+    if (!this.genToken) [(this.genToken = true), this.onMark(this.run, "generation_first_token", this.now())]
+  }
 
   /** A model request of the running turn starts (pi-durable GenerationTask beforeRequest). */
   request(taskId: string): void {
@@ -109,7 +118,7 @@ export class BrainStream {
     this.onMark(t.run, "request", this.now())
     // A new attempt of the same generation streams its text again from the start.
     for (const s of this.steps.values()) [s.seq, s.pending] = [0, ""]
-    if (taskId !== this.generation) this.steps.clear()
+    if (taskId !== this.generation) [this.steps.clear(), (this.genToken = false)]
     this.generation = taskId
     this.setActivity("Thinking")
   }
@@ -130,12 +139,17 @@ export class BrainStream {
   event(e: AssistantMessageEvent): void {
     if (!this.run || !this.generation || this.target().run !== this.run) return
     switch (e.type) {
+      // The first output of any kind marks the token, at its block start (a redacted thinking block has no delta).
+      case "toolcall_start":
+      case "text_start":
+      case "thinking_start":
+        return this.token()
       case "text_delta":
-        if (!this.firstToken) [(this.firstToken = true), this.onMark(this.run, "first_token", this.now())]
+        this.token()
         if (!this.steps.has(`talk:${this.generation}`)) this.setActivity("Writing the reply")
         return this.append("talk", e.delta)
       case "thinking_delta":
-        if (!this.firstToken) [(this.firstToken = true), this.onMark(this.run, "first_token", this.now())]
+        this.token()
         return this.append("thought", e.delta)
       case "toolcall_end":
         this.flush(false)

@@ -125,13 +125,16 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
     /// The offset after the list changed from `old` (seen at `offset`) to
     /// `self`, with `focused` focused before and `newFocus` after:
     /// 1. anchor (`anchored`),
-    /// 2. reveal `newFocus` when focus changed, or when it was fully visible
-    ///    and the change pushed it (not just its padding) out of view,
+    /// 2. reveal `newFocus` when focus changed, or, when `userMoved` (the
+    ///    user's own move: a keyboard move, the Move Up/Down action; never a drop), when it was fully visible
+    ///    and the change pushed it (not just its padding) out of view; a
+    ///    change from others never moves the view,
     /// 3. clamp.
-    public func settle(from old: ListViewport<ID>, offset: CGFloat, focused: ID?, newFocus: ID?, padding: CGFloat) -> CGFloat {
+    public func settle(from old: ListViewport<ID>, offset: CGFloat, focused: ID?, newFocus: ID?, padding: CGFloat,
+                       userMoved: Bool) -> CGFloat {
         let next = anchored(from: old, offset: offset)
         guard let newFocus, let target = item(newFocus) else { return next }
-        let wasVisible = old.item(newFocus).map { old.isFullyVisible($0, at: offset, padding: padding) } ?? false
+        let wasVisible = userMoved && (old.item(newFocus).map { old.isFullyVisible($0, at: offset, padding: padding) } ?? false)
         guard newFocus != focused || wasVisible else { return next }
         // Only an item that is not wholly in view scrolls; padding applies
         // to that scroll. A click on a row near the edge, or padding that

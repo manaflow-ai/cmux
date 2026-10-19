@@ -45,6 +45,9 @@ public final class SidebarDocStore {
     /// `origin`: `undoOrigin` when the change was sent (the undo step an undo
     /// or redo put for this inverse), so the App fills that step.
     @ObservationIgnored public var onUndoable: @MainActor (String, AnyObject?, @escaping @MainActor () -> Void) -> Void = { _, _, _ in }
+    /// A user's undoable change was sent: the App puts its undo step (and toast) now and returns it; the reply fills it
+    /// through `onUndoable` (its `origin`), or `onUndoRefused` takes it away. Nil: the step comes with the reply.
+    @ObservationIgnored public var onUndoPending: @MainActor (String) -> AnyObject? = { _ in nil }
     /// The change sent for `origin` gave no undoable inverse (refused, or a no-op): its step stays empty.
     @ObservationIgnored public var onUndoRefused: @MainActor (AnyObject) -> Void = { _ in }
     /// Set by the App around running an undo step's inverse; each change sent meanwhile carries it to `onUndoable`.
@@ -61,6 +64,12 @@ public final class SidebarDocStore {
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
+    /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
+    /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
+    /// the rows really are: the load drops them (cx-ml98q).
+    @ObservationIgnored private var unanswered: Set<String> = []
+    /// Loads failed in a row while unanswered changes wait (a `sidebar.get` that timed out under the same load).
+    @ObservationIgnored private var failedLoads = 0
     /// Refs already sent to `sidebar.adopt` this session.
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
 
@@ -87,14 +96,27 @@ public final class SidebarDocStore {
             return
         }
         loading = true
+        // The load answers the changes unanswered before it was asked for (a later one asks for another load).
+        let answering = unanswered
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
             defer {
                 self?.loading = false
                 if self?.refetchAgain == true { self?.refetchAgain = false; self?.refresh() }
             }
-            guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self else { return }
-            guard mirror.load(data) else { return }
+            guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self,
+                  mirror.load(data) else {
+                // Unanswered changes wait for a load: ask again (a bounded number of times; a reconnect loads anyway).
+                if let self, !answering.isEmpty, self.failedLoads < Self.unsettledAsks {
+                    self.failedLoads += 1
+                    self.refetchAgain = true
+                }
+                return
+            }
+            self.failedLoads = 0
+            // The document has each unanswered change or never will: it shows as loaded (no replay on top).
+            for key in answering { mirror.reject(key) }
+            self.unanswered.subtract(answering)
             self.records = records
             self.isActive = true
             self.bump()
@@ -230,31 +252,62 @@ public final class SidebarDocStore {
         }
         bump()
         let key = intent.idempotencyKey
-        let origin = Self.undoOrigin
+        // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
+        let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
-            do {
-                let reply = try await body(remote, key, stamped)
-                guard let self else { return }
-                // A no-op change echoes no batch: its intent must not stay pending.
-                if !reply.hasInverse {
+            // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
+            // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.
+            for asked in 1...Self.unsettledAsks {
+                do {
+                    let reply = try await body(remote, key, stamped)
+                    guard let self else { return }
+                    // Answered only after an unanswered ask: the daemon replays a committed change without a new
+                    // echo, and the first echo may have gone to a closed connection. The next load settles the key.
+                    if asked > 1 { self.settleByLoad(key) }
+                    // A no-op change echoes no batch: its intent must not stay pending.
+                    if !reply.hasInverse {
+                        self.drop(key)
+                        NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
+                    }
+                    if undoable, reply.hasInverse {
+                        let inverse = reply.inverse
+                        self.onUndoable(title, origin) { [weak self] in self?.apply(inverse, title: title) }
+                    } else if let origin {
+                        self.onUndoRefused(origin)
+                    }
+                    return
+                } catch is SidebarDocUnsettled where asked < Self.unsettledAsks {
+                    // No reply (a timeout under load, a lost connection): the daemon may have applied the change, and
+                    // its echo may still come. The intent stays pending, so the rows keep the optimistic look; the
+                    // same key asks again and the daemon replays a committed change (cx-ml98q: a timed-out drop flew
+                    // back to its source, then the late echo moved it again).
+                    continue
+                } catch {
+                    guard let self else { return }
+                    if let origin { self.onUndoRefused(origin) }
+                    if error is SidebarDocUnsettled {
+                        // Never answered: the daemon may have the change. The rows keep the optimistic look until the
+                        // next load shows the document (the change stays, or the rows spring back once).
+                        self.settleByLoad(key)
+                        return
+                    }
+                    // The daemon refused it: no batch will echo the key. The rows spring back once.
                     self.drop(key)
-                    NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
+                    self.refuse(SidebarDocStrings.describe(error), key: key)
+                    return
                 }
-                if undoable, reply.hasInverse {
-                    let inverse = reply.inverse
-                    self.onUndoable(title, origin) { [weak self] in self?.apply(inverse, title: title) }
-                } else if let origin {
-                    self.onUndoRefused(origin)
-                }
-            } catch {
-                guard let self else { return }
-                if let origin { self.onUndoRefused(origin) }
-                // The daemon refused it: no batch will echo the key.
-                self.drop(key)
-                self.refuse(SidebarDocStrings.describe(error), key: key)
             }
         }
+    }
+
+    /// How many times one change is sent under its key before an unanswered change counts as refused.
+    private static let unsettledAsks = 4
+
+    /// `key`'s outcome is not known from a reply: the next document load settles it (now, or after a reconnect).
+    private func settleByLoad(_ key: String) {
+        unanswered.insert(key)
+        refresh()
     }
 
     private func drop(_ key: String) {
@@ -265,6 +318,12 @@ public final class SidebarDocStore {
     private func bump() { version &+= 1 }
 
     static func newKey() -> String { "sidebar-" + UUID().uuidString.lowercased() }
+}
+
+/// A change sent with no answer (a timeout, a closed connection): the daemon may have applied it. The store sends it
+/// again under the same idempotency key (the daemon replays a committed change) instead of dropping it.
+public nonisolated struct SidebarDocUnsettled: Error, Hashable, Sendable {
+    public init() {}
 }
 
 /// A change refused before it was sent, with the message the refusal HUD shows.

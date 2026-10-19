@@ -10,7 +10,7 @@ import Observation
 final class SidebarTunablesWatch {
     static let shared = SidebarTunablesWatch()
 
-    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap)
+    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap, workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant)
 
     private let rows = NSHashTable<WorkspaceRowView>.weakObjects()
     private var current: Values?
@@ -21,7 +21,7 @@ final class SidebarTunablesWatch {
         if let current { return current }
         let values = withObservationTracking {
             (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value, SidebarRowBadgeStyle.tunable.value,
-             SidebarRowBadgeStackCap.tunable.value)
+             SidebarRowBadgeStackCap.tunable.value, SidebarTunables.workspaceTitleMotion.value)
         } onChange: {
             Task { @MainActor in SidebarTunablesWatch.shared.changed() }
         }

@@ -26,7 +26,7 @@ public final class HomeNativeTranscriptView: NSView {
     public let binding: HomeStoreBinding
     /// The notice above the field (an attachment refused, a send refused in
     /// the background, an op that may not have gone through).
-    let noticeLabel = NSTextField(wrappingLabelWithString: "")
+    let noticeLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var notice: String?
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
@@ -53,6 +53,11 @@ public final class HomeNativeTranscriptView: NSView {
     public var onAppLink: ((URL) -> Void)? {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
+    }
+    /// A click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { transcript.onOpenLink }
+        set { transcript.onOpenLink = newValue }
     }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
@@ -81,6 +86,7 @@ public final class HomeNativeTranscriptView: NSView {
     private var cursorHold: HomeCursorRectHold?
 
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+        HomeReduceMotion.install()
         self.me = me
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
         // One binding per shown conversation; it opens the conversation on
@@ -127,7 +133,7 @@ public final class HomeNativeTranscriptView: NSView {
         binding.stop()
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     #if DEBUG

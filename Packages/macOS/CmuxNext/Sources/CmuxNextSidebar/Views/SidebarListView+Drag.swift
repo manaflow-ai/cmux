@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
 // Internal drag reorder: lift, in-place slot (R77), drop, cancel, auto-scroll.
-extension SidebarListView {
+extension SidebarListViewComponents {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
@@ -112,7 +112,9 @@ extension SidebarListView {
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
-            revealedActive = nil
+            // A drop never scrolls to reveal (hq-2d, cx-8quut): only the drag's autoscroll moved the view. The reloads
+            // that show it see no focus change and no user move, so they only anchor.
+            revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
             let sentBefore = SidebarDocStore.current?.lastIntentKey
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
@@ -128,7 +130,8 @@ extension SidebarListView {
         }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
-        revealedActive = nil // A drop moves rows, not the list: its reload anchors on the first visible row (cx-fnfj).
+        // A drop moves rows, not the list: its reloads anchor on the first visible row and never reveal (cx-fnfj, cx-8quut).
+        revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))

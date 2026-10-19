@@ -9,8 +9,8 @@ import type { Env } from "../src/env.ts"
 /**
  * cx-dgsp: the wire socket's credential stays out of the invocation log. Through the Worker's own
  * fetch: a browser mints a single-use ticket with the Authorization header and sends only
- * `ticket.<ticket>`; a native client sends the Authorization header on the upgrade; the legacy
- * `bearer.<token>` subprotocol still works for clients that are not updated yet.
+ * `ticket.<ticket>`; a native client sends the Authorization header on the upgrade. The legacy
+ * `bearer.<token>` subprotocol is retired: it authenticates nothing.
  */
 const testEnv = env as unknown as Env & { STACK_TEST_PRIVATE_JWK: string }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -136,9 +136,11 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     await expectRefused(await upgrade("/v1/wire/user", "cmux.wire.v1", { authorization: "Bearer not-a-token" }))
   })
 
-  it("the legacy bearer subprotocol still works until every client is updated", async () => {
+  it("the retired bearer subprotocol opens nothing, and the 401 names header auth", async () => {
     const a = await person("legacy")
-    expect(await welcomeUser(await upgrade("/v1/wire/user", `cmux.wire.v1, bearer.${a.token}`))).toBe(a.user)
+    const res = await upgrade("/v1/wire/user", `cmux.wire.v1, bearer.${a.token}`)
+    expect(res.headers.get("x-cmux-wire-auth")).toBe("authorization, ticket")
+    await expectRefused(res)
   })
 
   it("a ticket is spent by the first request that carries it, on any path", async () => {
@@ -150,14 +152,22 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
   })
 
   it("one person mints at most 60 tickets a minute", async () => {
-    const a = await person("limit")
-    // The limit is a fixed 60 s window, and the run may cross one window edge: 121 mints span at
-    // most two windows of 60 each, so at least one is refused, and at least 60 succeed.
-    // All at once, so a slow host cannot stretch the 121 mints over more than two windows.
-    const statuses = (await Promise.all(Array.from({ length: 121 }, () => mint(a.token)))).map((r) => r.status)
-    expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(60)
-    expect(statuses.every((s) => s === 200 || s === 429)).toBe(true)
-    expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0)
+    // The limit is a fixed 60 s window on the Worker's own limiter, keyed by the user id. Each minted ticket makes a
+    // ticket shard object, and 60 real mints took 5 s on a loaded host, so 59 of the person's 60 are spent on that
+    // limiter directly; the 60th and 61st go through the Worker. A run that crosses a minute boundary proves nothing,
+    // so it runs once more for a new person; two short runs in a row never both cross one.
+    for (let attempt = 0; ; attempt++) {
+      const a = await person(`limit-${attempt}`)
+      const minute = () => Math.floor(Date.now() / 60_000)
+      const start = minute()
+      await Promise.all(Array.from({ length: 59 }, () => testEnv.WIRE_TICKET_LIMIT!.limit({ key: a.user })))
+      const sixtieth = await mint(a.token)
+      const sixtyFirst = await mint(a.token)
+      if (minute() !== start && attempt === 0) continue
+      expect(sixtieth.status).toBe(200)
+      expect(sixtyFirst.status).toBe(429)
+      break
+    }
     // Another person is not limited by the first.
     expect((await mint((await person("limit-other")).token)).status).toBe(200)
   })

@@ -13,7 +13,7 @@ struct SidebarGroupLine: Equatable {
 // under the rows (SidebarGroupLineViews), from under the header bar to the
 // end of the last member row. Per-row pieces left gaps at the row spacing and
 // under the header (cx-qno.17 proof), so the line is drawn per group.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The list's lines. Rows a drag hides (`suppressed`) have none: a lifted
     /// group's line goes with its card (SidebarListLift). `current` places
     /// each row where its view is now, the animation's start, so a new line
@@ -46,8 +46,8 @@ extension SidebarGroupLine {
         return headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
-            let bar = header.isThinHeader ? 0 : SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
-            let top = head.midY + bar / 2 + (bar > 0 ? Metrics.space1 : 0), bottom = tail.maxY - Metrics.space1
+            let bar = SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
+            let top = head.midY + bar / 2 + Metrics.space1, bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
             return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))

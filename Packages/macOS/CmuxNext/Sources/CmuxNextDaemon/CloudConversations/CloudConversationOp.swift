@@ -48,6 +48,8 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
     case setReadCursor(seq: UInt64)
     case setTitle(String)
     case createInvite(address: CloudAddress, displayName: String, locale: String?)
+    /// `thread.update` (conversation-thread-objects-v1), as on the local owner.
+    case updateThread(root: String, title: String?, status: String?, owner: String?)
 
     public var kindName: String {
         switch self {
@@ -63,6 +65,7 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
         case .setReadCursor: "read_cursor.set"
         case .setTitle: "title.set"
         case .createInvite: "invite.create"
+        case .updateThread: "thread.update"
         }
     }
 
@@ -97,6 +100,11 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
             try c.encode(seq, forKey: DynamicKey("seq"))
         case .setTitle(let title):
             try c.encode(title, forKey: DynamicKey("title"))
+        case .updateThread(let root, let title, let status, let owner):
+            try c.encode(root, forKey: DynamicKey("root"))
+            try c.encodeIfPresent(title, forKey: DynamicKey("title"))
+            try c.encodeIfPresent(status, forKey: DynamicKey("status"))
+            try c.encodeIfPresent(owner, forKey: DynamicKey("owner"))
         case .createInvite(let address, let displayName, let locale):
             try c.encode(address, forKey: DynamicKey("address"))
             try c.encode(displayName, forKey: DynamicKey("display_name"))

@@ -8,9 +8,17 @@ export class OptChat {
     free(): void;
     [Symbol.dispose](): void;
     /**
-     * Appends one message (already stored) and returns its id.
+     * `append` for any memory: sizes it does not hold come from `store`.
+     */
+    appendIn(store: any): number;
+    /**
+     * Appends one message (already stored) and returns its id. Not for a lazy memory (`appendIn`).
      */
     append(): number;
+    /**
+     * Where the memory stands, as JSON for `resume`: `{t, low, view, compact_view, merging, compact_merging}`.
+     */
+    checkpoint(): string;
     /**
      * The compactor call for node (l, i) as JSON `{system, context, marks,
      * step, cut, room}`: `marks` are JS string indices (UTF-16 code units) into the context
@@ -27,16 +35,26 @@ export class OptChat {
      * waits its fixed retry delay and pumps again.
      */
     compactRequest(store: any, l: number, i: number, prompt: string, custom: string, agent: string): string;
+    /**
+     * `complete` for any memory: sizes it does not hold come from `store`.
+     */
+    completeIn(l: number, i: number, text: string, store: any): void;
     complete(l: number, i: number, text: string): void;
     fail(l: number, i: number): void;
     first(): number;
     isEmpty(): boolean;
+    isLazy(): boolean;
     len(): number;
     /**
      * Rebuilds after a restart: `t` messages and the built nodes as JSON
      * `[[l, i, bytes], ...]`.
      */
     static load(t: number, built_json: string, budget: number): OptChat;
+    /**
+     * Drops the sizes of nodes outside the views (read from the store when needed); from here on
+     * change it with `appendIn` and `completeIn`.
+     */
+    makeLazy(): void;
     /**
      * A new, empty memory with a view budget in bytes (`VIEW` when 0).
      */
@@ -52,9 +70,17 @@ export class OptChat {
      * The rendered view as JSON `{text, marks}` (marks are indices into the JS string `text`, UTF-16 code units).
      */
     renderView(store: any): string;
+    /**
+     * Picks up from `checkpoint()`'s JSON without reading the whole log (spec 3.2: the saved view is
+     * loaded, never rebuilt): `t` messages, and the frontier as JSON `[[l, i, bytes], ...]` (every stored
+     * node at or above the checkpoint's `low` of its level). Messages after the checkpoint are appended
+     * as live. The result is lazy: change it with `appendIn` and `completeIn`. Undefined when the
+     * checkpoint does not fit the store (the host then folds with `load` + `makeLazy`).
+     */
+    static resume(checkpoint: string, t: number, frontier_json: string, budget: number, store: any): OptChat | undefined;
     settled(): boolean;
     /**
-     * The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front}, rerendered, view: [piece],
+     * The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front, unbuilt, cuts}, rerendered, view: [piece],
      * delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
      * blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
      * log's last messages are this turn's new ones (never shown in a re-rendered view).
@@ -90,17 +116,23 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_optchat_free: (a: number, b: number) => void;
     readonly finishLine: (a: number, b: number, c: number, d: number) => [number, number];
-    readonly optchat_append: (a: number) => number;
+    readonly optchat_append: (a: number) => [number, number, number];
+    readonly optchat_appendIn: (a: number, b: any) => [number, number, number];
+    readonly optchat_checkpoint: (a: number) => [number, number];
     readonly optchat_compactRequest: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
     readonly optchat_complete: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly optchat_completeIn: (a: number, b: number, c: number, d: number, e: number, f: any) => [number, number];
     readonly optchat_fail: (a: number, b: number, c: number) => [number, number];
     readonly optchat_first: (a: number) => number;
     readonly optchat_isEmpty: (a: number) => number;
+    readonly optchat_isLazy: (a: number) => number;
     readonly optchat_len: (a: number) => number;
     readonly optchat_load: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly optchat_makeLazy: (a: number) => void;
     readonly optchat_new: (a: number) => number;
     readonly optchat_pump: (a: number, b: any) => [number, number, number, number];
     readonly optchat_renderView: (a: number, b: any) => [number, number, number, number];
+    readonly optchat_resume: (a: number, b: number, c: number, d: number, e: number, f: number, g: any) => [number, number, number];
     readonly optchat_settled: (a: number) => number;
     readonly optchat_turnInput: (a: number, b: any, c: number, d: number, e: number) => [number, number, number, number];
     readonly optchat_view: (a: number) => [number, number];

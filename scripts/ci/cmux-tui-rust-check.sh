@@ -596,6 +596,64 @@ doc_tests() {
   reap_leaked "before doc tests"
   env "$run_marker" cargo "${args[@]}"
 }
+# A warm target (a fleet warm slot, an rbx lane's /w/target) keeps every
+# artifact of every commit it built: cargo never deletes one. On aws-m4pro-9
+# (2026-10-17) debug/deps held 491,261 files (a fresh build: about 26,800), and
+# every test process spent about 14 s in SecCodeCopySelf (cmux_link's
+# own-code check), which scans the executable's folder: tests of 0.2 s took
+# 14-55 s and a shard ran 3569 s with 44 time-outs. prune_target keeps in
+# deps/ only the units this commit's build uses (cargo reports every artifact,
+# fresh or rebuilt, with --message-format=json) and deletes the rest. Build
+# again with the same flags, so cargo only reports: no unit is rebuilt.
+prune_target() {
+  local deps="$CARGO_TARGET_DIR/debug/deps" list
+  [[ -d "$deps" ]] || return 0
+  list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
+  if ! cargo test --workspace --locked --no-run --message-format=json >"$list" 2>/dev/null \
+    || { [[ "$mode" == all ]] && ! cargo clippy --workspace --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
+    rm -f "$list"
+    echo "prune: skipped (cargo did not list the build's artifacts)"
+    return 0
+  fi
+  python3 - "$deps" "$list" <<'PY' || echo "prune: failed (the target is kept)"
+import json, os, shutil, sys
+deps, listing = sys.argv[1], sys.argv[2]
+def stem(name):
+    # libfoo-0123abcd.rlib, foo-0123abcd.d, foo-0123abcd (a test binary), foo-0123abcd.dSYM
+    name = name.split(".", 1)[0]
+    return name[3:] if name.startswith("lib") else name
+keep = set()
+for line in open(listing, encoding="utf-8", errors="replace"):
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") != "compiler-artifact":
+        continue
+    for f in (m.get("filenames") or []) + ([m["executable"]] if m.get("executable") else []):
+        if os.path.dirname(f) == deps:
+            keep.add(stem(os.path.basename(f)))
+names = os.listdir(deps)
+if len(keep) < 100:
+    print(f"prune: skipped ({len(keep)} units listed, {len(names)} files in deps)")
+    sys.exit(0)
+gone = 0
+for n in names:
+    if stem(n) in keep:
+        continue
+    p = os.path.join(deps, n)
+    if os.path.isdir(p) and not os.path.islink(p):
+        shutil.rmtree(p, ignore_errors=True)
+    else:
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+    gone += 1
+print(f"prune: debug/deps kept {len(names) - gone} files of {len(keep)} units, deleted {gone} stale files")
+PY
+  rm -f "$list"
+}
 crate_table() {
   [[ -f "$junit_full" ]] || { echo "(no JUnit file: per-crate table unavailable)"; return 0; }
   command -v python3 >/dev/null || { echo "(no python3: per-crate table unavailable)"; return 0; }
@@ -681,5 +739,7 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   fi
   # A Testbox or another host without a step reaper keeps what the run left.
   reap_leaked "at the end of the step"
+  # Only after a build that cargo finished: a failed build lists no artifacts.
+  step "prune target" prune_target
 fi
 finish

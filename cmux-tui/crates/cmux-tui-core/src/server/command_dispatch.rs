@@ -58,7 +58,7 @@ pub(super) fn handle_command_with_cancellation(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify => cmd_server::identify(mux),
+        Command::Identify { machine_metadata } => cmd_server::identify(mux, machine_metadata),
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
                 mux,
@@ -788,8 +788,21 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloseScreen { screen, end_terminals } => {
             cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
-        Command::CloseWorkspace { workspace, key, end_terminals, reason, if_empty, mutation } => {
-            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason, if_empty };
+        Command::CloseWorkspace {
+            workspace,
+            key,
+            end_terminals,
+            reason,
+            if_empty,
+            report_closed_ids,
+            mutation,
+        } => {
+            let ending = cmd_workspaces::Ending {
+                terminals: end_terminals,
+                reason,
+                if_empty,
+                report_closed_ids,
+            };
             cmd_workspaces::close_workspace(mux, client, workspace, key, ending, mutation)
         }
         Command::MarkWorkspacesProviderManaged { authority } => {
@@ -805,8 +818,8 @@ pub(super) fn handle_command_with_cancellation(
         Command::RenameScreen { screen, name } => {
             cmd_screens::rename_screen(mux, actor, screen, name)
         }
-        Command::RenameWorkspace { workspace, key, name, mutation } => {
-            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
+        Command::RenameWorkspace { request, mutation } => {
+            cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(

@@ -27,7 +27,13 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         projection.start()
+        // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
+        // already running (MessagesLabHomeView+Motion.swift).
+        motionObservers = observeReduceMotion()
     }
+
+    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
+    private var motionObservers: [any NSObjectProtocol] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -134,6 +140,13 @@ public final class MessagesLabHomeView: NSView {
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
         set { controller.onAppLink = newValue }
+    }
+
+    /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    /// Defaults to the system; the host routes it (cmux: its link setting).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { controller.onOpenLink }
+        set { controller.onOpenLink = newValue }
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name

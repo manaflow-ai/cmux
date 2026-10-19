@@ -107,6 +107,10 @@ pub struct HostState {
     /// API's lookback of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_mark: Option<MarkRecord>,
+    /// The frozen view of spec 5a and where its delta starts: the turns'
+    /// input repeats it byte for byte until a re-render (optchat_core::turn_input).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frozen: Option<FrozenRecord>,
     /// G9: the floor of each side conversation (not the main one) the
     /// chief's wake queue woke, by conversation id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -710,5 +714,58 @@ impl MarkRecord {
     pub fn prefix_of<'a>(&self, view: &'a str) -> Option<&'a str> {
         let prefix = view.get(..self.bytes)?;
         (crate::trace::hash(prefix) == self.hash).then_some(prefix)
+    }
+}
+
+/// `optchat_core::Frozen` as saved: the view's parts and its unbuilt parts by
+/// name (`id+n`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrozenRecord {
+    pub parts: Vec<String>,
+    pub front: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unbuilt: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cuts: Vec<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starts: Vec<u64>,
+}
+
+fn node_names(parts: &[optchat_core::NodeId]) -> Vec<String> {
+    parts.iter().map(|p| p.name()).collect()
+}
+
+/// Parts by name; None when one does not parse.
+pub fn parse_nodes(names: &[String]) -> Option<Vec<optchat_core::NodeId>> {
+    names
+        .iter()
+        .map(|name| {
+            let (id, n) = name.split_once('+')?;
+            optchat_core::NodeId::from_name(id.parse().ok()?, n.parse().ok()?)
+        })
+        .collect()
+}
+
+impl FrozenRecord {
+    pub fn of(frozen: &optchat_core::Frozen) -> FrozenRecord {
+        FrozenRecord {
+            parts: node_names(&frozen.parts),
+            front: frozen.front,
+            unbuilt: node_names(&frozen.unbuilt),
+            cuts: frozen.cuts.clone(),
+            starts: frozen.starts.clone(),
+        }
+    }
+
+    /// The record as optchat-core takes it; None when a part does not parse
+    /// (then the turn renders a new view).
+    pub fn frozen(&self) -> Option<optchat_core::Frozen> {
+        Some(optchat_core::Frozen {
+            parts: parse_nodes(&self.parts)?,
+            front: self.front,
+            unbuilt: parse_nodes(&self.unbuilt)?,
+            cuts: self.cuts.clone(),
+            starts: self.starts.clone(),
+        })
     }
 }

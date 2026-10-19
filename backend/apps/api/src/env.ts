@@ -55,14 +55,22 @@ export interface Env {
   readonly HOST_DO: DurableObjectNamespace<HostDO>
   /** Chief hands (hand-do.ts): one object per installed hand (`h:<hand>`) and one index per owner (`owner:<user>`). */
   readonly HAND_DO: DurableObjectNamespace<HandDO>
+  /** "1": Chief hands are on (the /hand and /v1/hands routes, and the brain's hands tools). Off by default; production keeps it off until hands are ready (decision 2026-10-19). */
+  readonly HANDS_ENABLED?: string
   /** "1": Cloud requests may reach a `mac` profile hand. Off until the Mac hand trust post (#13742) is confirmed. */
   readonly HANDS_MAC_ENABLED?: string
+  /** Comma list of user ids: with HANDS_MAC_ENABLED, only their mac hands take Cloud requests (a scoped test). */
+  readonly HANDS_MAC_OWNERS?: string
   /** Base URL of the published acpmux files the hand installer downloads (default https://files.cmux.com/cmux-tui). */
   readonly HAND_RELEASE_BASE?: string
   /** Secret: the hands-only Freestyle key (hand-sandbox.ts is its only reader). Never logged. */
   readonly HAND_FREESTYLE_API_KEY?: string
   /** The mac-hand classifier's model (hand-classify.ts; default claude-haiku-5-5, else the route's model). */
   readonly HAND_CLASSIFIER_MODEL?: string
+  /** The classifier's time limit in ms (at most and by default 8000); a test sets it low to prove the timeout path. */
+  readonly HAND_CLASSIFIER_TIMEOUT_MS?: string
+  /** Minutes a sign-in counts as fresh for replacing a hand presence key (hand-presence.ts; default 10). */
+  readonly HAND_PRESENCE_FRESH_MINUTES?: string
   /** Most live sandbox hands one owner may have (default 3). */
   readonly HAND_SANDBOX_MAX?: string
   /** Freestyle snapshot (slug) for Chief sandboxes with a hand (hand-sandbox.ts); baked by scripts/bake-hand-sandbox.ts; unset: no sandbox creation. */
@@ -233,8 +241,12 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_OWNERS?: string
   /** Secret: more such owners, changed without a deploy (a demo's test user changes on every reset). */
   readonly CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA?: string
-  /** Claude turns of all Chiefs per UTC day (default 500). */
+  /** Paid-model turns per owner per UTC day (default 500). */
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
+  /** Paid-model turns of the whole deployment per UTC day (unset: no deployment limit; the per-owner limit applies). */
+  readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL?: string
+  /** "1": prune a brain's old pi entries at each turn start (chief-brain/pi-prune.ts). On in staging; off in production until a week of staging soak. */
+  readonly CHIEF_BRAIN_PRUNE_PI?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
   /** The Claude route's auth: "stack-session" (default), "service-key" (secret CHIEF_BRAIN_CLAUDE_SERVICE_KEY) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-gateway/routes.ts. */
@@ -256,14 +268,26 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_PROJECT?: string
   /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */
   readonly CHIEF_BRAIN_DAILY_TURNS?: string
+  /** Subagents (chief-brain/brain-spawn.ts): most children one Chief runs at once (default 4); the rest wait. */
+  readonly CHIEF_SPAWN_MAX?: string
+  /** Subagents' model (default: the model of the turn that spawned them). */
+  readonly CHIEF_SPAWN_MODEL?: string
+  /** Days a subagent's object keeps its storage after its report reached the parent (default 7); its run record then lives in the parent. */
+  readonly CHIEF_SPAWN_KEEP_DAYS?: string
+  /** First compactor retry delay in ms (default 2 s; exponential backoff with full jitter, cap 5 min). Tests make it small. */
+  readonly CHIEF_BRAIN_COMPACT_RETRY_BASE_MS?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
   /** One OpencodeBrainDO per chief: the opencode brain (implementation O, chief-brain-opencode/) and its container. Absent: O is off. */
   readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
-  /** "1": a Chief's owner may pick the opencode brain (`brain_impl`), and MuxDO asks it first. */
+  /** "1": a Chief's owner may pick the opencode brain (`brain_impl`); MuxDO sends that Chief's wakes there only. */
   readonly CHIEF_OPENCODE_ENABLED?: string
   /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
   readonly CHIEF_OPENCODE_CONTAINER?: string
+  /** "1": test-only fault hooks (chief-fault.ts) for the crash-mid-turn conformance case; ignored on staging and production. */
+  readonly CHIEF_FAULT_HOOKS?: string
+  /** The work folder a new sandbox hand starts in (the Chief's continuation names it; default /root/proj). */
+  readonly HAND_SANDBOX_WORKDIR?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */

@@ -245,10 +245,11 @@ extension AgentTabStore {
                 workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0) } }
             }
         }
-        tabs.create = { pane, daemon, record, key, transaction in
+        tabs.create = { pane, daemon, record, key, transaction, split in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
-            let request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
+            var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
                                                     transaction: transaction)
+            request.split = split
             let response = try await connection.request(request)
             let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                           surface: response.surface)
@@ -259,6 +260,7 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key) else { return nil }
             return services.machines.daemon(forTab: tab)
         }
+        tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
         tabs.moveSelection = { [weak services] provisional, surface in
             for controller in services?.windows.controllers ?? [] {
                 guard let panes = controller.content?.panes.values else { continue }
