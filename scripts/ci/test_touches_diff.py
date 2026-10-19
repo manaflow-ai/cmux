@@ -221,7 +221,10 @@ def can_sandbox() -> bool:
         return subprocess.run(cmd, capture_output=True, env=bun_env(Path(tmp) / "home")).returncode == 0
 
 
-# Runs as root in a new user, mount and network namespace, then execs argv[2:]. Every mount
+# Runs as root (pid 1) in a new user, mount, pid and network namespace, then execs argv[2:].
+# Directories that hold sockets or other users' scratch files (/tmp, /run, /dev/shm, $HOME)
+# go behind empty tmpfs mounts: read-only doesn't stop connect() on a socket file. The work
+# directory and binds are opened first and mounted back in through those handles. Every mount
 # goes read-only (mount_setattr keeps each mount's other flags, which plain remount can't),
 # then the work directory goes back to read-write (binds under it stay read-only), and so
 # does /proc, without its submounts, for the inner namespace's uid map. The
@@ -253,11 +256,18 @@ def set_attrs(path, flags, set_=0, clr=0):
 plan = json.loads(sys.argv[1])
 work = plan["work"]
 mount(None, "/", None, MS_REC | MS_PRIVATE)
-mount(work, work, None, MS_BIND)
-for src, dst in plan["binds"]:
-    mount(src, dst, None, MS_BIND)
+keep = [(os.open(src, os.O_PATH), dst) for src, dst in [[work, work], *plan["binds"]]]
 for path in plan["hide"]:
     mount("tmpfs", path, "tmpfs", 0)
+for fd, dst in keep:
+    if not os.path.lexists(dst):
+        if os.path.isdir(f"/proc/self/fd/{fd}"):
+            os.makedirs(dst)
+        else:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            open(dst, "x").close()
+    mount(f"/proc/self/fd/{fd}", dst, None, MS_BIND)
+    os.close(fd)
 set_attrs("/", AT_RECURSIVE, set_=MOUNT_ATTR_RDONLY)
 set_attrs(work, 0, clr=MOUNT_ATTR_RDONLY)
 set_attrs("/proc", 0, clr=MOUNT_ATTR_RDONLY)  # the inner unshare writes /proc/self/uid_map
@@ -265,32 +275,46 @@ os.execv(plan["unshare"], [plan["unshare"], "--user", "--map-root-user", "--moun
 """
 
 
-def sandbox_command(argv: list[str], work: Path, binds: Mapping[Path, Path]) -> list[str]:
-    """argv in the sandbox: no network, only `work` writable, $HOME hidden unless `work` is in it."""
+SCRATCH_DIRS = ("/tmp", "/var/tmp", "/run", "/dev/shm")
+
+
+def hidden_dirs(work: Path) -> list[Path]:
+    """Directories the sandbox covers with an empty tmpfs: the scratch and socket directories
+    that exist as real directories, and $HOME unless `work` is in it."""
     home = Path.home().resolve()
+    dirs = [Path(d) for d in SCRATCH_DIRS if os.path.isdir(d) and not os.path.islink(d)]
+    if not work.resolve().is_relative_to(home) and home not in dirs:
+        dirs.append(home)
+    return dirs
+
+
+def sandbox_command(argv: list[str], work: Path, binds: Mapping[Path, Path]) -> list[str]:
+    """argv in the sandbox: no network, no host processes, only `work` writable, and the
+    scratch directories and $HOME hidden (`work` and `binds` are mounted back in)."""
     work = work.resolve()
     unshare = str(Path(shutil.which("unshare") or "unshare").resolve())
     plan = {
         "work": str(work),
         "binds": [[str(src), str(dst)] for src, dst in binds.items()],
-        "hide": [] if work.is_relative_to(home) else [str(home)],
+        "hide": [str(d) for d in hidden_dirs(work)],
         "unshare": unshare,
     }
-    return [unshare, "--user", "--map-root-user", "--mount", "--net", "--",
+    return [unshare, "--user", "--map-root-user", "--mount", "--net", "--pid", "--fork", "--mount-proc", "--",
             sys.executable, "-I", "-S", "-c", SANDBOX_SETUP, json.dumps(plan), *argv]
 
 
 def run_bun(args: list[str], cwd: Path, work: Path, *, sandbox: bool,
             binds: Mapping[Path, Path] | None = None) -> subprocess.CompletedProcess:
-    """Run bun with the allowlisted environment, and when `sandbox`, with no network, the whole
-    filesystem read-only except `work`, and the user's home directory hidden behind an empty
-    tmpfs (bun itself and `binds` are mounted in first, read-only, so they stay reachable)."""
+    """Run bun with the allowlisted environment, and when `sandbox`, with no network, no host
+    processes, the whole filesystem read-only except `work`, and the scratch directories and the
+    user's home directory hidden behind empty tmpfs mounts (`work`, `binds` and bun itself, when
+    it lives under a hidden directory, are mounted back in, the binds read-only)."""
     env = bun_env(work / "home")
     bun = str(Path(shutil.which("bun") or "bun").resolve())
     if not sandbox:
         return subprocess.run([bun, *args], cwd=cwd, capture_output=True, text=True, env=env)
     mounts = dict(binds or {})
-    if Path(bun).is_relative_to(Path.home().resolve()):
+    if any(Path(bun).is_relative_to(d) for d in hidden_dirs(work)):
         target = work / "bun"
         target.touch()
         mounts[Path(bun)] = target
