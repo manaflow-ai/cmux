@@ -27,6 +27,9 @@ AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IG
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes)", re.IGNORECASE)
+# A tour file selects its own tour, so a pull request that adds or edits one (a launch
+# clip, a feature walkthrough) records it without touching app code.
+TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/(?P<name>[a-z0-9][a-z0-9-]{0,39})\.json$")
 
 
 def is_ui_path(path: str) -> bool:
@@ -36,6 +39,9 @@ def is_ui_path(path: str) -> bool:
 
 def tours_for_path(path: str) -> list[str]:
     normalized = path.strip().lstrip("./")
+    tour_file = TOUR_FILE.match(normalized)
+    if tour_file:
+        return [tour_file.group("name")]
     if not is_ui_path(normalized):
         return []
     selected: list[str] = []
@@ -57,8 +63,10 @@ def map_paths(paths: list[str]) -> dict[str, object]:
     matches: dict[str, list[str]] = {tour: [] for tour in TOUR_ORDER}
     for path in clean:
         for tour in tours_for_path(path):
-            matches[tour].append(path)
-    tours = [tour for tour in TOUR_ORDER if matches[tour]]
+            matches.setdefault(tour, []).append(path)
+    # Built-in tours first, in their fixed order; tours named by their own file after.
+    extra = sorted(tour for tour in matches if tour not in TOUR_ORDER)
+    tours = [tour for tour in (*TOUR_ORDER, *extra) if matches[tour]]
     return {
         "is_ui": bool(tours),
         "tours": tours,

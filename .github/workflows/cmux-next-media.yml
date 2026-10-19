@@ -41,6 +41,8 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      # A changed tour file tours itself (path_map.py), e.g. a launch clip.
+      - 'scripts/cmux-next/media/tours/*.json'
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, ready_for_review, labeled]
@@ -50,6 +52,8 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      # A changed tour file tours itself (path_map.py), e.g. a launch clip.
+      - 'scripts/cmux-next/media/tours/*.json'
   workflow_dispatch:
 
 permissions: {}
