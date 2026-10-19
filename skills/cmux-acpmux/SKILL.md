@@ -37,6 +37,20 @@ path can store a message while ACP delivery is unavailable; it does not start an
 the cmux daemon is unavailable too, use the available coordination tool and retain the same
 idempotency key for reconciliation. Report which fallback was used.
 
+## Session handles a user pastes
+
+In cmux-next, Go to Workspace (Cmd-P) lists agent sessions; Cmd-K on a row opens its Actions
+menu, and **Copy Session ID** copies:
+
+- an acpmux chat: `acp:<session id>` (the id `acpmux --json ls` prints). Pass it as is to
+  `cmux agent message acp:<session id> "..."` (the Chief and other agents use the same path). For
+  acpmux commands, drop the `acp:` prefix: `acpmux --json session info <session id>`,
+  `acpmux send <session id> "..."`. The id names a session on the machine that runs it; from
+  another machine, use the peer form `host/name` from `acpmux --json ls`.
+- a Claude Code or Codex terminal: the harness's own session UUID (the `session_id` its hooks
+  report), for `claude --resume <uuid>` or `codex resume <uuid>`. To message that agent, use its
+  terminal instead: `cmux agent message term_<id> "..."`.
+
 ## Partition work before launching agents
 
 Write a small work ledger before starting parallel work:

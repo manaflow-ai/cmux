@@ -109,6 +109,16 @@ describe("image staleness guard", () => {
     expect(tip.always).toEqual([...TIP_ALWAYS, "workspace-open-url-v1"].sort())
   })
 
+  it("follows a child module declared with `#[path = \"...\"] mod watch;` (`agent_inventory::watch::CAPABILITY`)", () => {
+    const files = {
+      "cmux-tui/crates/cmux-tui-core/src/server/agent_inventory.rs": `pub const CAPABILITY: &str = "agent-inventory-v1";\n#[path = "agent_inventory_watch.rs"]\npub(super) mod watch;\n`,
+      "cmux-tui/crates/cmux-tui-core/src/server/agent_inventory_watch.rs": `pub(crate) const CAPABILITY: &str = "agent-inventory-watch-v1";\n`,
+    }
+    const tip = tipCapabilities(treeReader(repo({ files, extraSource: ["agent_inventory::watch::CAPABILITY"] })))
+    expect(tip.always).toContain("agent-inventory-watch-v1")
+    expect(tip.always).not.toContain("agent-inventory-v1")
+  })
+
   it("reads a relative re-export with no such child module from the crate root, never a same-named constant elsewhere", () => {
     const files = {
       "cmux-tui/crates/cmux-tui-core/src/router.rs": `pub(crate) use links::OPEN as ROUTER_OPEN;\n`,

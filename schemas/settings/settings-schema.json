@@ -361,6 +361,7 @@
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
+              "sidebar.nowPlaying.enabled",
               "home.channelsEnabled"
             ],
             "title" : {
@@ -2231,8 +2232,8 @@
     {
       "accepts" : [
         32,
-        200,
-        116
+        320,
+        176
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2273,15 +2274,15 @@
         "tabMinActiveWidth"
       ],
       "range" : {
-        "max" : 200,
+        "max" : 320,
         "min" : 32,
         "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -136,
-        368,
+        -256,
+        608,
         "1"
       ],
       "section" : "general",
@@ -2295,8 +2296,8 @@
     {
       "accepts" : [
         16,
-        120,
-        68
+        320,
+        168
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2337,15 +2338,15 @@
         "tabMinInactiveWidth"
       ],
       "range" : {
-        "max" : 120,
+        "max" : 320,
         "min" : 16,
         "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -88,
-        224,
+        -288,
+        624,
         "1"
       ],
       "section" : "general",
@@ -15687,6 +15688,57 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.nowPlaying.enabled.help",
+        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.nowPlaying.enabled",
+      "keywords" : [
+        "music",
+        "now playing",
+        "player",
+        "media",
+        "spotify",
+        "song",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "nowPlaying",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.nowPlaying.enabled",
+        "text" : "Show Now Playing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.colorTransition",
         "text" : "Color Changes"
       },
@@ -25537,7 +25589,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "01618b3130227f81d62bb56dc71fc908906b1043090b7c672dd20fa25772ee5c",
+  "schema_hash" : "83792af4a2de800d5ae2c0dbfd6e317b511f10e28f552adfc6a49d5358df4e49",
   "sections" : [
     {
       "id" : "general",
