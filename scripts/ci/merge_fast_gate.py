@@ -9,7 +9,8 @@ routing started (the Swift canary, the app scheme Debug compile, the web
 react-apps-check). The full suites run after the merge, and the culprit bot and
 the base sheriff revert or fix forward. A check that already finished red in a
 gating family (web, app size, crash, god-file, l10n or concurrency lint) still
-blocks; one still running does not. gh-merge-green --full keeps the old wait for
+blocks; one still running does not. Risk evidence is waited for, and a red one
+refuses outright. gh-merge-green --full keeps the old wait for
 every check.
 
 Each poll is one GraphQL read (`gh pr view --json`), never a REST loop.
@@ -30,6 +31,9 @@ from typing import Callable
 ROUTING = "cmux-next path routing"
 FAST = re.compile(r"^(cmux-next fast tier|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
 GATING = re.compile(r"react-apps-check|web status|app[- ]?size|size[- ]cap|crash|god[ -]?files?|l10n|locali[sz]ation|concurrency", re.I)
+# Never waived or base-excused: it reads only the description, and the risk:waived
+# label is its waiver (gh-merge-green full gate, docs/ci/risk-tiers.md on feat-cmux-next).
+RISK = re.compile(r"^risk evidence$", re.I)
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 
 
@@ -74,6 +78,14 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
     if touches_next and ROUTING not in checks:
         waiting.append(ROUTING)
     for name, (status, conclusion) in sorted(checks.items()):
+        if RISK.match(name):
+            seen.append(name)
+            if status != "COMPLETED":
+                waiting.append(name)
+            elif conclusion not in PASSING:
+                raise Refused(f"'{name}' is {conclusion.lower()} on the exact head; it is never waived "
+                              "(a maintainer's risk:waived label is its waiver)")
+            continue
         fast = name == ROUTING or bool(FAST.match(name))
         if fast:
             if conclusion == "SKIPPED":
