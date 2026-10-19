@@ -38,6 +38,10 @@ ISSUE = "✘ Test fragmentNavigation() recorded an issue at NavigationEdgeTests.
 SUMMARY = "✘ Test run with 15 tests in 2 suites failed after 5.731 seconds with 1 issue."
 
 
+# scripts/ci/merge-fast-gate-protected-paths.txt as the base carries it.
+PROTECTED_PATHS = "# comment\n.github/workflows/\nscripts/ci/\nscripts/gh-merge-green\n"
+
+
 CMUX_NEXT_WORKFLOW = """name: cmux-next
 on:
   pull_request:
@@ -356,7 +360,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -388,6 +392,11 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s' " + shlex.quote(cmux_next_workflow) + "; exit 0"
             if cmux_next_workflow else "exit 1"
         )
+        # The fast gate reads the paths filter and the protected paths from the base.
+        if base_workflow is None:
+            base_workflow = cmux_next_workflow
+        base_workflow_route = "printf '%s' " + shlex.quote(base_workflow) + "; exit 0" if base_workflow else "exit 1"
+        protected_route = "printf '%s' " + shlex.quote(protected_paths) + "; exit 0" if protected_paths is not None else "exit 1"
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ] && printf '%s' \"$*\" | grep -q statusCheckRollup; then "
@@ -407,6 +416,10 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s\\n' " + runs_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + HEAD + "'; then "
             + workflow_route + "; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + base + "'; then "
+            + base_workflow_route + "; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/scripts/ci/merge-fast-gate-protected-paths.txt?ref=" + base + "'; then "
+            + protected_route + "; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
@@ -818,6 +831,32 @@ class InstalledHelperRegression(unittest.TestCase):
                                      is_cross_repository=True, extra_args=("--trust-fork-head", HEAD))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
+
+    def test_the_fast_gate_reads_the_paths_filter_from_the_base(self):
+        """A PR that drops its own files from cmux-next.yml's paths filter must not skip
+        the routing wait: the filter that decides is the base's."""
+        head_workflow = CMUX_NEXT_WORKFLOW.replace("      - Packages/macOS/CmuxNext/**\n", "")
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=(),
+                                     cmux_next_workflow=head_workflow, base_workflow=CMUX_NEXT_WORKFLOW,
+                                     extra_args=("--wait", "0"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("cmux-next path routing", result.stderr)
+
+    def test_an_untrusted_fork_refuses_before_the_fast_wait(self):
+        """The fork refusal comes before the fast gate decides anything: with fast lanes
+        still pending and --override, the refusal names the fork, not the wait."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=(),
+                                     is_cross_repository=True,
+                                     extra_args=("--wait", "0", "--override", "the red check is a known base failure on this exact head"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("untrusted fork", result.stderr)
+            self.assertNotIn("still waiting", result.stderr)
 
     def test_main_keeps_the_full_wait_without_full(self):
         """Only feat-cmux-next gets the fast gate: a main PR with green fast lanes and a
@@ -1359,7 +1398,7 @@ class FreezeRegression(unittest.TestCase):
     def ok_by(self, login):
         return [{"event": "labeled", "label": {"name": "freeze-ok"}, "actor": {"login": login}}]
 
-    def run_with(self, directory, issues, changed_files, *, events=(), extra_args=(), issues_text=None, base="feat-cmux-next", full=True, rollup=()):
+    def run_with(self, directory, issues, changed_files, *, events=(), extra_args=(), issues_text=None, base="feat-cmux-next", full=True, rollup=(), fork=False):
         directory = Path(directory)
         issues_path = directory / "freeze-issues.json"
         issues_path.write_text(issues_text if issues_text is not None else json.dumps(issues))
@@ -1374,7 +1413,7 @@ class FreezeRegression(unittest.TestCase):
             marker = directory / "merged"
             result = InstalledHelperRegression.run_helper(
                 self, str(directory), marker, changed_files=changed_files, extra_args=extra_args, base=base,
-                full=full, rollup=rollup)
+                full=full, rollup=rollup, is_cross_repository=fork)
         finally:
             for name, value in saved.items():
                 if value is None:
@@ -1477,6 +1516,16 @@ class FreezeRegression(unittest.TestCase):
                 result, marker = self.run_with(directory, issues, files, events=events, full=False, rollup=fast_green)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertTrue(marker.exists())
+
+    def test_a_reviewed_fork_on_the_fast_gate_still_stops_at_a_freeze(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with(
+                directory, [self.freeze(21, "docs/frozen/")], ("docs/frozen/a.md",),
+                full=False, rollup=InstalledHelperRegression.FAST_GREEN, fork=True,
+                extra_args=("--trust-fork-head", HEAD))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("#21", result.stderr)
 
     def test_a_main_merge_without_full_checks_freezes_on_the_full_gate(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1645,7 +1694,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
         bun.chmod(0o755)
         return work, head, directory / "bin"
 
-    def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), changed_files=None, **kwargs):
+    def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), changed_files=None, full=True, **kwargs):
         global HEAD
         work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
         Path(directory, "pr-head").write_text(head)
@@ -1662,7 +1711,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
             marker = Path(directory) / "merged"
             result = InstalledHelperRegression.run_helper(
                 self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
-                extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args))
+                extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args),
+                full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head)
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
@@ -1672,6 +1722,27 @@ class MergedHeadChecksRegression(unittest.TestCase):
                 else:
                     os.environ[name] = value
         return result, marker, log.read_text()
+
+    def test_the_fast_gate_skips_the_merged_tree_checks_for_an_ordinary_cmux_next_pr(self):
+        """leoli-f6 2026-10-19: the fast gate leaves the merged-tree checks to the
+        post-merge suites, so a god type in an ordinary cmux-next PR merges."""
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n"}, full=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(log, "")
+
+    def test_the_fast_gate_runs_the_merged_tree_checks_for_a_pr_touching_gate_paths(self):
+        """leoli-f6 2026-10-19: a PR touching workflows, shared CI scripts, gh-merge-green
+        or gate config gets the merged-tree checks back on the fast gate."""
+        for protected in (".github/workflows/cmux-next.yml", "scripts/ci/merge_freeze.py", "scripts/gh-merge-green"):
+            with self.subTest(protected=protected), tempfile.TemporaryDirectory() as directory:
+                result, marker, log = self.run_merge(
+                    directory, {"Packages/macOS/CmuxNext/Sources/GOD.swift": "x\n", protected: "# changed\n"}, full=False)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn("--only swift --base", log)
+                self.assertIn("god-file", result.stderr)
 
     def test_fork_without_head_trust_refuses(self):
         with tempfile.TemporaryDirectory() as directory:
