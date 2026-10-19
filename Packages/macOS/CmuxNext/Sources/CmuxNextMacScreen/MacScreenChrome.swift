@@ -448,8 +448,10 @@ struct MacScreenCardView: View {
         case let .hubRefused(refusal, requested):
             refusedContent(refusal, requested: requested)
         case let .hubRevoked(reason):
-            glyph("lock", color: colors.danger)
-            title(L.t("macScreen.hub.revokedTitle", "Access Removed"))
+            // Ends from either side come as revocations too: only a lost permission or device reads as removed access.
+            let removed = reason == .permissionChanged || reason == .deviceRemoved
+            glyph(removed ? "lock" : "display", color: removed ? colors.danger : nil)
+            title(removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
             detail(reason.text)
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)

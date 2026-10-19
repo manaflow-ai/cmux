@@ -44,8 +44,8 @@ public final class MacScreenApprovalPrompt {
         settled = []
         update(hub?.pendingRequests ?? [])
         guard let hub else { return }
-        watch = Task { [weak self, weak hub] in
-            for await requests in ObservationStream({ hub?.pendingRequests ?? [] }) {
+        watch = Task { [weak self] in
+            for await requests in ObservationStream({ hub.pendingRequests }) {
                 guard !Task.isCancelled else { return }
                 self?.update(requests)
             }

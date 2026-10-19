@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextDevices
+public import CmuxNextDevices
 import CmuxScreenKit
 import CoreImage.CIFilterBuiltins
 public import SwiftUI

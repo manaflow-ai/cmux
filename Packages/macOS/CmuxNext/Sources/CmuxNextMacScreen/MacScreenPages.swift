@@ -145,7 +145,8 @@ public final class MacScreenPages {
             case .viewer:
                 // The tab whose session (or, before the request's answer, whose host) it names.
                 let viewers = hubViewers
-                (viewers.first { $0.phase.sessionID == ticket.sessionId } ?? viewers.first { $0.accepts(ticket) })?.accept(ticket)
+                let target = viewers.first(where: { $0.phase.sessionID == ticket.sessionId }) ?? viewers.first(where: { $0.accepts(ticket) })
+                target?.accept(ticket)
             }
         case let .sessionDenied(id):
             for viewer in hubViewers where viewer.phase.sessionID == id { viewer.denied() }
@@ -169,8 +170,8 @@ public final class MacScreenPages {
     private func watchDeviceNames() {
         namesWatch?.cancel()
         guard let hub else { return }
-        namesWatch = Task { [weak self, weak hub] in
-            for await names in ObservationStream({ (hub?.devices ?? []).map { [$0.id, $0.name] } }) {
+        namesWatch = Task { [weak self] in
+            for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name] } }) {
                 guard let self else { return }
                 for tab in tabs.values {
                     guard let id = tab.record.deviceID, let name = names.first(where: { $0[0] == id })?[1],

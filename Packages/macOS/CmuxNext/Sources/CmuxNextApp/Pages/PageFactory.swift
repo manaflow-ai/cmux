@@ -129,7 +129,8 @@ struct PageFactory {
             } catch {
                 throw PageError.invalidParams("unknown devices action")
             }
-            return (try? JSONValue.parse(JSONEncoder().encode(await devices.run(run)))) ?? .object([:])
+            let result = await devices.run(run)
+            return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }

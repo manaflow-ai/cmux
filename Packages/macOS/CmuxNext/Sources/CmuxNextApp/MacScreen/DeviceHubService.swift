@@ -31,6 +31,8 @@ final class DeviceHubService {
     /// The signed-in account's user id; nil when signed out.
     private var user: String?
     private var watch: Task<Void, Never>?
+    /// Follows the running hub's socket: another device removed this Mac.
+    private var removalWatch: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
 
     init(pages: MacScreenPages, auth: CloudAuth, bundleIdentifier: String?) {
@@ -57,12 +59,12 @@ final class DeviceHubService {
         guard watch == nil else { return }
         let auth = auth
         // task-owner: DeviceHubService.watch: follows deviceHub.url and sign-in for the app's life
-        watch = Task { [weak self, weak settings] in
+        watch = Task { [weak self] in
             await auth.awaitRestored()
             await self?.pages.store.load()
             for await (address, user) in ObservationStream({ (Self.address(settings), auth.isSignedIn ? (auth.user?.id ?? "") : nil) }) {
                 guard let self else { return }
-                url = address.flatMap(URL.init(string:))
+                url = address.flatMap { URL(string: $0) }
                 self.user = user
                 pages.hubConfigured = url != nil
                 reconcile()
@@ -105,6 +107,16 @@ final class DeviceHubService {
         pages.hub = hub
         // task-owner: one registration and socket start; stop() cancels the socket
         Task { await hub.start() }
+        // task-owner: DeviceHubService.removalWatch: lives with this hub; stopHub cancels it
+        removalWatch = Task { [weak self] in
+            for await removed in ObservationStream({ hub.connection == .removed }) where removed {
+                // Another device removed this Mac: it leaves the hub until the person signs in again.
+                guard let self, self.hub === hub else { return }
+                leftHub = true
+                stopHub(endingSessions: false)
+                return
+            }
+        }
         logger.info("device hub started")
     }
 
@@ -112,6 +124,8 @@ final class DeviceHubService {
     /// sessions end on the hub (while the hub session still holds), then the
     /// hub stops and Mac Screen forgets it.
     private func stopHub(endingSessions: Bool) {
+        removalWatch?.cancel()
+        removalWatch = nil
         guard let hub else { return }
         self.hub = nil
         running = nil

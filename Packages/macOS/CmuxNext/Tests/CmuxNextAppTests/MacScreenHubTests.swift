@@ -13,7 +13,7 @@ import Testing
 // history and relay drafts.
 
 /// Software keys: tests only (the app's keys are in the Secure Enclave).
-private struct TestDeviceKeys: DeviceKeyMaterial {
+nonisolated private struct TestDeviceKeys: DeviceKeyMaterial {
     let signing = P256.Signing.PrivateKey()
     let agreement = P256.KeyAgreement.PrivateKey()
     var signingPublicKey: P256.Signing.PublicKey { signing.publicKey }
@@ -43,7 +43,7 @@ private func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, sco
 }
 
 /// A signaling that is never opened.
-private final class IdleSignaling: ScreenSignaling, @unchecked Sendable {
+nonisolated private final class IdleSignaling: ScreenSignaling, @unchecked Sendable {
     func messages() -> AsyncThrowingStream<ScreenSignal, any Error> { AsyncThrowingStream { $0.finish() } }
     func send(_ signal: ScreenSignal) async throws {}
     func iceServers() async throws -> [ICEServerConfig] { [] }

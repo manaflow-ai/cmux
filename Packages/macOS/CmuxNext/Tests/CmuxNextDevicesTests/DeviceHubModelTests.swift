@@ -56,6 +56,19 @@ import Testing
         #expect(seen.last == .sessionRevoked(sessionID: "s1", reason: "permission_changed"))
     }
 
+    /// Settings > Devices reads the audit log again after every push but `pong`.
+    @Test func pushesAreCountedButPongs() async {
+        let hub = makeHub(StubHub.routes([:]))
+        #expect(hub.pushCount == 0)
+        await hub.handle(.push(.pong))
+        #expect(hub.pushCount == 0)
+        await hub.handle(.push(.sessionDenied(sessionID: "s1")))
+        await hub.handle(.push(.unknown("team.changed")))
+        #expect(hub.pushCount == 2)
+        hub.stop()
+        #expect(hub.pushCount == 0)
+    }
+
     @Test func aRelaysPushOpensThisDevicesSecret() async throws {
         let blob = try RelaySealing.seal(.sharedSecret("turn-secret"), relayID: "r1", to: me.agreementKey)
         let stub = StubHub.routes(["GET /v1/relays": (200, #"{"relays":[{"id":"r1","name":"Home","urls":["turns:home:5349"],"authMode":"shared_secret","sealed":{"\#(me.id)":"\#(blob)"},"enabled":true,"priority":0},{"id":"r2","name":"Off","urls":["turn:x"],"authMode":"static","enabled":false,"priority":0}]}"#)])

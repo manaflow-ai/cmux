@@ -153,7 +153,17 @@ try await host.serve(signaling)
 
 `ScreenStreamHost.disconnectViewer()` sends `bye` on a device hub session.
 `ICEServerConfig` (urls, username, credential) is public for building the
-list. `ScreenSession` still connects through pairing rooms only.
+list.
+
+`ScreenSession(title:preferences:signaling:)` is a stream session whose
+signaling the app supplies: each `connect()` asks the closure for the
+connection to use (a ticket's `TicketSignaling`, which admits once) and
+fails when it returns nil, so set `reconnectLimit = 0` and start a new
+session for a new ticket. Input, quality and stats work as for a pairing.
+
+`ICERelayCheck(servers:timeout:).run()` checks a TURN relay: a relay-only
+peer connection gathers candidates, and `.relayed` means the relay gave
+this device a `typ relay` address.
 
 ## Tests
 

@@ -6579,5 +6579,53 @@
         ]
       }
     }
+  },
+  "devices.platform.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.platform.ios": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "macScreen.hub.unknownDevice": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.history.host": {
+    "source": "Host",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
+  },
+  "devices.nameField": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.relays.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.section.relays": {
+    "source": "Relays",
+    "identityLocales": {
+      "de": "Relays is the German plural used for network relay servers."
+    }
+  },
+  "devices.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in German."
+    }
+  },
+  "devices.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in German."
+    }
   }
 }

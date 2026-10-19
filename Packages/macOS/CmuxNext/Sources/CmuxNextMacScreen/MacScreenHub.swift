@@ -1,6 +1,6 @@
 public import CmuxNextDevices
 public import CmuxScreenKit
-import Foundation
+public import Foundation
 import Observation
 
 // The device hub's side of Mac Screen (docs/device-hub/PROTOCOL.md): the
@@ -9,7 +9,7 @@ import Observation
 
 /// This device signs its Session DO handshake and its DTLS fingerprints with
 /// its device key (the Secure Enclave identity the hub registered).
-extension DeviceIdentity: @retroactive ScreenTicketSigner {
+extension DeviceIdentity: ScreenTicketSigner {
     nonisolated public func deviceHeaders(for url: URL) async throws -> [String: String] {
         try DeviceRequestSigner(identity: self).headers(method: "GET", pathAndQuery: DeviceRequestSigner.pathAndQuery(of: url),
                                                         body: nil)
@@ -41,12 +41,12 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
     /// The refusal for a failed `POST /v1/sessions`.
     public init(_ error: DeviceHubError) {
         switch error.code {
-        case .permissionNone: self = .permissionNone
-        case .scopeExceedsPermission: self = .scopeExceeds
-        case .hostOffline: self = .hostOffline
-        case .notShared: self = .notShared
-        case .notFound, .deviceRemoved: self = .notFound
-        case .unauthorized: self = .notSignedIn
+        case .some(.permissionNone): self = .permissionNone
+        case .some(.scopeExceedsPermission): self = .scopeExceeds
+        case .some(.hostOffline): self = .hostOffline
+        case .some(.notShared): self = .notShared
+        case .some(.notFound), .some(.deviceRemoved): self = .notFound
+        case .some(.unauthorized): self = .notSignedIn
         default:
             if case .notSignedIn = error { self = .notSignedIn } else if case .notConfigured = error { self = .notSignedIn } else { self = .other }
         }
@@ -156,10 +156,12 @@ public nonisolated enum MacScreenApprovalChoice: String, CaseIterable, Sendable 
     /// the permission becomes Full).
     public func answer(requested: SessionScope) -> (decision: SessionDecision, scope: SessionScope, thenPermission: DeviceScope?) {
         switch self {
-        case .deny: (.deny, requested, nil)
-        case .once: (.once, requested, nil)
-        case .alwaysView: (.always, .view, nil)
-        case .alwaysFull: requested == .full ? (.always, .full, nil) : (.always, .view, .full)
+        case .deny: return (SessionDecision.deny, requested, nil)
+        case .once: return (SessionDecision.once, requested, nil)
+        case .alwaysView: return (SessionDecision.always, SessionScope.view, nil)
+        case .alwaysFull:
+            if requested == .full { return (SessionDecision.always, SessionScope.full, nil) }
+            return (SessionDecision.always, SessionScope.view, DeviceScope.full)
         }
     }
 
