@@ -87,6 +87,20 @@ import Testing
         #expect(await world.enrollments == 1)
     }
 
+    @Test func theStartupKeyMatchesTheEnrolledMeshAndStopsAfterScopeEnd() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (scope, _, _, device) = try await fixture(root: root)
+        let joined = try await device.enroll(), startup = try await device.linkStartup()
+        let value = try object(startup.bytes)
+        #expect(value["team"] as? String == scope.team && value["mesh"] as? String == scope.mesh)
+        #expect(startup.publicKey == joined.wgPublicKey)
+        try await startup.recheck()
+        await device.stop()
+        await #expect(throws: NativeDeviceEnrollmentError.revoked) { try await startup.recheck() }
+        #expect(!String(reflecting: startup).contains(value["private_key"] as? String ?? "missing"))
+    }
+
     @Test(arguments: ["team", "url", "native_proof", "origin"])
     func callerCannotChooseAuthority(field: String) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

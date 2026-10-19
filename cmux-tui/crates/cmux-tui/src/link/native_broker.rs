@@ -119,7 +119,10 @@ mod tests {
             let mut value_to_send = bootstrap();
             value_to_send[field] = value;
             writeln!(parent, "{value_to_send}").unwrap();
-            let error = read_identity(&mut reader).err().expect("must refuse");
+            let error = match read_identity(&mut reader) {
+                Err(error) => error,
+                Ok(_) => panic!("must refuse"),
+            };
             assert_eq!(error.to_string(), "cloud.native.bootstrap_refused");
         }
     }

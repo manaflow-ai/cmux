@@ -81,6 +81,43 @@ public actor NativeDeviceEnrollment {
         return try store.loadOrCreate(create: false)
     }
 
+    /// Prepare this mesh's own key in memory. The owned process verifies its recipient before sending it.
+    package func linkStartup() async throws -> NativeCloudLinkStartup {
+        let epoch = generation
+        if binding == nil { _ = try await enroll() }
+        guard let saved, let binding else { throw NativeDeviceEnrollmentError.invalidState }
+        try await check(saved.context, epoch)
+        let context = try await identity.nativeContext(team: scope.team)
+        guard context.account == saved.context.account, context.user == saved.context.user,
+              context.install == saved.context.install, context.point == saved.context.point,
+              context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        try await checkStartup(context: context, epoch: epoch, binding: binding)
+        let record = try currentRecord(saved.store)
+        let bytes = try JSONEncoder().encode(LinkBootstrap(install: context.install, team: scope.team, mesh: scope.mesh, private_key: record.privateKey))
+        return NativeCloudLinkStartup(bytes: bytes, publicKey: binding.wgPublicKey, recheck: { [weak self] in
+            guard let self else { throw NativeDeviceEnrollmentError.revoked }
+            try await self.checkStartup(context: context, epoch: epoch, binding: binding)
+        })
+    }
+
+    private struct LinkBootstrap: Encodable {
+        let version = 1
+        let install: String
+        let team: String
+        let mesh: String
+        let private_key: String
+    }
+
+    private func checkStartup(context: NativeInstallContext, epoch: UInt64, binding: NativeDeviceBinding) async throws {
+        try await check(context, epoch)
+        guard self.binding == binding, let saved else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        let record = try currentRecord(saved.store)
+        guard record.device == binding.device, try record.key.publicKey.rawRepresentation.base64EncodedString() == binding.wgPublicKey else {
+            throw NativeDeviceEnrollmentError.invalidIdentity
+        }
+        try Task.checkCancellation()
+    }
+
     /// Stop admitting enrollments. Sign-out also calls `revoke` while its Stack session is available.
     public func stop() { generation &+= 1; revoked = true; binding = nil }
 

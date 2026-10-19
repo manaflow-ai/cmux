@@ -43,7 +43,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try await bundle(root: root), startup = try startup(), calls = Calls()
         let state = root.appendingPathComponent("native")
-        let child = NativeCloudLinkChild(bundleURL: bundle, directory: state, home: root, prepare: { startup }, reply: { try await calls.answer($0) })
+        let child = NativeCloudLinkChild(bundleURL: bundle, publisher: .development, directory: state, home: root, prepare: { startup }, reply: { try await calls.answer($0) })
         do {
             let socket = try await child.socketPath()
             let answer = try await ProcessRunner.run(executable: bundle.appendingPathComponent("Contents/Resources/bin/cmux-tui"),
@@ -64,7 +64,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try await bundle(root: root), startup = try startup { throw CancellationError() }, calls = Calls()
         let state = root.appendingPathComponent("native")
-        let child = NativeCloudLinkChild(bundleURL: bundle, directory: state, home: root, prepare: { startup }, reply: { try await calls.answer($0) })
+        let child = NativeCloudLinkChild(bundleURL: bundle, publisher: .development, directory: state, home: root, prepare: { startup }, reply: { try await calls.answer($0) })
         await #expect(throws: CancellationError.self) { try await child.socketPath() }
         await child.stop()
         #expect(!FileManager.default.fileExists(atPath: state.path))
@@ -78,7 +78,7 @@ import Testing
         let binary = bundle.appendingPathComponent("Contents/Resources/bin/cmux-tui")
         try FileManager.default.removeItem(at: binary)
         try FileManager.default.createSymbolicLink(at: binary, withDestinationURL: #require(SameTreeDaemonBinary.url))
-        let child = NativeCloudLinkChild(bundleURL: bundle, directory: root.appendingPathComponent("native"), home: root, prepare: { startup }, reply: { try await calls.answer($0) })
+        let child = NativeCloudLinkChild(bundleURL: bundle, publisher: .development, directory: root.appendingPathComponent("native"), home: root, prepare: { startup }, reply: { try await calls.answer($0) })
         await #expect(throws: (any Error).self) { try await child.socketPath() }
         await child.stop()
         #expect(await calls.count == 0)

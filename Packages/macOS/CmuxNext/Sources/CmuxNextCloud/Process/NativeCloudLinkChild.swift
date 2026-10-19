@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+package import Foundation
 
 /// Secret startup bytes stay in memory and go only to the verified child-created channel.
 package struct NativeCloudLinkStartup: Sendable, CustomDebugStringConvertible {
@@ -20,6 +20,7 @@ package actor NativeCloudLinkChild {
     }
 
     private let bundleURL: URL
+    private let publisher: NativeCloudExecutable.Publisher
     private let directory: URL
     private let home: URL
     private let prepare: @Sendable () async throws -> NativeCloudLinkStartup
@@ -31,10 +32,10 @@ package actor NativeCloudLinkChild {
     private var stream: NativeBrokerStream?
     private var socket: String?
 
-    package init(bundleURL: URL, directory: URL, home: URL,
+    package init(bundleURL: URL, publisher: NativeCloudExecutable.Publisher, directory: URL, home: URL,
                  prepare: @escaping @Sendable () async throws -> NativeCloudLinkStartup,
                  reply: @escaping @Sendable (Data) async throws -> Data) {
-        self.bundleURL = bundleURL; self.directory = directory; self.home = home
+        self.bundleURL = bundleURL; self.publisher = publisher; self.directory = directory; self.home = home
         self.prepare = prepare; self.reply = reply
     }
 
@@ -68,7 +69,7 @@ package actor NativeCloudLinkChild {
         var buffer = Data(), next: UInt64 = 1
         for try await chunk in transport.chunks {
             buffer.append(chunk)
-            guard buffer.count <= 4096 else { throw POSIXError(.EMSGSIZE) }
+            guard buffer.count <= 4097 else { throw POSIXError(.EMSGSIZE) }
             guard let end = buffer.firstIndex(of: 0x0A) else { continue }
             guard end == buffer.index(before: buffer.endIndex) else { throw POSIXError(.EPROTO) }
             let line = Data(buffer[..<end]); buffer.removeAll(keepingCapacity: true)
@@ -79,7 +80,8 @@ package actor NativeCloudLinkChild {
             var answer = try await reply(line)
             try await verify()
             answer.append(0x0A)
-            try await transport.send(answer)
+            let payload = answer
+            try await withDeadline(.seconds(5), label: "Native broker reply") { try await transport.send(payload) }
         }
         guard buffer.isEmpty else { throw POSIXError(.EPROTO) }
     }
