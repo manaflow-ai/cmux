@@ -7,6 +7,39 @@ use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
+async fn device_overlay_policy_is_a_single_authorized_read_with_direction_preserved() {
+    let server = MockServer::start().await;
+    let device = "dev_00000000000000000000000000";
+    let receipt = json!({
+        "deviceId":device,"meshId":"mesh_00000000000000000000000000",
+        "wgPublicKey":"dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=",
+        "installPublicKey":"BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=",
+        "aclVersion":4,"policyDigest":"a".repeat(64),"peers":[{
+          "deviceId":"dev_00000000000000000000000001",
+          "wgPublicKey":"dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDI=",
+          "installPublicKey":"BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=",
+          "inbound":[],"outbound":[{"protocol":"tcp","port":4100}]
+        }],"futureField":"kept"
+    });
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/devices/{device}/overlay-policy")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(2)
+        .mount(&server).await;
+    let output = cli(&server, &["--json", "device", "overlay-policy", device]).await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), receipt);
+    let human = cli(&server, &["device", "overlay-policy", device]).await;
+    assert_eq!(human.code, exit::OK, "{}", human.stderr);
+    assert!(human.stdout.contains("outbound tcp:4100"), "{}", human.stdout);
+    assert!(!human.stdout.contains("inbound tcp:4100"), "{}", human.stdout);
+    let invalid = cli(&server, &["device", "overlay-policy", "vm_not_a_device"]).await;
+    assert_eq!(invalid.code, exit::USAGE);
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn pending_history_advances_bounded_index_work_without_polling_or_exposing_it_as_empty() {
     let server = MockServer::start().await;
     let cursor = format!("i1_{}", "a".repeat(32));

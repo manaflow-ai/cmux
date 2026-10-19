@@ -6,18 +6,24 @@ import { deviceRequestBody, enrollBody, makeInstallKey, rotateBody, type Install
 const TEAM = "team_alpha";
 const WG = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
 const WG2 = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDI=";
+const WG3 = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDM=";
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 let h: Harness;
 let admin: string;
 let mesh: string;
 let install: InstallKey;
+let keyIndex = 0;
+const record = (body: unknown): Record<string, unknown> => typeof body === "object" && body !== null ? Object.fromEntries(Object.entries(body)) : {};
+const json = async (response: Response) => record(await response.json());
 const call = (path: string, key: string, method = "GET", body?: unknown) => h.request(path, bearer(key), { method, body });
 const read = (id: string, key = admin) => call(`/v1/devices/${id}/overlay-policy`, key);
 const enroll = async (key = admin, name = "device") => {
-  const response = await call(`/v1/meshes/${mesh}/devices`, key, "POST", await enrollBody(install, mesh, { name, wgPublicKey: WG }));
+  const wgPublicKey = [WG, WG2, WG3][keyIndex++] ?? btoa(String.fromCharCode(...new Uint8Array(32).fill(keyIndex)));
+  const response = await call(`/v1/meshes/${mesh}/devices`, key, "POST", await enrollBody(install, mesh, { name, wgPublicKey }));
   expect(response.status).toBe(201);
-  const body = await response.json() as { device: { id: string } };
-  return body.device.id;
+  const id = record((await json(response))["device"])["id"];
+  if (typeof id !== "string") throw new Error("enroll returned no device id");
+  return id;
 };
 const apply = (rules: unknown[], expectedVersion = 0) => call(`/v1/meshes/${mesh}/acl`, admin, "PUT", { expectedVersion, rules });
 const signed = async (id: string, body = deviceRequestBody(install, id, "overlay-policy")) =>
@@ -27,8 +33,11 @@ beforeEach(async () => {
   h = await makeHarness();
   admin = await h.addKey(TEAM, ALL_SCOPES);
   install = await makeInstallKey();
+  keyIndex = 0;
   const response = await call("/v1/meshes", admin, "POST", {});
-  mesh = (await response.json() as { id: string }).id;
+  const id = (await json(response))["id"];
+  if (typeof id !== "string") throw new Error("create returned no mesh id");
+  mesh = id;
 });
 afterEach(async () => { await h.dispose(); });
 
@@ -38,7 +47,7 @@ describe("device overlay policy", () => {
     const before = h.upstreamRequests.length;
     const response = await read(id);
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await json(response);
     expect(body).toMatchObject({ deviceId: id, meshId: mesh, wgPublicKey: WG, installPublicKey: install.publicKey, aclVersion: 0, peers: [] });
     expect(Object.keys(body).sort()).toEqual(["aclVersion", "deviceId", "installPublicKey", "meshId", "peers", "policyDigest", "wgPublicKey"]);
     expect(h.upstreamRequests).toHaveLength(before);
@@ -52,13 +61,13 @@ describe("device overlay policy", () => {
     const applied = await apply([{ src: [laptop], dst: [server], allow: ["tcp:4100", "udp:53"] }]);
     expect(applied.status).toBe(200);
     expect(await applied.json()).toMatchObject({ ruleCount: 0, overlayRuleCount: 2 });
-    const outbound = await (await read(laptop)).json();
-    const inbound = await (await read(server)).json();
+    const outbound = await json(await read(laptop));
+    const inbound = await json(await read(server));
     const ports = [{ protocol: "tcp", port: 4100 }, { protocol: "udp", port: 53 }];
-    expect(outbound.peers).toEqual([{ deviceId: server, wgPublicKey: WG, installPublicKey: install.publicKey, inbound: [], outbound: ports }]);
-    expect(inbound.peers).toEqual([{ deviceId: laptop, wgPublicKey: WG, installPublicKey: install.publicKey, inbound: ports, outbound: [] }]);
+    expect(outbound["peers"]).toEqual([{ deviceId: server, wgPublicKey: WG2, installPublicKey: install.publicKey, inbound: [], outbound: ports }]);
+    expect(inbound["peers"]).toEqual([{ deviceId: laptop, wgPublicKey: WG, installPublicKey: install.publicKey, inbound: ports, outbound: [] }]);
     expect(h.upstreamRequests).toHaveLength(before);
-    expect((await (await call(`/v1/devices/${laptop}/peers`, admin)).json()).peers).toEqual([]);
+    expect((await json(await call(`/v1/devices/${laptop}/peers`, admin)))["peers"]).toEqual([]);
   });
 
   it("reads with a device signature and enforces purpose, freshness, replay and revocation", async () => {
@@ -91,15 +100,15 @@ describe("device overlay policy", () => {
     const owner = await h.addKey(TEAM, ["mesh:join"]);
     const server = await enroll(owner, "server");
     expect((await apply([{ src: [laptop], dst: [server], allow: ["tcp:4100"] }])).status).toBe(200);
-    const initial = await (await read(laptop)).json();
-    const rotated = await call(`/v1/devices/${server}/rotate-key`, owner, "POST", await rotateBody(install, server, WG2));
+    const initial = await json(await read(laptop));
+    const rotated = await call(`/v1/devices/${server}/rotate-key`, owner, "POST", await rotateBody(install, server, WG3));
     expect(rotated.status).toBe(200);
-    const updated = await (await read(laptop)).json();
-    expect(updated.aclVersion).toBe(initial.aclVersion);
-    expect(updated.policyDigest).not.toBe(initial.policyDigest);
-    expect(updated.peers[0].wgPublicKey).toBe(WG2);
+    const updated = await json(await read(laptop));
+    expect(updated["aclVersion"]).toBe(initial["aclVersion"]);
+    expect(updated["policyDigest"]).not.toBe(initial["policyDigest"]);
+    expect(updated["peers"]).toEqual([expect.objectContaining({ wgPublicKey: WG3 })]);
     await h.revokeKey(owner);
-    expect((await (await read(laptop)).json()).peers).toEqual([]);
+    expect((await json(await read(laptop)))["peers"]).toEqual([]);
   });
 
   it("removes deleted devices even when an old ACL still names them", async () => {
@@ -107,7 +116,7 @@ describe("device overlay policy", () => {
     const server = await enroll();
     expect((await apply([{ src: [laptop], dst: [server], allow: ["*"] }])).status).toBe(200);
     expect((await call(`/v1/devices/${server}`, admin, "DELETE")).status).toBe(204);
-    expect((await (await read(laptop)).json()).peers).toEqual([]);
+    expect((await json(await read(laptop)))["peers"]).toEqual([]);
     expect((await read(server)).status).toBe(404);
   });
 });
