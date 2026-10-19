@@ -527,10 +527,7 @@ struct AgentResumeArgvTests {
                     "--config=model_provider='subrouter'",
                 ],
                 environment: boundSubrouterMarker()
-            ) == .resolved([
-                "sr", "codex", "resume", "SID",
-                "-c", "check_for_update_on_startup=false",
-            ])
+            ) == .passthrough
         )
 
         #expect(
@@ -645,6 +642,22 @@ struct AgentResumeArgvTests {
             launcher: "codex",
             environment: marker
         ) == ["codex", "--"])
+    }
+
+    @Test("Legacy shell routing proof requires a canonical codex argv")
+    func legacyShellRoutingProofRejectsSpoofedText() {
+        let router = SubrouterCodexResumeRouting()
+        #expect(router.usesSubrouterProvider(in: "codex -c model_provider=subrouter"))
+        #expect(router.usesSubrouterProvider(in: "sr codex -c 'model_provider=\"subrouter\"'"))
+        #expect(!router.usesSubrouterProvider(in: "echo model_provider=subrouter"))
+        #expect(!router.usesSubrouterProvider(in: "codex resume SID -- 'echo model_provider=subrouter'"))
+        #expect(!router.usesSubrouterProvider(in: "codex -c model_provider=subrouterish"))
+        #expect(!router.usesSubrouterProvider(in: "codex -c 'model_provider=subrouter"))
+        #expect(router.usesSubrouterProvider(in: "codex -c model_provider=subrouter -- 'prompt ; rm -rf /'"))
+        #expect(!router.usesSubrouterProvider(in: [
+            "codex", "-c", "model_provider=subrouter", "-c", "model_provider=openai",
+        ]))
+        #expect(!router.usesSubrouterProvider(in: "codex -c model_provider=openai -c model_provider=subrouter"))
     }
 
     @Test("Codex wrapper rendering does not rewrite sr's codex subcommand")

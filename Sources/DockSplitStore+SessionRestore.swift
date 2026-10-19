@@ -331,15 +331,24 @@ extension DockSplitStore {
         // still a valid resumable session. Treat only an explicitly identified
         // Subrouter Codex binding as eligible; ordinary binding-only records
         // keep the existing conservative shell-only restore behavior.
-        let legacyCodexSubrouterBinding =
-            terminalSnapshot.resumeBinding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ==
-                RestorableAgentKind.codex.rawValue &&
-            terminalSnapshot.resumeBinding?.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
-            true
+        let legacySubrouterBinding = {
+            let binding = terminalSnapshot.resumeBinding
+            guard binding?.autoResume == true else { return false }
+            let launch = binding?.launchCommand ?? restorableAgent?.launchCommand ?? terminalSnapshot.agent?.launchCommand
+            let kind = binding?.kind ?? restorableAgent?.kind.rawValue ?? terminalSnapshot.agent?.kind.rawValue
+            let sessionID = binding?.checkpointId ?? restorableAgent?.sessionId ?? terminalSnapshot.agent?.sessionId
+            return Workspace.legacySubrouterResumeStartupInput(
+                kind: kind,
+                sessionID: sessionID,
+                launchCommand: launch,
+                resumeBinding: binding,
+                workingDirectory: nil
+            ) != nil
+        }()
         let shouldAutoResumeAgent =
             (autoResumeAgentSessions &&
-                (agentWasRunning || shouldAutoResumeNormallyEndedClaude || legacyCodexSubrouterBinding) ||
-             legacyCodexSubrouterBinding) &&
+                (agentWasRunning || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding) ||
+             legacySubrouterBinding) &&
             !suppressesResumeForBackgroundSession
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
@@ -446,23 +455,16 @@ extension DockSplitStore {
             terminalSnapshot.resumeBinding?.kind ?? terminalSnapshot.agent?.kind.rawValue
         let capturedAgentSessionID = restorableAgent?.sessionId ?? approvedResumeBinding?.checkpointId ??
             terminalSnapshot.resumeBinding?.checkpointId ?? terminalSnapshot.agent?.sessionId
-        let legacySubrouterResumeInput: String? = {
-            let launch = terminalSnapshot.resumeBinding?.launchCommand ??
-                terminalSnapshot.agent?.launchCommand ?? capturedCodexLaunch
-            let kind = terminalSnapshot.resumeBinding?.kind ?? capturedAgentKind
-            let sessionID = terminalSnapshot.resumeBinding?.checkpointId ?? capturedAgentSessionID
-            guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue,
-                  let sessionID,
-                  legacyCodexSubrouterBinding else {
-                return nil
-            }
-            let command = "sr codex resume \(sessionID) --cd \(TerminalStartupShellQuoting.singleQuoted(resumeSessionWorkingDirectory ?? workingDirectory))"
-            let prefixed = TerminalStartupWorkingDirectoryPrefix.prefix(
-                command,
+        let legacySubrouterResumeInput = legacySubrouterBinding
+            ? Workspace.legacySubrouterResumeStartupInput(
+                kind: terminalSnapshot.resumeBinding?.kind ?? capturedAgentKind,
+                sessionID: terminalSnapshot.resumeBinding?.checkpointId ?? capturedAgentSessionID,
+                launchCommand: terminalSnapshot.resumeBinding?.launchCommand ??
+                    terminalSnapshot.agent?.launchCommand ?? capturedCodexLaunch,
+                resumeBinding: terminalSnapshot.resumeBinding,
                 workingDirectory: resumeSessionWorkingDirectory
             )
-            return TerminalStartupTypedShellCommand().typedInput(posixCommand: prefixed) + "\n"
-        }()
+            : nil
         // A legacy direct binding can contain a stale per-session Subrouter
         // URL. Let the live `sr codex resume` route rebuild provider config.
         let bindingLaunch = legacySubrouterResumeInput == nil ? unresolvedBindingLaunch : nil

@@ -1202,6 +1202,68 @@ extension Workspace {
         return restorableAgent
     }
 
+    /// Builds the legacy Subrouter resume input only when the persisted launch
+    /// record carries provider evidence that can be checked without executing
+    /// the captured shell command. Older snapshots may have only a hook
+    /// binding, so both the binding and its structured launch capture are
+    /// considered. A missing or disagreeing provider signal leaves the normal
+    /// restore path untouched.
+    nonisolated static func legacySubrouterResumeStartupInput(
+        kind: String?,
+        sessionID: String?,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        workingDirectory: String?
+    ) -> String? {
+        guard let normalizedKind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              let normalizedSessionID = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalizedSessionID.isEmpty else {
+            return nil
+        }
+
+        let capturedLaunch = launchCommand ?? resumeBinding?.launchCommand
+        let capturedArguments = capturedLaunch?.arguments ?? []
+        let capturedEnvironment = (resumeBinding?.environment ?? [:]).merging(
+            capturedLaunch?.environment ?? [:],
+            uniquingKeysWith: { _, launchValue in launchValue }
+        )
+        let commandArguments: [String]
+        switch normalizedKind {
+        case RestorableAgentKind.codex.rawValue:
+            guard SubrouterCodexResumeRouting().usesSubrouterProvider(in: capturedArguments) ||
+                    SubrouterCodexResumeRouting().usesSubrouterProvider(in: resumeBinding?.command) else {
+                return nil
+            }
+            let directory = workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
+            commandArguments = [
+                "sr", "codex", "resume", normalizedSessionID,
+                "--cd", directory,
+            ]
+        case RestorableAgentKind.claude.rawValue:
+            guard let routedArguments = SubrouterClaudeResumeRouting().resumeArguments(
+                launcher: capturedLaunch?.launcher ?? normalizedKind,
+                sessionID: normalizedSessionID,
+                launchArguments: capturedArguments,
+                environment: capturedEnvironment,
+                launcherPrefix: capturedLaunch?.launcherPrefix
+            ) else {
+                return nil
+            }
+            commandArguments = routedArguments
+        default:
+            return nil
+        }
+
+        let command = commandArguments
+            .map(TerminalStartupShellQuoting.singleQuoted)
+            .joined(separator: " ")
+        let prefixed = TerminalStartupWorkingDirectoryPrefix.prefix(
+            command,
+            workingDirectory: workingDirectory
+        )
+        return TerminalStartupTypedShellCommand().typedInput(posixCommand: prefixed) + "\n"
+    }
+
     nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -1683,23 +1745,24 @@ extension Workspace {
             // Legacy Codex/Subrouter records can have only a hook binding and
             // `wasAgentRunning == false`; their durable checkpoint is still
             // explicitly resumable and must not degrade to an empty shell.
-            let legacyCodexSubrouterLaunchArguments =
-                persistedResumeBinding?.launchCommand?.arguments ??
-                resumeBinding?.launchCommand?.arguments ??
-                snapshot.terminal?.agent?.launchCommand?.arguments ?? []
-            let legacyCodexSubrouterProvider =
-                SubrouterCodexResumeRouting().usesSubrouterProvider(in: persistedResumeBinding?.command) ||
-                SubrouterCodexResumeRouting().usesSubrouterProvider(in: legacyCodexSubrouterLaunchArguments)
-            let legacyCodexSubrouterBinding =
-                (persistedResumeBinding?.kind ?? resumeBinding?.kind)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ==
-                    RestorableAgentKind.codex.rawValue &&
-                (persistedResumeBinding?.checkpointId ?? resumeBinding?.checkpointId)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
-                (persistedResumeBinding?.autoResume ?? resumeBinding?.autoResume) == true &&
-                legacyCodexSubrouterProvider
+            let legacySubrouterBinding = {
+                let binding = persistedResumeBinding ?? resumeBinding
+                guard binding?.autoResume == true else { return false }
+                let launch = binding?.launchCommand ?? snapshot.terminal?.agent?.launchCommand
+                let kind = binding?.kind ?? snapshot.terminal?.agent?.kind.rawValue
+                let sessionID = binding?.checkpointId ?? snapshot.terminal?.agent?.sessionId
+                return Self.legacySubrouterResumeStartupInput(
+                    kind: kind,
+                    sessionID: sessionID,
+                    launchCommand: launch,
+                    resumeBinding: binding,
+                    workingDirectory: nil
+                ) != nil
+            }()
             let shouldAutoResumeAgent =
                 (autoResumeAgentSessions &&
-                    (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude || legacyCodexSubrouterBinding) ||
-                 legacyCodexSubrouterBinding) &&
+                    (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding) ||
+                 legacySubrouterBinding) &&
                 !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
@@ -1833,27 +1896,16 @@ extension Workspace {
                 persistedResumeBinding?.kind ?? snapshot.terminal?.agent?.kind.rawValue
             let capturedAgentSessionID = restorableAgent?.sessionId ?? effectiveResumeBindingForStartup?.checkpointId ??
                 persistedResumeBinding?.checkpointId ?? snapshot.terminal?.agent?.sessionId
-            let legacySubrouterResumeInput: String? = {
-                let launch = persistedResumeBinding?.launchCommand ??
-                    snapshot.terminal?.agent?.launchCommand ?? capturedCodexLaunch
-                let kind = persistedResumeBinding?.kind ?? capturedAgentKind
-                let sessionID = persistedResumeBinding?.checkpointId ?? capturedAgentSessionID
-                guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue,
-                      let sessionID,
-                      legacyCodexSubrouterBinding else {
-                    return nil
-                }
-                let command = "sr codex resume \(sessionID) --cd \(TerminalStartupShellQuoting.singleQuoted(resumeSessionWorkingDirectory ?? workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path))"
-                let startupDelaySeconds = Int(String(sessionID.prefix(8)), radix: 16).map { $0 % 60 } ?? 0
-                let delayedCommand = startupDelaySeconds == 0
-                    ? command
-                    : "sleep \(startupDelaySeconds); \(command)"
-                let prefixed = TerminalStartupWorkingDirectoryPrefix.prefix(
-                    delayedCommand,
+            let legacySubrouterResumeInput = legacySubrouterBinding
+                ? Self.legacySubrouterResumeStartupInput(
+                    kind: persistedResumeBinding?.kind ?? capturedAgentKind,
+                    sessionID: persistedResumeBinding?.checkpointId ?? capturedAgentSessionID,
+                    launchCommand: persistedResumeBinding?.launchCommand ??
+                        snapshot.terminal?.agent?.launchCommand ?? capturedCodexLaunch,
+                    resumeBinding: persistedResumeBinding ?? resumeBinding,
                     workingDirectory: resumeSessionWorkingDirectory
                 )
-                return TerminalStartupTypedShellCommand().typedInput(posixCommand: prefixed) + "\n"
-            }()
+                : nil
             let restoredBindingLaunch = legacySubrouterResumeInput == nil ? unresolvedBindingLaunch : nil
             let restorableTmuxStartCommand = localTmuxStartCommand
                 ?? (!restoreStartupBlocked &&

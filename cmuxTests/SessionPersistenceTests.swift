@@ -8057,4 +8057,101 @@ extension SessionPersistenceTests {
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "notes.txt", relativeToMarkdownFile: openedFile.path))
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "https://example.com/notes.md", relativeToMarkdownFile: openedFile.path))
     }
+
+    func testLegacySubrouterCodexRestoreRequiresProviderProofAndQuotesInput() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.codex.rawValue,
+            command: "codex resume -c model_provider=subrouter",
+            cwd: "/tmp/project with spaces",
+            checkpointId: "codex session",
+            autoResume: true
+        )
+        let launch = AgentLaunchCommandSnapshot(
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        let input = try XCTUnwrap(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: binding.kind,
+                sessionID: binding.checkpointId,
+                launchCommand: launch,
+                resumeBinding: binding,
+                workingDirectory: binding.cwd
+            )
+        )
+
+        XCTAssertTrue(input.contains("'sr' 'codex' 'resume' 'codex session'"), input)
+        XCTAssertTrue(input.contains("'--cd' '/tmp/project with spaces'"), input)
+        XCTAssertTrue(input.contains("cd -- '/tmp/project with spaces'"), input)
+
+        let unproven = SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.codex.rawValue,
+            command: "codex resume",
+            checkpointId: "codex session",
+            autoResume: true
+        )
+        XCTAssertNil(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: unproven.kind,
+                sessionID: unproven.checkpointId,
+                launchCommand: AgentLaunchCommandSnapshot(arguments: ["codex", "resume"]),
+                resumeBinding: unproven,
+                workingDirectory: "/tmp/project"
+            )
+        )
+    }
+
+    func testLegacySubrouterClaudeRestoreRequiresAgreeingMarkers() throws {
+        let marker = "sr claude proxy --resume"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.claude.rawValue,
+            command: "claude --resume",
+            checkpointId: "claude-session-123",
+            environment: [
+                SubrouterClaudeResumeRouting.environmentKey: marker,
+                SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+            ],
+            autoResume: true
+        )
+        let launch = AgentLaunchCommandSnapshot(
+            launcher: RestorableAgentKind.claude.rawValue,
+            arguments: ["claude"],
+            environment: binding.environment
+        )
+
+        let input = try XCTUnwrap(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: binding.kind,
+                sessionID: binding.checkpointId,
+                launchCommand: launch,
+                resumeBinding: binding,
+                workingDirectory: "/tmp/claude repo"
+            )
+        )
+        XCTAssertTrue(input.contains("'sr' 'claude' 'proxy' '--resume' 'claude-session-123'"), input)
+        XCTAssertTrue(input.contains("cd -- '/tmp/claude repo'"), input)
+
+        var disagreeingEnvironment = binding.environment ?? [:]
+        disagreeingEnvironment[SubrouterClaudeResumeRouting.launchBoundEnvironmentKey] = "sr claude proxy"
+        let disagreeing = SurfaceResumeBindingSnapshot(
+            kind: binding.kind,
+            command: binding.command,
+            checkpointId: binding.checkpointId,
+            environment: disagreeingEnvironment,
+            autoResume: true
+        )
+        XCTAssertNil(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: disagreeing.kind,
+                sessionID: disagreeing.checkpointId,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: RestorableAgentKind.claude.rawValue,
+                    arguments: ["claude"],
+                    environment: disagreeing.environment
+                ),
+                resumeBinding: disagreeing,
+                workingDirectory: "/tmp/claude repo"
+            )
+        )
+    }
 }
