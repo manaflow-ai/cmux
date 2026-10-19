@@ -58,9 +58,14 @@ public nonisolated struct NewWorkspaceName {
     /// (coordinator decision 2026-10-03): the old workspace's name when the
     /// user named it, else the tab's name.
     public static func forLastTab(workspaceName: String, workspaceTitle: String?, tab: Tab) -> String? {
+        forLastTab(workspaceName: workspaceName, workspaceTitle: workspaceTitle, tabName: forTab(tab))
+    }
+
+    /// `forLastTab` with the tab's name already read (an agent chat's comes from its chat).
+    public static func forLastTab(workspaceName: String, workspaceTitle: String?, tabName: String?) -> String? {
         if let title = clean(workspaceTitle) { return title }
         if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
-        return forTab(tab)
+        return tabName
     }
 
     /// True for a name the daemon gave (`workspace-N`, its default).

@@ -10,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWorkspaceNaming
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -249,7 +250,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         DebugTimings.markLaunch("workspace_content_shown")
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
-            for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
+            // Named as its sidebar row is: a workspace on the daemon's default name reads as its
+            // front tab (a torn-off chat's window read "workspace-41").
+            for await title in ObservationStream({ [weak self] in self?.titlebarTitle(workspace) ?? workspace.displayName }) {
+                self?.root.titlebar.title = title
+            }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
@@ -260,6 +265,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
+
+    /// What the titlebar names `workspace`: its front tab's name while it keeps the daemon's default (`WorkspaceAutoNameReader.displayName`).
+    private func titlebarTitle(_ workspace: WorkspaceModel) -> String {
+        let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { [state] in state.selection.selection(in: $0.id) })
+        return WorkspaceAutoNameWiring(services: services).reader.displayName(workspace, front: front)
+    }
 
     /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
     func parkContentForPage() {
