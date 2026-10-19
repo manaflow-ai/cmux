@@ -77,3 +77,41 @@ test("Changes shows with the chat's changes or its open diff, and lights while t
   act(() => applyHostEvent({ kind: "headerState", value: { lit: [] } }));
   expect(changes()).toBeNull();
 });
+
+// Lucas 2026-10-19: with the chat's viewer (labs chatViewer) Files and Changes open beside the chat,
+// not in a split the host lights; the App says which is open, and its button lights so it reads as
+// the way to close it.
+test("Files and Changes light while the chat's viewer shows them", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
+  configureQuickActions({ quickActions: ["terminal", "browser", "changes", "files", "newTab"] });
+  applyHostEvent({ kind: "headerState", value: { lit: [] } });
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const render = (viewing: string[]) =>
+    act(() =>
+      root!.render(
+        <ChatHeaderTools
+          onTerminal={() => {}}
+          onBrowser={() => {}}
+          hasChanges
+          onChanges={() => {}}
+          onFiles={() => {}}
+          viewing={viewing}
+          summary={null}
+          menu={() => []}
+        />,
+      ),
+    );
+  const button = (label: string) => host.querySelector(`.acpmux-header-tools button[aria-label="${label}"]`);
+  render([]);
+  expect(button("Files")?.getAttribute("aria-pressed")).toBe("false");
+  render([HEADER_ACTIONS.files]);
+  expect(button("Files")?.getAttribute("aria-pressed")).toBe("true");
+  expect(button("Changes")?.getAttribute("aria-pressed")).toBe("false");
+  render([HEADER_ACTIONS.changes]);
+  expect(button("Changes")?.getAttribute("aria-pressed")).toBe("true");
+  expect(button("Files")?.getAttribute("aria-pressed")).toBe("false");
+});

@@ -45,6 +45,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+document.documentElement.setAttribute("data-lab-live-render", "off");
 
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
@@ -91,7 +92,7 @@ async function frameMessage(theme: typeof LIGHT, html: string): Promise<{ html: 
   act(() => root?.unmount());
   root = createRoot(host);
   act(() => root!.render(<RenderCard call={{ html, title: "Report" }} />));
-  act(() => [...host.querySelectorAll("button")].find((element) => element.textContent === "Run")!.click());
+  act(() => [...host.querySelectorAll("button")].find((element) => element.textContent === "Show preview")!.click());
   const frame = host.querySelector("iframe")!.contentWindow!;
   const sent: unknown[] = [];
   frame.postMessage = ((message: unknown) => sent.push(message)) as never;
@@ -101,16 +102,40 @@ async function frameMessage(theme: typeof LIGHT, html: string): Promise<{ html: 
   act(() => {
     globalThis.dispatchEvent(ready);
   });
-  expect(sent).toHaveLength(1);
-  return sent[0] as { html: string; css: string };
+  const pages = sent.filter((message) => (message as { type?: string }).type === "cmux-render");
+  expect(pages).toHaveLength(1);
+  return pages[0] as { html: string; css: string };
+}
+
+/// The base and the kit sit in `@layer cmux`, so a page's own layered CSS (Tailwind v4) wins too.
+/// happy-dom drops a layer's rules (it implements no cascade layers), so the page here gets them
+/// unlayered: one layer down from where WebKit puts them, which only makes "the page wins" harder.
+function unlayer(css: string): string {
+  let out = "";
+  let at = 0;
+  for (let open = css.indexOf("@layer cmux{", at); open >= 0; open = css.indexOf("@layer cmux{", at)) {
+    out += css.slice(at, open);
+    let depth = 1;
+    let index = open + "@layer cmux{".length;
+    const start = index;
+    while (index < css.length && depth > 0) {
+      if (css[index] === "{") depth += 1;
+      else if (css[index] === "}") depth -= 1;
+      index += 1;
+    }
+    out += css.slice(start, index - 1);
+    at = index;
+  }
+  return out + css.slice(at);
 }
 
 /// The frame's page, as AgentPaneRenderFrame.swift builds it: the HTML, then the card's styles first in its head.
 function framePage(message: { html: string; css: string }) {
+  if (message.css) expect(message.css.startsWith("@layer cmux{")).toBe(true);
   const page = new Window();
   page.document.write(message.html);
   const theme = page.document.createElement("style");
-  theme.textContent = message.css;
+  theme.textContent = unlayer(message.css);
   page.document.head.insertBefore(theme, page.document.head.firstChild);
   const style = (selector: string) => page.getComputedStyle(page.document.querySelector(selector)!);
   return { page, style, root: page.getComputedStyle(page.document.documentElement) };

@@ -68,7 +68,7 @@ function Parity() {
     <div ref={scroller} style={{ width, height, overflow: "hidden", position: "relative" }}>
       <ThreadMinimap
         rows={rows}
-        layout={layout}
+        getLayout={() => layout}
         scroller={scroller}
         scrollTop={scrollTop}
         viewportHeight={height}

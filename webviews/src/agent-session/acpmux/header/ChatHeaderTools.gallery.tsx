@@ -93,6 +93,23 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
+// Panels as tabs on the right (agentChat.panelTabs): a panel is open beside the chat, so the header
+// keeps only the summary and "...".
+const panelTabsOpen: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitBrowserRight"], sideTabs: true, panelTabs: true });
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-header-tool"));
+};
+
+// The [+] header designs (headerStyle.ts): what layout.json's `headerStyle` sets.
+const headerStyleIs =
+  (style: "add" | "add-terminal"): Play =>
+  async (ctx) => {
+    const { configureHeaderStyle } = await import("./headerStyle");
+    configureHeaderStyle({ headerStyle: style });
+    await ctx.waitFor(() => ctx.document.querySelector('[aria-label="New tab"]'));
+  };
+
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
 const pullRequestChip: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
@@ -292,6 +309,21 @@ export default componentEntry<HeaderToolsProps>({
         onPreview: () => undefined,
       },
       play: panelsOpen,
+    },
+    "add-menu": {
+      note: "layout.json headerStyle add: one [+] lists every tab the chat opens beside it (Terminal, Browser, Changes, Preview, Files, Split Down); each pick adds one.",
+      props: { ...base, hasChanges: true, onChanges: () => undefined },
+      play: headerStyleIs("add"),
+    },
+    "add-terminal": {
+      note: "layout.json headerStyle add-terminal: Terminal keeps its button; [+] lists the rest.",
+      props: { ...base, hasChanges: true, onChanges: () => undefined },
+      play: headerStyleIs("add-terminal"),
+    },
+    "panel-tabs": {
+      note: "Debug Settings agentChat.panelTabs: with a panel beside the chat its tab strip takes new tabs, so the header keeps only the summary and the chat menu, which lists Terminal and Browser first.",
+      props: { ...base, sideTabs: true },
+      play: panelTabsOpen,
     },
     "pull-request": {
       note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",
