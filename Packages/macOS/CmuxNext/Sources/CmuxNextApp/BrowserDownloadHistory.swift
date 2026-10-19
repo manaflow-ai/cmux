@@ -47,6 +47,7 @@ final class BrowserDownloadHistory {
         let url = url
         return await Task.detached(priority: .userInitiated) {
             // concurrency-allow: runs in a detached task, off the main actor
+            try? Self.secureStorage(at: url)
             guard let data = try? Data(contentsOf: url),
                   let document = try? JSONDecoder().decode(Document.self, from: data) else { return [Row]() }
             return document.downloads
@@ -64,14 +65,28 @@ final class BrowserDownloadHistory {
             await previous?.value
             do {
                 if let data, !rows.isEmpty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Self.secureStorage(at: url)
                     try data.write(to: url, options: .atomic)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
                 } else if FileManager.default.fileExists(atPath: url.path) {
                     try FileManager.default.removeItem(at: url)
                 }
             } catch {
                 logger.error("downloads list write failed: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// Browser metadata belongs only to this account. Tightens an existing install as well as a
+    /// new one; the private parent also closes the atomic-write window before the file is chmodded.
+    nonisolated private static func secureStorage(at url: URL) throws {
+        let files = FileManager.default
+        let directory = url.deletingLastPathComponent()
+        try files.createDirectory(at: directory, withIntermediateDirectories: true,
+                                  attributes: [.posixPermissions: 0o700])
+        try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        if files.fileExists(atPath: url.path) {
+            try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
 }
