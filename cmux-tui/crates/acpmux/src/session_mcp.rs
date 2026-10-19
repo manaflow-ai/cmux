@@ -27,6 +27,8 @@
 //!   `spawnedBy` tag) and the chat that started this one. Reads are open.
 //! - The worktree's git runs with hooks and fsmonitor off, so a hook the
 //!   agent wrote in its own repository does not run here.
+//! - What `list_sessions` and `read_session` return is masked
+//!   (`secret_scan`): titles, last messages and replies.
 //! - A peer strips a prompt's provenance (`remote_guard.rs`), so a brief or
 //!   message to another host starts with a line naming the sending session.
 
@@ -370,16 +372,23 @@ fn started_by(info: &Value) -> Option<&str> {
     info["tags"][crate::hub::views::SPAWNED_BY_TAG].as_str().or_else(|| info["spawnedBy"].as_str())
 }
 
-/// The fields of a session summary an agent needs.
+/// `text` with every secret `secret_scan` finds masked, so one chat's agent
+/// never reads a key the person pasted into another chat. Masked before any
+/// cut, which could leave a key the scan no longer knows.
+fn masked(text: &str) -> String {
+    crate::secret_scan::mask(text)
+}
+
+/// The fields of a session summary an agent needs, its text masked.
 fn row(s: &Value) -> Value {
     let preview: Option<String> = s["lastMessage"]["text"]
         .as_str()
         .or_else(|| s["preview"].as_str())
-        .map(|t| t.chars().take(PREVIEW_CHARS).collect());
+        .map(|t| masked(t).chars().take(PREVIEW_CHARS).collect());
     json!({
         "sessionId": s["sessionId"],
         "name": s["name"],
-        "title": s["title"],
+        "title": s["title"].as_str().map(masked),
         "harness": s["harness"],
         "model": s["model"],
         "cwd": s["cwd"],
@@ -590,8 +599,8 @@ async fn settle(daemon: &Client, id: &str, seconds: u64) -> Result<bool, String>
     }
 }
 
-/// The last `count` replies of session `id`, read without showing the chat
-/// (`visible: false`), so reading it never clears its unread mark.
+/// The last `count` replies of session `id`, masked, read without showing the
+/// chat (`visible: false`), so reading it never clears its unread mark.
 async fn last_replies(daemon: &Client, id: &str, count: usize) -> Result<Vec<String>, String> {
     use crate::transcript::{Item, Transcript};
     let params = json!({"sessionId": id, "limit": 5000, "visible": false});
@@ -606,7 +615,7 @@ async fn last_replies(daemon: &Client, id: &str, count: usize) -> Result<Vec<Str
         .iter()
         .rev()
         .filter_map(|item| match item {
-            Item::Assistant { text } => Some(text.clone()),
+            Item::Assistant { text } => Some(masked(text)),
             _ => None,
         })
         .take(count.max(1))

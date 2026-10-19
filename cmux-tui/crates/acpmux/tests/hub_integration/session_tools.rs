@@ -174,6 +174,18 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
     let read = mcp.call("read_session", json!({"session": child_id, "wait_seconds": 30})).await;
     assert!(read["structuredContent"]["replies"].to_string().contains("echo: again"), "{read}");
 
+    // A key in another chat's text comes back masked from both reads.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let sent = mcp
+        .call("send_to_session", json!({"session": child_id, "text": format!("use {key}")}))
+        .await;
+    assert_eq!(sent["isError"], false, "{sent}");
+    let read = mcp.call("read_session", json!({"session": child_id, "wait_seconds": 30})).await;
+    let shown = read.to_string();
+    assert!(shown.contains("[AWS access key]") && !shown.contains(&key), "{read}");
+    let listed = mcp.call("list_sessions", json!({"mine": true})).await.to_string();
+    assert!(!listed.contains(&key), "{listed}");
+
     // Refusals: this chat itself, a chat it did not start, a worktree on another host, a
     // missing brief.
     let other =
