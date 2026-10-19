@@ -8,7 +8,7 @@ import CmuxNextDesign
 /// leaves before the label (`barSlotY`). Line pitch matches
 /// `SidebarLayoutMetrics.statusHeight`.
 final class WorkspaceStatusView: NSView {
-    private static let pillHorizontalPadding: CGFloat = Metrics.space2
+    private static var pillHorizontalPadding: CGFloat { Metrics.space2 }
     private static let pillFillAlpha: CGFloat = 0.16
 
     private var labels: [NSTextField] = []
@@ -30,7 +30,7 @@ final class WorkspaceStatusView: NSView {
             pills.append(pill)
             addSubview(pill)
 
-            let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+            let label = SidebarRowView.attributedLabel(font: SidebarStyle.subtitleFont)
             labels.append(label)
             addSubview(label)
         }

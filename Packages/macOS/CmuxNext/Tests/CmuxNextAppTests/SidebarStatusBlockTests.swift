@@ -1,8 +1,8 @@
+import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextSettings
 @testable import CmuxNextSidebar
-import AppKit
 import Testing
 
 /// Classic's status block in workspace rows (#16431): with default settings, a workspace whose
@@ -87,6 +87,7 @@ struct SidebarStatusBlockTests {
         #expect(pills[1].layer?.backgroundColor != nil)
         #expect(pills[2].isHidden)
         #expect(labels[0].frame.width < view.bounds.width)
-        #expect(labels[0].frame.height <= SidebarLayoutMetrics.standard.statusLineHeight)
+        // A pill keeps the plain status line height, so rows do not grow.
+        #expect(labels[0].frame.height == labels[2].frame.height)
     }
 }
