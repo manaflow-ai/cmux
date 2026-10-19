@@ -1,7 +1,10 @@
 """Which agent PRs the nightly stale-PR job closes, lists or keeps."""
 import datetime as dt
 import importlib.util
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -28,13 +31,15 @@ def pr(number=1, *, idle=30, base="main", labels=(), title="cmux-next: tidy", co
     }
 
 
-LANDED = module.Score(present=10, total=10)
+LANDED = module.Score(present=10, total=10)  # with applied=True below
 MOSTLY = module.Score(present=95, total=100)
 PARTIAL = module.Score(present=50, total=100)
 
 
-def classify(p, *, score=None, successor=None):
-    return module.classify(p, now=NOW, score=score, successor=successor, stale_days=14, landed_idle_days=3)
+def classify(p, *, score=None, successor=None, applied=None):
+    if applied is None:
+        applied = score is LANDED
+    return module.classify(p, now=NOW, score=score, successor=successor, stale_days=14, landed_idle_days=3, applied=applied)
 
 
 class ClassifyTests(unittest.TestCase):
@@ -83,11 +88,17 @@ class ClassifyTests(unittest.TestCase):
                 self.assertEqual((v.action, v.reason), ("skip", reason))
 
     def test_stacked_on_a_live_base_is_left_to_its_base(self):
-        v = module.classify(pr(base="claude/base"), now=NOW, score=LANDED, successor=None, stale_days=14, landed_idle_days=3, live_branches={"claude/base"})
+        v = module.classify(pr(base="claude/base"), now=NOW, score=LANDED, successor=None, stale_days=14, landed_idle_days=3, live_branches={"claude/base"}, applied=True)
         self.assertEqual(v.action, "keep")
 
-    def test_security_and_dead_stacks_are_listed_never_closed(self):
-        for reason, p in {"security": pr(title="fix: ACL check in relay"), "stacked on deleted claude/base": pr(base="claude/base")}.items():
+    def test_full_line_share_without_reverse_apply_is_only_listed(self):
+        v = classify(pr(idle=5), score=module.Score(present=10, total=10), applied=False)
+        self.assertEqual((v.action, v.reason), ("list", "mostly landed 100%"))
+
+    def test_security_drafts_and_dead_stacks_are_listed_never_closed(self):
+        draft = pr()
+        draft["isDraft"] = True
+        for reason, p in {"security": pr(title="fix: ACL check in relay"), "stacked on deleted claude/base": pr(base="claude/base"), "draft": draft}.items():
             with self.subTest(reason=reason):
                 v = classify(p, score=LANDED)
                 self.assertEqual((v.action, v.reason), ("list", reason))
@@ -97,18 +108,16 @@ class ScoreTests(unittest.TestCase):
     def test_all_added_lines_on_base_and_removed_lines_gone(self):
         files = [{"filename": "a.py", "status": "modified", "patch": "@@ -1,2 +1,2 @@\n x = 1\n-old_value = legacy()\n+value = compute()\n+\n+import os\n"}]
         result = module.score(files, {"a.py": "x = 1\n    value = compute()\n"})
-        self.assertEqual((result.present, result.total), (1, 1))
-        self.assertTrue(result.landed)
+        self.assertEqual((result.present, result.total, result.removed_left), (1, 1, 0))
 
-    def test_removed_line_still_on_base_is_not_landed(self):
+    def test_removed_line_still_on_base_is_counted(self):
         files = [{"filename": "a.py", "status": "modified", "patch": "-old_value = legacy()\n+value = compute()\n"}]
-        self.assertFalse(module.score(files, {"a.py": "value = compute()\nold_value = legacy()\n"}).landed)
+        self.assertEqual(module.score(files, {"a.py": "value = compute()\nold_value = legacy()\n"}).removed_left, 1)
 
     def test_share_counts_missing_lines(self):
         files = [{"filename": "a.py", "status": "modified", "patch": "+value = compute()\n+other = thing()\n"}]
         result = module.score(files, {"a.py": "value = compute()\n"})
         self.assertEqual(result.share, 0.5)
-        self.assertFalse(result.landed)
 
     def test_generated_files_comments_and_short_lines_are_not_scored(self):
         files = [
@@ -118,14 +127,68 @@ class ScoreTests(unittest.TestCase):
         ]
         result = module.score(files, {"a.swift": "let value = compute()\n"})
         self.assertEqual((result.present, result.total), (1, 1))
-        self.assertTrue(result.landed)
 
-    def test_unreadable_or_empty_diffs_never_close(self):
-        self.assertFalse(module.score([], {}).landed)
-        self.assertFalse(module.score([{"filename": "b.png", "status": "modified"}], {"b.png": "x"}).landed)
-        self.assertFalse(module.score([{"filename": "new.py", "status": "added", "patch": "+value = compute()"}], {}).landed)
-        self.assertFalse(module.score([{"filename": "a.py", "status": "modified", "patch": "+}\n"}], {"a.py": "}\n"}).landed)
-        self.assertFalse(module.score([{"filename": "gone.py", "status": "removed"}], {"gone.py": "still here"}).landed)
+    def test_patch_text_refuses_what_it_cannot_rebuild_exactly(self):
+        self.assertIsNone(module.patch_text([]))
+        self.assertIsNone(module.patch_text([{"filename": "b.png", "status": "modified"}]))
+        self.assertIsNone(module.patch_text([{"filename": "n.py", "status": "renamed", "previous_filename": "o.py", "patch": "@@ -1 +1 @@\n-a\n+b"}]))
+        self.assertIsNone(module.patch_text([{"filename": f"f{i}", "status": "modified", "patch": "@@ -1 +1 @@\n-a\n+b"} for i in range(3000)]))
+
+
+class ReverseApplyTests(unittest.TestCase):
+    """reverse_applies against a real git tree, the check that gates closing."""
+
+    BEFORE = "def a():\n    load()\n    self.refresh()\n\ndef b():\n    load()\n    save()\n"
+    # The PR adds self.refresh() to b(); the same line already exists in a().
+    PATCH = "@@ -5,3 +5,4 @@\n def b():\n     load()\n+    self.refresh()\n     save()\n"
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        self.git("init", "-q")
+        self.cwd = os.getcwd()
+        os.chdir(self.dir)
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", self.dir, *args], check=True, capture_output=True, text=True, env=self.env).stdout.strip()
+
+    def base(self, files):
+        for name, text in files.items():
+            with open(os.path.join(self.dir, name), "w") as handle:
+                handle.write(text)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "base")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+
+    def applies(self, files):
+        return module.reverse_applies(files, "main", os.path.join(self.dir, "scratch-index"))
+
+    def test_line_elsewhere_in_the_file_is_not_landed(self):
+        self.base({"m.py": self.BEFORE})
+        files = [{"filename": "m.py", "status": "modified", "patch": self.PATCH}]
+        self.assertEqual(module.score(files, {"m.py": self.BEFORE}).share, 1.0, "the line-set score is fooled")
+        self.assertFalse(self.applies(files), "reverse apply is not")
+
+    def test_hunk_on_the_base_in_context_is_landed(self):
+        self.base({"m.py": self.BEFORE.replace("    load()\n    save()", "    load()\n    self.refresh()\n    save()")})
+        self.assertTrue(self.applies([{"filename": "m.py", "status": "modified", "patch": self.PATCH}]))
+
+    def test_added_and_removed_files(self):
+        self.base({"new.py": "x = 1\n"})
+        self.assertTrue(self.applies([{"filename": "new.py", "status": "added", "patch": "@@ -0,0 +1 @@\n+x = 1"}]))
+        self.assertFalse(self.applies([{"filename": "new.py", "status": "removed", "patch": "@@ -1 +0,0 @@\n-x = 1"}]))
+        self.assertTrue(self.applies([{"filename": "gone.py", "status": "removed", "patch": "@@ -1 +0,0 @@\n-y = 2"}]))
+
+    def test_generated_file_differences_block_closing(self):
+        self.base({"m.py": "a = 1\n", "L.xcstrings": "{}\n"})
+        files = [
+            {"filename": "m.py", "status": "modified", "patch": "@@ -1 +1 @@\n-a = 0\n+a = 1"},
+            {"filename": "L.xcstrings", "status": "modified", "patch": "@@ -1 +1 @@\n-{}\n+{\"k\": 1}"},
+        ]
+        self.assertFalse(self.applies(files))
 
 
 class SuccessorTests(unittest.TestCase):

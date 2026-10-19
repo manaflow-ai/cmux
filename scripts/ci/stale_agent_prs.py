@@ -11,18 +11,21 @@ not scored, and only lines of 8+ characters count.
 
 Verdicts:
 
-- close "landed": 100% of the scored added lines are on the base, every scored
-  line it removes is gone from the base, and nobody pushed or commented for
-  LANDED_IDLE_DAYS. The comment names the base commit it was checked against
+- close "landed": the PR's own patch reverse-applies cleanly to the base tree
+  (`git apply -R --check`), so every hunk, context included, is already
+  there, generated files and comments too. Nobody pushed or commented for
+  LANDED_IDLE_DAYS, and it is not a draft. A renamed file, a binary or
+  oversized patch, or 3000+ files never closes. The comment names the base commit it was checked against
   and the successor PR when a merged PR said "supersedes #N".
-- list "mostly landed N%": 85-99%. Real remainders hide here (2026-10-18: #21253
+- list "mostly landed N%": 85% or more of the scored added lines appear in
+  the base copy of their file, but the patch doesn't reverse-apply. Real remainders hide here (2026-10-18: #21253
   at 95% and #21318 at 87% each still had code and tests missing), and some
   fixes land refactored, so a human reads the hunks.
 - list "superseded": a merged PR says "supersedes / replaces / re-cut of #N",
   but the lines haven't all landed. A lead, not proof.
 - list "stale, red or conflicting": no push and no human comment for
   STALE_DAYS, and its checks are red or it conflicts with its base.
-- list "security", or "stacked on deleted X" when a stacked PR's base branch
+- list "draft", "security", or "stacked on deleted X" when a stacked PR's base branch
   is gone: never closed by this script. A stacked PR whose base still exists
   is left to its base PR.
 - skip: a keep label (KEEP_LABELS), a last human comment that hands a
@@ -36,6 +39,9 @@ is not a skip: CODEOWNERS requests one on most PRs automatically. Activity is th
 commit's date and the latest comment or review by a human or agent other than
 the bots in BOT_LOGINS; GitHub's updatedAt moves with bot comments and bulk
 label sweeps (the 2026-10-13 sweep touched about 60 PRs at once).
+A commit's date is when it was made, not pushed, so an old commit pushed
+today looks idle; the 12-hour and head-SHA re-check before each close covers
+the common case.
 
 Report mode (the default) writes the list to stdout and the step summary.
 CLOSE=1 closes "landed" PRs, at most MAX_CLOSE per run. Rules agreed with the
@@ -71,7 +77,7 @@ query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 40, after: $after) {
     pageInfo { hasNextPage endCursor }
     nodes { ... on PullRequest {
-      number title body isDraft baseRefName headRefName createdAt mergeable
+      number title body isDraft baseRefName headRefName headRefOid createdAt mergeable
       labels(first: 20) { nodes { name } }
       commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
       comments(last: 20) { nodes { author { login } createdAt body } }
@@ -113,9 +119,6 @@ class Score:
     def share(self) -> float:
         return self.present / self.total if self.total else 0.0
 
-    @property
-    def landed(self) -> bool:
-        return self.total > 0 and self.present == self.total and not self.removed_left and not self.unreadable
 
 
 @dataclass
@@ -171,6 +174,46 @@ def score(files: list[dict], base_text: dict[str, str | None]) -> Score:
     return result
 
 
+MAX_FILES = 3000  # GitHub's files listing stops here
+
+
+def patch_text(files: list[dict]) -> str | None:
+    """The PR's diff rebuilt from the files listing, or None when it can't be exact."""
+    if not files or len(files) >= MAX_FILES:
+        return None
+    parts = []
+    for entry in files:
+        path, status, patch = entry["filename"], entry.get("status"), entry.get("patch")
+        if status not in {"added", "modified", "removed"} or not patch:
+            return None  # renamed, copied, binary or too large to list
+        old = "/dev/null" if status == "added" else f"a/{path}"
+        new = "/dev/null" if status == "removed" else f"b/{path}"
+        parts.append(f"--- {old}\n+++ {new}\n{patch.rstrip(chr(10))}\n")
+    return "".join(parts)
+
+
+def reverse_applies(files: list[dict], base: str, scratch: str) -> bool:
+    """True when the PR's patch, reversed, applies to origin/<base> exactly.
+
+    Reversing succeeds only when every added line sits in its hunk's context
+    on the base and every removed line is gone, so a line that merely
+    appears elsewhere in the file doesn't count. Runs on a scratch index;
+    the work tree is never touched.
+    """
+    diff = patch_text(files)
+    if diff is None:
+        return False
+    env = {**os.environ, "GIT_INDEX_FILE": scratch}
+    try:
+        subprocess.run(["git", "read-tree", f"origin/{base}"], env=env, check=True, capture_output=True)
+        result = subprocess.run(["git", "apply", "--cached", "--reverse", "--check", "-"], env=env, input=diff,
+                                capture_output=True, text=True)
+    finally:
+        if os.path.exists(scratch):
+            os.unlink(scratch)
+    return result.returncode == 0
+
+
 def human_comments(pr: dict) -> list[dict]:
     return [n for n in pr["comments"]["nodes"] if not is_bot((n.get("author") or {}).get("login"))]
 
@@ -208,6 +251,8 @@ def list_only_reason(pr: dict, live_branches: set[str] | None = None) -> str | N
         if live_branches is not None and pr["baseRefName"] in live_branches:
             return "stacked"
         return f"stacked on deleted {pr['baseRefName']}"
+    if pr.get("isDraft"):
+        return "draft"
     if SECURITY.search(pr["title"]) or any("security" in n["name"].lower() for n in pr["labels"]["nodes"]):
         return "security"
     return None
@@ -221,7 +266,8 @@ def red_or_conflicting(pr: dict) -> bool:
 
 
 def classify(pr: dict, *, now: dt.datetime, score: Score | None, successor: int | None, stale_days: int, landed_idle_days: int,
-             live_branches: set[str] | None = None) -> Verdict:
+             live_branches: set[str] | None = None, applied: bool = False) -> Verdict:
+    """`applied`: the PR's patch reverse-applies to its base (reverse_applies)."""
     idle = (now - last_activity(pr)).days
     verdict = Verdict(pr["number"], pr["title"], "keep", "active", idle, successor)
     reason = skip_reason(pr, now)
@@ -233,9 +279,9 @@ def classify(pr: dict, *, now: dt.datetime, score: Score | None, successor: int 
         pass  # base branch still exists: its own PR decides
     elif reason:
         verdict.action, verdict.reason = "list", reason
-    elif score and score.landed and idle >= landed_idle_days:
+    elif applied and idle >= landed_idle_days:
         verdict.action, verdict.reason = "close", "landed"
-    elif score and score.landed:
+    elif applied:
         pass  # landed but touched within LANDED_IDLE_DAYS: a later night closes it
     elif score and score.total and score.share >= MOSTLY:
         verdict.action, verdict.reason = "list", f"mostly landed {int(score.share * 100)}%"
@@ -290,7 +336,7 @@ def search(query: str, q: str) -> list[dict]:
 
 def pr_files(repo: str, number: int) -> list[dict]:
     files: list[dict] = []
-    for page in range(1, 31):  # GitHub lists at most 3000 files
+    for page in range(1, MAX_FILES // 100 + 1):
         batch = gh_json("api", f"repos/{repo}/pulls/{number}/files?per_page=100&page={page}")
         files += batch
         if len(batch) < 100:
@@ -299,8 +345,10 @@ def pr_files(repo: str, number: int) -> list[dict]:
 
 
 def base_file(base: str, path: str) -> str | None:
-    result = subprocess.run(["git", "show", f"origin/{base}:{path}"], capture_output=True, text=True, errors="replace")
-    return result.stdout if result.returncode == 0 else None
+    """The base copy of a file, None when the base has no such file. A git error raises."""
+    if subprocess.run(["git", "cat-file", "-e", f"origin/{base}:{path}"], capture_output=True).returncode != 0:
+        return None
+    return subprocess.run(["git", "show", f"origin/{base}:{path}"], check=True, capture_output=True, text=True, errors="replace").stdout
 
 
 def base_sha(base: str) -> str:
@@ -315,14 +363,14 @@ def remote_branches(names: set[str]) -> set[str]:
     return {line.split("refs/heads/", 1)[1] for line in out.splitlines() if "refs/heads/" in line}
 
 
-def still_quiet(repo: str, number: int, since: dt.datetime) -> bool:
-    """Re-read the PR right before closing: another session may have touched it."""
-    pr = gh_json("pr", "view", str(number), "-R", repo, "--json", "state,commits,comments")
-    if pr["state"] != "OPEN":
+def still_quiet(repo: str, pr: dict, since: dt.datetime) -> bool:
+    """Re-read the PR right before closing: another session may have pushed, commented or labelled it."""
+    now = gh_json("pr", "view", str(pr["number"]), "-R", repo, "--json", "state,headRefOid,labels,isDraft,comments")
+    if now["state"] != "OPEN" or now["headRefOid"] != pr["headRefOid"] or now.get("isDraft"):
         return False
-    times = [parse_time(c["committedDate"]) for c in pr["commits"][-1:]]
-    times += [parse_time(c["createdAt"]) for c in pr["comments"] if not is_bot((c.get("author") or {}).get("login"))]
-    return all(t <= since for t in times)
+    if {label["name"].lower() for label in now["labels"]} & KEEP_LABELS:
+        return False
+    return all(parse_time(c["createdAt"]) <= since for c in now["comments"] if not is_bot((c.get("author") or {}).get("login")))
 
 
 def main() -> int:
@@ -340,25 +388,28 @@ def main() -> int:
     successor_of = successors(merged, repo)
     heads = {base: base_sha(base) for base in BASES}
     live = remote_branches({pr["baseRefName"] for pr in open_prs} - set(BASES))
+    scratch = os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), f"stale-agent-prs-index-{os.getpid()}")
 
     verdicts = []
     for pr in sorted(open_prs, key=lambda p: p["number"]):
-        result = None
-        if not skip_reason(pr, now) and not list_only_reason(pr) and (now - last_activity(pr)).days >= landed_idle_days:
+        result, applied = None, False
+        if not skip_reason(pr, now) and not list_only_reason(pr, live) and (now - last_activity(pr)).days >= landed_idle_days:
             try:
                 files = pr_files(repo, pr["number"])
-            except subprocess.CalledProcessError as error:
-                print(f"#{pr['number']}: cannot read files, not scored: {error.stderr.strip()[:200]}", file=sys.stderr)
-            else:
                 result = score(files, {f["filename"]: base_file(pr["baseRefName"], f["filename"]) for f in files})
+                applied = reverse_applies(files, pr["baseRefName"], scratch)
+            except subprocess.CalledProcessError as error:
+                print(f"#{pr['number']}: cannot read files, not scored: {(error.stderr or '').strip()[:200]}", file=sys.stderr)
+                result, applied = None, False
         verdicts.append((pr, classify(pr, now=now, score=result, successor=successor_of.get(pr["number"]),
-                                      stale_days=stale_days, landed_idle_days=landed_idle_days, live_branches=live)))
+                                      stale_days=stale_days, landed_idle_days=landed_idle_days, live_branches=live,
+                                      applied=applied)))
 
     closed = 0
     lines = [
         f"## Stale agent PRs ({'closing' if close else 'dry run: nothing closed'})",
         "",
-        f"{len(open_prs)} open PRs by {author}. Close: fully landed on the base and idle {landed_idle_days}+ days. "
+        f"{len(open_prs)} open PRs by {author}. Close: the patch reverse-applies to the base, idle {landed_idle_days}+ days. "
         f"List: {int(MOSTLY * 100)}-99% landed, superseded, security, stacked, or idle {stale_days}+ days and red or conflicting.",
         "",
         "| PR | Verdict | Idle days | Title |",
@@ -369,7 +420,7 @@ def main() -> int:
             continue
         label = f"{verdict.action}: {verdict.reason}" + (f" (successor #{verdict.successor})" if verdict.successor else "")
         if close and verdict.action == "close" and closed < max_close:
-            if still_quiet(repo, verdict.number, now - RECENT):
+            if still_quiet(repo, pr, now - RECENT):
                 base = pr["baseRefName"]
                 subprocess.run(["gh", "pr", "close", str(verdict.number), "-R", repo, "--comment", close_comment(verdict, base, heads[base])], check=True)
                 closed += 1

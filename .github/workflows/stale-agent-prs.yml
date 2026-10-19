@@ -44,8 +44,9 @@ jobs:
       - name: Check out trusted workflow code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # A full (not sparse or partial) clone: the landed check reads base
+          # blobs, and a blobless clone would fetch them lazily without credentials.
           persist-credentials: false
-          sparse-checkout: scripts/ci
       - name: Fetch base branches for the landed check
         env:
           GH_TOKEN: ${{ github.token }}
